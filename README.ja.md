@@ -1,6 +1,8 @@
 # dere
 
-> [English](README.md) | [中文](README.zh.md)
+[English](README.md) | [中文](README.zh.md) | 日本語
+
+**なぜこれを作ったのか：** 私はすべてにClaude Codeを使っていて、ターミナルを開いたときに「キャラクター」になってもらうのが好きです。例：`dere --tsun --mcp=spotify`
 
 Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシスタント。
 

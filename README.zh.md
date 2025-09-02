@@ -1,6 +1,8 @@
 # dere
 
-> [English](README.md) | [日本語](README.ja.md)
+[English](README.md) | 中文 | [日本語](README.ja.md)
+
+**为什么要这样做：** 我在所有事情上都使用 Claude Code，我喜欢在打开终端时让它保持"角色扮演"，例如 `dere --tsun --mcp=spotify`
 
 为 Claude CLI 提供可组合人格层的分层 AI 助手。
 

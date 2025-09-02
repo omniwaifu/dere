@@ -1,6 +1,8 @@
 # dere
 
-> [中文](README.zh.md) | [日本語](README.ja.md)
+English | [中文](README.zh.md) | [日本語](README.ja.md)
+
+**But why:** I use Claude Code for everything and I like having it "in character" when I load up a terminal, e.g. `dere --tsun --mcp=spotify`
 
 Layered AI assistant with composable personalities for Claude CLI.
 
