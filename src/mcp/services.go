@@ -65,5 +65,22 @@ func BuildMCPConfigFromClaudeDesktop(serverNames []string, configPath string) (s
 		return "", fmt.Errorf("failed to marshal filtered MCP config: %w", err)
 	}
 	
-	return string(jsonData), nil
+	// Write to a temporary file
+	tmpFile, err := os.CreateTemp("", "mcp_config_*.json")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary MCP config file: %w", err)
+	}
+	
+	if _, err := tmpFile.Write(jsonData); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write MCP config to temporary file: %w", err)
+	}
+	
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to close temporary MCP config file: %w", err)
+	}
+	
+	return tmpFile.Name(), nil
 }

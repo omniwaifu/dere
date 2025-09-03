@@ -55,10 +55,8 @@ func main() {
 		args = append(args, "--mcp-config", mcpConfig)
 	}
 	
+	// Add extra args
 	args = append(args, config.ExtraArgs...)
-	
-	// Add /clear command to start with clean screen
-	args = append(args, "/clear")
 
 	// Execute claude, replacing this process
 	if err := syscall.Exec(claudePath, args, os.Environ()); err != nil {
