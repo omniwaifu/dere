@@ -9,6 +9,7 @@ import (
 
 type Settings struct {
 	ActivityWatch ActivityWatchConfig `toml:"activitywatch"`
+	Ollama        OllamaConfig        `toml:"ollama"`
 }
 
 type ActivityWatchConfig struct {
@@ -17,12 +18,23 @@ type ActivityWatchConfig struct {
 	LookbackMinutes  int    `toml:"lookback_minutes"`
 }
 
+type OllamaConfig struct {
+	Enabled        bool   `toml:"enabled"`
+	URL            string `toml:"url"`
+	EmbeddingModel string `toml:"embedding_model"`
+}
+
 func LoadSettings() (*Settings, error) {
 	settings := &Settings{
 		ActivityWatch: ActivityWatchConfig{
 			Enabled:         false,
 			URL:             "http://localhost:5600",
 			LookbackMinutes: 15,
+		},
+		Ollama: OllamaConfig{
+			Enabled:        false,
+			URL:            "http://localhost:11434",
+			EmbeddingModel: "mxbai-embed-large",
 		},
 	}
 

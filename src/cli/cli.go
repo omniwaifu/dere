@@ -15,6 +15,7 @@ type Config struct {
 	MCPServers      []string
 	MCPConfigPath   string
 	ShowHelp        bool
+	ShowVersion     bool
 	ExtraArgs       []string
 }
 
@@ -29,49 +30,16 @@ var knownFlags = map[string]bool{
 	"yan":             true,
 	"dere":            true,
 	"ero":             true,
+	"prompts":         true,
 	"mcp":             true,
 	"mcp-config-path": true,
 	"help":            true,
+	"version":         true,
 }
 
-// preParseCustomPrompts extracts unknown flags as custom prompts
-func preParseCustomPrompts(args []string) ([]string, []string) {
-	var customPrompts []string
-	var filteredArgs []string
-	
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "--") {
-			flagName := strings.TrimPrefix(arg, "--")
-			// Handle flags with values (--flag=value)
-			if equalPos := strings.Index(flagName, "="); equalPos != -1 {
-				flagName = flagName[:equalPos]
-			}
-			
-			if !knownFlags[flagName] {
-				// This is a custom prompt
-				customPrompts = append(customPrompts, flagName)
-				// Skip this flag (and its value if separate)
-				if equalPos := strings.Index(arg, "="); equalPos == -1 {
-					// Value might be in next arg, check if it looks like a value
-					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-						i++ // Skip the value too
-					}
-				}
-				continue
-			}
-		}
-		filteredArgs = append(filteredArgs, arg)
-	}
-	
-	return customPrompts, filteredArgs
-}
 
 func ParseArgs(args []string) (*Config, error) {
 	config := &Config{}
-	
-	// Pre-parse for custom prompts
-	customPrompts, filteredArgs := preParseCustomPrompts(args)
-	config.CustomPrompts = customPrompts
 	
 	fs := flag.NewFlagSet("dere", flag.ContinueOnError)
 	
@@ -88,14 +56,17 @@ func ParseArgs(args []string) (*Config, error) {
 	dere := fs.Bool("dere", false, "Actually nice mode")
 	ero := fs.Bool("ero", false, "Playfully teasing mode")
 	
+	// Custom prompts
+	prompts := fs.String("prompts", "", "Comma-separated list of custom prompt files")
 	
 	// MCP Configuration
 	mcpServers := fs.String("mcp", "", "Comma-separated list of MCP servers from config file")
 	mcpConfigPath := fs.String("mcp-config-path", "", "Path to MCP config file (default: ~/.claude/claude_desktop_config.json)")
 	
 	help := fs.Bool("help", false, "Show help message")
+	version := fs.Bool("version", false, "Show version information")
 	
-	if err := fs.Parse(filteredArgs); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 	
@@ -103,6 +74,8 @@ func ParseArgs(args []string) (*Config, error) {
 	config.Bare = *bare
 	config.Context = *context
 	config.Continue = *continueFlag || *continueFlagShort
+	config.ShowHelp = *help
+	config.ShowVersion = *version
 	
 	// Determine personality (defaults to tsun if none specified and not bare mode)
 	personalities := []string{}
@@ -129,7 +102,16 @@ func ParseArgs(args []string) (*Config, error) {
 		// Store all built-in personalities
 		config.Personalities = personalities
 		
-		// No defaults - bare mode is default
+		// Parse custom prompts
+		if *prompts != "" {
+			promptList := strings.Split(*prompts, ",")
+			for _, p := range promptList {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					config.CustomPrompts = append(config.CustomPrompts, p)
+				}
+			}
+		}
 	}
 	
 	
@@ -149,8 +131,6 @@ func ParseArgs(args []string) (*Config, error) {
 		config.MCPConfigPath = *mcpConfigPath
 	}
 	
-	
-	config.ShowHelp = *help
 	config.ExtraArgs = fs.Args()
 	
 	return config, nil
@@ -166,11 +146,14 @@ func ShowHelp() {
 	fmt.Println("  --context            Enable contextual information (time, date, etc.)")
 	fmt.Println()
 	fmt.Println("Personality layers:")
-	fmt.Println("  --tsun               Tsundere mode (default)")
+	fmt.Println("  --tsun               Tsundere mode")
 	fmt.Println("  --kuu                Cold analytical mode")
 	fmt.Println("  --yan                Overly helpful mode")
 	fmt.Println("  --dere               Actually nice mode")
 	fmt.Println("  --ero                Playfully teasing mode")
+	fmt.Println()
+	fmt.Println("Custom prompts:")
+	fmt.Println("  --prompts=FILE[,FILE]    Load custom prompt files from ~/.config/dere/prompts/")
 	fmt.Println()
 	fmt.Println("MCP Configuration:")
 	fmt.Println("  --mcp=SERVERS            Comma-separated MCP servers from config file")
@@ -178,12 +161,14 @@ func ShowHelp() {
 	fmt.Println()
 	fmt.Println("Other options:")
 	fmt.Println("  -c, --continue           Continue the most recent conversation")
+	fmt.Println("  --version                Show version information")
 	fmt.Println("  --help                   Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  dere --bare                       # Just Claude, no additions")
 	fmt.Println("  dere --tsun --context             # Tsundere + context awareness")
 	fmt.Println("  dere --kuu --mcp=filesystem       # Cold + file access")
+	fmt.Println("  dere --prompts=rust,security      # Custom prompts for Rust + security")
 	fmt.Println("  dere --context                    # No personality, just context")
 	fmt.Println("  dere --tsun -c                    # Continue with tsundere mode")
 }
