@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	
@@ -60,9 +61,42 @@ func main() {
 	// Build the command arguments (exec.Command adds program name automatically)
 	var args []string
 	
-	// Add continue flag if specified
+	// Add continue/resume flags
 	if config.Continue {
 		args = append(args, "-c")
+	} else if config.Resume != "" {
+		args = append(args, "-r", config.Resume)
+	}
+	
+	// Add model configuration
+	if config.Model != "" {
+		args = append(args, "--model", config.Model)
+	}
+	if config.FallbackModel != "" {
+		args = append(args, "--fallback-model", config.FallbackModel)
+	}
+	
+	// Add permission mode
+	if config.PermissionMode != "" {
+		args = append(args, "--permission-mode", config.PermissionMode)
+	}
+	
+	// Add tool restrictions
+	if len(config.AllowedTools) > 0 {
+		args = append(args, "--allowed-tools", strings.Join(config.AllowedTools, ","))
+	}
+	if len(config.DisallowedTools) > 0 {
+		args = append(args, "--disallowed-tools", strings.Join(config.DisallowedTools, ","))
+	}
+	
+	// Add additional directories
+	for _, dir := range config.AddDirs {
+		args = append(args, "--add-dir", dir)
+	}
+	
+	// Add IDE flag
+	if config.IDE {
+		args = append(args, "--ide")
 	}
 	
 	// Only add system prompt if not in bare mode
