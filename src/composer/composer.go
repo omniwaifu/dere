@@ -8,10 +8,19 @@ import (
 )
 
 // ComposePrompt builds a layered system prompt from the given configuration
+// Following SillyTavern's architecture with main prompt, personality layers, and auxiliary instructions
 func ComposePrompt(personalities []string, customPrompts []string, includeContext bool) (string, error) {
 	var layers []string
 	
-	// Layer 1: Built-in prompts
+	// Layer 1: Main prompt (primary interaction directive)
+	// This sets the fundamental behavior, similar to SillyTavern's main prompt
+	if len(personalities) > 0 || len(customPrompts) > 0 || includeContext {
+		mainPrompt := `## Primary Directive
+You are engaging in a natural conversation. Respond authentically based on the personality traits and context provided below. Your responses should be conversational, contextually appropriate, and true to the defined character traits.`
+		layers = append(layers, mainPrompt)
+	}
+	
+	// Layer 2: Built-in personality prompts
 	for _, personalityType := range personalities {
 		pers, err := personality.CreatePersonality(personalityType)
 		if err != nil {
@@ -20,7 +29,7 @@ func ComposePrompt(personalities []string, customPrompts []string, includeContex
 		layers = append(layers, pers.GetPrompt())
 	}
 	
-	// Layer 2: Custom prompts
+	// Layer 3: Custom prompts from files
 	for _, customPrompt := range customPrompts {
 		pers, err := personality.NewFileBasedPersonality(customPrompt)
 		if err != nil {
@@ -29,15 +38,20 @@ func ComposePrompt(personalities []string, customPrompts []string, includeContex
 		layers = append(layers, pers.GetPrompt())
 	}
 	
-	// Layer 3: Context (optional)
+	// Layer 4: Context (optional) - world info/scenario
 	if includeContext {
 		layers = append(layers, context.GetContextualPrompt())
 	}
 	
-	// Layer 4: Global instructions (always applied if not in bare mode)
+	// Layer 5: Global communication style instructions (auxiliary layer)
+	// Applied after all personality and context layers, similar to SillyTavern's post-instructions
 	if len(layers) > 0 {
-		globalInstructions := `## Communication Style
-Express personality through dialogue and tone only. Do not use action descriptions, emotes, or asterisk-wrapped physical descriptions like *sighs* or *looks away*. Convey emotions and attitudes solely through word choice, sentence structure, and speaking patterns.`
+		globalInstructions := `## Response Guidelines
+
+- Use natural conversational language
+- Stay in character as defined by the personality layers
+- Maintain consistency with established traits and context
+- Respond authentically based on the character's perspective`
 		layers = append(layers, globalInstructions)
 	}
 	
