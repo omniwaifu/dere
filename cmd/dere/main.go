@@ -41,6 +41,11 @@ func main() {
 	// Build the command arguments
 	args := []string{"claude"}
 	
+	// Add continue flag if specified
+	if config.Continue {
+		args = append(args, "-c")
+	}
+	
 	// Only add system prompt if not in bare mode
 	if systemPrompt != "" {
 		args = append(args, "--append-system-prompt", systemPrompt)

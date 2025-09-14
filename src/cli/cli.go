@@ -11,6 +11,7 @@ type Config struct {
 	Personalities   []string  // List of built-in personalities
 	CustomPrompts   []string  // List of custom prompts
 	Context         bool
+	Continue        bool      // Continue previous conversation
 	MCPServers      []string
 	MCPConfigPath   string
 	ShowHelp        bool
@@ -21,6 +22,8 @@ type Config struct {
 var knownFlags = map[string]bool{
 	"bare":            true,
 	"context":         true,
+	"continue":        true,
+	"c":               true,
 	"tsun":            true,
 	"kuu":             true,
 	"yan":             true,
@@ -75,6 +78,8 @@ func ParseArgs(args []string) (*Config, error) {
 	// Core mode
 	bare := fs.Bool("bare", false, "Bare mode - no personality or context")
 	context := fs.Bool("context", false, "Enable contextual information (time, date, etc.)")
+	continueFlag := fs.Bool("continue", false, "Continue the most recent conversation")
+	continueFlagShort := fs.Bool("c", false, "Continue the most recent conversation (shorthand)")
 	
 	// Personality flags
 	tsun := fs.Bool("tsun", false, "Tsundere mode")
@@ -97,6 +102,7 @@ func ParseArgs(args []string) (*Config, error) {
 	// Core settings
 	config.Bare = *bare
 	config.Context = *context
+	config.Continue = *continueFlag || *continueFlagShort
 	
 	// Determine personality (defaults to tsun if none specified and not bare mode)
 	personalities := []string{}
@@ -171,6 +177,7 @@ func ShowHelp() {
 	fmt.Println("  --mcp-config-path=FILE   Path to MCP config (default: ~/.claude/claude_desktop_config.json)")
 	fmt.Println()
 	fmt.Println("Other options:")
+	fmt.Println("  -c, --continue           Continue the most recent conversation")
 	fmt.Println("  --help                   Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -178,4 +185,5 @@ func ShowHelp() {
 	fmt.Println("  dere --tsun --context             # Tsundere + context awareness")
 	fmt.Println("  dere --kuu --mcp=filesystem       # Cold + file access")
 	fmt.Println("  dere --context                    # No personality, just context")
+	fmt.Println("  dere --tsun -c                    # Continue with tsundere mode")
 }
