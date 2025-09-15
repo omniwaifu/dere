@@ -17,6 +17,7 @@ import (
 var (
 	historyLimit int
 	historyDays  int
+	globalSearch bool
 )
 
 // historyCmd represents the history command
@@ -107,9 +108,30 @@ var historySearchCmd = &cobra.Command{
 		}
 		defer db.Close()
 		
-		results, err := db.SearchSimilar(embedding, historyLimit)
-		if err != nil {
-			return fmt.Errorf("search failed: %w", err)
+		// Use project-aware search by default
+		var results []database.Conversation
+		if globalSearch {
+			results, err = db.SearchSimilar(embedding, historyLimit)
+			if err != nil {
+				return fmt.Errorf("search failed: %w", err)
+			}
+		} else {
+			// Get current working directory for project filtering
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get current directory: %w", err)
+			}
+			
+			results, err = db.SearchSimilarInProject(embedding, cwd, historyLimit)
+			if err != nil {
+				return fmt.Errorf("search failed: %w", err)
+			}
+			
+			if len(results) == 0 {
+				fmt.Printf("No matching conversations found in project: %s\n", cwd)
+				fmt.Println("Use --global to search across all projects")
+				return nil
+			}
 		}
 		
 		if len(results) == 0 {
@@ -122,6 +144,9 @@ var historySearchCmd = &cobra.Command{
 			fmt.Printf("%d. [%s] Session: %s\n", i+1,
 				time.Unix(conv.Timestamp, 0).Format("2006-01-02 15:04"),
 				conv.SessionID[:8])
+			if globalSearch && conv.ProjectPath != "" {
+				fmt.Printf("   Project: %s\n", conv.ProjectPath)
+			}
 			fmt.Printf("   Personality: %s\n", conv.Personality)
 			fmt.Printf("   Prompt: %s\n", truncate(conv.Prompt, 100))
 			fmt.Println()
@@ -231,5 +256,6 @@ func init() {
 	// Flags
 	historyListCmd.Flags().IntVar(&historyLimit, "limit", 10, "Number of conversations to show")
 	historySearchCmd.Flags().IntVar(&historyLimit, "limit", 5, "Number of results to show")
+	historySearchCmd.Flags().BoolVar(&globalSearch, "global", false, "Search across all projects (default: current project only)")
 	historyCleanCmd.Flags().IntVar(&historyDays, "days", 30, "Remove conversations older than this many days")
 }

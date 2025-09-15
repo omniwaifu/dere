@@ -6,6 +6,7 @@ import (
 	
 	"dere/src/activitywatch"
 	"dere/src/config"
+	"dere/src/weather"
 )
 
 // GetContextualPrompt returns time/date contextual information
@@ -21,10 +22,20 @@ func GetContextualPrompt() string {
 	
 	// Add ActivityWatch context if enabled
 	settings, err := config.LoadSettings()
-	if err == nil && settings.ActivityWatch.Enabled {
-		awContext := GetActivityWatchContext(settings)
-		if awContext != "" {
-			prompt += awContext + "\n"
+	if err == nil {
+		if settings.ActivityWatch.Enabled {
+			awContext := GetActivityWatchContext(settings)
+			if awContext != "" {
+				prompt += awContext + "\n"
+			}
+		}
+		
+		// Add Weather context if enabled
+		if settings.Weather.Enabled {
+			weatherContext := GetWeatherContext(settings)
+			if weatherContext != "" {
+				prompt += weatherContext + "\n"
+			}
 		}
 	}
 	
@@ -45,4 +56,19 @@ func GetActivityWatchContext(settings *config.Settings) string {
 	}
 	
 	return activitywatch.FormatActivitySummaries(summaries, settings.ActivityWatch.LookbackMinutes)
+}
+
+// GetWeatherContext fetches current weather data using rustormy
+func GetWeatherContext(settings *config.Settings) string {
+	if !settings.Weather.Enabled {
+		return ""
+	}
+	
+	data, err := weather.GetWeatherData(&settings.Weather)
+	if err != nil {
+		// Silently fail if rustormy is unavailable or misconfigured
+		return ""
+	}
+	
+	return weather.FormatWeatherContext(data)
 }

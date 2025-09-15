@@ -86,6 +86,7 @@ def ensure_database():
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT NOT NULL,
+            project_path TEXT,
             personality TEXT,
             prompt TEXT,
             prompt_embedding BLOB,
@@ -97,6 +98,11 @@ def ensure_database():
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_session 
         ON conversations(session_id)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_project
+        ON conversations(project_path)
     """)
     
     cursor.execute("""
@@ -121,7 +127,7 @@ def get_embedding(text: str) -> Optional[List[float]]:
         print(f"Failed to get embedding: {e}", file=sys.stderr)
     return None
 
-def store_conversation(session_id: str, prompt: str, embedding: Optional[List[float]]):
+def store_conversation(session_id: str, project_path: str, prompt: str, embedding: Optional[List[float]]):
     """Store conversation with embedding in database"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -134,9 +140,9 @@ def store_conversation(session_id: str, prompt: str, embedding: Optional[List[fl
         embedding_bytes = struct.pack(f"<{len(embedding)}f", *embedding)
     
     cursor.execute("""
-        INSERT INTO conversations (session_id, personality, prompt, prompt_embedding, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-    """, (session_id, PERSONALITY, prompt, embedding_bytes, int(time.time())))
+        INSERT INTO conversations (session_id, project_path, personality, prompt, prompt_embedding, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (session_id, project_path, PERSONALITY, prompt, embedding_bytes, int(time.time())))
     
     conn.commit()
     conn.close()
@@ -171,6 +177,7 @@ def main():
     # Extract relevant data
     transcript_path = hook_input.get("transcript_path")
     session_id = hook_input.get("session_id", "unknown")
+    project_path = hook_input.get("cwd", "")  # Get current working directory
     
     # The UserPromptSubmit hook provides the prompt directly
     last_user_message = hook_input.get("prompt", "")
@@ -200,7 +207,7 @@ def main():
         embedding = get_embedding(last_user_message)
         
         # Store in database
-        store_conversation(session_id, last_user_message, embedding)
+        store_conversation(session_id, project_path, last_user_message, embedding)
     
     # Always return 0 to continue
     return 0

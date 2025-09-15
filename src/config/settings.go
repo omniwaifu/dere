@@ -10,6 +10,7 @@ import (
 type Settings struct {
 	ActivityWatch ActivityWatchConfig `toml:"activitywatch"`
 	Ollama        OllamaConfig        `toml:"ollama"`
+	Weather       WeatherConfig       `toml:"weather"`
 }
 
 type ActivityWatchConfig struct {
@@ -24,6 +25,16 @@ type OllamaConfig struct {
 	EmbeddingModel string `toml:"embedding_model"`
 }
 
+type WeatherConfig struct {
+	Enabled  bool    `toml:"enabled"`
+	Provider string  `toml:"provider"`
+	City     string  `toml:"city"`
+	Lat      float64 `toml:"lat"`
+	Lon      float64 `toml:"lon"`
+	Units    string  `toml:"units"`
+	Compact  bool    `toml:"compact"`
+}
+
 func LoadSettings() (*Settings, error) {
 	settings := &Settings{
 		ActivityWatch: ActivityWatchConfig{
@@ -35,6 +46,15 @@ func LoadSettings() (*Settings, error) {
 			Enabled:        false,
 			URL:            "http://localhost:11434",
 			EmbeddingModel: "mxbai-embed-large",
+		},
+		Weather: WeatherConfig{
+			Enabled:  false,
+			Provider: "open_meteo",
+			City:     "",
+			Lat:      0,
+			Lon:      0,
+			Units:    "metric",
+			Compact:  true,
 		},
 	}
 
