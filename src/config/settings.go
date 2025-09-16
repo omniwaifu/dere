@@ -20,9 +20,11 @@ type ActivityWatchConfig struct {
 }
 
 type OllamaConfig struct {
-	Enabled        bool   `toml:"enabled"`
-	URL            string `toml:"url"`
-	EmbeddingModel string `toml:"embedding_model"`
+	Enabled                 bool   `toml:"enabled"`
+	URL                     string `toml:"url"`
+	EmbeddingModel          string `toml:"embedding_model"`
+	SummarizationModel      string `toml:"summarization_model"`
+	SummarizationThreshold  int    `toml:"summarization_threshold"`
 }
 
 type WeatherConfig struct {
@@ -43,9 +45,11 @@ func LoadSettings() (*Settings, error) {
 			LookbackMinutes: 15,
 		},
 		Ollama: OllamaConfig{
-			Enabled:        false,
-			URL:            "http://localhost:11434",
-			EmbeddingModel: "mxbai-embed-large",
+			Enabled:                false,
+			URL:                    "http://localhost:11434",
+			EmbeddingModel:         "mxbai-embed-large",
+			SummarizationModel:     "gemma3n:latest",
+			SummarizationThreshold: 500,
 		},
 		Weather: WeatherConfig{
 			Enabled:  false,

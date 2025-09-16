@@ -71,6 +71,8 @@ if config_data is None:
 # Configuration from validated config file
 OLLAMA_URL = config_data.get("ollama_url", "http://localhost:11434")
 OLLAMA_MODEL = config_data.get("ollama_model", "mxbai-embed-large")
+SUMMARIZATION_MODEL = config_data.get("summarization_model", "gemma3n:latest")
+SUMMARIZATION_THRESHOLD = config_data.get("summarization_threshold", 500)
 DB_PATH = config_data.get("db_path", os.path.expanduser("~/.local/share/dere/conversations.db"))
 PERSONALITY = config_data.get("personality", "unknown")
 
@@ -89,6 +91,8 @@ def ensure_database():
             project_path TEXT,
             personality TEXT,
             prompt TEXT,
+            embedding_text TEXT,
+            processing_mode TEXT,
             prompt_embedding BLOB,
             timestamp INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -113,6 +117,81 @@ def ensure_database():
     conn.commit()
     conn.close()
 
+def summarize_with_gemma(text: str, mode: str = "extract") -> Optional[str]:
+    """Use gemma3n to extract semantic essence from message"""
+    try:
+        if mode == "light":
+            prompt = f"""Briefly summarize this message, preserving key technical terms and the user's main question.
+Keep it under 100 words. Focus on what the user is asking about.
+
+Message: {text}
+
+Summary:"""
+        else:  # extract mode
+            prompt = f"""Analyze this conversation message and output ONLY:
+1. The user's actual question or request (one line)
+2. Topics from any included content (keywords only)
+3. Content type if pasted (article/code/log/data)
+
+Be extremely concise. Optimize for semantic search, not readability.
+
+Message: {text}
+
+Output:"""
+        
+        response = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": SUMMARIZATION_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.3,
+                    "num_predict": 150
+                }
+            },
+            timeout=2.0  # Fast timeout, fall back to direct embedding if slow
+        )
+        
+        if response.status_code == 200:
+            return response.json().get("response", "").strip()
+    except Exception as e:
+        # Log but don't fail
+        with open("/tmp/dere_hook_debug.log", "a") as f:
+            f.write(f"Summarization failed: {e}\n")
+    
+    return None
+
+def process_for_embedding(text: str) -> tuple[str, str]:
+    """Process message for optimal embedding
+    Returns: (processed_text, processing_mode)
+    """
+    char_count = len(text)
+    
+    if char_count < SUMMARIZATION_THRESHOLD:
+        # Short message, embed directly
+        return text, "direct"
+    
+    # Try to summarize
+    if char_count < 2000:
+        mode = "light"
+    else:
+        mode = "extract"
+    
+    summary = summarize_with_gemma(text, mode)
+    
+    if summary:
+        # Include length indicator for context
+        processed = f"{summary} [Original: {char_count} chars]"
+        return processed, mode
+    else:
+        # Fallback to truncation if summarization fails
+        if char_count > 5000:
+            # For very long text, take beginning and end
+            truncated = text[:2000] + "\n[...truncated...]\n" + text[-500:]
+            return truncated, "truncated"
+        return text, "direct"
+
 def get_embedding(text: str) -> Optional[List[float]]:
     """Get embedding from Ollama"""
     try:
@@ -127,7 +206,9 @@ def get_embedding(text: str) -> Optional[List[float]]:
         print(f"Failed to get embedding: {e}", file=sys.stderr)
     return None
 
-def store_conversation(session_id: str, project_path: str, prompt: str, embedding: Optional[List[float]]):
+def store_conversation(session_id: str, project_path: str, prompt: str, 
+                      embedding_text: str, processing_mode: str, 
+                      embedding: Optional[List[float]]):
     """Store conversation with embedding in database"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -140,9 +221,11 @@ def store_conversation(session_id: str, project_path: str, prompt: str, embeddin
         embedding_bytes = struct.pack(f"<{len(embedding)}f", *embedding)
     
     cursor.execute("""
-        INSERT INTO conversations (session_id, project_path, personality, prompt, prompt_embedding, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (session_id, project_path, PERSONALITY, prompt, embedding_bytes, int(time.time())))
+        INSERT INTO conversations (session_id, project_path, personality, prompt, 
+                                 embedding_text, processing_mode, prompt_embedding, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (session_id, project_path, PERSONALITY, prompt, 
+          embedding_text, processing_mode, embedding_bytes, int(time.time())))
     
     conn.commit()
     conn.close()
@@ -203,11 +286,24 @@ def main():
         # Ensure database exists
         ensure_database()
         
-        # Get embedding (non-blocking)
-        embedding = get_embedding(last_user_message)
+        # Process message for optimal embedding
+        processed_text, processing_mode = process_for_embedding(last_user_message)
         
-        # Store in database
-        store_conversation(session_id, project_path, last_user_message, embedding)
+        # Get embedding of processed text
+        embedding = get_embedding(processed_text)
+        
+        # Store in database with both original and processed text
+        store_conversation(session_id, project_path, last_user_message, 
+                         processed_text, processing_mode, embedding)
+        
+        # Debug log the processing
+        try:
+            with open(debug_log, "a") as f:
+                f.write(f"Processing mode: {processing_mode}\n")
+                f.write(f"Original length: {len(last_user_message)}\n")
+                f.write(f"Processed length: {len(processed_text)}\n")
+        except:
+            pass
     
     # Always return 0 to continue
     return 0

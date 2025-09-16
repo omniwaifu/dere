@@ -42,12 +42,14 @@ func findHookScript() string {
 	
 	// Check locations in priority order
 	locations := []string{
-		// 1. Installed location (symlink or copy)
-		filepath.Join(homeDir, ".config", "dere", ".claude", "hooks", "capture_embedding.py"),
-		// 2. Development location (in repo)
-		filepath.Join("hooks", "capture_embedding.py"),
+		// 1. Installed location (Go binary)
+		filepath.Join(homeDir, ".config", "dere", ".claude", "hooks", "dere-hook"),
+		// 2. Development location (in current dir)
+		"./dere-hook",
 		// 3. Development location (absolute path from binary location)
-		filepath.Join(filepath.Dir(os.Args[0]), "..", "hooks", "capture_embedding.py"),
+		filepath.Join(filepath.Dir(os.Args[0]), "dere-hook"),
+		// 4. Fallback to Python script if Go hook not found
+		filepath.Join(homeDir, ".config", "dere", ".claude", "hooks", "capture_embedding.py"),
 	}
 	
 	for _, loc := range locations {
@@ -273,6 +275,8 @@ func (h *HookManager) writeHookConfig() error {
 	if configSettings != nil && configSettings.Ollama.Enabled {
 		configData["ollama_url"] = configSettings.Ollama.URL
 		configData["ollama_model"] = configSettings.Ollama.EmbeddingModel
+		configData["summarization_model"] = configSettings.Ollama.SummarizationModel
+		configData["summarization_threshold"] = configSettings.Ollama.SummarizationThreshold
 	}
 	
 	// Write to PID-specific file

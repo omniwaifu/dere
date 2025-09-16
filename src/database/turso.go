@@ -13,14 +13,16 @@ import (
 )
 
 type Conversation struct {
-	ID          int64
-	SessionID   string
-	ProjectPath string
-	Personality string
-	Prompt      string
-	Embedding   []float32
-	Timestamp   int64
-	CreatedAt   time.Time
+	ID              int64
+	SessionID       string
+	ProjectPath     string
+	Personality     string
+	Prompt          string
+	EmbeddingText   string
+	ProcessingMode  string
+	Embedding       []float32
+	Timestamp       int64
+	CreatedAt       time.Time
 }
 
 type TursoDB struct {
@@ -67,6 +69,8 @@ func (t *TursoDB) initSchema() error {
 		project_path TEXT,
 		personality TEXT,
 		prompt TEXT,
+		embedding_text TEXT,
+		processing_mode TEXT,
 		prompt_embedding FLOAT32(1024),
 		timestamp INTEGER,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -105,16 +109,16 @@ func (t *TursoDB) initSchema() error {
 }
 
 // Store saves a conversation with its embedding
-func (t *TursoDB) Store(sessionID, projectPath, personality, prompt string, embedding []float32) error {
+func (t *TursoDB) Store(sessionID, projectPath, personality, prompt, embeddingText, processingMode string, embedding []float32) error {
 	// Convert float32 slice to F32_BLOB format (little-endian bytes)
 	embeddingBytes := float32SliceToBytes(embedding)
 	
 	insertSQL := `
-	INSERT INTO conversations (session_id, project_path, personality, prompt, prompt_embedding, timestamp)
-	VALUES (?, ?, ?, ?, ?, ?)
+	INSERT INTO conversations (session_id, project_path, personality, prompt, embedding_text, processing_mode, prompt_embedding, timestamp)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	
-	_, err := t.db.Exec(insertSQL, sessionID, projectPath, personality, prompt, embeddingBytes, time.Now().Unix())
+	_, err := t.db.Exec(insertSQL, sessionID, projectPath, personality, prompt, embeddingText, processingMode, embeddingBytes, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("failed to store conversation: %w", err)
 	}
@@ -128,7 +132,7 @@ func (t *TursoDB) SearchSimilar(embedding []float32, limit int) ([]Conversation,
 	
 	// Try indexed search with vector_top_k first
 	indexedSQL := `
-	SELECT c.id, c.session_id, c.project_path, c.personality, c.prompt, c.prompt_embedding, c.timestamp, c.created_at
+	SELECT c.id, c.session_id, c.project_path, c.personality, c.prompt, c.embedding_text, c.processing_mode, c.prompt_embedding, c.timestamp, c.created_at
 	FROM vector_top_k('conversations_embedding_idx', ?, ?) AS vtk
 	JOIN conversations c ON c.rowid = vtk.id
 	`
@@ -137,7 +141,7 @@ func (t *TursoDB) SearchSimilar(embedding []float32, limit int) ([]Conversation,
 	if err != nil {
 		// Fall back to exact search using vector_distance_cos
 		exactSQL := `
-		SELECT id, session_id, project_path, personality, prompt, prompt_embedding, timestamp, created_at
+		SELECT id, session_id, project_path, personality, prompt, embedding_text, processing_mode, prompt_embedding, timestamp, created_at
 		FROM conversations
 		WHERE prompt_embedding IS NOT NULL
 		ORDER BY vector_distance_cos(prompt_embedding, ?) ASC
@@ -155,8 +159,8 @@ func (t *TursoDB) SearchSimilar(embedding []float32, limit int) ([]Conversation,
 		var c Conversation
 		var embBytes []byte
 		
-		err := rows.Scan(&c.ID, &c.SessionID, &c.ProjectPath, &c.Personality, &c.Prompt, 
-		                 &embBytes, &c.Timestamp, &c.CreatedAt)
+		err := rows.Scan(&c.ID, &c.SessionID, &c.ProjectPath, &c.Personality, &c.Prompt,
+		                 &c.EmbeddingText, &c.ProcessingMode, &embBytes, &c.Timestamp, &c.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -178,7 +182,7 @@ func (t *TursoDB) SearchSimilarInProject(embedding []float32, projectPath string
 	
 	// Try indexed search first, filtered by project
 	indexedSQL := `
-	SELECT c.id, c.session_id, c.project_path, c.personality, c.prompt, c.prompt_embedding, c.timestamp, c.created_at
+	SELECT c.id, c.session_id, c.project_path, c.personality, c.prompt, c.embedding_text, c.processing_mode, c.prompt_embedding, c.timestamp, c.created_at
 	FROM vector_top_k('conversations_embedding_idx', ?, ?) AS vtk
 	JOIN conversations c ON c.rowid = vtk.id
 	WHERE c.project_path = ?
@@ -188,7 +192,7 @@ func (t *TursoDB) SearchSimilarInProject(embedding []float32, projectPath string
 	if err != nil {
 		// Fall back to exact search with project filter
 		exactSQL := `
-		SELECT id, session_id, project_path, personality, prompt, prompt_embedding, timestamp, created_at
+		SELECT id, session_id, project_path, personality, prompt, embedding_text, processing_mode, prompt_embedding, timestamp, created_at
 		FROM conversations
 		WHERE prompt_embedding IS NOT NULL AND project_path = ?
 		ORDER BY vector_distance_cos(prompt_embedding, ?) ASC
@@ -207,8 +211,8 @@ func (t *TursoDB) SearchSimilarInProject(embedding []float32, projectPath string
 		var c Conversation
 		var embBytes []byte
 		
-		err := rows.Scan(&c.ID, &c.SessionID, &c.ProjectPath, &c.Personality, 
-		                 &c.Prompt, &embBytes, &c.Timestamp, &c.CreatedAt)
+		err := rows.Scan(&c.ID, &c.SessionID, &c.ProjectPath, &c.Personality, &c.Prompt,
+		                 &c.EmbeddingText, &c.ProcessingMode, &embBytes, &c.Timestamp, &c.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -246,8 +250,8 @@ func (t *TursoDB) GetRecentConversations(sessionID string, limit int) ([]Convers
 		var c Conversation
 		var embBytes []byte
 		
-		err := rows.Scan(&c.ID, &c.SessionID, &c.ProjectPath, &c.Personality, &c.Prompt, 
-		                 &embBytes, &c.Timestamp, &c.CreatedAt)
+		err := rows.Scan(&c.ID, &c.SessionID, &c.ProjectPath, &c.Personality, &c.Prompt,
+		                 &c.EmbeddingText, &c.ProcessingMode, &embBytes, &c.Timestamp, &c.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -270,6 +274,16 @@ func (t *TursoDB) Close() error {
 // Helper functions for converting between float32 slices and byte arrays
 
 func float32SliceToBytes(floats []float32) []byte {
+	// Handle nil slice - return nil for SQL NULL
+	if floats == nil {
+		return nil
+	}
+	
+	// Handle empty slice (shouldn't happen but be safe)
+	if len(floats) == 0 {
+		return nil
+	}
+	
 	bytes := make([]byte, len(floats)*4)
 	for i, f := range floats {
 		bits := math.Float32bits(f)
@@ -279,6 +293,11 @@ func float32SliceToBytes(floats []float32) []byte {
 }
 
 func bytesToFloat32Slice(bytes []byte) []float32 {
+	// Handle nil bytes (SQL NULL)
+	if bytes == nil || len(bytes) == 0 {
+		return nil
+	}
+	
 	floats := make([]float32, len(bytes)/4)
 	for i := range floats {
 		bits := binary.LittleEndian.Uint32(bytes[i*4:])
