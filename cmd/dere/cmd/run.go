@@ -116,11 +116,19 @@ func runDere(cmd *cobra.Command, args []string) error {
 	
 	// Add MCP configuration if specified
 	if len(config.MCPServers) > 0 {
-		mcpConfig, err := mcp.BuildMCPConfigFromClaudeDesktop(config.MCPServers, config.MCPConfigPath)
+		// Use dere's MCP config first, fallback to Claude Desktop if needed
+		mcpConfig, err := mcp.BuildMCPConfigFromDere(config.MCPServers)
 		if err != nil {
-			return err
+			// Fallback to legacy Claude Desktop config
+			log.Printf("Warning: Failed to use dere MCP config, falling back to Claude Desktop: %v", err)
+			mcpConfig, err = mcp.BuildMCPConfigFromClaudeDesktop(config.MCPServers, config.MCPConfigPath)
+			if err != nil {
+				return err
+			}
 		}
-		claudeArgs = append(claudeArgs, "--mcp-config", mcpConfig)
+		if mcpConfig != "" {
+			claudeArgs = append(claudeArgs, "--mcp-config", mcpConfig)
+		}
 	}
 	
 	// Add extra args
