@@ -9,9 +9,10 @@ import (
 	"syscall"
 	"time"
 	
+	"dere/src/commands"
 	"dere/src/composer"
-	"dere/src/hooks"
 	"dere/src/mcp"
+	"dere/src/settings"
 	
 	"github.com/spf13/cobra"
 )
@@ -21,15 +22,30 @@ func runDere(cmd *cobra.Command, args []string) error {
 	config := GetConfig()
 	config.ExtraArgs = args // Args after flags are Claude args
 	
-	// Setup hook manager for conversation capture
-	personalityStr := hooks.GetPersonalityString(config.Personalities)
-	hookManager := hooks.NewHookManager(personalityStr)
+	// Setup settings builder for dynamic configuration
+	personalityStr := settings.GetPersonalityString(config.Personalities)
+	settingsBuilder := settings.NewSettingsBuilder(personalityStr, config.OutputStyle)
 	
-	// Setup hooks before launching Claude
-	if err := hookManager.Setup(); err != nil {
-		// Log but don't fail - hooks are optional enhancement
-		log.Printf("Warning: Failed to setup hooks: %v", err)
+	// Build settings file
+	settingsPath, err := settingsBuilder.Build()
+	if err != nil {
+		// Log but don't fail - settings are optional enhancement
+		log.Printf("Warning: Failed to build settings: %v", err)
+		settingsPath = ""
 	}
+	// Setup command generator for personality-specific commands
+	commandGenerator := commands.NewCommandGenerator(config.Personalities)
+	if err := commandGenerator.Generate(); err != nil {
+		log.Printf("Warning: Failed to generate commands: %v", err)
+	}
+	
+	defer func() {
+		if settingsPath != "" {
+			os.Remove(settingsPath)
+		}
+		settingsBuilder.Cleanup()
+		commandGenerator.Cleanup()
+	}()
 
 	// Compose the layered system prompt
 	systemPrompt, err := composer.ComposePrompt(
@@ -86,6 +102,11 @@ func runDere(cmd *cobra.Command, args []string) error {
 	// Add IDE flag
 	if config.IDE {
 		claudeArgs = append(claudeArgs, "--ide")
+	}
+	
+	// Add settings file if generated
+	if settingsPath != "" {
+		claudeArgs = append(claudeArgs, "--settings", settingsPath)
 	}
 	
 	// Only add system prompt if not in bare mode
@@ -153,12 +174,6 @@ func runDere(cmd *cobra.Command, args []string) error {
 			}
 			return err
 		}
-	}
-	
-	// Cleanup
-	if err := hookManager.Cleanup(); err != nil {
-		// Log but don't fail
-		log.Printf("Warning: Failed to cleanup hooks: %v", err)
 	}
 	
 	return nil

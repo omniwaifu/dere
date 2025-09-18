@@ -39,6 +39,9 @@ var (
 	// Custom prompts
 	prompts []string
 	
+	// Output style
+	outputStyle string
+	
 	// MCP Configuration
 	mcpServers    []string
 	mcpConfigPath string
@@ -108,6 +111,9 @@ func init() {
 	// Custom prompts
 	rootCmd.Flags().StringSliceVar(&prompts, "prompts", nil, "Comma-separated list of custom prompt files")
 	
+	// Output style
+	rootCmd.Flags().StringVar(&outputStyle, "output-style", "", "Claude output style (overrides default interaction mode)")
+	
 	// MCP Configuration
 	rootCmd.Flags().StringSliceVar(&mcpServers, "mcp", nil, "Comma-separated list of MCP servers from config file")
 	rootCmd.Flags().StringVar(&mcpConfigPath, "mcp-config-path", "", "Path to MCP config file")
@@ -172,6 +178,7 @@ func GetConfig() *Config {
 		IDE:             ide,
 		MCPServers:      mcpServers,
 		MCPConfigPath:   mcpConfigPath,
+		OutputStyle:     outputStyle,
 		ExtraArgs:       rootCmd.Flags().Args(),
 	}
 	
@@ -230,5 +237,6 @@ type Config struct {
 	IDE             bool
 	MCPServers      []string
 	MCPConfigPath   string
+	OutputStyle     string
 	ExtraArgs       []string
 }
