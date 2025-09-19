@@ -12,7 +12,9 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - **Conversation memory**: Automatic embedding generation and similarity search
 - **Intelligent summarization**: Long messages automatically summarized for better embeddings
 - **Context awareness**: Time, date, weather, and activity tracking
-- **MCP integration**: Use with Claude Desktop MCP servers
+- **MCP management**: Independent MCP server configuration with profiles and smart filtering
+- **Output styles**: Orthogonal output style layer (e.g., teaching mode, verbose mode)
+- **Dynamic commands**: Personality-specific slash commands auto-generated per session
 - **Custom prompts**: Add your own domain-specific knowledge
 - **Vector search**: Turso/libSQL database with native vector similarity
 
@@ -37,6 +39,7 @@ This will:
 - Build the main binary and hook
 - Install to /usr/local/bin
 - Create necessary configuration directories
+- Set up conversation capture automatically
 
 ### Manual Setup
 
@@ -45,10 +48,10 @@ This will:
 make build
 ```
 
-2. Set up the hook:
+2. Copy or link binaries to your PATH:
 ```bash
-mkdir -p ~/.config/dere/.claude/hooks
-ln -s $(pwd)/bin/dere-hook ~/.config/dere/.claude/hooks/dere-hook
+cp bin/dere /usr/local/bin/
+cp bin/dere-hook /usr/local/bin/
 ```
 
 3. Configure Ollama (optional, for conversation embeddings):
@@ -88,13 +91,17 @@ dere --bare              # Plain Claude, no personality
 dere --context           # Add time/date/weather/activity context
 dere -c                  # Continue previous conversation
 dere --prompts=rust,security  # Load custom prompts
-dere --mcp=filesystem    # Use MCP servers from Claude Desktop
+dere --mcp=dev           # Use MCP profile (e.g., dev, media)
+dere --mcp="linear,obsidian"  # Use specific MCP servers
+dere --mcp="tag:media"   # Use MCP servers by tag
+dere --output-style=verbose  # Change Claude's output style
 ```
 
 ### Combining Layers
 ```bash
 dere --tsun --context              # Tsundere + context aware
 dere --kuu --mcp=spotify           # Cold + Spotify control
+dere --yan --output-style=terse    # Yandere + brief responses
 dere --prompts=go --context        # Go expertise + context
 ```
 
@@ -108,7 +115,22 @@ Place `.md` files in `~/.config/dere/prompts/`:
 ```
 
 ### MCP Servers
-Uses existing Claude Desktop configuration from `~/.claude/claude_desktop_config.json`
+Managed independently in `~/.config/dere/mcp_config.json`
+
+```bash
+# MCP management commands
+dere mcp list                      # List configured servers
+dere mcp profiles                  # Show available profiles
+dere mcp add <name> <command>      # Add new server
+dere mcp remove <name>             # Remove server
+dere mcp copy-from-claude          # Import from Claude Desktop
+
+# Using MCP servers
+dere --mcp=dev                     # Use 'dev' profile
+dere --mcp="linear,obsidian"       # Use specific servers
+dere --mcp="*spotify*"             # Pattern matching
+dere --mcp="tag:media"             # Tag-based selection
+```
 
 ### Conversation Database
 Conversations are automatically stored in `~/.local/share/dere/conversations.db` using Turso/libSQL with vector embeddings for similarity search.
@@ -129,12 +151,13 @@ dere/
 │   └── dere-hook/     # Go hook for conversation capture
 ├── src/
 │   ├── cli/           # CLI argument parsing
+│   ├── commands/      # Dynamic command generation
 │   ├── composer/      # Prompt composition
 │   ├── config/        # Configuration management
 │   ├── database/      # Turso/libSQL with vector search
 │   ├── embeddings/    # Ollama embedding client
-│   ├── hooks/         # Claude CLI hook management
-│   ├── mcp/           # MCP server configuration
+│   ├── mcp/           # MCP server management
+│   ├── settings/      # Claude settings generation
 │   └── weather/       # Weather context integration
 ├── prompts/           # Built-in personality prompts
 └── scripts/           # Installation scripts
@@ -171,8 +194,10 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 
 - Database and embeddings are created automatically on first use
 - Ollama is optional but enables conversation similarity search and summarization
-- Works alongside existing Claude CLI configuration
-- Hooks only activate for dere sessions, not regular Claude usage
+- Works alongside existing Claude CLI configuration without modifying global settings
+- Dynamic settings generation via `--settings` flag keeps Claude config clean
+- Personality commands (e.g., `/dere-tsun-rant`) are created per session in `~/.claude/commands/`
+- MCP configuration is independent from Claude Desktop for better control
 - Summarization uses gemma3n model for efficient processing of long messages
 - Vector search uses cosine similarity for finding related conversations
 

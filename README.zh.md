@@ -12,7 +12,9 @@
 - **对话记忆：** 自动嵌入生成和相似性搜索
 - **智能摘要：** 长消息自动摘要以获得更好的嵌入
 - **上下文感知：** 时间、日期、天气和活动跟踪
-- **MCP 集成：** 与 Claude Desktop MCP 服务器一起使用
+- **MCP 管理：** 独立的 MCP 服务器配置，支持配置文件和智能过滤
+- **输出样式：** 正交输出样式层（如教学模式、详细模式）
+- **动态命令：** 每个会话自动生成的个性特定斜杠命令
 - **自定义提示：** 添加您自己的领域特定知识
 - **向量搜索：** 带有原生向量相似性的 Turso/libSQL 数据库
 
@@ -37,6 +39,7 @@ make install
 - 构建主二进制文件和钩子
 - 安装到 /usr/local/bin
 - 创建必要的配置目录
+- 自动设置对话捕获
 
 ### 手动设置
 
@@ -45,9 +48,10 @@ make install
 make build
 ```
 
-2. 设置钩子：
+2. 复制或链接二进制文件到您的 PATH：
 ```bash
-mkdir -p ~/.config/dere/.claude/hooks
+cp bin/dere /usr/local/bin/
+cp bin/dere-hook /usr/local/bin/
 ln -s $(pwd)/bin/dere-hook ~/.config/dere/.claude/hooks/dere-hook
 ```
 
