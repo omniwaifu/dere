@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh.md) | 日本語
 
-Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシスタント、埋め込みによる会話メモリとインテリジェントなメッセージ要約機能付き。
+Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシスタント、埋め込みによる会話メモリ、インテリジェントなメッセージ要約、LLMベースのエンティティ抽出機能付き。
 
 **なぜこれを作ったのか：** 私はすべてにClaude Codeを使っていて、ターミナルを開いたときに「キャラクター」になってもらうのが好きです。例：`dere --tsun --mcp=spotify`
 
@@ -10,6 +10,7 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 
 - **性格レイヤー：** ツンデレ、クーデレ、ヤンデレ、デレデレなど
 - **会話メモリ：** 自動埋め込み生成と類似性検索
+- **エンティティ抽出：** LLMベースのセマンティック抽出による技術、人物、概念、関係性の抽出
 - **インテリジェント要約：** より良い埋め込みのための長いメッセージの自動要約
 - **コンテキスト認識：** 時間、日付、天気、アクティビティトラッキング
 - **MCP管理：** 独立MCPサーバー構成、プロファイルとスマートフィルタリング付き
@@ -113,6 +114,19 @@ dere --prompts=go --context        # Go専門知識 + コンテキスト
 
 ### MCPサーバー
 `~/.claude/claude_desktop_config.json`からの既存のClaude Desktop設定を使用
+
+### エンティティ管理
+会話から抽出されたエンティティは自動的に保存され、CLIコマンドで管理できます：
+
+```bash
+# エンティティ管理コマンド
+dere entities list                 # すべての抽出されたエンティティをリスト
+dere entities list --type=technology  # エンティティタイプでフィルタ
+dere entities list --project=/path    # プロジェクトパスでフィルタ
+dere entities search "react"       # 値でエンティティを検索
+dere entities graph                # エンティティ関係グラフを表示
+dere entities graph React          # 特定エンティティの関係を表示
+```
 
 ### 会話データベース
 会話は`~/.local/share/dere/conversations.db`にTurso/libSQLを使用して自動的に保存され、類似性検索用のベクトル埋め込みが含まれます。

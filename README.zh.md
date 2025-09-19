@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文 | [日本語](README.ja.md)
 
-为 Claude CLI 提供可组合人格层的分层 AI 助手，具有通过嵌入的对话记忆和智能消息摘要功能。
+为 Claude CLI 提供可组合人格层的分层 AI 助手，具有通过嵌入的对话记忆、智能消息摘要和基于 LLM 的实体提取功能。
 
 **为什么要这样做：** 我在所有事情上都使用 Claude Code，我喜欢在打开终端时让它保持"角色扮演"，例如 `dere --tsun --mcp=spotify`
 
@@ -10,6 +10,7 @@
 
 - **人格层：** 傲娇、冷娇、病娇、甜娇等多种人格
 - **对话记忆：** 自动嵌入生成和相似性搜索
+- **实体提取：** 基于 LLM 的语义提取技术、人物、概念和关系
 - **智能摘要：** 长消息自动摘要以获得更好的嵌入
 - **上下文感知：** 时间、日期、天气和活动跟踪
 - **MCP 管理：** 独立的 MCP 服务器配置，支持配置文件和智能过滤
@@ -113,6 +114,19 @@ dere --prompts=go --context        # Go 专业知识 + 上下文
 
 ### MCP 服务器
 使用来自 `~/.claude/claude_desktop_config.json` 的现有 Claude Desktop 配置
+
+### 实体管理
+从对话中提取的实体会自动存储，并可以通过 CLI 命令进行管理：
+
+```bash
+# 实体管理命令
+dere entities list                 # 列出所有提取的实体
+dere entities list --type=technology  # 按实体类型过滤
+dere entities list --project=/path    # 按项目路径过滤
+dere entities search "react"       # 按值搜索实体
+dere entities graph                # 显示实体关系图
+dere entities graph React          # 显示特定实体的关系
+```
 
 ### 对话数据库
 对话使用 Turso/libSQL 自动存储在 `~/.local/share/dere/conversations.db` 中，带有用于相似性搜索的向量嵌入。

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md) | [日本語](README.ja.md)
 
-Layered AI assistant with composable personalities for Claude CLI, featuring conversation memory via embeddings and intelligent message summarization.
+Layered AI assistant with composable personalities for Claude CLI, featuring conversation memory via embeddings, intelligent message summarization, and LLM-based entity extraction.
 
 **Why:** I use Claude Code for everything and want it "in character" when I load up a terminal, e.g. `dere --tsun --mcp=spotify`
 
@@ -10,6 +10,7 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 
 - **Personality layers**: Tsundere, kuudere, yandere, deredere, and more
 - **Conversation memory**: Automatic embedding generation and similarity search
+- **Entity extraction**: LLM-based semantic extraction of technologies, people, concepts, and relationships
 - **Intelligent summarization**: Long messages automatically summarized for better embeddings
 - **Context awareness**: Time, date, weather, and activity tracking
 - **MCP management**: Independent MCP server configuration with profiles and smart filtering
@@ -130,6 +131,19 @@ dere --mcp=dev                     # Use 'dev' profile
 dere --mcp="linear,obsidian"       # Use specific servers
 dere --mcp="*spotify*"             # Pattern matching
 dere --mcp="tag:media"             # Tag-based selection
+```
+
+### Entity Management
+Extracted entities from conversations are automatically stored and can be managed with CLI commands:
+
+```bash
+# Entity management commands
+dere entities list                 # List all extracted entities
+dere entities list --type=technology  # Filter by entity type
+dere entities list --project=/path    # Filter by project path
+dere entities search "react"       # Search entities by value
+dere entities graph                # Show entity relationship graph
+dere entities graph React          # Show relationships for specific entity
 ```
 
 ### Conversation Database
