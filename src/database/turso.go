@@ -186,6 +186,42 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create task_queue table: %w", err)
 	}
 
+	// Entities table for entity extraction
+	entitiesTableSQL := `
+	CREATE TABLE IF NOT EXISTS entities (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER REFERENCES sessions(id),
+		conversation_id INTEGER REFERENCES conversations(id),
+		entity_type TEXT NOT NULL,
+		entity_value TEXT NOT NULL,
+		normalized_value TEXT NOT NULL,
+		confidence FLOAT NOT NULL,
+		context_start INTEGER,
+		context_end INTEGER,
+		metadata TEXT, -- JSON
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`
+
+	if _, err := t.db.Exec(entitiesTableSQL); err != nil {
+		return fmt.Errorf("failed to create entities table: %w", err)
+	}
+
+	// Entity relationships table for graph connections
+	entityRelationshipsTableSQL := `
+	CREATE TABLE IF NOT EXISTS entity_relationships (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		entity_1_id INTEGER REFERENCES entities(id),
+		entity_2_id INTEGER REFERENCES entities(id),
+		relationship_type TEXT NOT NULL,
+		confidence FLOAT NOT NULL,
+		metadata TEXT, -- JSON
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`
+
+	if _, err := t.db.Exec(entityRelationshipsTableSQL); err != nil {
+		return fmt.Errorf("failed to create entity_relationships table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
@@ -195,6 +231,13 @@ func (t *TursoDB) initSchema() error {
 		`CREATE INDEX IF NOT EXISTS task_queue_status_model_idx ON task_queue(status, model_name, priority)`,
 		`CREATE INDEX IF NOT EXISTS task_queue_session_idx ON task_queue(session_id)`,
 		`CREATE INDEX IF NOT EXISTS task_queue_created_idx ON task_queue(created_at)`,
+		`CREATE INDEX IF NOT EXISTS entities_session_idx ON entities(session_id)`,
+		`CREATE INDEX IF NOT EXISTS entities_conversation_idx ON entities(conversation_id)`,
+		`CREATE INDEX IF NOT EXISTS entities_type_value_idx ON entities(entity_type, entity_value)`,
+		`CREATE INDEX IF NOT EXISTS entities_normalized_idx ON entities(normalized_value)`,
+		`CREATE INDEX IF NOT EXISTS entity_relationships_entity1_idx ON entity_relationships(entity_1_id)`,
+		`CREATE INDEX IF NOT EXISTS entity_relationships_entity2_idx ON entity_relationships(entity_2_id)`,
+		`CREATE INDEX IF NOT EXISTS entity_relationships_type_idx ON entity_relationships(relationship_type)`,
 	}
 
 	for _, indexSQL := range indexes {

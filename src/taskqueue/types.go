@@ -12,6 +12,7 @@ const (
 	TaskTypeEmbedding         TaskType = "embedding"
 	TaskTypeSummarization     TaskType = "summarization"
 	TaskTypeEntityExtraction  TaskType = "entity_extraction"
+	TaskTypeEntityRelationship TaskType = "entity_relationship"
 	TaskTypeCodeAnalysis      TaskType = "code_analysis"
 )
 
@@ -63,6 +64,22 @@ type SummarizationMetadata struct {
 	MaxLength     int    `json:"max_length"`
 }
 
+// EntityExtractionMetadata contains metadata for entity extraction tasks
+type EntityExtractionMetadata struct {
+	OriginalLength   int      `json:"original_length"`
+	ContentType      string   `json:"content_type"` // "prompt", "response", "tool_output"
+	ConversationID   *int64   `json:"conversation_id,omitempty"`
+	ContextHint      string   `json:"context_hint"` // "coding", "general", "project"
+	FocusEntityTypes []string `json:"focus_entity_types,omitempty"` // ["code", "tech", "people"]
+}
+
+// EntityRelationshipMetadata contains metadata for relationship inference tasks
+type EntityRelationshipMetadata struct {
+	EntityIDs        []int64 `json:"entity_ids"`
+	ConversationID   int64   `json:"conversation_id"`
+	RelationshipHint string  `json:"relationship_hint"` // "technical", "social", "project"
+}
+
 // TaskResult represents the result of a processed task
 type TaskResult struct {
 	TaskID    int64       `json:"task_id"`
@@ -77,6 +94,39 @@ type EmbeddingResult struct {
 	Embedding      []float32 `json:"embedding"`
 	ProcessedText  string    `json:"processed_text"`
 	ProcessingMode string    `json:"processing_mode"`
+}
+
+// Entity represents an extracted entity
+type Entity struct {
+	Type           string                 `json:"type"`
+	Value          string                 `json:"value"`
+	NormalizedValue string                `json:"normalized_value"`
+	Confidence     float64                `json:"confidence"`
+	ContextStart   int                    `json:"context_start,omitempty"`
+	ContextEnd     int                    `json:"context_end,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// EntityExtractionResult contains the result of an entity extraction task
+type EntityExtractionResult struct {
+	Entities       []Entity `json:"entities"`
+	TotalExtracted int      `json:"total_extracted"`
+	ProcessingMode string   `json:"processing_mode"`
+}
+
+// EntityRelationship represents a relationship between entities
+type EntityRelationship struct {
+	Entity1ID        int64                  `json:"entity_1_id"`
+	Entity2ID        int64                  `json:"entity_2_id"`
+	RelationshipType string                 `json:"relationship_type"`
+	Confidence       float64                `json:"confidence"`
+	Metadata         map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// EntityRelationshipResult contains the result of a relationship inference task
+type EntityRelationshipResult struct {
+	Relationships   []EntityRelationship `json:"relationships"`
+	TotalInferred   int                  `json:"total_inferred"`
 }
 
 // Helper methods for metadata handling

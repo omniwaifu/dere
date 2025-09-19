@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"dere/src/taskqueue"
@@ -67,6 +68,55 @@ func determineProcessingMode(text string, config *HookConfig) string {
 	}
 
 	return "extract"
+}
+
+func determineContextHint(cwd, text string) string {
+	// Check for code-related indicators
+	codeIndicators := []string{
+		"function", "class", "import", "package", "module",
+		"def ", "async ", "await ", "const ", "let ", "var ",
+		"git ", "npm ", "yarn ", "pip ", "cargo ", "go mod",
+		"docker", "kubernetes", "api", "endpoint", "database",
+		".js", ".py", ".go", ".rs", ".java", ".cpp", ".c",
+		"error", "bug", "debug", "test", "unit test",
+	}
+
+	lowerText := strings.ToLower(text)
+	codeCount := 0
+	for _, indicator := range codeIndicators {
+		if strings.Contains(lowerText, indicator) {
+			codeCount++
+		}
+	}
+
+	// Check working directory for project type
+	if strings.Contains(cwd, "src") || strings.Contains(cwd, "code") ||
+	   strings.Contains(cwd, "dev") || strings.Contains(cwd, "project") {
+		codeCount += 2
+	}
+
+	// Project indicators
+	projectIndicators := []string{
+		"project", "sprint", "deadline", "milestone", "team",
+		"meeting", "standup", "requirements", "specification",
+		"deliverable", "scope", "roadmap", "backlog",
+	}
+
+	projectCount := 0
+	for _, indicator := range projectIndicators {
+		if strings.Contains(lowerText, indicator) {
+			projectCount++
+		}
+	}
+
+	// Determine context based on indicators
+	if codeCount >= 3 {
+		return "coding"
+	} else if projectCount >= 2 {
+		return "project"
+	} else {
+		return "general"
+	}
 }
 
 func logDebug(format string, args ...interface{}) {
@@ -149,6 +199,29 @@ func main() {
 		logDebug("Failed to queue embedding task: %v", err)
 	} else {
 		logDebug("Queued embedding task %d for processing", task.ID)
+	}
+
+	// Queue entity extraction task for semantic analysis
+	contextHint := determineContextHint(hookInput.CWD, hookInput.Prompt)
+	entityMetadata := taskqueue.EntityExtractionMetadata{
+		OriginalLength: len(hookInput.Prompt),
+		ContentType:    "prompt",
+		ContextHint:    contextHint,
+	}
+
+	entityTask, err := queue.Add(
+		taskqueue.TaskTypeEntityExtraction,
+		"gemma3n:latest",
+		hookInput.Prompt,
+		entityMetadata,
+		taskqueue.PriorityNormal,
+		&sessionID,
+	)
+
+	if err != nil {
+		logDebug("Failed to queue entity extraction task: %v", err)
+	} else {
+		logDebug("Queued entity extraction task %d for processing", entityTask.ID)
 	}
 
 	// If text is long, also queue a summarization task
