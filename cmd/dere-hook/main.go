@@ -1,17 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
-	"dere/src/database"
+	"dere/src/taskqueue"
 )
 
 type HookInput struct {
@@ -27,41 +23,17 @@ type HookConfig struct {
 	Personality            string
 	DBPath                 string
 	SessionID              string
-	OllamaURL              string
 	OllamaModel            string
-	SummarizationModel     string
 	SummarizationThreshold int
 }
 
-type OllamaGenerateRequest struct {
-	Model   string                 `json:"model"`
-	Prompt  string                 `json:"prompt"`
-	Stream  bool                   `json:"stream"`
-	Options map[string]interface{} `json:"options,omitempty"`
-}
-
-type OllamaGenerateResponse struct {
-	Response string `json:"response"`
-}
-
-type OllamaEmbedRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
-}
-
-type OllamaEmbedResponse struct {
-	Embeddings [][]float32 `json:"embeddings"`
-}
 
 func loadConfigFromEnv() (*HookConfig, error) {
-	// Read configuration from environment variables
 	config := &HookConfig{
 		Personality: os.Getenv("DERE_PERSONALITY"),
 		DBPath:      os.Getenv("DERE_DB_PATH"),
 		SessionID:   os.Getenv("DERE_SESSION_ID"),
-		OllamaURL:   os.Getenv("DERE_OLLAMA_URL"),
 		OllamaModel: os.Getenv("DERE_OLLAMA_MODEL"),
-		SummarizationModel: os.Getenv("DERE_SUMMARIZATION_MODEL"),
 	}
 
 	// Parse summarization threshold
@@ -69,10 +41,10 @@ func loadConfigFromEnv() (*HookConfig, error) {
 		if threshold, err := strconv.Atoi(thresholdStr); err == nil {
 			config.SummarizationThreshold = threshold
 		} else {
-			config.SummarizationThreshold = 500 // default
+			config.SummarizationThreshold = 500
 		}
 	} else {
-		config.SummarizationThreshold = 500 // default
+		config.SummarizationThreshold = 500
 	}
 
 	// Validate required fields
@@ -83,166 +55,18 @@ func loadConfigFromEnv() (*HookConfig, error) {
 	return config, nil
 }
 
-func summarizeWithGemma(text string, mode string, config *HookConfig) (string, error) {
-	var prompt string
-	
-	if mode == "light" {
-		prompt = fmt.Sprintf(`Briefly summarize this message, preserving key technical terms and the user's main question.
-Keep it under 100 words. Focus on what the user is asking about.
-
-Message: %s
-
-Summary:`, text)
-	} else { // extract mode
-		prompt = fmt.Sprintf(`Analyze this conversation message and output ONLY:
-1. The user's actual question or request (one line)
-2. Topics from any included content (keywords only)
-3. Content type if pasted (article/code/log/data)
-
-Be extremely concise. Optimize for semantic search, not readability.
-
-Message: %s
-
-Output:`, text)
-	}
-	
-	req := OllamaGenerateRequest{
-		Model:  config.SummarizationModel,
-		Prompt: prompt,
-		Stream: false,
-		Options: map[string]interface{}{
-			"temperature":  0.3,
-			"num_predict": 150,
-		},
-	}
-	
-	jsonData, _ := json.Marshal(req)
-	
-	// Create HTTP client with longer timeout for summarization
-	client := &http.Client{Timeout: 120 * time.Second}
-	
-	resp, err := client.Post(
-		fmt.Sprintf("%s/api/generate", config.OllamaURL),
-		"application/json",
-		bytes.NewBuffer(jsonData),
-	)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("ollama returned status %d", resp.StatusCode)
-	}
-	
-	body, _ := io.ReadAll(resp.Body)
-	var result OllamaGenerateResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", err
-	}
-	
-	return strings.TrimSpace(result.Response), nil
-}
-
-func processForEmbedding(text string, config *HookConfig) (string, string) {
+func determineProcessingMode(text string, config *HookConfig) string {
 	charCount := len(text)
-	logDebug("processForEmbedding: Starting with %d chars", charCount)
-	
-	if charCount < config.SummarizationThreshold {
-		logDebug("processForEmbedding: Below threshold, returning direct")
-		return text, "direct"
-	}
-	
-	var mode string
-	if charCount < 2000 {
-		mode = "light"
-	} else {
-		mode = "extract"
-	}
-	logDebug("processForEmbedding: Using mode %s for summarization", mode)
-	
-	summary, err := summarizeWithGemma(text, mode, config)
-	if err == nil && summary != "" {
-		processed := fmt.Sprintf("%s [Original: %d chars]", summary, charCount)
-		logDebug("processForEmbedding: Summarization successful, result length: %d", len(processed))
-		return processed, mode
-	}
-	
-	// Fallback to truncation only if summarization failed
-	if err != nil {
-		logDebug("processForEmbedding: Summarization failed: %v", err)
-		if charCount > 2500 {
-			truncated := text[:2000] + "\n[...truncated...]\n"
-			if len(text) > 2500 {
-				truncated += text[len(text)-500:]
-			}
-			logDebug("processForEmbedding: Returning truncated text, length: %d", len(truncated))
-			return truncated, "truncated"
-		}
-	}
-	
-	logDebug("processForEmbedding: Returning original text as direct")
-	return text, "direct"
-}
 
-func getEmbedding(text string, config *HookConfig) ([]float32, error) {
-	req := OllamaEmbedRequest{
-		Model: config.OllamaModel,
-		Input: text,
+	if charCount < config.SummarizationThreshold {
+		return "direct"
 	}
-	
-	jsonData, _ := json.Marshal(req)
-	
-	// Create HTTP client with timeout (embeddings can take longer)
-	client := &http.Client{Timeout: 120 * time.Second}
-	
-	// Retry logic with exponential backoff
-	maxRetries := 3
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			// Exponential backoff: 1s, 2s, 4s
-			delay := time.Duration(1<<uint(attempt-1)) * time.Second
-			logDebug("Retrying embedding after %v delay (attempt %d/%d)", delay, attempt+1, maxRetries)
-			time.Sleep(delay)
-		}
-		
-		resp, err := client.Post(
-			fmt.Sprintf("%s/api/embed", config.OllamaURL),
-			"application/json",
-			bytes.NewBuffer(jsonData),
-		)
-		
-		if err != nil {
-			if attempt == maxRetries-1 {
-				return nil, fmt.Errorf("embedding failed after %d attempts: %w", maxRetries, err)
-			}
-			continue // Retry
-		}
-		defer resp.Body.Close()
-		
-		if resp.StatusCode != 200 {
-			if attempt == maxRetries-1 {
-				return nil, fmt.Errorf("ollama returned status %d after %d attempts", resp.StatusCode, maxRetries)
-			}
-			continue // Retry
-		}
-		
-		body, _ := io.ReadAll(resp.Body)
-		var result OllamaEmbedResponse
-		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("failed to parse embedding response: %w", err)
-		}
-		
-		if len(result.Embeddings) > 0 {
-			return result.Embeddings[0], nil
-		}
-		
-		if attempt == maxRetries-1 {
-			return nil, fmt.Errorf("no embeddings returned after %d attempts", maxRetries)
-		}
+
+	if charCount < 2000 {
+		return "light"
 	}
-	
-	return nil, fmt.Errorf("unexpected error in embedding retry loop")
+
+	return "extract"
 }
 
 func logDebug(format string, args ...interface{}) {
@@ -267,7 +91,7 @@ func main() {
 	// Log startup
 	logDebug("\n--- Hook called at %s ---", time.Now().Format(time.RFC1123))
 	logDebug("Config loaded, Personality: %s", config.Personality)
-	
+
 	// Parse hook input from stdin
 	var hookInput HookInput
 	decoder := json.NewDecoder(os.Stdin)
@@ -275,54 +99,82 @@ func main() {
 		logDebug("Failed to parse hook input: %v", err)
 		os.Exit(0)
 	}
-	
+
 	// Log the input
 	logDebug("Session: %s, CWD: %s", hookInput.SessionID, hookInput.CWD)
 	logDebug("Prompt length: %d chars", len(hookInput.Prompt))
-	
+
 	// Skip if no prompt
 	if hookInput.Prompt == "" {
 		os.Exit(0)
 	}
-	
-	// Process message for optimal embedding
-	processedText, processingMode := processForEmbedding(hookInput.Prompt, config)
-	logDebug("Processing mode: %s, Processed length: %d", processingMode, len(processedText))
-	
-	// Get embedding
-	embedding, err := getEmbedding(processedText, config)
-	if err != nil {
-		logDebug("Failed to get embedding: %v", err)
-		// Don't fail the hook
-		embedding = nil
-	}
-	
-	// Store in database
-	db, err := database.NewTursoDB(config.DBPath)
-	if err != nil {
-		logDebug("Failed to open database: %v", err)
-		os.Exit(0)
-	}
-	defer db.Close()
 
+	// Parse session ID
 	sessionID, err := strconv.ParseInt(config.SessionID, 10, 64)
 	if err != nil {
 		logDebug("Failed to parse session_id: %v", err)
 		os.Exit(0)
 	}
 
-	err = db.Store(
-		sessionID,
-		hookInput.Prompt,
-		processedText,
-		processingMode,
-		embedding,
-	)
-	
+	// Open task queue
+	queue, err := taskqueue.NewQueue(config.DBPath)
 	if err != nil {
-		logDebug("Failed to store conversation: %v", err)
+		logDebug("Failed to open task queue: %v", err)
+		os.Exit(0)
 	}
-	
+	defer queue.Close()
+
+	// Determine processing mode for embedding
+	processingMode := determineProcessingMode(hookInput.Prompt, config)
+	logDebug("Processing mode: %s", processingMode)
+
+	// Create embedding metadata
+	metadata := taskqueue.EmbeddingMetadata{
+		OriginalLength: len(hookInput.Prompt),
+		ProcessingMode: processingMode,
+		ContentType:    "prompt",
+	}
+
+	// Queue embedding task with high priority (user prompts are important)
+	task, err := queue.Add(
+		taskqueue.TaskTypeEmbedding,
+		config.OllamaModel,
+		hookInput.Prompt,
+		metadata,
+		taskqueue.PriorityHigh,
+		&sessionID,
+	)
+
+	if err != nil {
+		logDebug("Failed to queue embedding task: %v", err)
+	} else {
+		logDebug("Queued embedding task %d for processing", task.ID)
+	}
+
+	// If text is long, also queue a summarization task
+	if len(hookInput.Prompt) > config.SummarizationThreshold {
+		sumMetadata := taskqueue.SummarizationMetadata{
+			OriginalLength: len(hookInput.Prompt),
+			Mode:          processingMode,
+			MaxLength:     150,
+		}
+
+		sumTask, err := queue.Add(
+			taskqueue.TaskTypeSummarization,
+			"gemma3n:latest",
+			hookInput.Prompt,
+			sumMetadata,
+			taskqueue.PriorityNormal,
+			&sessionID,
+		)
+
+		if err != nil {
+			logDebug("Failed to queue summarization task: %v", err)
+		} else {
+			logDebug("Queued summarization task %d for processing", sumTask.ID)
+		}
+	}
+
 	// Always exit 0 to not block Claude
 	os.Exit(0)
 }

@@ -165,12 +165,36 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create conversations table: %w", err)
 	}
 
+	// Task queue table for background processing
+	taskQueueTableSQL := `
+	CREATE TABLE IF NOT EXISTS task_queue (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_type TEXT NOT NULL,
+		model_name TEXT NOT NULL,
+		content TEXT NOT NULL,
+		metadata TEXT, -- JSON
+		priority INTEGER DEFAULT 5,
+		status TEXT DEFAULT 'pending', -- pending, processing, completed, failed
+		session_id INTEGER REFERENCES sessions(id),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		processed_at TIMESTAMP,
+		retry_count INTEGER DEFAULT 0,
+		error_message TEXT
+	)`
+
+	if _, err := t.db.Exec(taskQueueTableSQL); err != nil {
+		return fmt.Errorf("failed to create task_queue table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
 		`CREATE INDEX IF NOT EXISTS sessions_start_time_idx ON sessions(start_time)`,
 		`CREATE INDEX IF NOT EXISTS conversations_session_idx ON conversations(session_id)`,
 		`CREATE INDEX IF NOT EXISTS conversations_timestamp_idx ON conversations(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS task_queue_status_model_idx ON task_queue(status, model_name, priority)`,
+		`CREATE INDEX IF NOT EXISTS task_queue_session_idx ON task_queue(session_id)`,
+		`CREATE INDEX IF NOT EXISTS task_queue_created_idx ON task_queue(created_at)`,
 	}
 
 	for _, indexSQL := range indexes {
@@ -641,6 +665,11 @@ func (t *TursoDB) GetStats(days int, projectPath string) (*Stats, error) {
 	}
 
 	return stats, nil
+}
+
+// GetDB returns the underlying database connection
+func (t *TursoDB) GetDB() *sql.DB {
+	return t.db
 }
 
 // Close closes the database connection
