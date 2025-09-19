@@ -5,15 +5,18 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	
+	"path/filepath"
+
 	"dere/src/commands"
 	"dere/src/composer"
+	"dere/src/database"
 	"dere/src/mcp"
 	"dere/src/settings"
-	
+
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +24,25 @@ import (
 func runDere(cmd *cobra.Command, args []string) error {
 	config := GetConfig()
 	config.ExtraArgs = args // Args after flags are Claude args
-	
+
+	// Create session record in database
+	sessionID, db, err := createSessionRecord(config)
+	if err != nil {
+		log.Printf("Warning: Failed to create session record: %v", err)
+		sessionID = 0 // Continue without session tracking
+	}
+	defer func() {
+		if db != nil && sessionID != 0 {
+			db.EndSession(sessionID)
+			db.Close()
+		}
+	}()
+
+	// Set session ID for hook to use
+	if sessionID != 0 {
+		os.Setenv("DERE_SESSION_ID", strconv.FormatInt(sessionID, 10))
+	}
+
 	// Setup settings builder for dynamic configuration
 	personalityStr := settings.GetPersonalityString(config.Personalities)
 	settingsBuilder := settings.NewSettingsBuilder(personalityStr, config.OutputStyle)
@@ -185,4 +206,70 @@ func runDere(cmd *cobra.Command, args []string) error {
 	}
 	
 	return nil
+}
+
+// createSessionRecord creates a new session record in the database
+func createSessionRecord(config *Config) (int64, *database.TursoDB, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+	db, err := database.NewTursoDB(dbPath)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	// Get current working directory
+	workingDir, err := os.Getwd()
+	if err != nil {
+		db.Close()
+		return 0, nil, err
+	}
+
+	// Build flags map from config
+	flags := make(map[string]string)
+	if config.Model != "" {
+		flags["model"] = config.Model
+	}
+	if config.FallbackModel != "" {
+		flags["fallback-model"] = config.FallbackModel
+	}
+	if config.PermissionMode != "" {
+		flags["permission-mode"] = config.PermissionMode
+	}
+	if len(config.AllowedTools) > 0 {
+		flags["allowed-tools"] = strings.Join(config.AllowedTools, ",")
+	}
+	if len(config.DisallowedTools) > 0 {
+		flags["disallowed-tools"] = strings.Join(config.DisallowedTools, ",")
+	}
+	if config.IDE {
+		flags["ide"] = "true"
+	}
+	if config.Continue {
+		flags["continue"] = "true"
+	}
+	if config.Resume != "" {
+		flags["resume"] = config.Resume
+	}
+
+	// Handle continuation logic
+	var continuedFrom *int64
+	if config.Resume != "" {
+		// Parse resume session ID if it's numeric
+		if resumeID, parseErr := strconv.ParseInt(config.Resume, 10, 64); parseErr == nil {
+			continuedFrom = &resumeID
+		}
+	}
+
+	// Create session record
+	sessionID, err := db.CreateSession(workingDir, config.Personalities, config.MCPServers, flags, continuedFrom)
+	if err != nil {
+		db.Close()
+		return 0, nil, err
+	}
+
+	return sessionID, db, nil
 }

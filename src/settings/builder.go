@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"dere/src/config"
 )
@@ -71,24 +70,25 @@ func (sb *SettingsBuilder) Build() (string, error) {
 		Hooks: make(map[string]interface{}),
 		Env:   make(map[string]string),
 	}
-	
+
 	if sb.outputStyle != "" {
 		settings.OutputStyle = sb.outputStyle
 	}
-	
+
 	if err := sb.addConversationHook(settings); err != nil {
 		return "", fmt.Errorf("failed to add conversation hook: %w", err)
 	}
-	
-	if err := sb.writeHookConfig(); err != nil {
-		return "", fmt.Errorf("failed to write hook config: %w", err)
+
+	// Add all the hook environment data directly to settings.Env
+	if err := sb.addHookEnvironment(settings); err != nil {
+		return "", fmt.Errorf("failed to add hook environment: %w", err)
 	}
-	
+
 	tempFile, err := sb.createTempFile(settings)
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp settings file: %w", err)
 	}
-	
+
 	sb.tempFilePath = tempFile
 	return tempFile, nil
 }
@@ -113,37 +113,27 @@ func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
 	return nil
 }
 
-func (sb *SettingsBuilder) writeHookConfig() error {
+func (sb *SettingsBuilder) addHookEnvironment(settings *ClaudeSettings) error {
 	configSettings, _ := config.LoadSettings()
-	
-	pid := os.Getpid()
-	
-	configData := map[string]interface{}{
-		"pid":         pid,
-		"personality": sb.personality,
-		"timestamp":   time.Now().Unix(),
-		"db_path":     filepath.Join(os.Getenv("HOME"), ".local", "share", "dere", "conversations.db"),
+
+	// Add basic environment variables
+	settings.Env["DERE_PERSONALITY"] = sb.personality
+	settings.Env["DERE_DB_PATH"] = filepath.Join(os.Getenv("HOME"), ".local", "share", "dere", "dere.db")
+
+	// Add session ID if set
+	if sessionID := os.Getenv("DERE_SESSION_ID"); sessionID != "" {
+		settings.Env["DERE_SESSION_ID"] = sessionID
 	}
-	
+
+	// Add Ollama configuration if enabled
 	if configSettings != nil && configSettings.Ollama.Enabled {
-		configData["ollama_url"] = configSettings.Ollama.URL
-		configData["ollama_model"] = configSettings.Ollama.EmbeddingModel
-		configData["summarization_model"] = configSettings.Ollama.SummarizationModel
-		configData["summarization_threshold"] = configSettings.Ollama.SummarizationThreshold
+		settings.Env["DERE_OLLAMA_URL"] = configSettings.Ollama.URL
+		settings.Env["DERE_OLLAMA_MODEL"] = configSettings.Ollama.EmbeddingModel
+		settings.Env["DERE_SUMMARIZATION_MODEL"] = configSettings.Ollama.SummarizationModel
+		settings.Env["DERE_SUMMARIZATION_THRESHOLD"] = fmt.Sprintf("%d", configSettings.Ollama.SummarizationThreshold)
 	}
-	
-	configDir := filepath.Join(os.Getenv("HOME"), ".config", "dere", ".claude")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return err
-	}
-	
-	configPath := filepath.Join(configDir, fmt.Sprintf("hook_env_%d.json", pid))
-	data, err := json.Marshal(configData)
-	if err != nil {
-		return err
-	}
-	
-	return os.WriteFile(configPath, data, 0644)
+
+	return nil
 }
 
 func (sb *SettingsBuilder) createTempFile(settings *ClaudeSettings) (string, error) {
@@ -166,11 +156,6 @@ func (sb *SettingsBuilder) Cleanup() error {
 	if sb.tempFilePath != "" {
 		os.Remove(sb.tempFilePath)
 	}
-	
-	pid := os.Getpid()
-	configPath := filepath.Join(os.Getenv("HOME"), ".config", "dere", ".claude", fmt.Sprintf("hook_env_%d.json", pid))
-	os.Remove(configPath)
-	
 	return nil
 }
 

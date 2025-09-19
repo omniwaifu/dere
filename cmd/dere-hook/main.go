@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-	
+
 	"dere/src/database"
 )
 
@@ -24,14 +24,13 @@ type HookInput struct {
 }
 
 type HookConfig struct {
-	PID                    int    `json:"pid"`
-	Personality            string `json:"personality"`
-	Timestamp              int64  `json:"timestamp"`
-	DBPath                 string `json:"db_path"`
-	OllamaURL              string `json:"ollama_url"`
-	OllamaModel            string `json:"ollama_model"`
-	SummarizationModel     string `json:"summarization_model"`
-	SummarizationThreshold int    `json:"summarization_threshold"`
+	Personality            string
+	DBPath                 string
+	SessionID              string
+	OllamaURL              string
+	OllamaModel            string
+	SummarizationModel     string
+	SummarizationThreshold int
 }
 
 type OllamaGenerateRequest struct {
@@ -54,34 +53,34 @@ type OllamaEmbedResponse struct {
 	Embeddings [][]float32 `json:"embeddings"`
 }
 
-func findValidConfig() (*HookConfig, error) {
-	homeDir, _ := os.UserHomeDir()
-	
-	// Look for PID-specific config files
-	pattern := filepath.Join(homeDir, ".config", "dere", ".claude", "hook_env_*.json")
-	files, _ := filepath.Glob(pattern)
-	
-	for _, file := range files {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			continue
-		}
-		
-		var config HookConfig
-		if err := json.Unmarshal(data, &config); err != nil {
-			continue
-		}
-		
-		// Check if PID is still alive (basic check - file exists in /proc)
-		if _, err := os.Stat(fmt.Sprintf("/proc/%d", config.PID)); err == nil {
-			return &config, nil
-		}
-		
-		// Clean up stale config
-		os.Remove(file)
+func loadConfigFromEnv() (*HookConfig, error) {
+	// Read configuration from environment variables
+	config := &HookConfig{
+		Personality: os.Getenv("DERE_PERSONALITY"),
+		DBPath:      os.Getenv("DERE_DB_PATH"),
+		SessionID:   os.Getenv("DERE_SESSION_ID"),
+		OllamaURL:   os.Getenv("DERE_OLLAMA_URL"),
+		OllamaModel: os.Getenv("DERE_OLLAMA_MODEL"),
+		SummarizationModel: os.Getenv("DERE_SUMMARIZATION_MODEL"),
 	}
-	
-	return nil, fmt.Errorf("no valid config found")
+
+	// Parse summarization threshold
+	if thresholdStr := os.Getenv("DERE_SUMMARIZATION_THRESHOLD"); thresholdStr != "" {
+		if threshold, err := strconv.Atoi(thresholdStr); err == nil {
+			config.SummarizationThreshold = threshold
+		} else {
+			config.SummarizationThreshold = 500 // default
+		}
+	} else {
+		config.SummarizationThreshold = 500 // default
+	}
+
+	// Validate required fields
+	if config.DBPath == "" || config.SessionID == "" {
+		return nil, fmt.Errorf("required environment variables not set")
+	}
+
+	return config, nil
 }
 
 func summarizeWithGemma(text string, mode string, config *HookConfig) (string, error) {
@@ -258,16 +257,16 @@ func logDebug(format string, args ...interface{}) {
 }
 
 func main() {
-	// Load configuration
-	config, err := findValidConfig()
+	// Load configuration from environment
+	config, err := loadConfigFromEnv()
 	if err != nil {
 		// No valid dere session, exit silently
 		os.Exit(0)
 	}
-	
+
 	// Log startup
 	logDebug("\n--- Hook called at %s ---", time.Now().Format(time.RFC1123))
-	logDebug("Config loaded, PID: %d, Personality: %s", config.PID, config.Personality)
+	logDebug("Config loaded, Personality: %s", config.Personality)
 	
 	// Parse hook input from stdin
 	var hookInput HookInput
@@ -305,11 +304,15 @@ func main() {
 		os.Exit(0)
 	}
 	defer db.Close()
-	
+
+	sessionID, err := strconv.ParseInt(config.SessionID, 10, 64)
+	if err != nil {
+		logDebug("Failed to parse session_id: %v", err)
+		os.Exit(0)
+	}
+
 	err = db.Store(
-		hookInput.SessionID,
-		hookInput.CWD,
-		config.Personality,
+		sessionID,
 		hookInput.Prompt,
 		processedText,
 		processingMode,

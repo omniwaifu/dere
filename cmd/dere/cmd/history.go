@@ -44,23 +44,28 @@ var historyListCmd = &cobra.Command{
 		}
 		defer db.Close()
 		
-		// For now, we'll just show a message since we need to implement
-		// a method to list all sessions (not just by session ID)
+		conversations, err := db.ListRecentSessions(historyLimit)
+		if err != nil {
+			return err
+		}
+
+		if len(conversations) == 0 {
+			fmt.Println("No conversations found")
+			return nil
+		}
+
 		fmt.Println("Recent conversations:")
-		fmt.Println("(Feature coming soon - database methods need updating)")
-		
-		// TODO: Add ListAllSessions method to database
-		// conversations, err := db.ListAllSessions(historyLimit)
-		// if err != nil {
-		//     return err
-		// }
-		//
-		// for _, conv := range conversations {
-		//     fmt.Printf("[%s] %s - %s\n", 
-		//         conv.CreatedAt.Format("2006-01-02 15:04"),
-		//         conv.Personality,
-		//         truncate(conv.Prompt, 50))
-		// }
+		for i, conv := range conversations {
+			fmt.Printf("%d. [%s] Session: %s\n", i+1,
+				time.Unix(conv.Timestamp, 0).Format("2006-01-02 15:04"),
+				conv.SessionID)
+			if conv.ProjectPath != "" {
+				fmt.Printf("   Project: %s\n", conv.ProjectPath)
+			}
+			fmt.Printf("   Personality: %s\n", conv.Personality)
+			fmt.Printf("   Prompt: %s\n", truncate(conv.Prompt, 100))
+			fmt.Println()
+		}
 		
 		return nil
 	},
@@ -202,23 +207,19 @@ var historyCleanCmd = &cobra.Command{
 			return fmt.Errorf("--days must be greater than 0")
 		}
 		
-		// TODO: Implement cleanup in database
-		fmt.Printf("Would clean conversations older than %d days\n", historyDays)
-		fmt.Println("(Feature coming soon - database methods need updating)")
-		
-		// db, err := getDatabase()
-		// if err != nil {
-		//     return err
-		// }
-		// defer db.Close()
-		//
-		// cutoff := time.Now().AddDate(0, 0, -historyDays)
-		// count, err := db.CleanupOldSessions(cutoff)
-		// if err != nil {
-		//     return err
-		// }
-		//
-		// fmt.Printf("Removed %d old conversations\n", count)
+		db, err := getDatabase()
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+
+		cutoff := time.Now().AddDate(0, 0, -historyDays)
+		count, err := db.CleanupOldSessions(cutoff)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Removed %d old sessions\n", count)
 		
 		return nil
 	},
@@ -231,7 +232,7 @@ func getDatabase() (*database.TursoDB, error) {
 		return nil, err
 	}
 	
-	dbPath := filepath.Join(home, ".local", "share", "dere", "conversations.db")
+	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
 	return database.NewTursoDB(dbPath)
 }
 
