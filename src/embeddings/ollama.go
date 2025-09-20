@@ -93,25 +93,25 @@ func (c *OllamaClient) GetEmbedding(text string) ([]float32, error) {
 }
 
 func (c *OllamaClient) Generate(prompt string) (string, error) {
-	return c.GenerateWithModel(prompt, c.model)
+	return c.GenerateWithModel(prompt, c.model, nil)
 }
 
-func (c *OllamaClient) GenerateWithModel(prompt, model string) (string, error) {
+func (c *OllamaClient) GenerateWithModel(prompt, model string, schema interface{}) (string, error) {
 	// Try normal HTTP call first
-	response, err := c.tryGenerate(prompt, model)
+	response, err := c.tryGenerate(prompt, model, schema)
 	if err != nil && strings.Contains(err.Error(), "model runner has unexpectedly stopped") {
 		// Model conflict - stop it and retry
 		if stopErr := c.stopModel(model); stopErr == nil {
 			time.Sleep(2 * time.Second)
-			return c.tryGenerate(prompt, model)
+			return c.tryGenerate(prompt, model, schema)
 		}
 	}
 	return response, err
 }
 
-func (c *OllamaClient) tryGenerate(prompt, model string) (string, error) {
-	// Define JSON schema for entity extraction
-	entitySchema := map[string]interface{}{
+// GetEntityExtractionSchema returns the JSON schema for entity extraction
+func GetEntityExtractionSchema() map[string]interface{} {
+	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"entities": map[string]interface{}{
@@ -130,12 +130,14 @@ func (c *OllamaClient) tryGenerate(prompt, model string) (string, error) {
 		},
 		"required": []string{"entities"},
 	}
+}
 
+func (c *OllamaClient) tryGenerate(prompt, model string, schema interface{}) (string, error) {
 	reqBody := OllamaGenerateRequest{
 		Model:  model,
 		Prompt: prompt,
 		Stream: false,
-		Format: entitySchema,
+		Format: schema, // Use provided schema, or nil for free text
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -207,32 +209,84 @@ func (c *OllamaClient) IsAvailable() bool {
 		return false
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}
-	
+
 	// Check if our model exists
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false
 	}
-	
+
 	var tagsResp struct {
 		Models []struct {
 			Name string `json:"name"`
 		} `json:"models"`
 	}
-	
+
 	if err := json.Unmarshal(body, &tagsResp); err != nil {
 		return false
 	}
-	
+
 	for _, model := range tagsResp.Models {
 		if model.Name == c.model || model.Name == c.model+":latest" {
 			return true
 		}
 	}
-	
+
 	return false
+}
+
+func (c *OllamaClient) GetModelContextLength(modelName string) (int, error) {
+	reqBody := map[string]string{"name": modelName}
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.baseURL+"/api/show", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("ollama API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var showResp struct {
+		ModelInfo map[string]interface{} `json:"model_info"`
+	}
+
+	if err := json.Unmarshal(body, &showResp); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Look for context_length in model_info
+	// The key format varies by model family (e.g., "gemma3n.context_length", "llama.context_length")
+	for key, value := range showResp.ModelInfo {
+		if strings.HasSuffix(key, ".context_length") {
+			if contextLength, ok := value.(float64); ok {
+				return int(contextLength), nil
+			}
+		}
+	}
+
+	// Fallback to reasonable default if not found
+	return 2048, nil
 }

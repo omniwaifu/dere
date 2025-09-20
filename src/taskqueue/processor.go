@@ -13,20 +13,22 @@ import (
 
 // Processor handles task execution
 type Processor struct {
-	queue       *Queue
-	db          *database.TursoDB
-	ollama      *embeddings.OllamaClient
-	maxRetries  int
-	currentModel string
+	queue             *Queue
+	db                *database.TursoDB
+	ollama            *embeddings.OllamaClient
+	maxRetries        int
+	currentModel      string
+	modelContextCache map[string]int
 }
 
 // NewProcessor creates a new task processor
 func NewProcessor(queue *Queue, db *database.TursoDB, ollama *embeddings.OllamaClient) *Processor {
 	return &Processor{
-		queue:      queue,
-		db:         db,
-		ollama:     ollama,
-		maxRetries: 3,
+		queue:             queue,
+		db:                db,
+		ollama:            ollama,
+		maxRetries:        3,
+		modelContextCache: make(map[string]int),
 	}
 }
 
@@ -68,12 +70,47 @@ func (p *Processor) ProcessTasks() error {
 	return nil
 }
 
+// getTaskDescription returns a human-readable description of what the task does
+func (p *Processor) getTaskDescription(task *Task) string {
+	switch task.TaskType {
+	case TaskTypeEmbedding:
+		if task.SessionID != nil {
+			return fmt.Sprintf("embedding for session %d", *task.SessionID)
+		}
+		return "embedding"
+	case TaskTypeSummarization:
+		if task.Metadata != nil {
+			if mode, ok := task.Metadata["mode"].(string); ok {
+				if mode == "session" && task.SessionID != nil {
+					return fmt.Sprintf("session summarization for session %d", *task.SessionID)
+				}
+				return fmt.Sprintf("summarization (%s mode)", mode)
+			}
+		}
+		return "summarization"
+	case TaskTypeEntityExtraction:
+		if task.Metadata != nil {
+			if contentType, ok := task.Metadata["content_type"].(string); ok {
+				return fmt.Sprintf("entity extraction for %s", contentType)
+			}
+		}
+		return "entity extraction"
+	case TaskTypeEntityRelationship:
+		return "entity relationship analysis"
+	default:
+		return fmt.Sprintf("unknown task type: %s", task.TaskType)
+	}
+}
+
 // processTask processes a single task
 func (p *Processor) processTask(task *Task) error {
 	// Mark as processing
 	if err := p.queue.UpdateStatus(task.ID, TaskStatusProcessing, nil); err != nil {
 		return fmt.Errorf("failed to mark task as processing: %w", err)
 	}
+
+	// Log task start with description
+	log.Printf("Task %d starting: %s", task.ID, p.getTaskDescription(task))
 
 	var result *TaskResult
 	var err error
@@ -154,11 +191,11 @@ func (p *Processor) processSummarizationTask(task *Task) (*TaskResult, error) {
 
 	log.Printf("Starting summarization of %d chars using mode: %s", metadata.OriginalLength, metadata.Mode)
 
-	// Build appropriate prompt based on mode
-	prompt := p.buildSummarizationPrompt(task.Content, metadata)
+	// Build appropriate prompt based on mode (with context-aware truncation)
+	prompt := p.buildSummarizationPrompt(task.Content, metadata, task.ModelName)
 
-	// Generate summary using LLM
-	summary, err := p.ollama.GenerateWithModel(prompt, task.ModelName)
+	// Generate summary using LLM (no schema for free text output)
+	summary, err := p.ollama.GenerateWithModel(prompt, task.ModelName, nil)
 	if err != nil {
 		log.Printf("Summarization failed for task %d: %v", task.ID, err)
 		return &TaskResult{
@@ -366,8 +403,8 @@ JSON:`, contextPrompt, content)
 func (p *Processor) extractEntitiesWithLLM(prompt, modelName string, metadata EntityExtractionMetadata) ([]Entity, error) {
 	log.Printf("Calling %s with prompt length: %d chars", modelName, len(prompt))
 
-	// Call Ollama to generate entity extraction using the specified model
-	response, err := p.ollama.GenerateWithModel(prompt, modelName)
+	// Call Ollama to generate entity extraction using the specified model with entity schema
+	response, err := p.ollama.GenerateWithModel(prompt, modelName, embeddings.GetEntityExtractionSchema())
 	if err != nil {
 		log.Printf("LLM call failed for model %s: %v", modelName, err)
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
@@ -678,10 +715,12 @@ func (p *Processor) ProcessBatch(modelName string, batchSize int) error {
 }
 
 // buildSummarizationPrompt builds an appropriate summarization prompt based on mode
-func (p *Processor) buildSummarizationPrompt(content string, metadata SummarizationMetadata) string {
+func (p *Processor) buildSummarizationPrompt(content string, metadata SummarizationMetadata, modelName string) string {
+	var template string
+
 	switch metadata.Mode {
 	case "session":
-		return fmt.Sprintf(`Summarize this Claude Code session. Focus on:
+		template = `Summarize this Claude Code session. Focus on:
 1. Main tasks accomplished
 2. Key technologies and entities discussed
 3. Problems solved or decisions made
@@ -690,30 +729,35 @@ func (p *Processor) buildSummarizationPrompt(content string, metadata Summarizat
 Session content:
 %s
 
-Provide a concise but informative summary (max %d words).`, content, metadata.MaxLength)
+Provide a concise but informative summary (max %d words).`
 
 	case "extract":
-		return fmt.Sprintf(`Extract the key information from this text for semantic search.
+		template = `Extract the key information from this text for semantic search.
 Focus on the most important concepts, entities, and actions.
 Keep technical terms and proper nouns intact.
 
 Text:
 %s
 
-Provide an extractive summary (max %d words) that preserves searchability.`, content, metadata.MaxLength)
+Provide an extractive summary (max %d words) that preserves searchability.`
 
 	case "light":
-		return fmt.Sprintf(`Provide a brief summary of this text, preserving key terms:
+		template = `Provide a brief summary of this text, preserving key terms:
 %s
 
-Summary (max %d words):`, content, metadata.MaxLength)
+Summary (max %d words):`
 
 	default:
-		return fmt.Sprintf(`Summarize this text:
+		template = `Summarize this text:
 %s
 
-Summary (max %d words):`, content, metadata.MaxLength)
+Summary (max %d words):`
 	}
+
+	// Truncate content to fit context limits
+	truncatedContent := p.truncateContentForContext(content, modelName, template)
+
+	return fmt.Sprintf(template, truncatedContent, metadata.MaxLength)
 }
 
 // storeSessionSummary stores a session summary in the database
@@ -797,3 +841,52 @@ func extractKeyTopics(text string) []string {
 
 	return topics
 }
+
+// getModelContextLength returns the context length for a model, using cache if available
+func (p *Processor) getModelContextLength(modelName string) int {
+	// Check cache first
+	if contextLength, exists := p.modelContextCache[modelName]; exists {
+		return contextLength
+	}
+
+	// Query from Ollama API
+	contextLength, err := p.ollama.GetModelContextLength(modelName)
+	if err != nil {
+		log.Printf("Warning: Failed to get context length for model %s: %v. Using default 2048", modelName, err)
+		contextLength = 2048
+	}
+
+	// Cache the result
+	p.modelContextCache[modelName] = contextLength
+	log.Printf("Cached context length for model %s: %d tokens", modelName, contextLength)
+
+	return contextLength
+}
+
+// truncateContentForContext truncates content to fit within model context limits
+func (p *Processor) truncateContentForContext(content string, modelName string, promptTemplate string) string {
+	contextLength := p.getModelContextLength(modelName)
+
+	// Rough token estimation: 1 token ≈ 4 characters
+	// Leave 30% of context for prompt template + response buffer
+	maxContentTokens := int(float64(contextLength) * 0.7)
+	maxContentChars := maxContentTokens * 4
+
+	// Calculate overhead from prompt template (minus %s placeholder)
+	templateOverhead := len(promptTemplate) - 2 // subtract "%s"
+	maxContentChars -= templateOverhead
+
+	if len(content) <= maxContentChars {
+		return content // No truncation needed
+	}
+
+	log.Printf("Content (%d chars) exceeds context limit for model %s (%d tokens). Truncating to %d chars",
+		len(content), modelName, contextLength, maxContentChars)
+
+	// For session summaries, keep the most recent content (truncate from beginning)
+	// Add truncation notice
+	truncated := content[len(content)-maxContentChars:]
+	return "[Content truncated for context limits...]\n\n" + truncated
+}
+
+
