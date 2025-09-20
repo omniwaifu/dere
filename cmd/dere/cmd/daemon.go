@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"dere/src/embeddings"
 	"dere/src/taskqueue"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -62,6 +64,48 @@ var daemonStopCmd = &cobra.Command{
 	},
 }
 
+// daemonRestartCmd restarts the daemon
+var daemonRestartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Restart the task processing daemon",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		isRunning, pid := isDaemonRunning()
+		if isRunning {
+			fmt.Printf("Stopping daemon (PID: %d)...\n", pid)
+			if err := stopDaemon(pid); err != nil {
+				return fmt.Errorf("failed to stop daemon: %w", err)
+			}
+		}
+
+		fmt.Println("Starting dere task processing daemon...")
+		return startDaemon()
+	},
+}
+
+// daemonReloadCmd reloads daemon configuration
+var daemonReloadCmd = &cobra.Command{
+	Use:   "reload",
+	Short: "Reload daemon configuration (SIGHUP)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		isRunning, pid := isDaemonRunning()
+		if !isRunning {
+			return fmt.Errorf("daemon is not running")
+		}
+
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			return fmt.Errorf("failed to find process: %w", err)
+		}
+
+		if err := process.Signal(syscall.SIGHUP); err != nil {
+			return fmt.Errorf("failed to send SIGHUP: %w", err)
+		}
+
+		fmt.Printf("Sent SIGHUP to daemon (PID: %d)\n", pid)
+		return nil
+	},
+}
+
 // daemonStatusCmd shows daemon status
 var daemonStatusCmd = &cobra.Command{
 	Use:   "status",
@@ -100,9 +144,12 @@ func startDaemon() error {
 		os.Remove(pidPath)
 	}()
 
-	// Setup signal handling for graceful shutdown
+	// Setup signal handling for graceful shutdown and reload
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	reloadChan := make(chan os.Signal, 1)
+	signal.Notify(reloadChan, syscall.SIGHUP)
 
 	// Initialize components
 	home, err := os.UserHomeDir()
@@ -140,10 +187,23 @@ func startDaemon() error {
 
 	fmt.Printf("Daemon started successfully (PID: %d)\n", os.Getpid())
 	fmt.Printf("Processing interval: %v\n", daemonInterval)
+	fmt.Println("Hot reload enabled - watching for changes...")
+
+	// Setup file watcher for hot reload
+	watcher, err := setupFileWatcher()
+	if err != nil {
+		fmt.Printf("Warning: Could not setup file watcher: %v\n", err)
+		watcher = nil
+	}
+	if watcher != nil {
+		defer watcher.Close()
+	}
 
 	// Main processing loop
 	ticker := time.NewTicker(daemonInterval)
 	defer ticker.Stop()
+
+	needsRestart := false
 
 	for {
 		select {
@@ -152,9 +212,34 @@ func startDaemon() error {
 				fmt.Printf("Error processing tasks: %v\n", err)
 			}
 
+		case <-reloadChan:
+			fmt.Println("\nReceived SIGHUP, reloading configuration...")
+			if newConfig, err := config.LoadSettings(); err == nil {
+				ollamaConfig.URL = newConfig.Ollama.URL
+				ollamaConfig.EmbeddingModel = newConfig.Ollama.EmbeddingModel
+				fmt.Println("Configuration reloaded successfully")
+			} else {
+				fmt.Printf("Failed to reload config: %v\n", err)
+			}
+
+		case event := <-watcher.Events:
+			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+				fmt.Printf("\nDetected change in %s\n", event.Name)
+				needsRestart = true
+			}
+
+		case err := <-watcher.Errors:
+			fmt.Printf("Watcher error: %v\n", err)
+
 		case sig := <-sigChan:
 			fmt.Printf("\nReceived signal %v, shutting down gracefully...\n", sig)
 			return nil
+		}
+
+		// Handle restart if needed
+		if needsRestart {
+			fmt.Println("Triggering hot reload...")
+			return restartDaemon()
 		}
 	}
 }
@@ -219,6 +304,65 @@ func getPidFilePath() string {
 	return filepath.Join(home, ".local", "share", "dere", "daemon.pid")
 }
 
+// setupFileWatcher creates a file watcher for hot reload
+func setupFileWatcher() (*fsnotify.Watcher, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+
+	// Watch the dere binary for changes
+	executable, err := os.Executable()
+	if err == nil {
+		watcher.Add(executable)
+	}
+
+	// Watch config file
+	home, err := os.UserHomeDir()
+	if err == nil {
+		configFile := filepath.Join(home, ".config", "dere", "config.toml")
+		if _, err := os.Stat(configFile); err == nil {
+			watcher.Add(configFile)
+		}
+	}
+
+	return watcher, nil
+}
+
+// restartDaemon performs a hot restart
+func restartDaemon() error {
+	fmt.Println("Performing hot restart...")
+
+	// Get current executable path
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Prepare restart command
+	args := []string{"daemon", "start"}
+	if daemonInterval != 5*time.Second {
+		args = append(args, "--interval", daemonInterval.String())
+	}
+	if daemonLogFile != "" {
+		args = append(args, "--log", daemonLogFile)
+	}
+
+	// Start new daemon process
+	cmd := exec.Command(executable, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start new daemon: %w", err)
+	}
+
+	fmt.Printf("New daemon started (PID: %d)\n", cmd.Process.Pid)
+
+	// Current process will exit naturally and be replaced
+	return nil
+}
+
 func showQueueStats() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -260,6 +404,8 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)
+	daemonCmd.AddCommand(daemonRestartCmd)
+	daemonCmd.AddCommand(daemonReloadCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
 
 	// Flags

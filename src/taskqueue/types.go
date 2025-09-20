@@ -129,6 +129,14 @@ type EntityRelationshipResult struct {
 	TotalInferred   int                  `json:"total_inferred"`
 }
 
+// SummarizationResult contains the result of a summarization task
+type SummarizationResult struct {
+	Summary        string `json:"summary"`
+	OriginalLength int    `json:"original_length"`
+	SummaryLength  int    `json:"summary_length"`
+	Mode           string `json:"mode"`
+}
+
 // Helper methods for metadata handling
 
 // SetMetadata sets the metadata field from a struct

@@ -222,6 +222,26 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create entity_relationships table: %w", err)
 	}
 
+	// Session summaries table for continuity
+	sessionSummariesTableSQL := `
+	CREATE TABLE IF NOT EXISTS session_summaries (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER REFERENCES sessions(id),
+		summary_type TEXT NOT NULL, -- 'exit', 'periodic', 'manual'
+		summary TEXT NOT NULL,
+		key_topics TEXT, -- JSON array
+		key_entities TEXT, -- JSON array of entity IDs
+		task_status TEXT, -- JSON: what was done/not done
+		next_steps TEXT, -- Suggested continuations
+		model_used TEXT,
+		processing_time_ms INTEGER,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`
+
+	if _, err := t.db.Exec(sessionSummariesTableSQL); err != nil {
+		return fmt.Errorf("failed to create session_summaries table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
@@ -238,6 +258,9 @@ func (t *TursoDB) initSchema() error {
 		`CREATE INDEX IF NOT EXISTS entity_relationships_entity1_idx ON entity_relationships(entity_1_id)`,
 		`CREATE INDEX IF NOT EXISTS entity_relationships_entity2_idx ON entity_relationships(entity_2_id)`,
 		`CREATE INDEX IF NOT EXISTS entity_relationships_type_idx ON entity_relationships(relationship_type)`,
+		`CREATE INDEX IF NOT EXISTS session_summaries_session_idx ON session_summaries(session_id)`,
+		`CREATE INDEX IF NOT EXISTS session_summaries_type_idx ON session_summaries(summary_type)`,
+		`CREATE INDEX IF NOT EXISTS session_summaries_created_idx ON session_summaries(created_at)`,
 	}
 
 	for _, indexSQL := range indexes {

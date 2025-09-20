@@ -97,7 +97,7 @@ func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
 	if _, err := os.Stat(sb.hookScriptPath); err != nil {
 		return nil
 	}
-	
+
 	hook := HookMatcher{
 		Matcher: "",
 		Hooks: []Hook{
@@ -107,9 +107,22 @@ func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
 			},
 		},
 	}
-	
+
 	settings.Hooks["UserPromptSubmit"] = []HookMatcher{hook}
-	
+
+	// Add SessionEnd hook for summarization
+	sessionEndHook := HookMatcher{
+		Matcher: "",
+		Hooks: []Hook{
+			{
+				Type:    "command",
+				Command: sb.hookScriptPath + "-session-end",
+			},
+		},
+	}
+
+	settings.Hooks["SessionEnd"] = []HookMatcher{sessionEndHook}
+
 	return nil
 }
 

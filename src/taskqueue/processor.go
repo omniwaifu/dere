@@ -152,14 +152,44 @@ func (p *Processor) processSummarizationTask(task *Task) (*TaskResult, error) {
 		return nil, fmt.Errorf("failed to get summarization metadata: %w", err)
 	}
 
-	// This would call the summarization logic similar to what's in the hook
-	// For now, just return a placeholder
-	log.Printf("Would summarize content of length %d using mode %s", metadata.OriginalLength, metadata.Mode)
+	log.Printf("Starting summarization of %d chars using mode: %s", metadata.OriginalLength, metadata.Mode)
+
+	// Build appropriate prompt based on mode
+	prompt := p.buildSummarizationPrompt(task.Content, metadata)
+
+	// Generate summary using LLM
+	summary, err := p.ollama.GenerateWithModel(prompt, task.ModelName)
+	if err != nil {
+		log.Printf("Summarization failed for task %d: %v", task.ID, err)
+		return &TaskResult{
+			TaskID:   task.ID,
+			Success:  false,
+			Error:    err.Error(),
+			Duration: time.Since(start),
+		}, nil
+	}
+
+	log.Printf("Generated summary of %d chars from original %d chars", len(summary), metadata.OriginalLength)
+
+	// Store summary result
+	result := &SummarizationResult{
+		Summary:        summary,
+		OriginalLength: metadata.OriginalLength,
+		SummaryLength:  len(summary),
+		Mode:          metadata.Mode,
+	}
+
+	// If this is a session summary, store it in the database
+	if metadata.Mode == "session" && task.SessionID != nil {
+		if err := p.storeSessionSummary(*task.SessionID, summary, metadata); err != nil {
+			log.Printf("Failed to store session summary: %v", err)
+		}
+	}
 
 	return &TaskResult{
 		TaskID:   task.ID,
 		Success:  true,
-		Result:   "Summarization result placeholder",
+		Result:   result,
 		Duration: time.Since(start),
 	}, nil
 }
@@ -645,4 +675,125 @@ func (p *Processor) ProcessBatch(modelName string, batchSize int) error {
 	}
 
 	return nil
+}
+
+// buildSummarizationPrompt builds an appropriate summarization prompt based on mode
+func (p *Processor) buildSummarizationPrompt(content string, metadata SummarizationMetadata) string {
+	switch metadata.Mode {
+	case "session":
+		return fmt.Sprintf(`Summarize this Claude Code session. Focus on:
+1. Main tasks accomplished
+2. Key technologies and entities discussed
+3. Problems solved or decisions made
+4. Any unresolved issues or next steps
+
+Session content:
+%s
+
+Provide a concise but informative summary (max %d words).`, content, metadata.MaxLength)
+
+	case "extract":
+		return fmt.Sprintf(`Extract the key information from this text for semantic search.
+Focus on the most important concepts, entities, and actions.
+Keep technical terms and proper nouns intact.
+
+Text:
+%s
+
+Provide an extractive summary (max %d words) that preserves searchability.`, content, metadata.MaxLength)
+
+	case "light":
+		return fmt.Sprintf(`Provide a brief summary of this text, preserving key terms:
+%s
+
+Summary (max %d words):`, content, metadata.MaxLength)
+
+	default:
+		return fmt.Sprintf(`Summarize this text:
+%s
+
+Summary (max %d words):`, content, metadata.MaxLength)
+	}
+}
+
+// storeSessionSummary stores a session summary in the database
+func (p *Processor) storeSessionSummary(sessionID int64, summary string, metadata SummarizationMetadata) error {
+	db := p.db.GetDB()
+
+	// Extract key entities from the session
+	var keyEntities []int64
+	entitySQL := `
+		SELECT DISTINCT e.id
+		FROM entities e
+		WHERE e.session_id = ?
+		ORDER BY e.confidence DESC
+		LIMIT 10
+	`
+	rows, err := db.Query(entitySQL, sessionID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var entityID int64
+			if err := rows.Scan(&entityID); err == nil {
+				keyEntities = append(keyEntities, entityID)
+			}
+		}
+	}
+
+	// Extract key topics from summary (could be enhanced with LLM)
+	topics := extractKeyTopics(summary)
+
+	// Prepare JSON data
+	keyEntitiesJSON, _ := json.Marshal(keyEntities)
+	keyTopicsJSON, _ := json.Marshal(topics)
+
+	// Insert summary
+	insertSQL := `
+		INSERT INTO session_summaries (
+			session_id, summary_type, summary,
+			key_topics, key_entities, model_used, processing_time_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err = db.Exec(insertSQL,
+		sessionID,
+		"exit", // or metadata.Mode if we want to track different types
+		summary,
+		string(keyTopicsJSON),
+		string(keyEntitiesJSON),
+		"gemma3n:latest", // Could be passed in metadata
+		0, // Processing time could be calculated
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to store session summary: %w", err)
+	}
+
+	log.Printf("Stored session summary for session %d", sessionID)
+	return nil
+}
+
+// extractKeyTopics extracts key topics from text (basic implementation)
+func extractKeyTopics(text string) []string {
+	// This is a simple implementation - could be enhanced with LLM
+	topics := []string{}
+
+	// Look for common topic indicators
+	keywords := []string{
+		"implement", "fix", "debug", "create", "update",
+		"entity", "extraction", "summary", "session",
+		"bug", "feature", "refactor", "optimize",
+	}
+
+	lowerText := strings.ToLower(text)
+	for _, keyword := range keywords {
+		if strings.Contains(lowerText, keyword) {
+			topics = append(topics, keyword)
+			if len(topics) >= 5 {
+				break
+			}
+		}
+	}
+
+	return topics
 }
