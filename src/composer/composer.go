@@ -15,8 +15,7 @@ func ComposePrompt(personalities []string, customPrompts []string, includeContex
 	// Layer 1: Main prompt (primary interaction directive)
 	// This sets the fundamental behavior, similar to SillyTavern's main prompt
 	if len(personalities) > 0 || len(customPrompts) > 0 || includeContext {
-		mainPrompt := `## Primary Directive
-You are engaging in a natural conversation. Respond authentically based on the personality traits and context provided below. Your responses should be conversational, contextually appropriate, and true to the defined character traits.`
+		mainPrompt := `You are engaging in a natural conversation. Respond authentically based on the personality traits and context provided below. Your responses should be conversational, contextually appropriate, and true to the defined character traits.`
 		layers = append(layers, mainPrompt)
 	}
 	

@@ -3,19 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
-	"dere/src/config"
-	"dere/src/database"
-	"dere/src/embeddings"
+	"dere/src/daemon"
 	"dere/src/taskqueue"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -125,178 +119,20 @@ var daemonStatusCmd = &cobra.Command{
 }
 
 func startDaemon() error {
-	// Create PID file
-	pidPath := getPidFilePath()
-	pidFile, err := os.Create(pidPath)
-	if err != nil {
-		return fmt.Errorf("failed to create PID file: %w", err)
-	}
-
-	if _, err := pidFile.WriteString(fmt.Sprintf("%d", os.Getpid())); err != nil {
-		pidFile.Close()
-		os.Remove(pidPath)
-		return fmt.Errorf("failed to write PID: %w", err)
-	}
-	pidFile.Close()
-
-	// Cleanup PID file on exit
-	defer func() {
-		os.Remove(pidPath)
-	}()
-
-	// Setup signal handling for graceful shutdown and reload
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	reloadChan := make(chan os.Signal, 1)
-	signal.Notify(reloadChan, syscall.SIGHUP)
-
-	// Initialize components
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
-	db, err := database.NewTursoDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	defer db.Close()
-
-	queue, err := taskqueue.NewQueue(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to create task queue: %w", err)
-	}
-	defer queue.Close()
-
-	// Initialize Ollama client
-	configSettings, err := config.LoadSettings()
-	if err != nil || !configSettings.Ollama.Enabled {
-		return fmt.Errorf("Ollama configuration not found or disabled")
-	}
-
-	ollamaConfig := &config.OllamaConfig{
-		Enabled:        true,
-		URL:            configSettings.Ollama.URL,
-		EmbeddingModel: configSettings.Ollama.EmbeddingModel,
-	}
-
-	ollama := embeddings.NewOllamaClient(ollamaConfig)
-	processor := taskqueue.NewProcessor(queue, db, ollama)
-
-	fmt.Printf("Daemon started successfully (PID: %d)\n", os.Getpid())
-	fmt.Printf("Processing interval: %v\n", daemonInterval)
-	fmt.Println("Hot reload enabled - watching for changes...")
-
-	// Setup file watcher for hot reload
-	watcher, err := setupFileWatcher()
-	if err != nil {
-		fmt.Printf("Warning: Could not setup file watcher: %v\n", err)
-		watcher = nil
-	}
-	if watcher != nil {
-		defer watcher.Close()
-	}
-
-	// Main processing loop
-	ticker := time.NewTicker(daemonInterval)
-	defer ticker.Stop()
-
-	needsRestart := false
-
-	for {
-		select {
-		case <-ticker.C:
-			if err := processor.ProcessTasks(); err != nil {
-				fmt.Printf("Error processing tasks: %v\n", err)
-			}
-
-		case <-reloadChan:
-			fmt.Println("\nReceived SIGHUP, reloading configuration...")
-			if newConfig, err := config.LoadSettings(); err == nil {
-				ollamaConfig.URL = newConfig.Ollama.URL
-				ollamaConfig.EmbeddingModel = newConfig.Ollama.EmbeddingModel
-				fmt.Println("Configuration reloaded successfully")
-			} else {
-				fmt.Printf("Failed to reload config: %v\n", err)
-			}
-
-		case event := <-watcher.Events:
-			if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
-				fmt.Printf("\nDetected change in %s\n", event.Name)
-				needsRestart = true
-			}
-
-		case err := <-watcher.Errors:
-			fmt.Printf("Watcher error: %v\n", err)
-
-		case sig := <-sigChan:
-			fmt.Printf("\nReceived signal %v, shutting down gracefully...\n", sig)
-			return nil
-		}
-
-		// Handle restart if needed
-		if needsRestart {
-			fmt.Println("Triggering hot reload...")
-			return restartDaemon()
-		}
-	}
+	// Use the new daemon server
+	return daemon.Run(daemonInterval)
 }
 
 func stopDaemon(pid int) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("failed to find process: %w", err)
+	if err := daemon.Stop(pid); err != nil {
+		return err
 	}
-
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
-	}
-
-	// Wait a bit for graceful shutdown
-	time.Sleep(2 * time.Second)
-
-	// Check if process is still running
-	if err := process.Signal(syscall.Signal(0)); err == nil {
-		// Still running, force kill
-		fmt.Println("Graceful shutdown timed out, forcing kill...")
-		if err := process.Kill(); err != nil {
-			return fmt.Errorf("failed to kill process: %w", err)
-		}
-	}
-
-	// Clean up PID file
-	os.Remove(getPidFilePath())
 	fmt.Println("Daemon stopped successfully")
 	return nil
 }
 
 func isDaemonRunning() (bool, int) {
-	pidPath := getPidFilePath()
-	data, err := os.ReadFile(pidPath)
-	if err != nil {
-		return false, 0
-	}
-
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		return false, 0
-	}
-
-	// Check if process is actually running
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false, 0
-	}
-
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		// Process doesn't exist, clean up stale PID file
-		os.Remove(pidPath)
-		return false, 0
-	}
-
-	return true, pid
+	return daemon.IsRunning()
 }
 
 func getPidFilePath() string {
@@ -304,64 +140,6 @@ func getPidFilePath() string {
 	return filepath.Join(home, ".local", "share", "dere", "daemon.pid")
 }
 
-// setupFileWatcher creates a file watcher for hot reload
-func setupFileWatcher() (*fsnotify.Watcher, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
-
-	// Watch the dere binary for changes
-	executable, err := os.Executable()
-	if err == nil {
-		watcher.Add(executable)
-	}
-
-	// Watch config file
-	home, err := os.UserHomeDir()
-	if err == nil {
-		configFile := filepath.Join(home, ".config", "dere", "config.toml")
-		if _, err := os.Stat(configFile); err == nil {
-			watcher.Add(configFile)
-		}
-	}
-
-	return watcher, nil
-}
-
-// restartDaemon performs a hot restart
-func restartDaemon() error {
-	fmt.Println("Performing hot restart...")
-
-	// Get current executable path
-	executable, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
-	}
-
-	// Prepare restart command
-	args := []string{"daemon", "start"}
-	if daemonInterval != 5*time.Second {
-		args = append(args, "--interval", daemonInterval.String())
-	}
-	if daemonLogFile != "" {
-		args = append(args, "--log", daemonLogFile)
-	}
-
-	// Start new daemon process
-	cmd := exec.Command(executable, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start new daemon: %w", err)
-	}
-
-	fmt.Printf("New daemon started (PID: %d)\n", cmd.Process.Pid)
-
-	// Current process will exit naturally and be replaced
-	return nil
-}
 
 func showQueueStats() error {
 	home, err := os.UserHomeDir()

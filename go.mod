@@ -4,7 +4,6 @@ go 1.24.6
 
 require (
 	github.com/BurntSushi/toml v1.5.0
-	github.com/fsnotify/fsnotify v1.9.0
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	github.com/tursodatabase/go-libsql v0.0.0-20250912065916-9dd20bb43d31
@@ -12,6 +11,7 @@ require (
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/libsql/sqlite-antlr4-parser v0.0.0-20240327125255-dbf53b6cbf06 // indirect

@@ -96,6 +96,23 @@ func NewTursoDB(dbPath string) (*TursoDB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Configure SQLite for concurrent access
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=30000",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA cache_size=1000",
+		"PRAGMA foreign_keys=ON",
+	}
+
+	for _, pragma := range pragmas {
+		rows, err := db.Query(pragma)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set pragma %s: %w", pragma, err)
+		}
+		rows.Close()
+	}
+
 	tdb := &TursoDB{db: db}
 
 	// Initialize schema
@@ -167,6 +184,7 @@ func (t *TursoDB) initSchema() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		session_id INTEGER REFERENCES sessions(id),
 		prompt TEXT NOT NULL,
+		message_type TEXT NOT NULL DEFAULT 'user',
 		embedding_text TEXT,
 		processing_mode TEXT,
 		prompt_embedding FLOAT32(1024),
@@ -176,6 +194,11 @@ func (t *TursoDB) initSchema() error {
 
 	if _, err := t.db.Exec(conversationsTableSQL); err != nil {
 		return fmt.Errorf("failed to create conversations table: %w", err)
+	}
+
+	// Add message_type column to existing tables if it doesn't exist
+	if err := t.addMessageTypeColumn(); err != nil {
+		return fmt.Errorf("failed to add message_type column: %w", err)
 	}
 
 	// Task queue table for background processing
@@ -318,6 +341,43 @@ func (t *TursoDB) initSchema() error {
 	return nil
 }
 
+// addMessageTypeColumn adds the message_type column to existing conversations table if it doesn't exist
+func (t *TursoDB) addMessageTypeColumn() error {
+	// Check if column already exists
+	rows, err := t.db.Query("PRAGMA table_info(conversations)")
+	if err != nil {
+		return fmt.Errorf("failed to get table info: %w", err)
+	}
+	defer rows.Close()
+
+	hasMessageType := false
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			continue
+		}
+
+		if name == "message_type" {
+			hasMessageType = true
+			break
+		}
+	}
+
+	// Add column if it doesn't exist
+	if !hasMessageType {
+		alterSQL := `ALTER TABLE conversations ADD COLUMN message_type TEXT NOT NULL DEFAULT 'user'`
+		if _, err := t.db.Exec(alterSQL); err != nil {
+			return fmt.Errorf("failed to add message_type column: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // CreateSession creates a new session record
 func (t *TursoDB) CreateSession(workingDir string, personalities []string, mcpServers []string, flags map[string]string, continuedFrom *int64) (int64, error) {
 	// Detect project type from working directory
@@ -381,11 +441,28 @@ func (t *TursoDB) Store(sessionID int64, prompt, embeddingText, processingMode s
 	embeddingBytes := float32SliceToBytes(embedding)
 
 	insertSQL := `
-	INSERT INTO conversations (session_id, prompt, embedding_text, processing_mode, prompt_embedding, timestamp)
-	VALUES (?, ?, ?, ?, ?, ?)
+	INSERT INTO conversations (session_id, prompt, embedding_text, processing_mode, message_type, prompt_embedding, timestamp)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := t.db.Exec(insertSQL, sessionID, prompt, embeddingText, processingMode, embeddingBytes, time.Now().Unix())
+	_, err := t.db.Exec(insertSQL, sessionID, prompt, embeddingText, processingMode, "user", embeddingBytes, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("failed to store conversation: %w", err)
+	}
+
+	return nil
+}
+
+// StoreWithMessageType saves a conversation with its embedding and specific message type
+func (t *TursoDB) StoreWithMessageType(sessionID int64, prompt, embeddingText, processingMode, messageType string, embedding []float32) error {
+	embeddingBytes := float32SliceToBytes(embedding)
+
+	insertSQL := `
+	INSERT INTO conversations (session_id, prompt, embedding_text, processing_mode, message_type, prompt_embedding, timestamp)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := t.db.Exec(insertSQL, sessionID, prompt, embeddingText, processingMode, messageType, embeddingBytes, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("failed to store conversation: %w", err)
 	}

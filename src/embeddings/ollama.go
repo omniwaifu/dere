@@ -50,6 +50,10 @@ func NewOllamaClient(cfg *config.OllamaConfig) *OllamaClient {
 	}
 }
 
+func (c *OllamaClient) GetEmbeddingModel() string {
+	return c.model
+}
+
 func (c *OllamaClient) GetEmbedding(text string) ([]float32, error) {
 	reqBody := OllamaEmbedRequest{
 		Model:  c.model,
