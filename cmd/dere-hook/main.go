@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"dere/src/database"
 	"dere/src/taskqueue"
 )
 
@@ -126,8 +127,33 @@ func logDebug(format string, args ...interface{}) {
 		return
 	}
 	defer f.Close()
-	
+
 	fmt.Fprintf(f, format+"\n", args...)
+}
+
+// storeConversation stores the user prompt in the conversations table
+func storeConversation(dbPath string, sessionID int64, prompt string, processingMode string) error {
+	db, err := database.NewTursoDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	sqlDB := db.GetDB()
+
+	// Insert conversation record
+	query := `
+		INSERT INTO conversations (session_id, prompt, processing_mode, timestamp)
+		VALUES (?, ?, ?, ?)
+	`
+
+	timestamp := time.Now().Unix()
+	_, err = sqlDB.Exec(query, sessionID, prompt, processingMode, timestamp)
+	if err != nil {
+		return fmt.Errorf("failed to insert conversation: %w", err)
+	}
+
+	return nil
 }
 
 func main() {
@@ -246,6 +272,11 @@ func main() {
 		} else {
 			logDebug("Queued summarization task %d for processing", sumTask.ID)
 		}
+	}
+
+	// Store conversation in database for future summarization
+	if err := storeConversation(config.DBPath, sessionID, hookInput.Prompt, processingMode); err != nil {
+		logDebug("Failed to store conversation: %v", err)
 	}
 
 	// Always exit 0 to not block Claude

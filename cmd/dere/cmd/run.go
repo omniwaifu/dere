@@ -43,6 +43,28 @@ func runDere(cmd *cobra.Command, args []string) error {
 		os.Setenv("DERE_SESSION_ID", strconv.FormatInt(sessionID, 10))
 	}
 
+	// Set environment variables for status line and hooks
+	if len(config.MCPServers) > 0 {
+		os.Setenv("DERE_MCP_SERVERS", strings.Join(config.MCPServers, ","))
+	}
+	if len(config.CustomPrompts) > 0 {
+		os.Setenv("DERE_CUSTOM_PROMPTS", strings.Join(config.CustomPrompts, ","))
+	}
+	if config.Context {
+		os.Setenv("DERE_CONTEXT", "true")
+	}
+	if config.OutputStyle != "" {
+		os.Setenv("DERE_OUTPUT_STYLE", config.OutputStyle)
+	}
+	// Determine session type
+	sessionType := "new"
+	if config.Continue {
+		sessionType = "continue"
+	} else if config.Resume != "" {
+		sessionType = "resume"
+	}
+	os.Setenv("DERE_SESSION_TYPE", sessionType)
+
 	// Setup settings builder for dynamic configuration
 	personalityStr := settings.GetPersonalityString(config.Personalities)
 	settingsBuilder := settings.NewSettingsBuilder(personalityStr, config.OutputStyle)
