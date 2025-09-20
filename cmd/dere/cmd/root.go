@@ -16,16 +16,9 @@ var (
 	resume          string
 	
 	// Personality flags
-	tsun bool
-	kuu  bool
-	yan  bool
-	dere bool
-	ero  bool
+	personalities []string
 	
 	// Model flags
-	opus   bool
-	sonnet bool
-	haiku  bool
 	model  string
 	fallbackModel string
 	
@@ -48,18 +41,30 @@ var (
 	
 	// Config file
 	cfgFile string
+
+	// Claude passthrough flags
+	printMode                bool
+	debugMode                string
+	verboseMode              bool
+	outputFormat             string
+	inputFormat              string
+	includePartialMessages   bool
+	replayUserMessages       bool
+	sessionID                string
+	dangerouslySkipPermissions bool
+	strictMCPConfig          bool
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "dere [flags] [claude-args...]",
 	Short: "Layered AI assistant with composable personalities for Claude CLI",
-	Long: `dere wraps Claude CLI with personality layers, context awareness, 
+	Long: `dere wraps Claude CLI with personality layers, context awareness,
 and conversation memory via embeddings.
 
 When run without subcommands, it launches Claude with the specified configuration.
 Additional arguments are passed through to Claude.`,
-	DisableFlagParsing: false,
+	Args: cobra.ArbitraryArgs,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -75,9 +80,6 @@ func init() {
 	
 	// Set the run function
 	rootCmd.RunE = runDere
-
-	// Stop parsing flags after first non-flag argument (for Claude pass-through)
-	rootCmd.Flags().SetInterspersed(false)
 	
 	// Core flags
 	rootCmd.Flags().BoolVar(&bare, "bare", false, "Bare mode - no personality or context")
@@ -86,16 +88,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&resume, "resume", "r", "", "Resume a specific session ID")
 	
 	// Personality flags
-	rootCmd.Flags().BoolVar(&tsun, "tsun", false, "Tsundere mode")
-	rootCmd.Flags().BoolVar(&kuu, "kuu", false, "Cold analytical mode")
-	rootCmd.Flags().BoolVar(&yan, "yan", false, "Overly helpful mode")
-	rootCmd.Flags().BoolVar(&dere, "dere", false, "Actually nice mode")
-	rootCmd.Flags().BoolVar(&ero, "ero", false, "Playfully teasing mode")
+	rootCmd.Flags().StringSliceVarP(&personalities, "personality", "P", nil, "Personality modes (tsun,kuu,yan,dere,ero)")
 	
-	// Model shortcuts
-	rootCmd.Flags().BoolVar(&opus, "opus", false, "Use Claude Opus model")
-	rootCmd.Flags().BoolVar(&sonnet, "sonnet", false, "Use Claude Sonnet model")
-	rootCmd.Flags().BoolVar(&haiku, "haiku", false, "Use Claude Haiku model")
 	
 	// Model configuration
 	rootCmd.Flags().StringVar(&model, "model", "", "Model override (e.g., 'opus' or full model name)")
@@ -120,15 +114,23 @@ func init() {
 	
 	// Config file
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/dere/config.toml)")
+
+	// Claude passthrough flags
+	rootCmd.Flags().BoolVarP(&printMode, "print", "p", false, "Print response and exit (passthrough to Claude)")
+	rootCmd.Flags().StringVarP(&debugMode, "debug", "d", "", "Enable debug mode with optional filtering (passthrough to Claude)")
+	rootCmd.Flags().BoolVar(&verboseMode, "verbose", false, "Override verbose mode setting (passthrough to Claude)")
+	rootCmd.Flags().StringVar(&outputFormat, "output-format", "", "Output format: text, json, or stream-json (passthrough to Claude)")
+	rootCmd.Flags().StringVar(&inputFormat, "input-format", "", "Input format: text or stream-json (passthrough to Claude)")
+	rootCmd.Flags().BoolVar(&includePartialMessages, "include-partial-messages", false, "Include partial message chunks (passthrough to Claude)")
+	rootCmd.Flags().BoolVar(&replayUserMessages, "replay-user-messages", false, "Re-emit user messages (passthrough to Claude)")
+	rootCmd.Flags().StringVar(&sessionID, "session-id", "", "Use specific session ID (passthrough to Claude)")
+	rootCmd.Flags().BoolVar(&dangerouslySkipPermissions, "dangerously-skip-permissions", false, "Bypass permission checks (passthrough to Claude)")
+	rootCmd.Flags().BoolVar(&strictMCPConfig, "strict-mcp-config", false, "Only use specified MCP configs (passthrough to Claude)")
 	
 	// Bind flags to viper
 	viper.BindPFlag("bare", rootCmd.Flags().Lookup("bare"))
 	viper.BindPFlag("context", rootCmd.Flags().Lookup("context"))
-	viper.BindPFlag("personalities.tsun", rootCmd.Flags().Lookup("tsun"))
-	viper.BindPFlag("personalities.kuu", rootCmd.Flags().Lookup("kuu"))
-	viper.BindPFlag("personalities.yan", rootCmd.Flags().Lookup("yan"))
-	viper.BindPFlag("personalities.dere", rootCmd.Flags().Lookup("dere"))
-	viper.BindPFlag("personalities.ero", rootCmd.Flags().Lookup("ero"))
+	viper.BindPFlag("personalities", rootCmd.Flags().Lookup("personality"))
 	viper.BindPFlag("model", rootCmd.Flags().Lookup("model"))
 	viper.BindPFlag("ollama.enabled", rootCmd.Flags().Lookup("ollama.enabled"))
 	viper.BindPFlag("ollama.url", rootCmd.Flags().Lookup("ollama.url"))
@@ -182,32 +184,7 @@ func GetConfig() *Config {
 		ExtraArgs:       rootCmd.Flags().Args(),
 	}
 	
-	// Determine personality
-	personalities := []string{}
-	if tsun {
-		personalities = append(personalities, "tsun")
-	}
-	if kuu {
-		personalities = append(personalities, "kuu")
-	}
-	if yan {
-		personalities = append(personalities, "yan")
-	}
-	if dere {
-		personalities = append(personalities, "dere")
-	}
-	if ero {
-		personalities = append(personalities, "ero")
-	}
 	
-	// Model shortcuts override
-	if opus {
-		cfg.Model = "opus"
-	} else if sonnet {
-		cfg.Model = "sonnet"
-	} else if haiku {
-		cfg.Model = "haiku"
-	}
 	
 	if bare {
 		cfg.Personalities = []string{}
@@ -216,7 +193,41 @@ func GetConfig() *Config {
 		cfg.Personalities = personalities
 		cfg.CustomPrompts = prompts
 	}
-	
+
+	// Build passthrough args for Claude
+	var passthroughArgs []string
+	if printMode {
+		passthroughArgs = append(passthroughArgs, "-p")
+	}
+	if debugMode != "" {
+		passthroughArgs = append(passthroughArgs, "-d", debugMode)
+	}
+	if verboseMode {
+		passthroughArgs = append(passthroughArgs, "--verbose")
+	}
+	if outputFormat != "" {
+		passthroughArgs = append(passthroughArgs, "--output-format", outputFormat)
+	}
+	if inputFormat != "" {
+		passthroughArgs = append(passthroughArgs, "--input-format", inputFormat)
+	}
+	if includePartialMessages {
+		passthroughArgs = append(passthroughArgs, "--include-partial-messages")
+	}
+	if replayUserMessages {
+		passthroughArgs = append(passthroughArgs, "--replay-user-messages")
+	}
+	if sessionID != "" {
+		passthroughArgs = append(passthroughArgs, "--session-id", sessionID)
+	}
+	if dangerouslySkipPermissions {
+		passthroughArgs = append(passthroughArgs, "--dangerously-skip-permissions")
+	}
+	if strictMCPConfig {
+		passthroughArgs = append(passthroughArgs, "--strict-mcp-config")
+	}
+	cfg.PassthroughArgs = passthroughArgs
+
 	return cfg
 }
 
@@ -239,4 +250,5 @@ type Config struct {
 	MCPConfigPath   string
 	OutputStyle     string
 	ExtraArgs       []string
+	PassthroughArgs []string
 }

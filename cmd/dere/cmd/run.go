@@ -174,6 +174,9 @@ func runDere(cmd *cobra.Command, args []string) error {
 		}
 	}
 	
+	// Add passthrough args first
+	claudeArgs = append(claudeArgs, config.PassthroughArgs...)
+
 	// Add extra args
 	claudeArgs = append(claudeArgs, config.ExtraArgs...)
 
