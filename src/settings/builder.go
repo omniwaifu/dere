@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ type SettingsBuilder struct {
 type ClaudeSettings struct {
 	OutputStyle string                 `json:"outputStyle,omitempty"`
 	Hooks       map[string]interface{} `json:"hooks,omitempty"`
+	StatusLine  map[string]interface{} `json:"statusLine,omitempty"`
 	Model       string                 `json:"model,omitempty"`
 	Env         map[string]string      `json:"env,omitempty"`
 }
@@ -67,8 +69,9 @@ func findHookScript() string {
 
 func (sb *SettingsBuilder) Build() (string, error) {
 	settings := &ClaudeSettings{
-		Hooks: make(map[string]interface{}),
-		Env:   make(map[string]string),
+		Hooks:      make(map[string]interface{}),
+		StatusLine: make(map[string]interface{}),
+		Env:        make(map[string]string),
 	}
 
 	if sb.outputStyle != "" {
@@ -77,6 +80,10 @@ func (sb *SettingsBuilder) Build() (string, error) {
 
 	if err := sb.addConversationHook(settings); err != nil {
 		return "", fmt.Errorf("failed to add conversation hook: %w", err)
+	}
+
+	if err := sb.addStatusLine(settings); err != nil {
+		return "", fmt.Errorf("failed to add status line: %w", err)
 	}
 
 	// Add all the hook environment data directly to settings.Env
@@ -95,8 +102,10 @@ func (sb *SettingsBuilder) Build() (string, error) {
 
 func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
 	if _, err := os.Stat(sb.hookScriptPath); err != nil {
+		log.Printf("Hook script not found at %s: %v", sb.hookScriptPath, err)
 		return nil
 	}
+	log.Printf("Adding UserPromptSubmit hook: %s", sb.hookScriptPath)
 
 	hook := HookMatcher{
 		Matcher: "",
@@ -110,18 +119,23 @@ func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
 
 	settings.Hooks["UserPromptSubmit"] = []HookMatcher{hook}
 
-	// Add SessionEnd hook for summarization
-	sessionEndHook := HookMatcher{
-		Matcher: "",
-		Hooks: []Hook{
-			{
-				Type:    "command",
-				Command: sb.hookScriptPath + "-session-end",
+	// Add SessionEnd hook for summarization if it exists
+	sessionEndPath := sb.hookScriptPath + "-session-end"
+	if _, err := os.Stat(sessionEndPath); err == nil {
+		log.Printf("Adding SessionEnd hook: %s", sessionEndPath)
+		sessionEndHook := HookMatcher{
+			Matcher: "",
+			Hooks: []Hook{
+				{
+					Type:    "command",
+					Command: sessionEndPath,
+				},
 			},
-		},
+		}
+		settings.Hooks["SessionEnd"] = []HookMatcher{sessionEndHook}
+	} else {
+		log.Printf("SessionEnd hook not found at %s: %v", sessionEndPath, err)
 	}
-
-	settings.Hooks["SessionEnd"] = []HookMatcher{sessionEndHook}
 
 	return nil
 }
@@ -136,6 +150,23 @@ func (sb *SettingsBuilder) addHookEnvironment(settings *ClaudeSettings) error {
 	// Add session ID if set
 	if sessionID := os.Getenv("DERE_SESSION_ID"); sessionID != "" {
 		settings.Env["DERE_SESSION_ID"] = sessionID
+	}
+
+	// Add status line configuration from command line flags
+	if mcpServers := os.Getenv("DERE_MCP_SERVERS"); mcpServers != "" {
+		settings.Env["DERE_MCP_SERVERS"] = mcpServers
+	}
+	if customPrompts := os.Getenv("DERE_CUSTOM_PROMPTS"); customPrompts != "" {
+		settings.Env["DERE_CUSTOM_PROMPTS"] = customPrompts
+	}
+	if context := os.Getenv("DERE_CONTEXT"); context != "" {
+		settings.Env["DERE_CONTEXT"] = context
+	}
+	if sessionType := os.Getenv("DERE_SESSION_TYPE"); sessionType != "" {
+		settings.Env["DERE_SESSION_TYPE"] = sessionType
+	}
+	if outputStyle := os.Getenv("DERE_OUTPUT_STYLE"); outputStyle != "" {
+		settings.Env["DERE_OUTPUT_STYLE"] = outputStyle
 	}
 
 	// Add Ollama configuration if enabled
@@ -163,6 +194,38 @@ func (sb *SettingsBuilder) createTempFile(settings *ClaudeSettings) (string, err
 	}
 	
 	return tempPath, nil
+}
+
+// addStatusLine adds custom status line configuration
+func (sb *SettingsBuilder) addStatusLine(settings *ClaudeSettings) error {
+	homeDir, _ := os.UserHomeDir()
+
+	// Look for status line script
+	statusLineScriptPath := filepath.Join(homeDir, ".config", "dere", ".claude", "hooks", "dere-statusline")
+
+	// Check if we have a built-in statusline binary
+	if _, err := os.Stat(statusLineScriptPath); err != nil {
+		// Try to find it relative to the main binary
+		if exePath, err := os.Executable(); err == nil {
+			builtinPath := filepath.Join(filepath.Dir(exePath), "dere-statusline")
+			if _, err := os.Stat(builtinPath); err == nil {
+				statusLineScriptPath = builtinPath
+			} else {
+				// No status line script available
+				return nil
+			}
+		} else {
+			return nil
+		}
+	}
+
+	settings.StatusLine = map[string]interface{}{
+		"type":    "command",
+		"command": statusLineScriptPath,
+		"padding": 0,
+	}
+
+	return nil
 }
 
 func (sb *SettingsBuilder) Cleanup() error {

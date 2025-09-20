@@ -7,6 +7,7 @@ build:
 	go build -o bin/dere cmd/dere/main.go
 	go build -o bin/dere-hook cmd/dere-hook/main.go
 	go build -o bin/dere-hook-session-end cmd/dere-hook-session-end/main.go
+	go build -o bin/dere-statusline cmd/dere-statusline/main.go
 
 # Build all binaries
 build-all:
@@ -15,6 +16,7 @@ build-all:
 	go build -o bin/dere cmd/dere/main.go
 	go build -o bin/dere-hook cmd/dere-hook/main.go
 	go build -o bin/dere-hook-session-end cmd/dere-hook-session-end/main.go
+	go build -o bin/dere-statusline cmd/dere-statusline/main.go
 
 # Install binaries to user PATH
 install: build-all
@@ -22,6 +24,7 @@ install: build-all
 	cp bin/dere ~/.local/bin/
 	cp bin/dere-hook ~/.local/bin/
 	cp bin/dere-hook-session-end ~/.local/bin/
+	cp bin/dere-statusline ~/.local/bin/
 
 clean:
 	rm -rf bin/
