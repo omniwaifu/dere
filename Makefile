@@ -1,30 +1,25 @@
 .PHONY: build build-all clean install
 
-# Build main dere binary and hooks
+# Build main dere binary only (hooks are now Python scripts)
 build:
 	go mod tidy
 	mkdir -p bin
 	go build -o bin/dere cmd/dere/main.go
-	go build -o bin/dere-hook cmd/dere-hook/main.go
-	go build -o bin/dere-hook-session-end cmd/dere-hook-session-end/main.go
-	go build -o bin/dere-statusline cmd/dere-statusline/main.go
 
 # Build all binaries
 build-all:
 	go mod tidy
 	mkdir -p bin
 	go build -o bin/dere cmd/dere/main.go
-	go build -o bin/dere-hook cmd/dere-hook/main.go
-	go build -o bin/dere-hook-session-end cmd/dere-hook-session-end/main.go
-	go build -o bin/dere-statusline cmd/dere-statusline/main.go
 
-# Install binaries to user PATH
+# Install binaries and Python hooks to user PATH
 install: build-all
 	mkdir -p ~/.local/bin
 	cp bin/dere ~/.local/bin/
-	cp bin/dere-hook ~/.local/bin/
-	cp bin/dere-hook-session-end ~/.local/bin/
-	cp bin/dere-statusline ~/.local/bin/
+	cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
+	cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
+	cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
+	cp hooks/python/rpc_client.py ~/.local/bin/
 
 clean:
 	rm -rf bin/

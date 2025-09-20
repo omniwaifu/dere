@@ -55,11 +55,11 @@ func (q *Queue) Add(taskType TaskType, modelName, content string, metadata inter
 	metadataJSON, _ := json.Marshal(task.Metadata)
 
 	query := `
-		INSERT INTO task_queue (task_type, model_name, content, metadata, priority, session_id)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO task_queue (task_type, model_name, content, metadata, priority, session_id, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := q.db.Exec(query, string(taskType), modelName, content, string(metadataJSON), priority, sessionID)
+	result, err := q.db.Exec(query, string(taskType), modelName, content, string(metadataJSON), priority, sessionID, string(TaskStatusPending))
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert task: %w", err)
 	}

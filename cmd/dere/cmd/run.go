@@ -25,23 +25,9 @@ func runDere(cmd *cobra.Command, args []string) error {
 	config := GetConfig()
 	config.ExtraArgs = args // Args after flags are Claude args
 
-	// Create session record in database
-	sessionID, db, err := createSessionRecord(config)
-	if err != nil {
-		log.Printf("Warning: Failed to create session record: %v", err)
-		sessionID = 0 // Continue without session tracking
-	}
-	defer func() {
-		if db != nil && sessionID != 0 {
-			db.EndSession(sessionID)
-			db.Close()
-		}
-	}()
-
-	// Set session ID for hook to use
-	if sessionID != 0 {
-		os.Setenv("DERE_SESSION_ID", strconv.FormatInt(sessionID, 10))
-	}
+	// Generate session ID for hooks to use - daemon will create the actual session
+	sessionID := generateSessionID()
+	os.Setenv("DERE_SESSION_ID", strconv.FormatInt(sessionID, 10))
 
 	// Set environment variables for status line and hooks
 	if len(config.MCPServers) > 0 {
@@ -231,6 +217,11 @@ func runDere(cmd *cobra.Command, args []string) error {
 	}
 	
 	return nil
+}
+
+// generateSessionID creates a unique session ID
+func generateSessionID() int64 {
+	return time.Now().UnixNano() % (1<<31)
 }
 
 // createSessionRecord creates a new session record in the database

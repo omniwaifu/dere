@@ -34,12 +34,20 @@ func NewProcessor(queue *Queue, db *database.TursoDB, ollama *embeddings.OllamaC
 
 // ProcessTasks processes tasks in batches by model to minimize switching
 func (p *Processor) ProcessTasks() error {
+	// Check database health before processing
+	if err := p.db.GetDB().Ping(); err != nil {
+		log.Printf("Database connection unhealthy, skipping task processing: %v", err)
+		return fmt.Errorf("database connection failed: %w", err)
+	}
+
 	tasksByModel, err := p.queue.GetTasksByModel()
 	if err != nil {
+		log.Printf("Failed to get tasks by model: %v", err)
 		return fmt.Errorf("failed to get tasks by model: %w", err)
 	}
 
 	if len(tasksByModel) == 0 {
+		log.Printf("No tasks to process")
 		return nil // No tasks to process
 	}
 
@@ -63,6 +71,8 @@ func (p *Processor) ProcessTasks() error {
 		for _, task := range tasks {
 			if err := p.processTask(task); err != nil {
 				log.Printf("Failed to process task %d: %v", task.ID, err)
+				// Continue with next task instead of stopping processor
+				continue
 			}
 		}
 	}
@@ -106,7 +116,9 @@ func (p *Processor) getTaskDescription(task *Task) string {
 func (p *Processor) processTask(task *Task) error {
 	// Mark as processing
 	if err := p.queue.UpdateStatus(task.ID, TaskStatusProcessing, nil); err != nil {
-		return fmt.Errorf("failed to mark task as processing: %w", err)
+		log.Printf("Failed to mark task %d as processing (database lock?): %v", task.ID, err)
+		// Continue processing task anyway, just log the error
+		log.Printf("Continuing to process task %d despite status update failure", task.ID)
 	}
 
 	// Log task start with description
@@ -204,6 +216,7 @@ func (p *Processor) processSummarizationTask(task *Task) (*TaskResult, error) {
 	prompt := p.buildSummarizationPrompt(task.Content, metadata, task.ModelName)
 
 	// Generate summary using LLM (no schema for free text output)
+	log.Printf("Summarization prompt for task %d:\n%s", task.ID, prompt)
 	summary, err := p.ollama.GenerateWithModel(prompt, task.ModelName, nil)
 	if err != nil {
 		log.Printf("Summarization failed for task %d: %v", task.ID, err)
@@ -729,29 +742,22 @@ func (p *Processor) buildSummarizationPrompt(content string, metadata Summarizat
 
 	switch metadata.Mode {
 	case "session":
-		template = `Summarize this Claude Code session. Focus on:
-1. Main tasks accomplished
-2. Key technologies and entities discussed
-3. Problems solved or decisions made
-4. Any unresolved issues or next steps
+		template = `%s
 
-Session content:
+Your task: Summarize the conversation below. Do not use numbered lists, bullet points, or structured formatting. Write in plain paragraphs only.
+
+Conversation:
 %s
 
-Provide a concise but informative summary (max %d words).`
+Summary (max %d words):`
 
 	case "progressive_session":
 		// This mode will be handled specially in processSummarizationTask
-		template = `Summarize this Claude Code session segment. Focus on:
-1. Main tasks accomplished in this segment
-2. Key technologies and entities discussed
-3. Problems solved or decisions made
-4. Context that should be preserved for later segments
+		template = `Summarize the following conversation segment. Do not use numbered lists, bullet points, or structured formatting. Write in plain paragraphs only.
 
-Session segment content:
 %s
 
-Provide a detailed summary (max %d words) that preserves important context.`
+Summary (max %d words):`
 
 	case "extract":
 		template = `Extract the key information from this text for semantic search.
@@ -776,9 +782,15 @@ Summary (max %d words):`
 Summary (max %d words):`
 	}
 
+	// Add personality context if available
+	personalityContext := ""
+	if metadata.Personality != "" {
+		personalityContext = metadata.Personality
+	}
+
 	// For progressive modes, content is already segmented appropriately
 	// For regular modes, assume content length is already appropriate (handled by progressive summarization)
-	return fmt.Sprintf(template, content, metadata.MaxLength)
+	return fmt.Sprintf(template, personalityContext, content, metadata.MaxLength)
 }
 
 // storeSessionSummary stores a session summary in the database

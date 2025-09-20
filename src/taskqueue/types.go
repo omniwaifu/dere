@@ -62,6 +62,7 @@ type SummarizationMetadata struct {
 	OriginalLength int    `json:"original_length"`
 	Mode          string `json:"mode"` // "light", "extract"
 	MaxLength     int    `json:"max_length"`
+	Personality   string `json:"personality,omitempty"`
 }
 
 // EntityExtractionMetadata contains metadata for entity extraction tasks
