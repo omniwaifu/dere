@@ -29,6 +29,8 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 
 - [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
 - Go 1.20+（ビルド用）
+- Python 3.8+（フックスクリプト用）
+- [Just](https://github.com/casey/just)（オプション、モダンビルドコマンド用）
 - [Ollama](https://ollama.ai)（オプション、埋め込みと要約用）
 - [rustormy](https://github.com/yourusername/rustormy)（オプション、天気コンテキスト用）
 
@@ -37,27 +39,30 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 ```bash
 git clone https://github.com/yourusername/dere.git
 cd dere
-make install
+just install  # または 'make install' を使用
 ```
 
 これにより：
-- メインバイナリとフックをビルド
-- /usr/local/binにインストール
-- 必要な設定ディレクトリを作成
-- 会話キャプチャを自動設定
+- メインdereバイナリをビルド
+- dereバイナリとPythonフックスクリプトを~/.local/binにインストール
+- 会話キャプチャ、セッション要約、デーモン通信を自動設定
 
 ### 手動セットアップ
 
 1. プロジェクトをビルド：
 ```bash
-make build
+just build  # または 'make build'
 ```
 
-2. バイナリをPATHにコピーまたはリンク：
+2. バイナリとスクリプトをPATHにコピーまたはリンク：
 ```bash
-cp bin/dere /usr/local/bin/
-cp bin/dere-hook /usr/local/bin/
-ln -s $(pwd)/bin/dere-hook ~/.config/dere/.claude/hooks/dere-hook
+cp bin/dere ~/.local/bin/  # または /usr/local/bin/
+cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
+cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
+cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
+cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
+cp hooks/python/rpc_client.py ~/.local/bin/
+chmod +x ~/.local/bin/dere-*
 ```
 
 3. Ollamaを設定（オプション、会話埋め込み用）：
@@ -103,6 +108,8 @@ dere -c                          # 前の会話を継続
 dere --prompts=rust,security     # カスタムプロンプトをロード
 dere --mcp=dev                   # MCPプロファイルを使用
 dere --mcp="linear,obsidian"      # 特定MCPサーバーを使用
+dere --mcp="tag:media"            # タグでMCPサーバーを使用
+dere --output-style=verbose      # Claudeの出力スタイルを変更
 
 # Claude CLIパススルー（完全互換）
 dere -p "hello world"             # プリントモード（非インタラクティブ）
@@ -130,7 +137,49 @@ dere -P tsun,kuu -p "このコードを修正"        # 複数性格 + プリン
 ```
 
 ### MCPサーバー
-`~/.claude/claude_desktop_config.json`からの既存のClaude Desktop設定を使用
+`~/.config/dere/mcp_config.json`で独立管理
+
+```bash
+# MCP管理コマンド
+dere mcp list                      # 設定されたサーバーをリスト
+dere mcp profiles                  # 利用可能なプロファイルを表示
+dere mcp add <name> <command>      # 新しいサーバーを追加
+dere mcp remove <name>             # サーバーを削除
+dere mcp copy-from-claude          # Claude Desktopからインポート
+
+# MCPサーバーの使用
+dere --mcp=dev                     # 'dev'プロファイルを使用
+dere --mcp="linear,obsidian"       # 特定サーバーを使用
+dere --mcp="*spotify*"             # パターンマッチング
+dere --mcp="tag:media"             # タグベース選択
+```
+
+### デーモンとキュー管理
+埋め込み、要約、その他のLLMタスクのバックグラウンド処理：
+
+```bash
+# デーモン管理
+dere daemon start                  # バックグラウンドタスクプロセッサを開始
+dere daemon stop                   # デーモンを停止
+dere daemon restart                # デーモンを再起動（ホットリロード）
+dere daemon status                 # デーモンステータスとキュー統計を表示
+dere daemon reload                 # 設定をリロード（SIGHUP）
+
+# キュー管理
+dere queue list                    # 保留中のタスクをリスト
+dere queue stats                   # キュー統計を表示
+dere queue process                 # 保留中のタスクを手動処理
+```
+
+### セッション要約
+自動生成されたセッション要約の表示と管理：
+
+```bash
+# 要約管理
+dere summaries list                # すべてのセッション要約をリスト
+dere summaries list --project=/path  # プロジェクトパスでフィルタ
+dere summaries show <id>           # 詳細要約を表示
+```
 
 ### エンティティ管理
 会話から抽出されたエンティティは自動的に保存され、CLIコマンドで管理できます：
@@ -160,30 +209,49 @@ dere entities graph React          # 特定エンティティの関係を表示
 ```
 dere/
 ├── cmd/
-│   ├── dere/          # メインCLIエントリーポイント
-│   └── dere-hook/     # 会話キャプチャ用Goフック
+│   └── dere/                    # メインCLIエントリーポイント
 ├── src/
-│   ├── cli/           # CLI引数解析
-│   ├── composer/      # プロンプト構成
-│   ├── config/        # 設定管理
-│   ├── database/      # ベクトル検索付きTurso/libSQL
-│   ├── embeddings/    # Ollama埋め込みクライアント
-│   ├── hooks/         # Claude CLIフック管理
-│   ├── mcp/           # MCPサーバー設定
-│   └── weather/       # 天気コンテキスト統合
-├── prompts/           # ビルトイン性格プロンプト
-└── scripts/           # インストールスクリプト
+│   ├── commands/                # 動的コマンド生成
+│   ├── composer/                # プロンプト構成
+│   ├── config/                  # 設定管理
+│   ├── daemon/                  # バックグラウンドデーモンサーバー
+│   ├── database/                # ベクトル検索付きTurso/libSQL
+│   ├── embeddings/              # Ollama埋め込みクライアント
+│   ├── mcp/                     # MCPサーバー管理
+│   ├── settings/                # Claude設定生成
+│   ├── taskqueue/               # バックグラウンドタスク処理
+│   └── weather/                 # 天気コンテキスト統合
+├── hooks/
+│   └── python/                  # Pythonフックスクリプト
+│       ├── dere-hook.py         # 会話キャプチャフック
+│       ├── dere-hook-session-end.py  # セッション終了フック
+│       ├── dere-statusline.py   # ステータスライン表示
+│       ├── dere-stop-hook.py    # キャプチャ停止フック
+│       └── rpc_client.py        # RPC通信クライアント
+├── prompts/                     # ビルトイン性格プロンプト
+└── scripts/                     # インストールスクリプト
 ```
 
 ### ソースからビルド
 ```bash
+just build      # メインバイナリをビルド
+just clean      # ビルド成果物をクリーン
+just install    # ビルドして~/.local/binにインストール
+just test       # テストを実行
+just lint       # リンティングを実行
+just dev        # 開発デーモンを開始
+just --list     # 利用可能なコマンドをすべて表示
+```
+
+従来のmakeも使用可能：
+```bash
 make build      # バイナリをビルド
 make clean      # ビルド成果物をクリーン
-make install    # ビルドして/usr/local/binにインストール
+make install    # ビルドしてインストール
 ```
 
 ### データベーススキーマ
-会話データベースはlibSQLのネイティブベクトル型を使用：
+会話データベースは漸進的要約サポート付きlibSQLのネイティブベクトル型を使用：
 ```sql
 CREATE TABLE conversations (
     id INTEGER PRIMARY KEY,
@@ -198,18 +266,40 @@ CREATE TABLE conversations (
     created_at TIMESTAMP
 );
 
-CREATE INDEX conversations_embedding_idx 
+CREATE TABLE conversation_segments (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER REFERENCES sessions(id),
+    segment_number INTEGER NOT NULL,
+    segment_summary TEXT NOT NULL,
+    original_length INTEGER NOT NULL,
+    summary_length INTEGER NOT NULL,
+    start_conversation_id INTEGER REFERENCES conversations(id),
+    end_conversation_id INTEGER REFERENCES conversations(id),
+    model_used TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, segment_number)
+);
+
+CREATE INDEX conversations_embedding_idx
 ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 ```
 
 ## 注意事項
 
 - データベースと埋め込みは初回使用時に自動的に作成されます
-- Ollamaはオプションですが、会話類似性検索と要約を有効にします
-- 既存のClaude CLI設定と一緒に動作します
-- フックはdereセッションでのみ有効化され、通常のClaude使用には影響しません
-- 要約はgemma3nモデルを使用して長いメッセージを効率的に処理します
+- Ollamaはオプションですが、会話類似性検索と漸進的要約を有効にします
+- グローバル設定を変更せずに既存のClaude CLI設定と一緒に動作します
+- `--settings`フラグによる動的設定生成でClaude設定をクリーンに保ちます
+- 性格コマンド（例：`/dere-tsun-rant`）は`~/.claude/commands/`でセッションごとに作成されます
+- MCP設定はClaude Desktopから独立してより良い制御を実現
+- 漸進的要約は動的コンテキスト長クエリで情報損失ゼロを実現
+- バックグラウンドデーモンはモデル切り替え最適化で効率的にタスクを処理
+- パススルーフラグサポートによる完全Claude CLI互換性
+- ステータスラインはリアルタイムの性格とキュー統計を表示
 - ベクトル検索はコサイン類似度を使用して関連する会話を見つけます
+- **Pythonフック**：会話キャプチャと処理で開発とカスタマイズを容易にするためにGoバイナリの代わりにPythonスクリプトを使用
+- **RPC通信**：フックは効率的なバックグラウンド処理のためにRPC経由でデーモンと通信
+- **停止フック**：会話連続性を改善するためにClaude応答をキャプチャする新しい停止フック
 
 ## ライセンス
 

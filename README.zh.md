@@ -29,6 +29,8 @@
 
 - [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
 - Go 1.20+（用于构建）
+- Python 3.8+（用于钩子脚本）
+- [Just](https://github.com/casey/just)（可选，用于现代构建命令）
 - [Ollama](https://ollama.ai)（可选，用于嵌入和摘要）
 - [rustormy](https://github.com/yourusername/rustormy)（可选，用于天气上下文）
 
@@ -37,27 +39,30 @@
 ```bash
 git clone https://github.com/yourusername/dere.git
 cd dere
-make install
+just install  # 或者使用 'make install'
 ```
 
 这将：
-- 构建主二进制文件和钩子
-- 安装到 /usr/local/bin
-- 创建必要的配置目录
-- 自动设置对话捕获
+- 构建主 dere 二进制文件
+- 安装 dere 二进制文件和 Python 钩子脚本到 ~/.local/bin
+- 自动设置对话捕获、会话摘要和守护进程通信
 
 ### 手动设置
 
 1. 构建项目：
 ```bash
-make build
+just build  # 或者 'make build'
 ```
 
-2. 复制或链接二进制文件到您的 PATH：
+2. 复制或链接二进制文件和脚本到您的 PATH：
 ```bash
-cp bin/dere /usr/local/bin/
-cp bin/dere-hook /usr/local/bin/
-ln -s $(pwd)/bin/dere-hook ~/.config/dere/.claude/hooks/dere-hook
+cp bin/dere ~/.local/bin/  # 或者 /usr/local/bin/
+cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
+cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
+cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
+cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
+cp hooks/python/rpc_client.py ~/.local/bin/
+chmod +x ~/.local/bin/dere-*
 ```
 
 3. 配置 Ollama（可选，用于对话嵌入）：
@@ -160,26 +165,45 @@ dere entities graph React          # 显示特定实体的关系
 ```
 dere/
 ├── cmd/
-│   ├── dere/          # 主 CLI 入口点
-│   └── dere-hook/     # 用于对话捕获的 Go 钩子
+│   └── dere/                    # 主 CLI 入口点
 ├── src/
-│   ├── cli/           # CLI 参数解析
-│   ├── composer/      # 提示组合
-│   ├── config/        # 配置管理
-│   ├── database/      # 带有向量搜索的 Turso/libSQL
-│   ├── embeddings/    # Ollama 嵌入客户端
-│   ├── hooks/         # Claude CLI 钩子管理
-│   ├── mcp/           # MCP 服务器配置
-│   └── weather/       # 天气上下文集成
-├── prompts/           # 内置人格提示
-└── scripts/           # 安装脚本
+│   ├── commands/                # 动态命令生成
+│   ├── composer/                # 提示组合
+│   ├── config/                  # 配置管理
+│   ├── daemon/                  # 后台守护进程服务器
+│   ├── database/                # 带有向量搜索的 Turso/libSQL
+│   ├── embeddings/              # Ollama 嵌入客户端
+│   ├── mcp/                     # MCP 服务器管理
+│   ├── settings/                # Claude 设置生成
+│   ├── taskqueue/               # 后台任务处理
+│   └── weather/                 # 天气上下文集成
+├── hooks/
+│   └── python/                  # Python 钩子脚本
+│       ├── dere-hook.py         # 对话捕获钩子
+│       ├── dere-hook-session-end.py  # 会话结束钩子
+│       ├── dere-statusline.py   # 状态栏显示
+│       ├── dere-stop-hook.py    # 停止钩子捕获
+│       └── rpc_client.py        # RPC 通信客户端
+├── prompts/                     # 内置人格提示
+└── scripts/                     # 安装脚本
 ```
 
 ### 从源代码构建
 ```bash
+just build      # 构建主二进制文件
+just clean      # 清理构建产物
+just install    # 构建并安装到 ~/.local/bin
+just test       # 运行测试
+just lint       # 运行代码检查
+just dev        # 启动开发守护进程
+just --list     # 显示所有可用命令
+```
+
+或使用传统 make：
+```bash
 make build      # 构建二进制文件
 make clean      # 清理构建产物
-make install    # 构建并安装到 /usr/local/bin
+make install    # 构建并安装
 ```
 
 ### 数据库架构
@@ -205,11 +229,19 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 ## 注意事项
 
 - 数据库和嵌入在首次使用时自动创建
-- Ollama 是可选的，但可以启用对话相似性搜索和摘要
-- 与现有 Claude CLI 配置一起工作
-- 钩子仅对 dere 会话激活，不影响常规 Claude 使用
-- 摘要使用 gemma3n 模型高效处理长消息
+- Ollama 是可选的，但可以启用对话相似性搜索和渐进式摘要
+- 与现有 Claude CLI 配置一起工作，不修改全局设置
+- 通过 `--settings` 标志动态生成设置，保持 Claude 配置干净
+- 每个会话在 `~/.claude/commands/` 中创建个性特定命令（如 `/dere-tsun-rant`）
+- MCP 配置独立于 Claude Desktop，便于更好控制
+- 渐进式摘要使用动态上下文长度查询，实现零信息损失
+- 后台守护进程通过模型切换优化高效处理任务
+- 通过透传标志支持完全兼容 Claude CLI
+- 状态栏显示实时个性和队列统计
 - 向量搜索使用余弦相似度查找相关对话
+- **Python 钩子**：对话捕获和处理现在使用 Python 脚本而非 Go 二进制文件，便于开发和自定义
+- **RPC 通信**：钩子通过 RPC 与守护进程通信，实现高效后台处理
+- **停止钩子**：新的停止钩子捕获 Claude 响应，改善对话连续性
 
 ## 许可证
 

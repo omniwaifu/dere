@@ -29,6 +29,8 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 
 - [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
 - Go 1.20+ (for building)
+- Python 3.8+ (for hook scripts)
+- [Just](https://github.com/casey/just) (optional, for modern build commands)
 - [Ollama](https://ollama.ai) (optional, for embeddings and summarization)
 - [rustormy](https://github.com/yourusername/rustormy) (optional, for weather context)
 
@@ -37,28 +39,30 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 ```bash
 git clone https://github.com/yourusername/dere.git
 cd dere
-make install
+just install  # or 'make install' if you prefer make
 ```
 
 This will:
-- Build all binaries (dere, dere-hook, dere-hook-session-end, dere-statusline)
-- Install to /usr/local/bin
-- Create necessary configuration directories
-- Set up conversation capture and session summarization automatically
+- Build the main dere binary
+- Install dere binary and Python hook scripts to ~/.local/bin
+- Set up conversation capture, session summarization, and daemon communication automatically
 
 ### Manual Setup
 
 1. Build the project:
 ```bash
-make build
+just build  # or 'make build'
 ```
 
-2. Copy or link binaries to your PATH:
+2. Copy or link binaries and scripts to your PATH:
 ```bash
-cp bin/dere /usr/local/bin/
-cp bin/dere-hook /usr/local/bin/
-cp bin/dere-hook-session-end /usr/local/bin/
-cp bin/dere-statusline /usr/local/bin/
+cp bin/dere ~/.local/bin/  # or /usr/local/bin/
+cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
+cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
+cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
+cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
+cp hooks/python/rpc_client.py ~/.local/bin/
+chmod +x ~/.local/bin/dere-*
 ```
 
 3. Configure Ollama (optional, for conversation embeddings):
@@ -205,29 +209,45 @@ Conversations are automatically stored in `~/.local/share/dere/conversations.db`
 ```
 dere/
 ├── cmd/
-│   ├── dere/                    # Main CLI entry point
-│   ├── dere-hook/               # Go hook for conversation capture
-│   ├── dere-hook-session-end/   # Session end hook for summarization
-│   └── dere-statusline/         # Status line binary
+│   └── dere/                    # Main CLI entry point
 ├── src/
 │   ├── commands/                # Dynamic command generation
 │   ├── composer/                # Prompt composition
 │   ├── config/                  # Configuration management
+│   ├── daemon/                  # Background daemon server
 │   ├── database/                # Turso/libSQL with vector search
 │   ├── embeddings/              # Ollama embedding client
 │   ├── mcp/                     # MCP server management
 │   ├── settings/                # Claude settings generation
 │   ├── taskqueue/               # Background task processing
 │   └── weather/                 # Weather context integration
+├── hooks/
+│   └── python/                  # Python hook scripts
+│       ├── dere-hook.py         # Conversation capture hook
+│       ├── dere-hook-session-end.py  # Session end hook
+│       ├── dere-statusline.py   # Status line display
+│       ├── dere-stop-hook.py    # Stop hook for capture
+│       └── rpc_client.py        # RPC communication client
 ├── prompts/                     # Built-in personality prompts
 └── scripts/                     # Installation scripts
 ```
 
 ### Building from Source
 ```bash
+just build      # Build main binary
+just clean      # Clean build artifacts
+just install    # Build and install to ~/.local/bin
+just test       # Run tests
+just lint       # Run linting
+just dev        # Start development daemon
+just --list     # Show all available commands
+```
+
+Or use traditional make:
+```bash
 make build      # Build binaries
 make clean      # Clean build artifacts
-make install    # Build and install to /usr/local/bin
+make install    # Build and install
 ```
 
 ### Database Schema
@@ -277,6 +297,9 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - Full Claude CLI compatibility through passthrough flag support
 - Status line shows real-time personality and queue statistics
 - Vector search uses cosine similarity for finding related conversations
+- **Python hooks**: Conversation capture and processing now use Python scripts instead of Go binaries for easier development and customization
+- **RPC communication**: Hooks communicate with the daemon via RPC for efficient background processing
+- **Stop hook**: New stop hook captures Claude responses for improved conversation continuity
 
 ## License
 
