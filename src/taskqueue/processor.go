@@ -191,7 +191,16 @@ func (p *Processor) processSummarizationTask(task *Task) (*TaskResult, error) {
 
 	log.Printf("Starting summarization of %d chars using mode: %s", metadata.OriginalLength, metadata.Mode)
 
-	// Build appropriate prompt based on mode (with context-aware truncation)
+	// Check if content needs progressive summarization for session mode
+	if metadata.Mode == "session" && task.SessionID != nil {
+		needsProgressive := p.needsProgressiveSummarization(task.Content, task.ModelName)
+		if needsProgressive {
+			log.Printf("Content too long for model context, switching to progressive summarization")
+			return p.processProgressiveSummarization(task, metadata, start)
+		}
+	}
+
+	// Regular summarization
 	prompt := p.buildSummarizationPrompt(task.Content, metadata, task.ModelName)
 
 	// Generate summary using LLM (no schema for free text output)
@@ -731,6 +740,19 @@ Session content:
 
 Provide a concise but informative summary (max %d words).`
 
+	case "progressive_session":
+		// This mode will be handled specially in processSummarizationTask
+		template = `Summarize this Claude Code session segment. Focus on:
+1. Main tasks accomplished in this segment
+2. Key technologies and entities discussed
+3. Problems solved or decisions made
+4. Context that should be preserved for later segments
+
+Session segment content:
+%s
+
+Provide a detailed summary (max %d words) that preserves important context.`
+
 	case "extract":
 		template = `Extract the key information from this text for semantic search.
 Focus on the most important concepts, entities, and actions.
@@ -754,10 +776,9 @@ Summary (max %d words):`
 Summary (max %d words):`
 	}
 
-	// Truncate content to fit context limits
-	truncatedContent := p.truncateContentForContext(content, modelName, template)
-
-	return fmt.Sprintf(template, truncatedContent, metadata.MaxLength)
+	// For progressive modes, content is already segmented appropriately
+	// For regular modes, assume content length is already appropriate (handled by progressive summarization)
+	return fmt.Sprintf(template, content, metadata.MaxLength)
 }
 
 // storeSessionSummary stores a session summary in the database
@@ -863,30 +884,191 @@ func (p *Processor) getModelContextLength(modelName string) int {
 	return contextLength
 }
 
-// truncateContentForContext truncates content to fit within model context limits
-func (p *Processor) truncateContentForContext(content string, modelName string, promptTemplate string) string {
-	contextLength := p.getModelContextLength(modelName)
+// processProgressiveSummarization handles progressive summarization for long conversations
+func (p *Processor) processProgressiveSummarization(task *Task, metadata SummarizationMetadata, start time.Time) (*TaskResult, error) {
+	sessionID := *task.SessionID
+	log.Printf("Starting progressive summarization for session %d", sessionID)
 
-	// Rough token estimation: 1 token ≈ 4 characters
-	// Leave 30% of context for prompt template + response buffer
-	maxContentTokens := int(float64(contextLength) * 0.7)
-	maxContentChars := maxContentTokens * 4
+	// Get context length for this model
+	contextLength := p.getModelContextLength(task.ModelName)
 
-	// Calculate overhead from prompt template (minus %s placeholder)
-	templateOverhead := len(promptTemplate) - 2 // subtract "%s"
-	maxContentChars -= templateOverhead
+	// Calculate safe segment size (70% of context, accounting for prompt overhead)
+	templateOverhead := 500 // Rough estimate for prompt template
+	maxSegmentTokens := int(float64(contextLength) * 0.7) - templateOverhead
+	maxSegmentChars := maxSegmentTokens * 4 // Rough token-to-char conversion
 
-	if len(content) <= maxContentChars {
-		return content // No truncation needed
+	// Break content into segments
+	segments := p.breakIntoSegments(task.Content, maxSegmentChars)
+	log.Printf("Broke conversation into %d segments (max %d chars each)", len(segments), maxSegmentChars)
+
+	// Process each segment and store intermediate summaries
+	var segmentSummaries []string
+	for i, segment := range segments {
+		log.Printf("Processing segment %d/%d (%d chars)", i+1, len(segments), len(segment))
+
+		// Create segment summary
+		segmentMetadata := SummarizationMetadata{
+			OriginalLength: len(segment),
+			Mode:          "progressive_session",
+			MaxLength:     300, // More detailed for intermediate summaries
+		}
+
+		prompt := p.buildSummarizationPrompt(segment, segmentMetadata, task.ModelName)
+		summary, err := p.ollama.GenerateWithModel(prompt, task.ModelName, nil)
+		if err != nil {
+			log.Printf("Failed to summarize segment %d: %v", i+1, err)
+			return &TaskResult{
+				TaskID:   task.ID,
+				Success:  false,
+				Error:    fmt.Sprintf("failed to summarize segment %d: %v", i+1, err),
+				Duration: time.Since(start),
+			}, nil
+		}
+
+		segmentSummaries = append(segmentSummaries, summary)
+
+		// Store segment summary in database
+		err = p.storeConversationSegment(sessionID, i+1, segment, summary, task.ModelName)
+		if err != nil {
+			log.Printf("Warning: Failed to store segment %d summary: %v", i+1, err)
+		}
+
+		log.Printf("Completed segment %d: %d chars -> %d chars", i+1, len(segment), len(summary))
 	}
 
-	log.Printf("Content (%d chars) exceeds context limit for model %s (%d tokens). Truncating to %d chars",
-		len(content), modelName, contextLength, maxContentChars)
+	// Create final consolidated summary from all segment summaries
+	log.Printf("Creating final consolidated summary from %d segment summaries", len(segmentSummaries))
 
-	// For session summaries, keep the most recent content (truncate from beginning)
-	// Add truncation notice
-	truncated := content[len(content)-maxContentChars:]
-	return "[Content truncated for context limits...]\n\n" + truncated
+	consolidatedContent := strings.Join(segmentSummaries, "\n\n--- SEGMENT BREAK ---\n\n")
+	finalMetadata := SummarizationMetadata{
+		OriginalLength: len(consolidatedContent),
+		Mode:          "session", // Use regular session mode for final summary
+		MaxLength:     200,
+	}
+
+	finalPrompt := fmt.Sprintf(`Create a comprehensive summary from these segment summaries of a Claude Code session:
+
+%s
+
+Provide a cohesive final summary (max %d words) that captures the overall session.`,
+		consolidatedContent, finalMetadata.MaxLength)
+
+	finalSummary, err := p.ollama.GenerateWithModel(finalPrompt, task.ModelName, nil)
+	if err != nil {
+		log.Printf("Failed to create final summary: %v", err)
+		return &TaskResult{
+			TaskID:   task.ID,
+			Success:  false,
+			Error:    fmt.Sprintf("failed to create final summary: %v", err),
+			Duration: time.Since(start),
+		}, nil
+	}
+
+	log.Printf("Progressive summarization completed: %d chars -> %d segments -> %d chars final",
+		metadata.OriginalLength, len(segments), len(finalSummary))
+
+	// Store the final summary as a regular session summary
+	finalResult := &SummarizationResult{
+		Summary:        finalSummary,
+		OriginalLength: metadata.OriginalLength,
+		SummaryLength:  len(finalSummary),
+		Mode:          metadata.Mode,
+	}
+
+	// Store final session summary
+	if err := p.storeSessionSummary(sessionID, finalSummary, finalMetadata); err != nil {
+		log.Printf("Failed to store final session summary: %v", err)
+	}
+
+	return &TaskResult{
+		TaskID:   task.ID,
+		Success:  true,
+		Result:   finalResult,
+		Duration: time.Since(start),
+	}, nil
 }
+
+// breakIntoSegments breaks content into segments that fit within context limits
+func (p *Processor) breakIntoSegments(content string, maxSegmentChars int) []string {
+	if len(content) <= maxSegmentChars {
+		return []string{content}
+	}
+
+	var segments []string
+	remaining := content
+
+	for len(remaining) > 0 {
+		if len(remaining) <= maxSegmentChars {
+			segments = append(segments, remaining)
+			break
+		}
+
+		// Find a good break point (prefer breaking on double newlines, then single newlines, then spaces)
+		segmentEnd := maxSegmentChars
+
+		// Look for double newline within last 20% of segment
+		searchStart := int(float64(maxSegmentChars) * 0.8)
+		if doubleNewline := strings.LastIndex(remaining[:maxSegmentChars], "\n\n"); doubleNewline >= searchStart {
+			segmentEnd = doubleNewline + 2
+		} else if newline := strings.LastIndex(remaining[:maxSegmentChars], "\n"); newline >= searchStart {
+			segmentEnd = newline + 1
+		} else if space := strings.LastIndex(remaining[:maxSegmentChars], " "); space >= searchStart {
+			segmentEnd = space + 1
+		}
+
+		segments = append(segments, remaining[:segmentEnd])
+		remaining = remaining[segmentEnd:]
+	}
+
+	return segments
+}
+
+// storeConversationSegment stores an intermediate segment summary in the database
+func (p *Processor) storeConversationSegment(sessionID int64, segmentNumber int, originalContent, summary, modelUsed string) error {
+	db := p.db.GetDB()
+
+	insertSQL := `
+		INSERT INTO conversation_segments (
+			session_id, segment_number, segment_summary,
+			original_length, summary_length, model_used
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := db.Exec(insertSQL,
+		sessionID,
+		segmentNumber,
+		summary,
+		len(originalContent),
+		len(summary),
+		modelUsed,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to store conversation segment: %w", err)
+	}
+
+	log.Printf("Stored conversation segment %d for session %d", segmentNumber, sessionID)
+	return nil
+}
+
+// needsProgressiveSummarization determines if content is too long for model context
+func (p *Processor) needsProgressiveSummarization(content string, modelName string) bool {
+	contextLength := p.getModelContextLength(modelName)
+
+	// Calculate safe content size (70% of context, accounting for prompt overhead)
+	templateOverhead := 500 // Rough estimate for prompt template
+	maxContentTokens := int(float64(contextLength) * 0.7) - templateOverhead
+	maxContentChars := maxContentTokens * 4 // Rough token-to-char conversion
+
+	contentLength := len(content)
+	if contentLength > maxContentChars {
+		log.Printf("Content (%d chars) exceeds model %s context limit (%d tokens, %d chars max), needs progressive summarization",
+			contentLength, modelName, contextLength, maxContentChars)
+		return true
+	}
+
+	return false
+}
+
 
 

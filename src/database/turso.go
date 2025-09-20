@@ -36,6 +36,18 @@ type Conversation struct {
 	ProjectPath   string // Added for project filtering
 }
 
+type ConversationSegment struct {
+	ID                  int64
+	SessionID           int64
+	SegmentNumber       int
+	SegmentSummary      string
+	OriginalLength      int
+	SummaryLength       int
+	StartConversationID int64
+	EndConversationID   int64
+	ModelUsed           string
+	CreatedAt           time.Time
+}
 
 type TursoDB struct {
 	db *sql.DB
@@ -243,6 +255,26 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create session_summaries table: %w", err)
 	}
 
+	// Conversation segments table for progressive summarization
+	conversationSegmentsTableSQL := `
+	CREATE TABLE IF NOT EXISTS conversation_segments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER REFERENCES sessions(id),
+		segment_number INTEGER NOT NULL, -- Sequential order within session
+		segment_summary TEXT NOT NULL, -- LLM-generated summary of this segment
+		original_length INTEGER NOT NULL, -- Character count of original content
+		summary_length INTEGER NOT NULL, -- Character count of summary
+		start_conversation_id INTEGER REFERENCES conversations(id), -- First conversation in segment
+		end_conversation_id INTEGER REFERENCES conversations(id), -- Last conversation in segment
+		model_used TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(session_id, segment_number)
+	)`
+
+	if _, err := t.db.Exec(conversationSegmentsTableSQL); err != nil {
+		return fmt.Errorf("failed to create conversation_segments table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
@@ -262,6 +294,8 @@ func (t *TursoDB) initSchema() error {
 		`CREATE INDEX IF NOT EXISTS session_summaries_session_idx ON session_summaries(session_id)`,
 		`CREATE INDEX IF NOT EXISTS session_summaries_type_idx ON session_summaries(summary_type)`,
 		`CREATE INDEX IF NOT EXISTS session_summaries_created_idx ON session_summaries(created_at)`,
+		`CREATE INDEX IF NOT EXISTS conversation_segments_session_idx ON conversation_segments(session_id)`,
+		`CREATE INDEX IF NOT EXISTS conversation_segments_number_idx ON conversation_segments(session_id, segment_number)`,
 	}
 
 	for _, indexSQL := range indexes {

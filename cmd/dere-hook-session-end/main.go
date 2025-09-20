@@ -88,7 +88,7 @@ func main() {
 	}
 	defer queue.Close()
 
-	// Queue session summarization task with high priority
+	// Queue session summarization task - processor will handle progressive summarization if needed
 	metadata := taskqueue.SummarizationMetadata{
 		OriginalLength: len(conversationContent),
 		Mode:          "session",
@@ -162,3 +162,4 @@ func markSessionEnded(db *database.TursoDB, sessionID int64) error {
 	_, err := sqlDB.Exec(updateSQL, time.Now().Unix(), sessionID)
 	return err
 }
+
