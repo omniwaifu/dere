@@ -36,6 +36,7 @@ type Conversation struct {
 	ProjectPath   string // Added for project filtering
 }
 
+
 type TursoDB struct {
 	db *sql.DB
 }
@@ -827,3 +828,4 @@ func bytesToFloat32Slice(bytes []byte) []float32 {
 	}
 	return floats
 }
+
