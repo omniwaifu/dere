@@ -4,13 +4,14 @@
 
 Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシスタント、埋め込みによる会話メモリ、インテリジェントなメッセージ要約、LLMベースのエンティティ抽出機能付き。
 
-**なぜこれを作ったのか：** 私はすべてにClaude Codeを使っていて、ターミナルを開いたときに「キャラクター」になってもらうのが好きです。例：`dere --tsun --mcp=spotify`
+**なぜこれを作ったのか：** 私はすべてにClaude Codeを使っていて、ターミナルを開いたときに「キャラクター」になってもらうのが好きです。例：`dere --personality tsun --mcp=spotify`
 
 ## 機能
 
 - **性格レイヤー：** ツンデレ、クーデレ、ヤンデレ、デレデレなど
 - **会話メモリ：** 自動埋め込み生成と類似性検索
 - **エンティティ抽出：** LLMベースのセマンティック抽出による技術、人物、概念、関係性の抽出
+- **漸進的要約：** 動的コンテキスト制限を使用した情報損失ゼロの長い会話のインテリジェント要約
 - **インテリジェント要約：** より良い埋め込みのための長いメッセージの自動要約
 - **コンテキスト認識：** 時間、日付、天気、アクティビティトラッキング
 - **MCP管理：** 独立MCPサーバー構成、プロファイルとスマートフィルタリング付き
@@ -18,6 +19,9 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 - **動的コマンド：** セッションごとに自動生成される性格固有のスラッシュコマンド
 - **カスタムプロンプト：** 独自のドメイン固有の知識を追加
 - **ベクトル検索：** ネイティブベクトル類似性を持つTurso/libSQLデータベース
+- **バックグラウンド処理：** 埋め込みと要約用のデーモンとタスクキュー
+- **Claude CLI互換性：** `-p`、`--debug`、`--verbose`などのClaudeフラグの完全サポート
+- **ステータスライン：** リアルタイムの性格とキューステータス表示
 
 ## インストール
 
@@ -80,27 +84,40 @@ units = "metric"  # または "imperial"
 
 ### 基本的な性格
 ```bash
-dere --tsun              # ツンデレモード（厳しいが思いやりがある）
-dere --kuu               # クーデレ（冷静分析）
-dere --yan               # ヤンデレ（過度に親切）
-dere --dere              # デレデレ（本当に優しい）
-dere --ero               # エロデレ（いたずらっぽい）
-dere --bare              # プレーンClaude、性格なし
+dere --personality tsun           # ツンデレモード（厳しいが思いやりがある）
+dere -P kuu                       # クーデレ（冷静分析）
+dere --personality yan            # ヤンデレ（過度に親切）
+dere -P dere                      # デレデレ（本当に優しい）
+dere --personality ero            # エロデレ（いたずらっぽい）
+dere --bare                       # プレーンClaude、性格なし
+
+# 複数の性格
+dere -P tsun,kuu                  # ツンデレ + クーデレの組み合わせ
+dere --personality "yan,ero"       # ヤンデレ + エロデレの組み合わせ
 ```
 
 ### 高度な機能
 ```bash
-dere --context           # 時間/日付/天気/アクティビティコンテキストを追加
-dere -c                  # 前の会話を継続
-dere --prompts=rust,security  # カスタムプロンプトをロード
-dere --mcp=filesystem    # Claude DesktopのMCPサーバーを使用
+dere --context                    # 時間/日付/天気/アクティビティコンテキストを追加
+dere -c                          # 前の会話を継続
+dere --prompts=rust,security     # カスタムプロンプトをロード
+dere --mcp=dev                   # MCPプロファイルを使用
+dere --mcp="linear,obsidian"      # 特定MCPサーバーを使用
+
+# Claude CLIパススルー（完全互換）
+dere -p "hello world"             # プリントモード（非インタラクティブ）
+dere --debug api                 # フィルタリング付きデバッグモード
+dere --verbose                   # 詳細出力モード
+dere --output-format json        # JSON出力形式
 ```
 
 ### レイヤーの組み合わせ
 ```bash
-dere --tsun --context              # ツンデレ + コンテキスト認識
-dere --kuu --mcp=spotify           # クール + Spotify制御
-dere --prompts=go --context        # Go専門知識 + コンテキスト
+dere -P tsun --context                    # ツンデレ + コンテキスト認識
+dere --personality kuu --mcp=spotify     # クール + Spotify制御
+dere -P yan --output-style=terse         # ヤンデレ + 簡潔な応答
+dere --prompts=go --context              # Go専門知識 + コンテキスト
+dere -P tsun,kuu -p "このコードを修正"        # 複数性格 + プリントモード
 ```
 
 ## 設定

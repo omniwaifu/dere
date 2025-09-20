@@ -4,13 +4,14 @@
 
 为 Claude CLI 提供可组合人格层的分层 AI 助手，具有通过嵌入的对话记忆、智能消息摘要和基于 LLM 的实体提取功能。
 
-**为什么要这样做：** 我在所有事情上都使用 Claude Code，我喜欢在打开终端时让它保持"角色扮演"，例如 `dere --tsun --mcp=spotify`
+**为什么要这样做：** 我在所有事情上都使用 Claude Code，我喜欢在打开终端时让它保持"角色扮演"，例如 `dere --personality tsun --mcp=spotify`
 
 ## 功能特性
 
 - **人格层：** 傲娇、冷娇、病娇、甜娇等多种人格
 - **对话记忆：** 自动嵌入生成和相似性搜索
 - **实体提取：** 基于 LLM 的语义提取技术、人物、概念和关系
+- **渐进式摘要：** 使用动态上下文限制的零损失智能摘要处理长对话
 - **智能摘要：** 长消息自动摘要以获得更好的嵌入
 - **上下文感知：** 时间、日期、天气和活动跟踪
 - **MCP 管理：** 独立的 MCP 服务器配置，支持配置文件和智能过滤
@@ -18,6 +19,9 @@
 - **动态命令：** 每个会话自动生成的个性特定斜杠命令
 - **自定义提示：** 添加您自己的领域特定知识
 - **向量搜索：** 带有原生向量相似性的 Turso/libSQL 数据库
+- **后台处理：** 用于嵌入和摘要的守护进程和任务队列
+- **Claude CLI 兼容性：** 完全支持 Claude 标志如 `-p`、`--debug`、`--verbose`
+- **状态栏：** 实时个性和队列状态显示
 
 ## 安装
 
@@ -80,27 +84,40 @@ units = "metric"  # 或 "imperial"
 
 ### 基本人格
 ```bash
-dere --tsun              # 傲娇模式（严厉但关心）
-dere --kuu               # 冷娇（冷静分析）
-dere --yan               # 病娇（过度热心）
-dere --dere              # 甜娇（真正友善）
-dere --ero               # 色娇（调皮戏弄）
-dere --bare              # 纯净 Claude，无人格
+dere --personality tsun           # 傲娇模式（严厉但关心）
+dere -P kuu                       # 冷娇（冷静分析）
+dere --personality yan            # 病娇（过度热心）
+dere -P dere                      # 甜娇（真正友善）
+dere --personality ero            # 色娇（调皮戏弄）
+dere --bare                       # 纯净 Claude，无人格
+
+# 多重人格
+dere -P tsun,kuu                  # 组合傲娇 + 冷娇
+dere --personality "yan,ero"       # 组合病娇 + 色娇
 ```
 
 ### 高级功能
 ```bash
-dere --context           # 添加时间/日期/天气/活动上下文
-dere -c                  # 继续上次对话
-dere --prompts=rust,security  # 加载自定义提示
-dere --mcp=filesystem    # 使用 Claude Desktop 的 MCP 服务器
+dere --context                    # 添加时间/日期/天气/活动上下文
+dere -c                          # 继续上次对话
+dere --prompts=rust,security     # 加载自定义提示
+dere --mcp=dev                   # 使用 MCP 配置文件
+dere --mcp="linear,obsidian"      # 使用特定 MCP 服务器
+
+# Claude CLI 透传（完全兼容）
+dere -p "hello world"             # 打印模式（非交互）
+dere --debug api                 # 调试模式带过滤
+dere --verbose                   # 详细输出模式
+dere --output-format json        # JSON 输出格式
 ```
 
 ### 组合层
 ```bash
-dere --tsun --context              # 傲娇 + 上下文感知
-dere --kuu --mcp=spotify           # 冷静 + Spotify 控制
-dere --prompts=go --context        # Go 专业知识 + 上下文
+dere -P tsun --context                    # 傲娇 + 上下文感知
+dere --personality kuu --mcp=spotify     # 冷静 + Spotify 控制
+dere -P yan --output-style=terse         # 病娇 + 简洁回应
+dere --prompts=go --context              # Go 专业知识 + 上下文
+dere -P tsun,kuu -p "修复这段代码"        # 多重人格 + 打印模式
 ```
 
 ## 配置
