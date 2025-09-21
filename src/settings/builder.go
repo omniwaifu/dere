@@ -14,6 +14,7 @@ import (
 type SettingsBuilder struct {
 	outputStyle         string
 	hookScriptPath      string
+	contextHookPath     string
 	sessionEndHookPath  string
 	stopHookPath        string
 	statusLineHookPath  string
@@ -48,6 +49,7 @@ func NewSettingsBuilder(personality string, outputStyle string) *SettingsBuilder
 		outputStyle:         outputStyle,
 		personality:         personality,
 		hookScriptPath:      filepath.Join(hooksDir, "dere-hook.py"),
+		contextHookPath:     filepath.Join(hooksDir, "dere-context-hook.py"),
 		sessionEndHookPath:  filepath.Join(hooksDir, "dere-hook-session-end.py"),
 		stopHookPath:        filepath.Join(hooksDir, "dere-stop-hook.py"),
 		statusLineHookPath:  filepath.Join(hooksDir, "dere-statusline.py"),
@@ -110,23 +112,41 @@ func (sb *SettingsBuilder) Build() (string, error) {
 }
 
 func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
-	if _, err := os.Stat(sb.hookScriptPath); err != nil {
-		log.Printf("Hook script not found at %s: %v", sb.hookScriptPath, err)
-		return nil
-	}
-	log.Printf("Adding UserPromptSubmit hook: %s", sb.hookScriptPath)
+	var hooks []HookMatcher
 
-	hook := HookMatcher{
-		Matcher: "",
-		Hooks: []Hook{
-			{
-				Type:    "command",
-				Command: sb.hookScriptPath,
+	// Add context hook first if it exists (runs before capture hook)
+	if _, err := os.Stat(sb.contextHookPath); err == nil {
+		log.Printf("Adding context injection hook: %s", sb.contextHookPath)
+		contextHook := HookMatcher{
+			Matcher: "",
+			Hooks: []Hook{
+				{
+					Type:    "command",
+					Command: sb.contextHookPath,
+				},
 			},
-		},
+		}
+		hooks = append(hooks, contextHook)
 	}
 
-	settings.Hooks["UserPromptSubmit"] = []HookMatcher{hook}
+	// Add capture hook if it exists
+	if _, err := os.Stat(sb.hookScriptPath); err == nil {
+		log.Printf("Adding capture hook: %s", sb.hookScriptPath)
+		captureHook := HookMatcher{
+			Matcher: "",
+			Hooks: []Hook{
+				{
+					Type:    "command",
+					Command: sb.hookScriptPath,
+				},
+			},
+		}
+		hooks = append(hooks, captureHook)
+	}
+
+	if len(hooks) > 0 {
+		settings.Hooks["UserPromptSubmit"] = hooks
+	}
 
 	// Add SessionEnd hook for summarization if it exists
 	if _, err := os.Stat(sb.sessionEndHookPath); err == nil {
