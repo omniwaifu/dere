@@ -96,7 +96,7 @@ func init() {
 	// Context building flags
 	rootCmd.Flags().IntVar(&contextDepth, "context-depth", 5, "Number of related conversations to include in context")
 	rootCmd.Flags().StringVar(&contextMode, "context-mode", "smart", "Context building mode: summary, full, smart")
-	rootCmd.Flags().BoolVar(&includeHistory, "include-history", true, "Include conversation history in context")
+	rootCmd.Flags().BoolVar(&includeHistory, "include-history", false, "Include conversation history in context")
 	rootCmd.Flags().IntVar(&maxContextTokens, "max-context-tokens", 2000, "Maximum tokens to use for context")
 	
 	// Personality flags

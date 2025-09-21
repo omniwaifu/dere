@@ -17,12 +17,23 @@ import (
 
 // Run starts the daemon with JSON-RPC server
 func Run(interval time.Duration) error {
+	// Clean up any stale files from previous runs
+	if err := cleanupStaleFiles(); err != nil {
+		log.Printf("Warning: Failed to clean stale files: %v", err)
+	}
+
 	// Create PID file
 	pidPath := getPidFilePath()
 	if err := writePidFile(pidPath); err != nil {
 		return err
 	}
-	defer os.Remove(pidPath)
+	defer func() {
+		if err := os.Remove(pidPath); err != nil {
+			log.Printf("Warning: Failed to remove PID file: %v", err)
+		} else {
+			log.Printf("Cleaned up PID file: %s", pidPath)
+		}
+	}()
 
 	// Initialize configuration
 	configSettings, err := config.LoadSettings()
@@ -159,4 +170,87 @@ func writePidFile(path string) error {
 		return fmt.Errorf("failed to write PID: %w", err)
 	}
 	return nil
+}
+
+func cleanupStaleFiles() error {
+	pidPath := getPidFilePath()
+	socketPath := getSocketPath()
+
+	// Check if PID file exists
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No PID file, check for stale socket
+			if err := cleanupSocket(socketPath); err != nil {
+				log.Printf("Warning: Failed to cleanup stale socket: %v", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to read PID file: %w", err)
+	}
+
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		log.Printf("Invalid PID in file, removing stale PID file: %s", pidPath)
+		if err := os.Remove(pidPath); err != nil {
+			log.Printf("Warning: Failed to remove invalid PID file: %v", err)
+		}
+		if err := cleanupSocket(socketPath); err != nil {
+			log.Printf("Warning: Failed to cleanup socket after invalid PID: %v", err)
+		}
+		return nil
+	}
+
+	// Check if process is actually running
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		log.Printf("Process %d not found, cleaning up stale files", pid)
+		return cleanupStaleFilesForce(pidPath, socketPath)
+	}
+
+	// Send signal 0 to check if process exists
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		log.Printf("Process %d not running, cleaning up stale files", pid)
+		return cleanupStaleFilesForce(pidPath, socketPath)
+	}
+
+	log.Printf("Daemon already running with PID %d", pid)
+	return fmt.Errorf("daemon already running with PID %d", pid)
+}
+
+func cleanupStaleFilesForce(pidPath, socketPath string) error {
+	var errors []error
+
+	// Remove PID file
+	if err := os.Remove(pidPath); err != nil && !os.IsNotExist(err) {
+		errors = append(errors, fmt.Errorf("failed to remove PID file: %w", err))
+		log.Printf("Warning: Failed to remove PID file %s: %v", pidPath, err)
+	} else if err == nil {
+		log.Printf("Removed stale PID file: %s", pidPath)
+	}
+
+	// Remove socket file
+	if err := cleanupSocket(socketPath); err != nil {
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("cleanup errors: %v", errors)
+	}
+	return nil
+}
+
+func cleanupSocket(socketPath string) error {
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: Failed to remove socket file %s: %v", socketPath, err)
+		return fmt.Errorf("failed to remove socket file: %w", err)
+	} else if err == nil {
+		log.Printf("Removed stale socket file: %s", socketPath)
+	}
+	return nil
+}
+
+func getSocketPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "dere", "daemon.sock")
 }
