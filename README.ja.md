@@ -33,7 +33,7 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 - Python 3.8+（フックスクリプト用）
 - [Just](https://github.com/casey/just)（オプション、モダンビルドコマンド用）
 - [Ollama](https://ollama.ai)（オプション、埋め込みと要約用）
-- [rustormy](https://github.com/yourusername/rustormy)（オプション、天気コンテキスト用）
+- [rustormy](https://github.com/Tairesh/rustormy)（オプション、天気コンテキスト用）
 
 ### クイックインストール
 
