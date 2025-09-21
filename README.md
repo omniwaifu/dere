@@ -12,6 +12,7 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - **Conversation memory**: Automatic embedding generation and similarity search
 - **Entity extraction**: LLM-based semantic extraction of technologies, people, concepts, and relationships
 - **Progressive summarization**: Zero-loss intelligent summarization for long conversations using dynamic context limits
+- **Semantic session continuation**: Intelligent context building from previous conversations using similarity search
 - **Intelligent summarization**: Long messages automatically summarized for better embeddings
 - **Context awareness**: Time, date, weather, and activity tracking
 - **MCP management**: Independent MCP server configuration with profiles and smart filtering
@@ -105,6 +106,8 @@ dere --personality "yan,ero"       # Combine yandere + erodere
 ```bash
 dere --context                    # Add time/date/weather/activity context
 dere -c                          # Continue previous conversation
+dere --context-depth=10          # Control depth of semantic context search
+dere --context-mode=smart        # Set context mode (summary/full/smart)
 dere --prompts=rust,security     # Load custom prompts
 dere --mcp=dev                   # Use MCP profile (e.g., dev, media)
 dere --mcp="linear,obsidian"      # Use specific MCP servers
@@ -162,7 +165,7 @@ Background processing for embeddings, summarization, and other LLM tasks:
 dere daemon start                  # Start background task processor
 dere daemon stop                   # Stop the daemon
 dere daemon restart                # Restart daemon (hot reload)
-dere daemon status                 # Show daemon status and queue stats
+dere daemon status                 # Show daemon status, PID, and queue stats
 dere daemon reload                 # Reload configuration (SIGHUP)
 
 # Queue management
@@ -293,9 +296,12 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - Personality commands (e.g., `/dere-tsun-rant`) are created per session in `~/.claude/commands/`
 - MCP configuration is independent from Claude Desktop for better control
 - Progressive summarization uses dynamic context length querying for zero information loss
-- Background daemon processes tasks efficiently with model switching optimization
+- Background daemon processes tasks efficiently with model switching optimization and PID-based status monitoring
+- Daemon cleans up stale files on startup and manages processes properly
+- Context caching system with 30-minute TTL
+- Session continuation uses embeddings and similarity search to find relevant context
 - Full Claude CLI compatibility through passthrough flag support
-- Status line shows real-time personality and queue statistics
+- Status line shows real-time personality, daemon status, and queue statistics
 - Vector search uses cosine similarity for finding related conversations
 - **Python hooks**: Conversation capture and processing now use Python scripts instead of Go binaries for easier development and customization
 - **RPC communication**: Hooks communicate with the daemon via RPC for efficient background processing

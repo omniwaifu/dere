@@ -12,6 +12,7 @@
 - **对话记忆：** 自动嵌入生成和相似性搜索
 - **实体提取：** 基于 LLM 的语义提取技术、人物、概念和关系
 - **渐进式摘要：** 使用动态上下文限制的零损失智能摘要处理长对话
+- **语义会话延续：** 使用相似性搜索从之前对话智能构建上下文
 - **智能摘要：** 长消息自动摘要以获得更好的嵌入
 - **上下文感知：** 时间、日期、天气和活动跟踪
 - **MCP 管理：** 独立的 MCP 服务器配置，支持配置文件和智能过滤
@@ -105,9 +106,13 @@ dere --personality "yan,ero"       # 组合病娇 + 色娇
 ```bash
 dere --context                    # 添加时间/日期/天气/活动上下文
 dere -c                          # 继续上次对话
+dere --context-depth=10          # 控制语义上下文搜索深度
+dere --context-mode=smart        # 设置上下文模式（summary/full/smart）
 dere --prompts=rust,security     # 加载自定义提示
 dere --mcp=dev                   # 使用 MCP 配置文件
 dere --mcp="linear,obsidian"      # 使用特定 MCP 服务器
+dere --mcp="tag:media"            # 使用标签选择 MCP 服务器
+dere --output-style=verbose      # 更改 Claude 输出样式
 
 # Claude CLI 透传（完全兼容）
 dere -p "hello world"             # 打印模式（非交互）
@@ -135,7 +140,49 @@ dere -P tsun,kuu -p "修复这段代码"        # 多重人格 + 打印模式
 ```
 
 ### MCP 服务器
-使用来自 `~/.claude/claude_desktop_config.json` 的现有 Claude Desktop 配置
+在 `~/.config/dere/mcp_config.json` 中独立管理
+
+```bash
+# MCP 管理命令
+dere mcp list                      # 列出配置的服务器
+dere mcp profiles                  # 显示可用配置文件
+dere mcp add <name> <command>      # 添加新服务器
+dere mcp remove <name>             # 删除服务器
+dere mcp copy-from-claude          # 从 Claude Desktop 导入
+
+# 使用 MCP 服务器
+dere --mcp=dev                     # 使用 'dev' 配置文件
+dere --mcp="linear,obsidian"       # 使用特定服务器
+dere --mcp="*spotify*"             # 模式匹配
+dere --mcp="tag:media"             # 基于标签选择
+```
+
+### 守护进程和队列管理
+用于嵌入、摘要和其他 LLM 任务的后台处理：
+
+```bash
+# 守护进程管理
+dere daemon start                  # 启动后台任务处理器
+dere daemon stop                   # 停止守护进程
+dere daemon restart                # 重启守护进程（热重载）
+dere daemon status                 # 显示守护进程状态、PID 和队列统计
+dere daemon reload                 # 重载配置（SIGHUP）
+
+# 队列管理
+dere queue list                    # 列出待处理任务
+dere queue stats                   # 显示队列统计
+dere queue process                 # 手动处理待处理任务
+```
+
+### 会话摘要
+查看和管理自动生成的会话摘要：
+
+```bash
+# 摘要管理
+dere summaries list                # 列出所有会话摘要
+dere summaries list --project=/path  # 按项目路径过滤
+dere summaries show <id>           # 显示详细摘要
+```
 
 ### 实体管理
 从对话中提取的实体会自动存储，并可以通过 CLI 命令进行管理：
@@ -235,9 +282,12 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - 每个会话在 `~/.claude/commands/` 中创建个性特定命令（如 `/dere-tsun-rant`）
 - MCP 配置独立于 Claude Desktop，便于更好控制
 - 渐进式摘要使用动态上下文长度查询，实现零信息损失
-- 后台守护进程通过模型切换优化高效处理任务
+- 后台守护进程通过模型切换优化和基于 PID 的状态监控高效处理任务
+- 守护进程在启动时清理陈旧文件并正确管理进程
+- 上下文缓存系统，30 分钟 TTL
+- 会话延续使用嵌入和相似性搜索查找相关上下文
 - 通过透传标志支持完全兼容 Claude CLI
-- 状态栏显示实时个性和队列统计
+- 状态栏显示实时个性、守护进程状态和队列统计
 - 向量搜索使用余弦相似度查找相关对话
 - **Python 钩子**：对话捕获和处理现在使用 Python 脚本而非 Go 二进制文件，便于开发和自定义
 - **RPC 通信**：钩子通过 RPC 与守护进程通信，实现高效后台处理
