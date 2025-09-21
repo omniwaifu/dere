@@ -23,6 +23,10 @@ func (s *Server) routeMethod(method string, params json.RawMessage) (interface{}
 		return s.handleQueueAdd(params)
 	case "queue.status":
 		return s.handleQueueStatus(params)
+	case "context.build":
+		return s.handleContextBuild(params)
+	case "context.get":
+		return s.handleContextGet(params)
 	default:
 		return nil, &RPCError{Code: -32601, Message: "Method not found"}
 	}
@@ -59,7 +63,7 @@ func (s *Server) handleConversationCapture(params json.RawMessage) (interface{},
 	if messageType == "" {
 		messageType = "user" // Default to user message
 	}
-	err := s.storeConversationWithoutEmbeddingAndType(p.SessionID, p.Prompt, "raw", messageType)
+	conversationID, err := s.storeConversationWithoutEmbeddingAndType(p.SessionID, p.Prompt, "raw", messageType)
 	if err != nil {
 		log.Printf("Failed to store conversation: %v", err)
 		return nil, fmt.Errorf("failed to store conversation: %w", err)
@@ -74,6 +78,7 @@ func (s *Server) handleConversationCapture(params json.RawMessage) (interface{},
 			OriginalLength: len(p.Prompt),
 			ProcessingMode: "raw",
 			ContentType:    "prompt",
+			ConversationID: &conversationID,
 		},
 		taskqueue.PriorityNormal,
 		&p.SessionID,
@@ -405,11 +410,11 @@ func (s *Server) getSessionPersonalityPrompt(sessionID int64) (string, error) {
 	return p.GetPrompt(), nil
 }
 
-func (s *Server) storeConversationWithoutEmbedding(sessionID int64, prompt, processingMode string) error {
+func (s *Server) storeConversationWithoutEmbedding(sessionID int64, prompt, processingMode string) (int64, error) {
 	return s.storeConversationWithoutEmbeddingAndType(sessionID, prompt, processingMode, "user")
 }
 
-func (s *Server) storeConversationWithoutEmbeddingAndType(sessionID int64, prompt, processingMode, messageType string) error {
+func (s *Server) storeConversationWithoutEmbeddingAndType(sessionID int64, prompt, processingMode, messageType string) (int64, error) {
 	sqlDB := s.db.GetDB()
 
 	insertSQL := `
@@ -417,10 +422,106 @@ func (s *Server) storeConversationWithoutEmbeddingAndType(sessionID int64, promp
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := sqlDB.Exec(insertSQL, sessionID, prompt, "", processingMode, messageType, time.Now().Unix())
+	result, err := sqlDB.Exec(insertSQL, sessionID, prompt, "", processingMode, messageType, time.Now().Unix())
 	if err != nil {
-		return fmt.Errorf("failed to store conversation without embedding: %w", err)
+		return 0, fmt.Errorf("failed to store conversation without embedding: %w", err)
 	}
 
-	return nil
+	conversationID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get conversation ID: %w", err)
+	}
+
+	return conversationID, nil
+}
+
+// ContextBuildParams represents context build request
+type ContextBuildParams struct {
+	SessionID       int64    `json:"session_id"`
+	ProjectPath     string   `json:"project_path"`
+	Personality     string   `json:"personality"`
+	ContextDepth    int      `json:"context_depth"`
+	IncludeEntities bool     `json:"include_entities"`
+	MaxTokens       int      `json:"max_tokens"`
+	ContextMode     string   `json:"context_mode"`
+	CurrentPrompt   string   `json:"current_prompt"`
+}
+
+// handleContextBuild processes context building request
+func (s *Server) handleContextBuild(params json.RawMessage) (interface{}, error) {
+	var p ContextBuildParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+	}
+
+	// Ensure session exists before queuing context building task
+	if err := s.ensureSessionExists(p.SessionID, p.ProjectPath, p.Personality); err != nil {
+		return nil, fmt.Errorf("failed to ensure session exists: %w", err)
+	}
+
+	// Set defaults
+	if p.ContextDepth == 0 {
+		p.ContextDepth = 5
+	}
+	if p.MaxTokens == 0 {
+		p.MaxTokens = 2000
+	}
+	if p.ContextMode == "" {
+		p.ContextMode = "smart"
+	}
+
+	// Queue context building task
+	metadata := taskqueue.ContextBuildingMetadata{
+		SessionID:       p.SessionID,
+		ProjectPath:     p.ProjectPath,
+		Personality:     p.Personality,
+		ContextDepth:    p.ContextDepth,
+		IncludeEntities: p.IncludeEntities,
+		MaxTokens:       p.MaxTokens,
+		ContextMode:     p.ContextMode,
+		CurrentPrompt:   p.CurrentPrompt,
+	}
+
+	task, err := s.queue.Add(
+		taskqueue.TaskTypeContextBuilding,
+		"", // No model needed for context building
+		p.CurrentPrompt,
+		metadata,
+		taskqueue.PriorityHigh, // Context building is high priority
+		&p.SessionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to queue context building task: %w", err)
+	}
+
+	return map[string]interface{}{
+		"task_id": task.ID,
+		"status":  "queued",
+	}, nil
+}
+
+// ContextGetParams represents context retrieval request
+type ContextGetParams struct {
+	SessionID int64 `json:"session_id"`
+	MaxAge    int   `json:"max_age_minutes"` // Maximum age in minutes
+}
+
+// handleContextGet retrieves cached context for a session
+func (s *Server) handleContextGet(params json.RawMessage) (interface{}, error) {
+	var p ContextGetParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+	}
+
+	// Default to 30 minutes max age
+	if p.MaxAge == 0 {
+		p.MaxAge = 30
+	}
+
+	context, found := s.db.GetCachedContext(p.SessionID, time.Duration(p.MaxAge)*time.Minute)
+
+	return map[string]interface{}{
+		"found":   found,
+		"context": context,
+	}, nil
 }

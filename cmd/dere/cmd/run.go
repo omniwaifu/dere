@@ -1,7 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -42,6 +47,15 @@ func runDere(cmd *cobra.Command, args []string) error {
 	if config.OutputStyle != "" {
 		os.Setenv("DERE_OUTPUT_STYLE", config.OutputStyle)
 	}
+
+	// Set context building environment variables
+	if config.IncludeHistory {
+		os.Setenv("DERE_INCLUDE_HISTORY", "true")
+		os.Setenv("DERE_CONTEXT_DEPTH", strconv.Itoa(config.ContextDepth))
+		os.Setenv("DERE_CONTEXT_MODE", config.ContextMode)
+		os.Setenv("DERE_MAX_CONTEXT_TOKENS", strconv.Itoa(config.MaxContextTokens))
+	}
+
 	// Determine session type
 	sessionType := "new"
 	if config.Continue {
@@ -84,6 +98,18 @@ func runDere(cmd *cobra.Command, args []string) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	// Build context if history is enabled
+	if config.IncludeHistory && !config.Bare {
+		context, err := buildSessionContext(sessionID, config)
+		if err != nil {
+			// Log warning but don't fail - context is enhancement
+			log.Printf("Warning: Failed to build context: %v", err)
+		} else if context != "" {
+			// Inject context into system prompt
+			systemPrompt = composer.InjectContext(systemPrompt, context)
+		}
 	}
 
 	// Launch claude with the assembled prompt
@@ -288,4 +314,126 @@ func createSessionRecord(config *Config) (int64, *database.TursoDB, error) {
 	}
 
 	return sessionID, db, nil
+}
+
+// buildSessionContext requests context building from the daemon
+func buildSessionContext(sessionID int64, config *Config) (string, error) {
+	// Get current working directory for project context
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Get personality string
+	personalityStr := settings.GetPersonalityString(config.Personalities)
+
+	// Create HTTP client for Unix socket
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	socketPath := filepath.Join(home, ".local", "share", "dere", "daemon.sock")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: func(_, _ string) (net.Conn, error) {
+				return net.Dial("unix", socketPath)
+			},
+		},
+		Timeout: 10 * time.Second,
+	}
+
+	// Build context request
+	contextRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "context.build",
+		"id":      1,
+		"params": map[string]interface{}{
+			"session_id":       sessionID,
+			"project_path":     workingDir,
+			"personality":      personalityStr,
+			"context_depth":    config.ContextDepth,
+			"include_entities": true, // Always include entities for now
+			"max_tokens":       config.MaxContextTokens,
+			"context_mode":     config.ContextMode,
+			"current_prompt":   "", // Empty for initial context
+		},
+	}
+
+	// Send request to daemon
+	requestJSON, err := json.Marshal(contextRequest)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal context request: %w", err)
+	}
+
+	resp, err := client.Post("http://unix/rpc", "application/json", bytes.NewReader(requestJSON))
+	if err != nil {
+		// Daemon not running, context building not available
+		log.Printf("Daemon not available for context building: %v", err)
+		return "", nil
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var rpcResponse struct {
+		Result map[string]interface{} `json:"result"`
+		Error  map[string]interface{} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResponse); err != nil {
+		return "", fmt.Errorf("failed to parse context response: %w", err)
+	}
+
+	if rpcResponse.Error != nil {
+		return "", fmt.Errorf("daemon error: %v", rpcResponse.Error)
+	}
+
+	// Wait briefly for context building task to complete
+	time.Sleep(2 * time.Second)
+
+	// Get the built context
+	contextGetRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "context.get",
+		"id":      2,
+		"params": map[string]interface{}{
+			"session_id":     sessionID,
+			"max_age_minutes": 1, // Very fresh context
+		},
+	}
+
+	getRequestJSON, err := json.Marshal(contextGetRequest)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal context get request: %w", err)
+	}
+
+	getResp, err := client.Post("http://unix/rpc", "application/json", bytes.NewReader(getRequestJSON))
+	if err != nil {
+		return "", fmt.Errorf("failed to send context get request: %w", err)
+	}
+	defer getResp.Body.Close()
+
+	var getResponse struct {
+		Result map[string]interface{} `json:"result"`
+		Error  map[string]interface{} `json:"error"`
+	}
+
+	if err := json.NewDecoder(getResp.Body).Decode(&getResponse); err != nil {
+		return "", fmt.Errorf("failed to parse context get response: %w", err)
+	}
+
+	if getResponse.Error != nil {
+		return "", fmt.Errorf("daemon context get error: %v", getResponse.Error)
+	}
+
+	// Extract context text
+	if getResponse.Result != nil {
+		if found, ok := getResponse.Result["found"].(bool); ok && found {
+			if contextText, ok := getResponse.Result["context"].(string); ok {
+				return contextText, nil
+			}
+		}
+	}
+
+	return "", nil
 }

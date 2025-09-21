@@ -107,6 +107,11 @@ func (p *Processor) getTaskDescription(task *Task) string {
 		return "entity extraction"
 	case TaskTypeEntityRelationship:
 		return "entity relationship analysis"
+	case TaskTypeContextBuilding:
+		if task.SessionID != nil {
+			return fmt.Sprintf("context building for session %d", *task.SessionID)
+		}
+		return "context building"
 	default:
 		return fmt.Sprintf("unknown task type: %s", task.TaskType)
 	}
@@ -136,6 +141,8 @@ func (p *Processor) processTask(task *Task) error {
 		result, err = p.processEntityExtractionTask(task)
 	case TaskTypeEntityRelationship:
 		result, err = p.processEntityRelationshipTask(task)
+	case TaskTypeContextBuilding:
+		result, err = p.processContextBuildingTask(task)
 	default:
 		err = fmt.Errorf("unknown task type: %s", task.TaskType)
 	}
@@ -180,8 +187,16 @@ func (p *Processor) processEmbeddingTask(task *Task) (*TaskResult, error) {
 	// Store embedding in database if this is for a conversation
 	if metadata.ConversationID != nil {
 		// Update the conversation with the embedding
-		// This would need a new method in the database package
-		log.Printf("Would update conversation %d with embedding", *metadata.ConversationID)
+		if err := p.db.UpdateConversationEmbedding(*metadata.ConversationID, embedding); err != nil {
+			log.Printf("Failed to store embedding for conversation %d: %v", *metadata.ConversationID, err)
+			return &TaskResult{
+				TaskID:   task.ID,
+				Success:  false,
+				Error:    fmt.Sprintf("Failed to store embedding: %v", err),
+				Duration: time.Since(start),
+			}, nil
+		}
+		log.Printf("Stored embedding for conversation %d", *metadata.ConversationID)
 	}
 
 	return &TaskResult{
@@ -216,7 +231,6 @@ func (p *Processor) processSummarizationTask(task *Task) (*TaskResult, error) {
 	prompt := p.buildSummarizationPrompt(task.Content, metadata, task.ModelName)
 
 	// Generate summary using LLM (no schema for free text output)
-	log.Printf("Summarization prompt for task %d:\n%s", task.ID, prompt)
 	summary, err := p.ollama.GenerateWithModel(prompt, task.ModelName, nil)
 	if err != nil {
 		log.Printf("Summarization failed for task %d: %v", task.ID, err)
@@ -1082,5 +1096,181 @@ func (p *Processor) needsProgressiveSummarization(content string, modelName stri
 	return false
 }
 
+// processContextBuildingTask processes a context building task
+func (p *Processor) processContextBuildingTask(task *Task) (*TaskResult, error) {
+	start := time.Now()
+
+	var metadata ContextBuildingMetadata
+	if err := task.GetMetadata(&metadata); err != nil {
+		return nil, fmt.Errorf("failed to get context building metadata: %w", err)
+	}
+
+	// Import composer for context building
+	// Note: This is imported here to avoid circular dependencies
+	contextBuilder := &contextBuilderWrapper{
+		db:         p.db,
+		embeddings: p.ollama,
+	}
+
+	result, err := contextBuilder.BuildContext(metadata)
+	if err != nil {
+		return &TaskResult{
+			TaskID:   task.ID,
+			Success:  false,
+			Error:    err.Error(),
+			Duration: time.Since(start),
+		}, nil
+	}
+
+	return &TaskResult{
+		TaskID:   task.ID,
+		Success:  true,
+		Result:   result,
+		Duration: time.Since(start),
+	}, nil
+}
+
+// contextBuilderWrapper wraps the context building logic
+// This is a simplified version - in production you'd import from composer package
+type contextBuilderWrapper struct {
+	db         *database.TursoDB
+	embeddings *embeddings.OllamaClient
+}
+
+func (cb *contextBuilderWrapper) BuildContext(metadata ContextBuildingMetadata) (*ContextBuildingResult, error) {
+	result := &ContextBuildingResult{
+		ContextSources:     []ContextSource{},
+		EntitiesIncluded:   []string{},
+		SessionsReferenced: []int64{},
+	}
+
+	var contextParts []string
+	totalTokens := 0
+	maxTokens := metadata.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 2000
+	}
+
+	// 1. Check for cached context first
+	if cached, found := cb.db.GetCachedContext(metadata.SessionID, 30*time.Minute); found {
+		result.Context = cached
+		result.TotalTokens = len(cached) / 4 // Rough estimate
+		return result, nil
+	}
+
+	// 2. Get recent session summaries
+	if metadata.ContextMode == "summary" || metadata.ContextMode == "smart" {
+		summaries, err := cb.db.GetRecentSessionSummaries(3, metadata.ProjectPath, &metadata.SessionID)
+		log.Printf("Context building: project_path='%s', exclude_session=%d, found %d summaries, err=%v",
+			metadata.ProjectPath, metadata.SessionID, len(summaries), err)
+		if err == nil && len(summaries) > 0 {
+			for _, summary := range summaries {
+				tokens := len(summary.Summary) / 4
+				if totalTokens+tokens > maxTokens {
+					break
+				}
+
+				contextPart := fmt.Sprintf("Previous session summary:\n%s", summary.Summary)
+				contextParts = append(contextParts, contextPart)
+				log.Printf("Context building: Added context part with %d tokens: %s...", tokens, contextPart[:min(100, len(contextPart))])
+				result.ContextSources = append(result.ContextSources, ContextSource{
+					Type:           "summary",
+					SourceID:       summary.SessionID,
+					Content:        summary.Summary,
+					RelevanceScore: 0.9,
+					Tokens:         tokens,
+				})
+				result.SessionsReferenced = append(result.SessionsReferenced, summary.SessionID)
+				totalTokens += tokens
+			}
+		}
+	}
+
+	// 3. Find semantically similar conversations if we have a prompt
+	if metadata.CurrentPrompt != "" && (metadata.ContextMode == "full" || metadata.ContextMode == "smart") {
+		embedding, err := cb.embeddings.GetEmbedding(metadata.CurrentPrompt)
+		if err == nil && embedding != nil {
+			similar, err := cb.db.FindSimilarConversations(embedding, metadata.ContextDepth, &metadata.SessionID, nil)
+			if err == nil {
+				for _, conv := range similar {
+					if conv.Similarity < 0.7 {
+						continue
+					}
+
+					tokens := len(conv.Prompt) / 4
+					if totalTokens+tokens > maxTokens {
+						break
+					}
+
+					contextParts = append(contextParts, fmt.Sprintf("Related past conversation (%.1f%% similar):\n%s",
+						conv.Similarity*100, conv.Prompt))
+					result.ContextSources = append(result.ContextSources, ContextSource{
+						Type:           "conversation",
+						SourceID:       conv.ConversationID,
+						Content:        conv.Prompt,
+						RelevanceScore: conv.Similarity,
+						Tokens:         tokens,
+					})
+
+					if !containsInt64(result.SessionsReferenced, conv.SessionID) {
+						result.SessionsReferenced = append(result.SessionsReferenced, conv.SessionID)
+					}
+					totalTokens += tokens
+				}
+			}
+		}
+	}
+
+	// 4. Build final context
+	log.Printf("Context building: Building final context from %d context parts", len(contextParts))
+	if len(contextParts) > 0 {
+		result.Context = strings.Join(contextParts, "\n\n---\n\n")
+		result.TotalTokens = totalTokens
+		result.RelevanceScore = cb.calculateRelevance(result.ContextSources)
+		log.Printf("Context building: Final context built with %d tokens: %s...", totalTokens, result.Context[:min(200, len(result.Context))])
+
+		// Cache the result
+		cacheMetadata := map[string]interface{}{
+			"sources": len(result.ContextSources),
+			"tokens":  totalTokens,
+			"mode":    metadata.ContextMode,
+		}
+		cb.db.StoreContextCache(metadata.SessionID, result.Context, cacheMetadata)
+		log.Printf("Context building: Cached context for session %d", metadata.SessionID)
+	} else {
+		log.Printf("Context building: No context parts to build final context")
+	}
+
+	return result, nil
+}
+
+func (cb *contextBuilderWrapper) calculateRelevance(sources []ContextSource) float64 {
+	if len(sources) == 0 {
+		return 0
+	}
+
+	totalScore := 0.0
+	totalTokens := 0
+
+	for _, source := range sources {
+		totalScore += source.RelevanceScore * float64(source.Tokens)
+		totalTokens += source.Tokens
+	}
+
+	if totalTokens == 0 {
+		return 0
+	}
+
+	return totalScore / float64(totalTokens)
+}
+
+func containsInt64(slice []int64, val int64) bool {
+	for _, item := range slice {
+		if item == val {
+			return true
+		}
+	}
+	return false
+}
 
 

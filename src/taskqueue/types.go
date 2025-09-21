@@ -14,6 +14,7 @@ const (
 	TaskTypeEntityExtraction  TaskType = "entity_extraction"
 	TaskTypeEntityRelationship TaskType = "entity_relationship"
 	TaskTypeCodeAnalysis      TaskType = "code_analysis"
+	TaskTypeContextBuilding   TaskType = "context_building"
 )
 
 // TaskStatus represents the current status of a task
@@ -81,6 +82,18 @@ type EntityRelationshipMetadata struct {
 	RelationshipHint string  `json:"relationship_hint"` // "technical", "social", "project"
 }
 
+// ContextBuildingMetadata contains metadata for context building tasks
+type ContextBuildingMetadata struct {
+	SessionID       int64    `json:"session_id"`
+	ProjectPath     string   `json:"project_path"`
+	Personality     string   `json:"personality"`
+	ContextDepth    int      `json:"context_depth"`     // Number of related conversations to include
+	IncludeEntities bool     `json:"include_entities"`  // Whether to include entity-based context
+	MaxTokens       int      `json:"max_tokens"`        // Maximum context size in tokens
+	ContextMode     string   `json:"context_mode"`      // "summary", "full", "smart"
+	CurrentPrompt   string   `json:"current_prompt"`    // The prompt that triggered context building
+}
+
 // TaskResult represents the result of a processed task
 type TaskResult struct {
 	TaskID    int64       `json:"task_id"`
@@ -136,6 +149,25 @@ type SummarizationResult struct {
 	OriginalLength int    `json:"original_length"`
 	SummaryLength  int    `json:"summary_length"`
 	Mode           string `json:"mode"`
+}
+
+// ContextBuildingResult contains the result of a context building task
+type ContextBuildingResult struct {
+	Context           string                   `json:"context"`
+	ContextSources    []ContextSource          `json:"context_sources"`
+	TotalTokens       int                      `json:"total_tokens"`
+	RelevanceScore    float64                  `json:"relevance_score"`
+	EntitiesIncluded  []string                 `json:"entities_included"`
+	SessionsReferenced []int64                 `json:"sessions_referenced"`
+}
+
+// ContextSource represents a source of context information
+type ContextSource struct {
+	Type           string  `json:"type"`            // "summary", "conversation", "entity"
+	SourceID       int64   `json:"source_id"`       // ID of the source (session, conversation, entity)
+	Content        string  `json:"content"`         // The actual content included
+	RelevanceScore float64 `json:"relevance_score"` // How relevant this source is (0-1)
+	Tokens         int     `json:"tokens"`          // Token count for this source
 }
 
 // Helper methods for metadata handling

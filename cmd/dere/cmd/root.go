@@ -14,7 +14,13 @@ var (
 	context         bool
 	continueFlag    bool
 	resume          string
-	
+
+	// Context building flags
+	contextDepth      int
+	contextMode       string
+	includeHistory    bool
+	maxContextTokens  int
+
 	// Personality flags
 	personalities []string
 	
@@ -86,6 +92,12 @@ func init() {
 	rootCmd.Flags().BoolVar(&context, "context", false, "Enable contextual information (time, date, etc.)")
 	rootCmd.Flags().BoolVarP(&continueFlag, "continue", "c", false, "Continue the most recent conversation")
 	rootCmd.Flags().StringVarP(&resume, "resume", "r", "", "Resume a specific session ID")
+
+	// Context building flags
+	rootCmd.Flags().IntVar(&contextDepth, "context-depth", 5, "Number of related conversations to include in context")
+	rootCmd.Flags().StringVar(&contextMode, "context-mode", "smart", "Context building mode: summary, full, smart")
+	rootCmd.Flags().BoolVar(&includeHistory, "include-history", true, "Include conversation history in context")
+	rootCmd.Flags().IntVar(&maxContextTokens, "max-context-tokens", 2000, "Maximum tokens to use for context")
 	
 	// Personality flags
 	rootCmd.Flags().StringSliceVarP(&personalities, "personality", "P", nil, "Personality modes (tsun,kuu,yan,dere,ero)")
@@ -130,6 +142,10 @@ func init() {
 	// Bind flags to viper
 	viper.BindPFlag("bare", rootCmd.Flags().Lookup("bare"))
 	viper.BindPFlag("context", rootCmd.Flags().Lookup("context"))
+	viper.BindPFlag("context_depth", rootCmd.Flags().Lookup("context-depth"))
+	viper.BindPFlag("context_mode", rootCmd.Flags().Lookup("context-mode"))
+	viper.BindPFlag("include_history", rootCmd.Flags().Lookup("include-history"))
+	viper.BindPFlag("max_context_tokens", rootCmd.Flags().Lookup("max-context-tokens"))
 	viper.BindPFlag("personalities", rootCmd.Flags().Lookup("personality"))
 	viper.BindPFlag("model", rootCmd.Flags().Lookup("model"))
 	viper.BindPFlag("ollama.enabled", rootCmd.Flags().Lookup("ollama.enabled"))
@@ -171,6 +187,13 @@ func GetConfig() *Config {
 		Context:         context,
 		Continue:        continueFlag,
 		Resume:          resume,
+
+		// Context building options
+		ContextDepth:      contextDepth,
+		ContextMode:       contextMode,
+		IncludeHistory:    includeHistory,
+		MaxContextTokens:  maxContextTokens,
+
 		Model:           model,
 		FallbackModel:   fallbackModel,
 		PermissionMode:  permissionMode,
@@ -239,6 +262,13 @@ type Config struct {
 	Context         bool
 	Continue        bool
 	Resume          string
+
+	// Context building options
+	ContextDepth      int
+	ContextMode       string
+	IncludeHistory    bool
+	MaxContextTokens  int
+
 	Model           string
 	FallbackModel   string
 	PermissionMode  string

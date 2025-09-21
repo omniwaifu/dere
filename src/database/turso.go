@@ -3,7 +3,9 @@ package database
 import (
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -75,6 +77,24 @@ type ProjectCount struct {
 type DayActivity struct {
 	Date     string
 	Sessions int
+}
+
+// ContextSearchResult represents a conversation with its relevance score
+type ContextSearchResult struct {
+	ConversationID int64
+	SessionID      int64
+	Prompt         string
+	Similarity     float64
+	Timestamp      int64
+}
+
+// SessionSummary represents a session summary for context building
+type SessionSummary struct {
+	SessionID      int64
+	Summary        string
+	OriginalLength int
+	SummaryLength  int
+	CreatedAt      time.Time
 }
 
 // NewTursoDB creates a new Turso database connection
@@ -298,6 +318,35 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create conversation_segments table: %w", err)
 	}
 
+	// Context cache table for storing built context
+	contextCacheTableSQL := `
+	CREATE TABLE IF NOT EXISTS context_cache (
+		session_id INTEGER PRIMARY KEY REFERENCES sessions(id),
+		context_text TEXT NOT NULL,
+		metadata TEXT, -- JSON with sources, tokens, etc.
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`
+
+	if _, err := t.db.Exec(contextCacheTableSQL); err != nil {
+		return fmt.Errorf("failed to create context_cache table: %w", err)
+	}
+
+	// Session relationships table for tracking related sessions
+	sessionRelationshipsTableSQL := `
+	CREATE TABLE IF NOT EXISTS session_relationships (
+		session_id INTEGER REFERENCES sessions(id),
+		related_session_id INTEGER REFERENCES sessions(id),
+		relationship_type TEXT NOT NULL, -- 'continuation', 'same_project', 'similar_context'
+		strength REAL DEFAULT 1.0, -- Relationship strength 0.0 to 1.0
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (session_id, related_session_id)
+	)`
+
+	if _, err := t.db.Exec(sessionRelationshipsTableSQL); err != nil {
+		return fmt.Errorf("failed to create session_relationships table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
@@ -319,6 +368,11 @@ func (t *TursoDB) initSchema() error {
 		`CREATE INDEX IF NOT EXISTS session_summaries_created_idx ON session_summaries(created_at)`,
 		`CREATE INDEX IF NOT EXISTS conversation_segments_session_idx ON conversation_segments(session_id)`,
 		`CREATE INDEX IF NOT EXISTS conversation_segments_number_idx ON conversation_segments(session_id, segment_number)`,
+		`CREATE INDEX IF NOT EXISTS context_cache_session_idx ON context_cache(session_id)`,
+		`CREATE INDEX IF NOT EXISTS context_cache_created_idx ON context_cache(created_at)`,
+		`CREATE INDEX IF NOT EXISTS session_relationships_session_idx ON session_relationships(session_id)`,
+		`CREATE INDEX IF NOT EXISTS session_relationships_related_idx ON session_relationships(related_session_id)`,
+		`CREATE INDEX IF NOT EXISTS session_relationships_type_idx ON session_relationships(relationship_type)`,
 	}
 
 	for _, indexSQL := range indexes {
@@ -938,5 +992,280 @@ func bytesToFloat32Slice(bytes []byte) []float32 {
 		floats[i] = math.Float32frombits(bits)
 	}
 	return floats
+}
+
+// Context Search Methods
+
+// FindSimilarConversations finds conversations similar to the given embedding using vector similarity
+func (t *TursoDB) FindSimilarConversations(embedding []float32, limit int, excludeSessionID *int64, excludeConversationID *int64) ([]ContextSearchResult, error) {
+	// Convert embedding to bytes for SQL
+	embeddingBytes := float32SliceToBytes(embedding)
+
+	query := `
+		SELECT
+			c.id,
+			c.session_id,
+			c.prompt,
+			vector_distance_cos(c.prompt_embedding, ?) as distance,
+			c.timestamp
+		FROM conversations c
+		WHERE c.prompt_embedding IS NOT NULL
+		AND c.message_type = 'user'`
+
+	args := []interface{}{embeddingBytes}
+
+	// Exclude current session if specified
+	if excludeSessionID != nil {
+		query += ` AND c.session_id != ?`
+		args = append(args, *excludeSessionID)
+		log.Printf("Context search: excluding session ID %d", *excludeSessionID)
+	}
+
+	// Exclude specific conversation if specified
+	if excludeConversationID != nil {
+		query += ` AND c.id != ?`
+		args = append(args, *excludeConversationID)
+		log.Printf("Context search: excluding conversation ID %d", *excludeConversationID)
+	}
+
+	query += `
+		ORDER BY distance ASC
+		LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := t.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find similar conversations: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ContextSearchResult
+	for rows.Next() {
+		var r ContextSearchResult
+		var distance float64
+		if err := rows.Scan(&r.ConversationID, &r.SessionID, &r.Prompt, &distance, &r.Timestamp); err != nil {
+			continue
+		}
+		// Convert distance to similarity score (1 - distance for cosine)
+		r.Similarity = 1.0 - distance
+		results = append(results, r)
+	}
+
+	return results, nil
+}
+
+// GetRecentSessionSummaries gets the most recent session summaries for context
+func (t *TursoDB) GetRecentSessionSummaries(limit int, projectPath string, excludeSessionID *int64) ([]SessionSummary, error) {
+	query := `
+		SELECT
+			ss.session_id,
+			ss.summary,
+			LENGTH(ss.summary) as summary_length,
+			ss.created_at
+		FROM session_summaries ss
+		JOIN sessions s ON ss.session_id = s.id
+		WHERE 1=1`
+
+	args := []interface{}{}
+
+	if projectPath != "" {
+		query += ` AND s.working_dir = ?`
+		args = append(args, projectPath)
+	}
+
+	if excludeSessionID != nil {
+		query += ` AND ss.session_id != ?`
+		args = append(args, *excludeSessionID)
+	}
+
+	query += `
+		ORDER BY ss.created_at DESC
+		LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := t.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent summaries: %w", err)
+	}
+	defer rows.Close()
+
+	var summaries []SessionSummary
+	for rows.Next() {
+		var s SessionSummary
+		if err := rows.Scan(&s.SessionID, &s.Summary, &s.SummaryLength, &s.CreatedAt); err != nil {
+			continue
+		}
+		summaries = append(summaries, s)
+	}
+
+	return summaries, nil
+}
+
+// GetRelatedSessions finds sessions related by project path, personality, or time proximity
+func (t *TursoDB) GetRelatedSessions(sessionID int64, limit int) ([]Session, error) {
+	// First get the current session details
+	var currentSession Session
+	var personality sql.NullString
+
+	err := t.db.QueryRow(`
+		SELECT s.id, s.working_dir, s.start_time,
+		       COALESCE(GROUP_CONCAT(sp.personality_name), '') as personality
+		FROM sessions s
+		LEFT JOIN session_personalities sp ON s.id = sp.session_id
+		WHERE s.id = ?
+		GROUP BY s.id`, sessionID).Scan(
+		&currentSession.ID,
+		&currentSession.WorkingDir,
+		&currentSession.StartTime,
+		&personality,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current session: %w", err)
+	}
+
+	// Find related sessions based on multiple criteria
+	query := `
+		WITH scored_sessions AS (
+			SELECT
+				s.id,
+				s.working_dir,
+				s.start_time,
+				s.end_time,
+				s.continued_from,
+				s.project_type,
+				s.created_at,
+				COALESCE(GROUP_CONCAT(sp.personality_name), '') as personality,
+				-- Score based on multiple factors
+				(
+					-- Same project path
+					CASE WHEN s.working_dir = ? THEN 3.0 ELSE 0.0 END +
+					-- Time proximity (sessions within 24 hours)
+					CASE WHEN ABS(s.start_time - ?) < 86400 THEN 2.0
+					     WHEN ABS(s.start_time - ?) < 604800 THEN 1.0
+					     ELSE 0.0 END +
+					-- Continuation chain
+					CASE WHEN s.continued_from = ? OR s.id IN (
+						SELECT continued_from FROM sessions WHERE id = ?
+					) THEN 5.0 ELSE 0.0 END
+				) as relevance_score
+			FROM sessions s
+			LEFT JOIN session_personalities sp ON s.id = sp.session_id
+			WHERE s.id != ?
+			GROUP BY s.id
+		)
+		SELECT id, working_dir, start_time, end_time, continued_from, project_type, created_at
+		FROM scored_sessions
+		WHERE relevance_score > 0
+		ORDER BY relevance_score DESC, start_time DESC
+		LIMIT ?`
+
+	rows, err := t.db.Query(query,
+		currentSession.WorkingDir,
+		currentSession.StartTime,
+		currentSession.StartTime,
+		sessionID,
+		sessionID,
+		sessionID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find related sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []Session
+	for rows.Next() {
+		var s Session
+		if err := rows.Scan(&s.ID, &s.WorkingDir, &s.StartTime, &s.EndTime,
+			&s.ContinuedFrom, &s.ProjectType, &s.CreatedAt); err != nil {
+			continue
+		}
+		sessions = append(sessions, s)
+	}
+
+	return sessions, nil
+}
+
+// GetSessionEmbedding gets a representative embedding for a session
+func (t *TursoDB) GetSessionEmbedding(sessionID int64) ([]float32, error) {
+	// Get the average embedding of all conversations in the session
+	query := `
+		SELECT prompt_embedding
+		FROM conversations
+		WHERE session_id = ?
+		AND prompt_embedding IS NOT NULL
+		AND message_type = 'user'
+		ORDER BY timestamp DESC
+		LIMIT 1`
+
+	var embeddingBytes []byte
+	err := t.db.QueryRow(query, sessionID).Scan(&embeddingBytes)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get session embedding: %w", err)
+	}
+
+	return bytesToFloat32Slice(embeddingBytes), nil
+}
+
+// StoreContextCache stores the built context for a session
+func (t *TursoDB) StoreContextCache(sessionID int64, context string, metadata map[string]interface{}) error {
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	_, err = t.db.Exec(`
+		INSERT OR REPLACE INTO context_cache (session_id, context_text, metadata, created_at)
+		VALUES (?, ?, ?, ?)`,
+		sessionID, context, string(metadataJSON), time.Now(),
+	)
+
+	return err
+}
+
+// GetCachedContext retrieves cached context for a session if it exists and is fresh
+func (t *TursoDB) GetCachedContext(sessionID int64, maxAge time.Duration) (string, bool) {
+	var context string
+	var createdAt time.Time
+
+	err := t.db.QueryRow(`
+		SELECT context_text, created_at
+		FROM context_cache
+		WHERE session_id = ?`,
+		sessionID,
+	).Scan(&context, &createdAt)
+
+	if err != nil {
+		return "", false
+	}
+
+	// Check if context is still fresh
+	if time.Since(createdAt) > maxAge {
+		return "", false
+	}
+
+	return context, true
+}
+
+// UpdateConversationEmbedding updates a conversation with its embedding vector
+func (t *TursoDB) UpdateConversationEmbedding(conversationID int64, embedding []float32) error {
+	// Convert embedding to bytes for libSQL
+	embeddingBytes := float32SliceToBytes(embedding)
+
+	updateSQL := `
+		UPDATE conversations
+		SET prompt_embedding = ?
+		WHERE id = ?
+	`
+
+	_, err := t.db.Exec(updateSQL, embeddingBytes, conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to update conversation embedding: %w", err)
+	}
+
+	return nil
 }
 
