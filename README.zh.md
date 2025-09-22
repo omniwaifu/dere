@@ -2,13 +2,16 @@
 
 [English](README.md) | 中文 | [日本語](README.ja.md)
 
-为 Claude CLI 提供可组合人格层的分层 AI 助手，具有通过嵌入的对话记忆、智能消息摘要和基于 LLM 的实体提取功能。
+为 Claude CLI 提供可组合人格层的分层 AI 助手，具有通过嵌入的对话记忆、智能消息摘要、基于 LLM 的实体提取和全面的心理健康与健康跟踪功能。
 
 **为什么要这样做：** 我在所有事情上都使用 Claude Code，我喜欢在打开终端时让它保持"角色扮演"，例如 `dere --personality tsun --mcp=spotify`
 
 ## 功能特性
 
 - **人格层：** 傲娇、冷娇、病娇、甜娇等多种人格
+- **心理健康模式：** 专用于签到、CBT、治疗、正念和目标跟踪的特殊模式
+- **健康数据跟踪：** 自动情绪、精力和压力监测，结构化数据存储
+- **ActivityWatch 集成：** 用于实时活动和行为监测的 MCP 服务器
 - **对话记忆：** 自动嵌入生成和相似性搜索
 - **实体提取：** 基于 LLM 的语义提取技术、人物、概念和关系
 - **渐进式摘要：** 使用动态上下文限制的零损失智能摘要处理长对话
@@ -34,6 +37,7 @@
 - [Just](https://github.com/casey/just)（可选，用于现代构建命令）
 - [Ollama](https://ollama.ai)（可选，用于嵌入和摘要）
 - [rustormy](https://github.com/yourusername/rustormy)（可选，用于天气上下文）
+- [ActivityWatch](https://activitywatch.net/)（可选，用于活动监测和健康跟踪）
 
 ### 快速安装
 

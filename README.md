@@ -2,13 +2,16 @@
 
 English | [中文](README.zh.md) | [日本語](README.ja.md)
 
-Layered AI assistant with composable personalities for Claude CLI, featuring conversation memory via embeddings, intelligent message summarization, and LLM-based entity extraction.
+Layered AI assistant with composable personalities for Claude CLI, featuring conversation memory via embeddings, intelligent message summarization, LLM-based entity extraction, and comprehensive mental health and wellness tracking.
 
 **Why:** I use Claude Code for everything and want it "in character" when I load up a terminal, e.g. `dere --personality tsun --mcp=spotify`
 
 ## Features
 
 - **Personality layers**: Tsundere, kuudere, yandere, deredere, and more
+- **Mental health modes**: Specialized modes for checkin, CBT, therapy, mindfulness, and goal tracking
+- **Wellness data tracking**: Automatic mood, energy, and stress monitoring with structured data storage
+- **ActivityWatch integration**: MCP server for real-time activity and behavior monitoring
 - **Conversation memory**: Automatic embedding generation and similarity search
 - **Entity extraction**: LLM-based semantic extraction of technologies, people, concepts, and relationships
 - **Progressive summarization**: Zero-loss intelligent summarization for long conversations using dynamic context limits
@@ -34,6 +37,7 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - [Just](https://github.com/casey/just) (optional, for modern build commands)
 - [Ollama](https://ollama.ai) (optional, for embeddings and summarization)
 - [rustormy](https://github.com/yourusername/rustormy) (optional, for weather context)
+- [ActivityWatch](https://activitywatch.net/) (optional, for activity monitoring and wellness tracking)
 
 ### Quick Install
 
@@ -102,6 +106,20 @@ dere -P tsun,kuu                  # Combine tsundere + kuudere
 dere --personality "yan,ero"       # Combine yandere + erodere
 ```
 
+### Mental Health & Wellness Modes
+```bash
+dere --mode checkin               # Daily mental health check-in
+dere --mode cbt                   # Cognitive behavioral therapy session
+dere --mode therapy               # General therapy session
+dere --mode mindfulness           # Mindfulness and meditation guidance
+dere --mode goals                 # Goal setting and tracking
+
+# Combine with personalities for different therapeutic styles
+dere --mode therapy -P yan        # Overly caring therapist
+dere --mode cbt -P kuu            # Clinical, analytical CBT approach
+dere --mode checkin -P dere       # Warm, encouraging check-ins
+```
+
 ### Advanced Features
 ```bash
 dere --context                    # Add time/date/weather/activity context
@@ -155,6 +173,7 @@ dere --mcp=dev                     # Use 'dev' profile
 dere --mcp="linear,obsidian"       # Use specific servers
 dere --mcp="*spotify*"             # Pattern matching
 dere --mcp="tag:media"             # Tag-based selection
+dere --mcp=activitywatch           # Enable ActivityWatch for wellness tracking
 ```
 
 ### Daemon & Queue Management
@@ -182,6 +201,19 @@ View and manage automatically generated session summaries:
 dere summaries list                # List all session summaries
 dere summaries list --project=/path  # Filter by project path
 dere summaries show <id>           # Show detailed summary
+dere summaries latest              # Show most recent summary
+```
+
+### Wellness Data Management
+Track and analyze mental health data automatically extracted from sessions:
+
+```bash
+# Wellness data management
+dere wellness history              # View wellness data history
+dere wellness history --days=7     # Last 7 days of wellness data
+dere wellness history --mode=cbt   # Filter by specific mode
+dere wellness trends               # Show wellness trends and patterns
+dere wellness export               # Export wellness data
 ```
 
 ### Entity Management
@@ -228,10 +260,15 @@ dere/
 │   └── python/                  # Python hook scripts
 │       ├── dere-hook.py         # Conversation capture hook
 │       ├── dere-hook-session-end.py  # Session end hook
+│       ├── dere-wellness-hook.py # Wellness data extraction hook
 │       ├── dere-statusline.py   # Status line display
 │       ├── dere-stop-hook.py    # Stop hook for capture
 │       └── rpc_client.py        # RPC communication client
+├── mcp/                         # MCP servers
+│   └── dere_mcp/               # ActivityWatch MCP server
 ├── prompts/                     # Built-in personality prompts
+│   ├── commands/               # Dynamic command prompts
+│   └── modes/                  # Mental health mode prompts
 └── scripts/                     # Installation scripts
 ```
 
@@ -285,6 +322,22 @@ CREATE TABLE conversation_segments (
 
 CREATE INDEX conversations_embedding_idx
 ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
+
+-- Wellness tracking tables
+CREATE TABLE wellness_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT UNIQUE NOT NULL,
+    mode TEXT NOT NULL,
+    mood INTEGER,
+    energy INTEGER,
+    stress INTEGER,
+    key_themes TEXT,
+    notes TEXT,
+    homework TEXT,
+    next_step_notes TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
 ```
 
 ## Notes
@@ -306,6 +359,10 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - **Python hooks**: Conversation capture and processing now use Python scripts instead of Go binaries for easier development and customization
 - **RPC communication**: Hooks communicate with the daemon via RPC for efficient background processing
 - **Stop hook**: New stop hook captures Claude responses for improved conversation continuity
+- **Mental health modes**: Specialized prompts and workflows for therapeutic interactions with automatic wellness data extraction
+- **Wellness tracking**: Automatic mood, energy, and stress monitoring with structured data storage and trend analysis
+- **ActivityWatch integration**: MCP server provides real-time activity monitoring for comprehensive wellness insights
+- **Session continuity**: Mental health sessions automatically reference previous sessions for continuity of care
 
 ## License
 
