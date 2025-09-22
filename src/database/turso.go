@@ -347,6 +347,27 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create session_relationships table: %w", err)
 	}
 
+	// Wellness data table
+	wellnessTableSQL := `
+	CREATE TABLE IF NOT EXISTS wellness_sessions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT UNIQUE NOT NULL,
+		mode TEXT NOT NULL,
+		mood INTEGER,
+		energy INTEGER,
+		stress INTEGER,
+		key_themes TEXT,
+		notes TEXT,
+		homework TEXT,
+		next_step_notes TEXT,
+		created_at INTEGER DEFAULT (strftime('%s', 'now')),
+		updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+	)`
+
+	if _, err := t.db.Exec(wellnessTableSQL); err != nil {
+		return fmt.Errorf("failed to create wellness_sessions table: %w", err)
+	}
+
 	// Create indexes
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
@@ -373,6 +394,9 @@ func (t *TursoDB) initSchema() error {
 		`CREATE INDEX IF NOT EXISTS session_relationships_session_idx ON session_relationships(session_id)`,
 		`CREATE INDEX IF NOT EXISTS session_relationships_related_idx ON session_relationships(related_session_id)`,
 		`CREATE INDEX IF NOT EXISTS session_relationships_type_idx ON session_relationships(relationship_type)`,
+		`CREATE INDEX IF NOT EXISTS wellness_sessions_session_idx ON wellness_sessions(session_id)`,
+		`CREATE INDEX IF NOT EXISTS wellness_sessions_mode_idx ON wellness_sessions(mode)`,
+		`CREATE INDEX IF NOT EXISTS wellness_sessions_created_idx ON wellness_sessions(created_at)`,
 	}
 
 	for _, indexSQL := range indexes {
@@ -1267,5 +1291,207 @@ func (t *TursoDB) UpdateConversationEmbedding(conversationID int64, embedding []
 	}
 
 	return nil
+}
+
+// WellnessData represents extracted wellness metrics from a conversation
+type WellnessData struct {
+	Mood          int      `json:"mood"`
+	Energy        int      `json:"energy"`
+	Stress        int      `json:"stress"`
+	KeyThemes     []string `json:"key_themes"`
+	Notes         string   `json:"notes"`
+	Homework      []string `json:"homework"`
+	NextStepNotes string   `json:"next_step_notes"`
+	Mode          string   `json:"mode"` // therapy mode used
+}
+
+// StoreWellnessData stores wellness metrics as entities in the database
+func (t *TursoDB) StoreWellnessData(sessionID, conversationID int64, data WellnessData) error {
+	// Store each wellness metric as a separate entity
+	entities := []struct {
+		Type     string
+		Value    string
+		Metadata map[string]interface{}
+	}{
+		{
+			Type:  "wellness.mood",
+			Value: fmt.Sprintf("%d", data.Mood),
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		},
+		{
+			Type:  "wellness.energy",
+			Value: fmt.Sprintf("%d", data.Energy),
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		},
+		{
+			Type:  "wellness.stress",
+			Value: fmt.Sprintf("%d", data.Stress),
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		},
+	}
+
+	// Add key themes as entities
+	for _, theme := range data.KeyThemes {
+		entities = append(entities, struct {
+			Type     string
+			Value    string
+			Metadata map[string]interface{}
+		}{
+			Type:  "wellness.theme",
+			Value: theme,
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
+
+	// Add homework items as entities
+	for _, homework := range data.Homework {
+		entities = append(entities, struct {
+			Type     string
+			Value    string
+			Metadata map[string]interface{}
+		}{
+			Type:  "wellness.homework",
+			Value: homework,
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
+
+	// Store session notes if present
+	if data.Notes != "" {
+		entities = append(entities, struct {
+			Type     string
+			Value    string
+			Metadata map[string]interface{}
+		}{
+			Type:  "wellness.notes",
+			Value: data.Notes,
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
+
+	// Store next step notes if present
+	if data.NextStepNotes != "" {
+		entities = append(entities, struct {
+			Type     string
+			Value    string
+			Metadata map[string]interface{}
+		}{
+			Type:  "wellness.next_steps",
+			Value: data.NextStepNotes,
+			Metadata: map[string]interface{}{
+				"mode":       data.Mode,
+				"timestamp": time.Now().Unix(),
+			},
+		})
+	}
+
+	// Insert all entities
+	insertSQL := `
+		INSERT INTO entities (
+			session_id, conversation_id, entity_type, entity_value,
+			normalized_value, confidence, context_start, context_end, metadata
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	for _, entity := range entities {
+		var metadataJSON *string
+		if entity.Metadata != nil {
+			if metadataBytes, err := json.Marshal(entity.Metadata); err == nil {
+				metadataStr := string(metadataBytes)
+				metadataJSON = &metadataStr
+			}
+		}
+
+		_, err := t.db.Exec(insertSQL,
+			sessionID, conversationID, entity.Type, entity.Value,
+			entity.Value, 1.0, nil, nil, metadataJSON)
+
+		if err != nil {
+			return fmt.Errorf("failed to store wellness entity %s: %w", entity.Type, err)
+		}
+	}
+
+	return nil
+}
+
+// GetWellnessTrends retrieves wellness trends for a specific mode over time
+func (t *TursoDB) GetWellnessTrends(mode string, daysBack int) ([]WellnessTrendPoint, error) {
+	// Get mood, energy, and stress trends over time
+	query := `
+		SELECT
+			DATE(datetime(e.metadata->>'timestamp', 'unixepoch')) as date,
+			e.entity_type,
+			CAST(e.entity_value AS INTEGER) as value
+		FROM entities e
+		JOIN sessions s ON e.session_id = s.id
+		JOIN session_flags sf ON s.id = sf.session_id
+		WHERE sf.flag_name = 'mode' AND sf.flag_value = ?
+		AND e.entity_type IN ('wellness.mood', 'wellness.energy', 'wellness.stress')
+		AND datetime(e.metadata->>'timestamp', 'unixepoch') >= datetime('now', '-' || ? || ' days')
+		ORDER BY date DESC, e.entity_type
+	`
+
+	rows, err := t.db.Query(query, mode, daysBack)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query wellness trends: %w", err)
+	}
+	defer rows.Close()
+
+	trendsMap := make(map[string]*WellnessTrendPoint)
+	for rows.Next() {
+		var date, entityType string
+		var value int
+
+		if err := rows.Scan(&date, &entityType, &value); err != nil {
+			return nil, fmt.Errorf("failed to scan wellness trend row: %w", err)
+		}
+
+		if _, exists := trendsMap[date]; !exists {
+			trendsMap[date] = &WellnessTrendPoint{Date: date}
+		}
+
+		switch entityType {
+		case "wellness.mood":
+			trendsMap[date].Mood = value
+		case "wellness.energy":
+			trendsMap[date].Energy = value
+		case "wellness.stress":
+			trendsMap[date].Stress = value
+		}
+	}
+
+	// Convert map to slice
+	var trends []WellnessTrendPoint
+	for _, trend := range trendsMap {
+		trends = append(trends, *trend)
+	}
+
+	return trends, nil
+}
+
+// WellnessTrendPoint represents wellness metrics for a specific date
+type WellnessTrendPoint struct {
+	Date   string `json:"date"`
+	Mood   int    `json:"mood"`
+	Energy int    `json:"energy"`
+	Stress int    `json:"stress"`
 }
 

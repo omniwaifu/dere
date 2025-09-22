@@ -23,23 +23,26 @@ var (
 
 	// Personality flags
 	personalities []string
-	
+
 	// Model flags
 	model  string
 	fallbackModel string
-	
+
 	// Permission and tools
 	permissionMode  string
 	allowedTools    []string
 	disallowedTools []string
 	addDirs         []string
 	ide            bool
-	
+
 	// Custom prompts
 	prompts []string
-	
+
 	// Output style
 	outputStyle string
+
+	// Mental health mode
+	mode string
 	
 	// MCP Configuration
 	mcpServers    []string
@@ -119,7 +122,10 @@ func init() {
 	
 	// Output style
 	rootCmd.Flags().StringVar(&outputStyle, "output-style", "", "Claude output style (overrides default interaction mode)")
-	
+
+	// Mental health mode
+	rootCmd.Flags().StringVar(&mode, "mode", "", "Mental health mode (checkin, cbt, therapy, mindfulness, goals)")
+
 	// MCP Configuration
 	rootCmd.Flags().StringSliceVar(&mcpServers, "mcp", nil, "Comma-separated list of MCP servers from config file")
 	rootCmd.Flags().StringVar(&mcpConfigPath, "mcp-config-path", "", "Path to MCP config file")
@@ -204,6 +210,7 @@ func GetConfig() *Config {
 		MCPServers:      mcpServers,
 		MCPConfigPath:   mcpConfigPath,
 		OutputStyle:     outputStyle,
+		Mode:            mode,
 		ExtraArgs:       rootCmd.Flags().Args(),
 	}
 	
@@ -279,6 +286,7 @@ type Config struct {
 	MCPServers      []string
 	MCPConfigPath   string
 	OutputStyle     string
+	Mode            string
 	ExtraArgs       []string
 	PassthroughArgs []string
 }

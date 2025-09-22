@@ -14,6 +14,8 @@ type CommandGenerator struct {
 	commandDir    string
 	createdFiles  []string
 	trackingFile  string
+	mode          string  // Wellness mode if any
+	mcpServers    []string // MCP servers if any
 }
 
 type CleanupTracker struct {
@@ -39,17 +41,17 @@ func NewCommandGenerator(personalities []string) *CommandGenerator {
 	globalCommandDir := filepath.Join(homeDir, ".claude", "commands")
 	pid := os.Getpid()
 	trackingFile := filepath.Join(os.TempDir(), fmt.Sprintf("dere-commands-%d.json", pid))
-	
+
 	cg := &CommandGenerator{
 		personalities: personalities,
 		commandDir:    globalCommandDir,
 		createdFiles:  make([]string, 0),
 		trackingFile:  trackingFile,
 	}
-	
+
 	// Clean up any orphaned dere-* files from previous runs on startup
 	cg.cleanupOrphanedFiles()
-	
+
 	return cg
 }
 
@@ -128,6 +130,13 @@ func (cg *CommandGenerator) Generate() error {
 	for _, personality := range cg.personalities {
 		if err := cg.generatePersonalityCommands(personality); err != nil {
 			return fmt.Errorf("failed to generate commands for %s: %w", personality, err)
+		}
+	}
+
+	// Generate wellness command if in wellness mode
+	if cg.mode != "" {
+		if err := cg.generateWellnessCommand(); err != nil {
+			return fmt.Errorf("failed to generate wellness command: %w", err)
 		}
 	}
 	

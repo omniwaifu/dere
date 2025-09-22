@@ -17,6 +17,7 @@ type SettingsBuilder struct {
 	contextHookPath     string
 	sessionEndHookPath  string
 	stopHookPath        string
+	wellnessHookPath    string
 	statusLineHookPath  string
 	personality         string
 	tempFilePath        string
@@ -52,6 +53,7 @@ func NewSettingsBuilder(personality string, outputStyle string) *SettingsBuilder
 		contextHookPath:     filepath.Join(hooksDir, "dere-context-hook.py"),
 		sessionEndHookPath:  filepath.Join(hooksDir, "dere-hook-session-end.py"),
 		stopHookPath:        filepath.Join(hooksDir, "dere-stop-hook.py"),
+		wellnessHookPath:    filepath.Join(hooksDir, "dere-wellness-hook.py"),
 		statusLineHookPath:  filepath.Join(hooksDir, "dere-statusline.py"),
 	}
 }
@@ -85,8 +87,15 @@ func (sb *SettingsBuilder) Build() (string, error) {
 		Env:        make(map[string]string),
 	}
 
+	// Handle output style - check for mode-specific styles first
 	if sb.outputStyle != "" {
-		settings.OutputStyle = sb.outputStyle
+		modeContent := sb.findModeFile(sb.outputStyle)
+		if modeContent != "" {
+			settings.OutputStyle = modeContent
+		} else {
+			// No mode file found, use the output style as-is
+			settings.OutputStyle = sb.outputStyle
+		}
 	}
 
 	if err := sb.addConversationHook(settings); err != nil {
@@ -177,6 +186,48 @@ func (sb *SettingsBuilder) addConversationHook(settings *ClaudeSettings) error {
 				},
 			},
 		}
+
+		// Check if we already have existing SessionEnd hooks
+		if existingSessionEnd, exists := settings.Hooks["SessionEnd"]; exists {
+			// Add to existing SessionEnd hooks
+			if sessionEndHooks, ok := existingSessionEnd.([]HookMatcher); ok {
+				// Add wellness hook for mental health modes
+				if sb.isMentalHealthMode() {
+					if _, err := os.Stat(sb.wellnessHookPath); err == nil {
+						log.Printf("Adding wellness hook for mental health mode: %s", sb.wellnessHookPath)
+						wellnessHook := HookMatcher{
+							Matcher: "",
+							Hooks: []Hook{
+								{
+									Type:    "command",
+									Command: sb.wellnessHookPath,
+								},
+							},
+						}
+						sessionEndHooks = append(sessionEndHooks, wellnessHook)
+						settings.Hooks["SessionEnd"] = sessionEndHooks
+					}
+				}
+			}
+		} else {
+			// No existing SessionEnd hooks, create array with wellness hook if needed
+			if sb.isMentalHealthMode() {
+				if _, err := os.Stat(sb.wellnessHookPath); err == nil {
+					log.Printf("Adding wellness hook for mental health mode: %s", sb.wellnessHookPath)
+					wellnessHook := HookMatcher{
+						Matcher: "",
+						Hooks: []Hook{
+							{
+								Type:    "command",
+								Command: sb.wellnessHookPath,
+							},
+						},
+					}
+					settings.Hooks["SessionEnd"] = []HookMatcher{wellnessHook}
+				}
+			}
+		}
+
 		settings.Hooks["Stop"] = []HookMatcher{stopHook}
 	} else {
 		log.Printf("Stop hook not found at %s: %v", sb.stopHookPath, err)
@@ -280,4 +331,41 @@ func GetPersonalityString(personalities []string) string {
 		return "bare"
 	}
 	return strings.Join(personalities, "+")
+}
+
+// findModeFile looks for mode files in multiple locations
+func (sb *SettingsBuilder) findModeFile(modeName string) string {
+	homeDir, _ := os.UserHomeDir()
+
+	// Try locations in order of preference
+	locations := []string{
+		// User config directory (highest priority)
+		filepath.Join(homeDir, ".config", "dere", "modes", modeName+".md"),
+		// System-wide installation
+		filepath.Join("/usr/local/share/dere/modes", modeName+".md"),
+		// Development/source directory fallback
+		filepath.Join("prompts", "modes", modeName+".md"),
+	}
+
+	for _, location := range locations {
+		if content, err := os.ReadFile(location); err == nil {
+			log.Printf("Using mode-specific output style: %s", location)
+			return string(content)
+		}
+	}
+
+	return ""
+}
+
+// isMentalHealthMode checks if we're currently in a mental health mode
+func (sb *SettingsBuilder) isMentalHealthMode() bool {
+	mode := os.Getenv("DERE_MODE")
+	mentalHealthModes := []string{"checkin", "cbt", "therapy", "mindfulness", "goals"}
+
+	for _, mhMode := range mentalHealthModes {
+		if mode == mhMode {
+			return true
+		}
+	}
+	return false
 }

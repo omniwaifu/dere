@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	"dere/src/config"
+	"dere/src/database"
+	"dere/src/embeddings"
 	"dere/src/taskqueue"
 	"dere/src/personality"
 )
@@ -27,6 +31,10 @@ func (s *Server) routeMethod(method string, params json.RawMessage) (interface{}
 		return s.handleContextBuild(params)
 	case "context.get":
 		return s.handleContextGet(params)
+	case "mode.session.previous":
+		return s.handleModePreviousSession(params)
+	case "mode.wellness.extract":
+		return s.handleWellnessExtract(params)
 	default:
 		return nil, &RPCError{Code: -32601, Message: "Method not found"}
 	}
@@ -524,4 +532,304 @@ func (s *Server) handleContextGet(params json.RawMessage) (interface{}, error) {
 		"found":   found,
 		"context": context,
 	}, nil
+}
+
+// ModePreviousSessionParams represents request to find previous mode sessions
+type ModePreviousSessionParams struct {
+	Mode        string `json:"mode"`
+	ProjectPath string `json:"project_path"`
+	UserID      string `json:"user_id,omitempty"`
+}
+
+// ModePreviousSessionResponse represents the response with previous session info
+type ModePreviousSessionResponse struct {
+	Found           bool   `json:"found"`
+	SessionID       int64  `json:"session_id"`
+	LastSessionDate string `json:"last_session_date"`
+	DaysAgo         int    `json:"days_ago"`
+	Summary         string `json:"summary"`
+	KeyTopics       string `json:"key_topics"`
+	NextSteps       string `json:"next_steps"`
+}
+
+// handleModePreviousSession finds the most recent session of the same mode type
+func (s *Server) handleModePreviousSession(params json.RawMessage) (interface{}, error) {
+	var p ModePreviousSessionParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+	}
+
+	sqlDB := s.db.GetDB()
+
+	// Query to find the most recent session with mode-related session flag
+	query := `
+		SELECT s.id, s.start_time, COALESCE(ss.summary, ''), COALESCE(ss.key_topics, ''), COALESCE(ss.next_steps, '')
+		FROM sessions s
+		LEFT JOIN session_summaries ss ON s.id = ss.session_id AND ss.summary_type = 'wellness'
+		JOIN session_flags sf ON s.id = sf.session_id
+		WHERE sf.flag_name = 'mode' AND sf.flag_value = ?
+		AND s.working_dir = ?
+		AND s.end_time IS NOT NULL
+		ORDER BY s.start_time DESC
+		LIMIT 1
+	`
+
+	var sessionID int64
+	var startTime int64
+	var summary, keyTopics, nextSteps string
+
+	err := sqlDB.QueryRow(query, p.Mode, p.ProjectPath).Scan(&sessionID, &startTime, &summary, &keyTopics, &nextSteps)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return ModePreviousSessionResponse{Found: false}, nil
+		}
+		return nil, fmt.Errorf("failed to query previous session: %w", err)
+	}
+
+	// Calculate days ago
+	sessionTime := time.Unix(startTime, 0)
+	daysAgo := int(time.Since(sessionTime).Hours() / 24)
+
+	// Format last session date
+	lastSessionDate := sessionTime.Format("January 2, 2006")
+
+	return ModePreviousSessionResponse{
+		Found:           true,
+		SessionID:       sessionID,
+		LastSessionDate: lastSessionDate,
+		DaysAgo:         daysAgo,
+		Summary:         summary,
+		KeyTopics:       keyTopics,
+		NextSteps:       nextSteps,
+	}, nil
+}
+
+// WellnessExtractParams represents request to extract wellness data from conversation
+type WellnessExtractParams struct {
+	Mode         string `json:"mode"`
+	Conversation string `json:"conversation"`
+	SessionID    int64  `json:"session_id"`
+}
+
+// WellnessExtractResponse represents extracted wellness data
+type WellnessExtractResponse struct {
+	Mood          int      `json:"mood"`
+	Energy        int      `json:"energy"`
+	Stress        int      `json:"stress"`
+	KeyThemes     []string `json:"key_themes"`
+	Notes         string   `json:"notes"`
+	Homework      []string `json:"homework"`
+	NextStepNotes string   `json:"next_step_notes"`
+}
+
+// handleWellnessExtract extracts wellness data from conversation using LLM
+func (s *Server) handleWellnessExtract(params json.RawMessage) (interface{}, error) {
+	var p WellnessExtractParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &RPCError{Code: -32602, Message: "Invalid params"}
+	}
+
+	// Load settings to get Ollama configuration
+	cfg, err := config.LoadSettings()
+	if err != nil || !cfg.Ollama.Enabled {
+		// Fallback to placeholder if Ollama not available
+		return WellnessExtractResponse{
+			Mood:          5,
+			Energy:        5,
+			Stress:        5,
+			KeyThemes:     []string{"Unable to analyze - Ollama not configured"},
+			Notes:         "Ollama not available for analysis",
+			Homework:      []string{},
+			NextStepNotes: "",
+		}, nil
+	}
+
+	// Create Ollama client
+	ollamaClient := embeddings.NewOllamaClient(&cfg.Ollama)
+	if !ollamaClient.IsAvailable() {
+		return WellnessExtractResponse{
+			Mood:          5,
+			Energy:        5,
+			Stress:        5,
+			KeyThemes:     []string{"Unable to analyze - Ollama not available"},
+			Notes:         "Ollama service not available",
+			Homework:      []string{},
+			NextStepNotes: "",
+		}, nil
+	}
+
+	// Create prompt for wellness data extraction
+	prompt := fmt.Sprintf(`You are a mental health professional analyzing a therapy conversation. Extract structured wellness data from this conversation:
+
+CONVERSATION:
+%s
+
+Extract the following information in JSON format:
+- mood: integer 1-10 (1=very poor, 10=excellent)
+- energy: integer 1-10 (1=very low, 10=very high)
+- stress: integer 1-10 (1=very low, 10=very high)
+- key_themes: array of strings (main emotional/psychological themes discussed)
+- notes: string (brief summary of session insights)
+- homework: array of strings (suggested activities or practices)
+- next_step_notes: string (notes for next session)
+
+Focus on evidence from the conversation. If insufficient information, use reasonable defaults (5 for scales).`, p.Conversation)
+
+	// Define JSON schema for structured output
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"mood": map[string]interface{}{
+				"type":    "integer",
+				"minimum": 1,
+				"maximum": 10,
+			},
+			"energy": map[string]interface{}{
+				"type":    "integer",
+				"minimum": 1,
+				"maximum": 10,
+			},
+			"stress": map[string]interface{}{
+				"type":    "integer",
+				"minimum": 1,
+				"maximum": 10,
+			},
+			"key_themes": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "string",
+				},
+			},
+			"notes": map[string]interface{}{
+				"type": "string",
+			},
+			"homework": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "string",
+				},
+			},
+			"next_step_notes": map[string]interface{}{
+				"type": "string",
+			},
+		},
+		"required": []string{"mood", "energy", "stress", "key_themes", "notes", "homework", "next_step_notes"},
+	}
+
+	// Use summarization model for this task
+	response, err := ollamaClient.GenerateWithModel(prompt, cfg.Ollama.SummarizationModel, schema)
+	if err != nil {
+		// Fallback to placeholder on error
+		return WellnessExtractResponse{
+			Mood:          5,
+			Energy:        5,
+			Stress:        5,
+			KeyThemes:     []string{"Analysis failed"},
+			Notes:         fmt.Sprintf("LLM analysis error: %v", err),
+			Homework:      []string{},
+			NextStepNotes: "",
+		}, nil
+	}
+
+	// Parse the JSON response
+	var extractedData WellnessExtractResponse
+	if err := json.Unmarshal([]byte(response), &extractedData); err != nil {
+		// Fallback if JSON parsing fails
+		return WellnessExtractResponse{
+			Mood:          5,
+			Energy:        5,
+			Stress:        5,
+			KeyThemes:     []string{"JSON parsing failed"},
+			Notes:         "Could not parse LLM response",
+			Homework:      []string{},
+			NextStepNotes: "",
+		}, nil
+	}
+
+	// Store wellness data as entities in the database
+	wellnessData := database.WellnessData{
+		Mood:          extractedData.Mood,
+		Energy:        extractedData.Energy,
+		Stress:        extractedData.Stress,
+		KeyThemes:     extractedData.KeyThemes,
+		Notes:         extractedData.Notes,
+		Homework:      extractedData.Homework,
+		NextStepNotes: extractedData.NextStepNotes,
+		Mode:          p.Mode,
+	}
+
+	// We need a conversation ID to store entities. For now, use 0 as placeholder
+	// In a full implementation, this should be the actual conversation ID
+	if err := s.db.StoreWellnessData(p.SessionID, 0, wellnessData); err != nil {
+		log.Printf("Warning: Failed to store wellness data as entities: %v", err)
+		// Don't fail the request if wellness storage fails
+	} else {
+		log.Printf("Successfully stored wellness data for session %d (%s mode)", p.SessionID, p.Mode)
+	}
+
+	// Store session summary for mode continuity
+	if err := s.storeModeSummary(p.SessionID, p.Mode, extractedData, ollamaClient, cfg); err != nil {
+		log.Printf("Warning: Failed to store mode session summary: %v", err)
+		// Don't fail the request if summary storage fails
+	}
+
+	return extractedData, nil
+}
+
+// storeModeSummary generates and stores a session summary for mode continuity
+func (s *Server) storeModeSummary(sessionID int64, mode string, wellnessData WellnessExtractResponse, ollamaClient *embeddings.OllamaClient, cfg *config.Settings) error {
+	// Generate a concise session summary using the LLM
+	summaryPrompt := fmt.Sprintf(`Based on this %s session data, create a brief summary for future session continuity:
+
+Wellness Metrics:
+- Mood: %d/10
+- Energy: %d/10
+- Stress: %d/10
+
+Key Themes: %s
+Session Notes: %s
+Homework Assigned: %s
+Next Steps: %s
+
+Generate a 2-3 sentence summary that captures:
+1. The main emotional/psychological state
+2. Key issues or progress discussed
+3. What should be followed up on next time
+
+Summary:`, mode, wellnessData.Mood, wellnessData.Energy, wellnessData.Stress,
+		strings.Join(wellnessData.KeyThemes, ", "), wellnessData.Notes,
+		strings.Join(wellnessData.Homework, "; "), wellnessData.NextStepNotes)
+
+	// Generate summary with LLM
+	summary, err := ollamaClient.GenerateWithModel(summaryPrompt, cfg.Ollama.SummarizationModel, nil)
+	if err != nil {
+		return fmt.Errorf("failed to generate session summary: %w", err)
+	}
+
+	// Clean up the summary (remove any extra formatting)
+	summary = strings.TrimSpace(summary)
+	if strings.HasPrefix(summary, "Summary:") {
+		summary = strings.TrimSpace(strings.TrimPrefix(summary, "Summary:"))
+	}
+
+	// Convert key themes to JSON
+	keyTopicsJSON, _ := json.Marshal(wellnessData.KeyThemes)
+
+	// Store the summary
+	insertSQL := `
+		INSERT INTO session_summaries (
+			session_id, summary_type, summary, key_topics, next_steps, model_used, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err = s.db.GetDB().Exec(insertSQL,
+		sessionID, "wellness", summary, string(keyTopicsJSON), wellnessData.NextStepNotes,
+		cfg.Ollama.SummarizationModel, time.Now().Unix())
+
+	if err != nil {
+		return fmt.Errorf("failed to store session summary: %w", err)
+	}
+
+	log.Printf("Stored session summary for session %d (%s mode)", sessionID, mode)
+	return nil
 }

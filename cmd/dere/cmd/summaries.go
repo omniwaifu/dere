@@ -144,8 +144,8 @@ func getSummaries(db *database.TursoDB) ([]SessionSummary, error) {
 	query := `
 		SELECT
 			ss.id, ss.session_id, ss.summary_type, ss.summary,
-			ss.key_topics, ss.key_entities, ss.task_status, ss.next_steps,
-			ss.model_used, ss.processing_time_ms, ss.created_at,
+			COALESCE(ss.key_topics, '') as key_topics, COALESCE(ss.key_entities, '') as key_entities, COALESCE(ss.task_status, '') as task_status, COALESCE(ss.next_steps, '') as next_steps,
+			COALESCE(ss.model_used, '') as model_used, COALESCE(ss.processing_time_ms, 0) as processing_time_ms, ss.created_at,
 			s.working_dir,
 			COALESCE(GROUP_CONCAT(sp.personality_name), '') as personalities,
 			s.start_time
@@ -219,8 +219,8 @@ func getSummaryByID(db *database.TursoDB, id int64) (*SessionSummary, error) {
 	query := `
 		SELECT
 			ss.id, ss.session_id, ss.summary_type, ss.summary,
-			ss.key_topics, ss.key_entities, ss.task_status, ss.next_steps,
-			ss.model_used, ss.processing_time_ms, ss.created_at,
+			COALESCE(ss.key_topics, '') as key_topics, COALESCE(ss.key_entities, '') as key_entities, COALESCE(ss.task_status, '') as task_status, COALESCE(ss.next_steps, '') as next_steps,
+			COALESCE(ss.model_used, '') as model_used, COALESCE(ss.processing_time_ms, 0) as processing_time_ms, ss.created_at,
 			s.working_dir,
 			COALESCE(GROUP_CONCAT(sp.personality_name), '') as personalities,
 			s.start_time

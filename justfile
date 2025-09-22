@@ -16,30 +16,40 @@ build-all: build
 # Install binaries and Python hooks to user PATH
 install: build-all
     mkdir -p ~/.local/bin
+    mkdir -p ~/.config/dere/hooks
+    mkdir -p ~/.config/dere/modes
     cp bin/dere ~/.local/bin/
-    cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
-    cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
-    cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
-    cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
-    cp hooks/python/rpc_client.py ~/.local/bin/
-    chmod +x ~/.local/bin/dere-hook
-    chmod +x ~/.local/bin/dere-hook-session-end
-    chmod +x ~/.local/bin/dere-statusline
-    chmod +x ~/.local/bin/dere-stop-hook
+    cp -f hooks/python/dere-hook.py ~/.config/dere/hooks/
+    cp -f hooks/python/dere-hook-session-end.py ~/.config/dere/hooks/
+    cp -f hooks/python/dere-statusline.py ~/.config/dere/hooks/
+    cp -f hooks/python/dere-stop-hook.py ~/.config/dere/hooks/
+    cp -f hooks/python/dere-wellness-hook.py ~/.config/dere/hooks/
+    cp -f hooks/python/rpc_client.py ~/.config/dere/hooks/
+    cp -f prompts/modes/*.md ~/.config/dere/modes/
+    chmod +x ~/.config/dere/hooks/dere-hook.py
+    chmod +x ~/.config/dere/hooks/dere-hook-session-end.py
+    chmod +x ~/.config/dere/hooks/dere-statusline.py
+    chmod +x ~/.config/dere/hooks/dere-stop-hook.py
+    chmod +x ~/.config/dere/hooks/dere-wellness-hook.py
 
 # Install to system-wide location (requires sudo)
 install-system: build-all
     sudo mkdir -p /usr/local/bin
+    sudo mkdir -p /usr/local/share/dere/hooks
+    sudo mkdir -p /usr/local/share/dere/modes
     sudo cp bin/dere /usr/local/bin/
-    sudo cp hooks/python/dere-hook.py /usr/local/bin/dere-hook
-    sudo cp hooks/python/dere-hook-session-end.py /usr/local/bin/dere-hook-session-end
-    sudo cp hooks/python/dere-statusline.py /usr/local/bin/dere-statusline
-    sudo cp hooks/python/dere-stop-hook.py /usr/local/bin/dere-stop-hook
-    sudo cp hooks/python/rpc_client.py /usr/local/bin/
-    sudo chmod +x /usr/local/bin/dere-hook
-    sudo chmod +x /usr/local/bin/dere-hook-session-end
-    sudo chmod +x /usr/local/bin/dere-statusline
-    sudo chmod +x /usr/local/bin/dere-stop-hook
+    sudo cp hooks/python/dere-hook.py /usr/local/share/dere/hooks/
+    sudo cp hooks/python/dere-hook-session-end.py /usr/local/share/dere/hooks/
+    sudo cp hooks/python/dere-statusline.py /usr/local/share/dere/hooks/
+    sudo cp hooks/python/dere-stop-hook.py /usr/local/share/dere/hooks/
+    sudo cp hooks/python/dere-wellness-hook.py /usr/local/share/dere/hooks/
+    sudo cp hooks/python/rpc_client.py /usr/local/share/dere/hooks/
+    sudo cp prompts/modes/*.md /usr/local/share/dere/modes/
+    sudo chmod +x /usr/local/share/dere/hooks/dere-hook.py
+    sudo chmod +x /usr/local/share/dere/hooks/dere-hook-session-end.py
+    sudo chmod +x /usr/local/share/dere/hooks/dere-statusline.py
+    sudo chmod +x /usr/local/share/dere/hooks/dere-stop-hook.py
+    sudo chmod +x /usr/local/share/dere/hooks/dere-wellness-hook.py
 
 # Clean build artifacts
 clean:

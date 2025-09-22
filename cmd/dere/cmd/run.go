@@ -47,6 +47,9 @@ func runDere(cmd *cobra.Command, args []string) error {
 	if config.OutputStyle != "" {
 		os.Setenv("DERE_OUTPUT_STYLE", config.OutputStyle)
 	}
+	if config.Mode != "" {
+		os.Setenv("DERE_MODE", config.Mode)
+	}
 
 	// Set context building environment variables
 	if config.IncludeHistory {
@@ -67,7 +70,15 @@ func runDere(cmd *cobra.Command, args []string) error {
 
 	// Setup settings builder for dynamic configuration
 	personalityStr := settings.GetPersonalityString(config.Personalities)
-	settingsBuilder := settings.NewSettingsBuilder(personalityStr, config.OutputStyle)
+
+	// Handle mode-specific output styles
+	effectiveOutputStyle := config.OutputStyle
+	if config.Mode != "" && config.OutputStyle == "" {
+		// Mode specified but no explicit output style - use mode-based style
+		effectiveOutputStyle = config.Mode
+	}
+
+	settingsBuilder := settings.NewSettingsBuilder(personalityStr, effectiveOutputStyle)
 	
 	// Build settings file
 	settingsPath, err := settingsBuilder.Build()
@@ -78,6 +89,12 @@ func runDere(cmd *cobra.Command, args []string) error {
 	}
 	// Setup command generator for personality-specific commands
 	commandGenerator := commands.NewCommandGenerator(config.Personalities)
+	if config.Mode != "" {
+		commandGenerator.SetMode(config.Mode)
+	}
+	if len(config.MCPServers) > 0 {
+		commandGenerator.SetMCPServers(config.MCPServers)
+	}
 	if err := commandGenerator.Generate(); err != nil {
 		log.Printf("Warning: Failed to generate commands: %v", err)
 	}
@@ -100,8 +117,11 @@ func runDere(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Automatically enable history for mental health modes
+	includeHistoryForMode := config.IncludeHistory || (config.Mode != "" && !config.Bare)
+
 	// Build context if history is enabled
-	if config.IncludeHistory && !config.Bare {
+	if includeHistoryForMode && !config.Bare {
 		context, err := buildSessionContext(sessionID, config)
 		if err != nil {
 			// Log warning but don't fail - context is enhancement
@@ -109,6 +129,18 @@ func runDere(cmd *cobra.Command, args []string) error {
 		} else if context != "" {
 			// Inject context into system prompt
 			systemPrompt = composer.InjectContext(systemPrompt, context)
+		}
+	}
+
+	// Build mode-specific context for session continuity
+	if config.Mode != "" && !config.Bare {
+		modeContext, err := buildModeContext(sessionID, config)
+		if err != nil {
+			// Log warning but don't fail - mode context is enhancement
+			log.Printf("Warning: Failed to build mode context: %v", err)
+		} else if modeContext != "" {
+			// Inject mode context into system prompt
+			systemPrompt = composer.InjectContext(systemPrompt, "Session Continuity: "+modeContext)
 		}
 	}
 
@@ -169,7 +201,10 @@ func runDere(cmd *cobra.Command, args []string) error {
 		claudeArgs = append(claudeArgs, "--append-system-prompt", systemPrompt)
 	}
 	
-	// Add MCP configuration if specified
+	// Add passthrough args (these should be flags/options for Claude)
+	claudeArgs = append(claudeArgs, config.PassthroughArgs...)
+
+	// Add MCP configuration if specified - must come after other flags
 	if len(config.MCPServers) > 0 {
 		// Use dere's MCP config first, fallback to Claude Desktop if needed
 		mcpConfig, err := mcp.BuildMCPConfigFromDere(config.MCPServers)
@@ -185,12 +220,29 @@ func runDere(cmd *cobra.Command, args []string) error {
 			claudeArgs = append(claudeArgs, "--mcp-config", mcpConfig)
 		}
 	}
-	
-	// Add passthrough args first
-	claudeArgs = append(claudeArgs, config.PassthroughArgs...)
 
-	// Add extra args
-	claudeArgs = append(claudeArgs, config.ExtraArgs...)
+	// Add "--" separator to indicate end of flags if we have a prompt
+	hasPrompt := len(config.ExtraArgs) > 0 || (config.Mode != "" && !config.Bare)
+	if hasPrompt {
+		claudeArgs = append(claudeArgs, "--")
+	}
+
+	// For mental health modes, prepare an automatic initiation prompt
+	var initPrompt string
+	if config.Mode != "" && !config.Bare {
+		// Use the generic wellness command
+		initPrompt = "/dere-wellness"
+	}
+
+	// Add extra args if no initial prompt, otherwise add the prompt
+	// Extra args are treated as the initial prompt by Claude if present
+	if len(config.ExtraArgs) > 0 {
+		// User provided their own prompt/command, use that instead
+		claudeArgs = append(claudeArgs, config.ExtraArgs...)
+	} else if initPrompt != "" {
+		// No user prompt, use the mode-specific initial prompt
+		claudeArgs = append(claudeArgs, initPrompt)
+	}
 
 	// Create command to run Claude as child process
 	claudeCmd := exec.Command(claudePath, claudeArgs...)
@@ -295,6 +347,9 @@ func createSessionRecord(config *Config) (int64, *database.TursoDB, error) {
 	}
 	if config.Resume != "" {
 		flags["resume"] = config.Resume
+	}
+	if config.Mode != "" {
+		flags["mode"] = config.Mode
 	}
 
 	// Handle continuation logic
@@ -436,4 +491,135 @@ func buildSessionContext(sessionID int64, config *Config) (string, error) {
 	}
 
 	return "", nil
+}
+
+// buildModeContext builds mode-specific session context by retrieving previous sessions
+func buildModeContext(sessionID int64, config *Config) (string, error) {
+	if config.Mode == "" {
+		return "", nil
+	}
+
+	// Create HTTP client for Unix socket
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	socketPath := filepath.Join(home, ".local", "share", "dere", "daemon.sock")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: func(_, _ string) (net.Conn, error) {
+				return net.Dial("unix", socketPath)
+			},
+		},
+		Timeout: 10 * time.Second,
+	}
+
+	// Get previous mode session
+	modeRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "mode.session.previous",
+		"id":      3,
+		"params": map[string]interface{}{
+			"mode":       config.Mode,
+			"session_id": sessionID,
+		},
+	}
+
+	requestJSON, err := json.Marshal(modeRequest)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal mode request: %w", err)
+	}
+
+	resp, err := client.Post("http://unix/rpc", "application/json", bytes.NewReader(requestJSON))
+	if err != nil {
+		// Daemon not running, skip mode context
+		log.Printf("Daemon not available for mode context: %v", err)
+		return "", nil
+	}
+	defer resp.Body.Close()
+
+	var rpcResponse struct {
+		Result map[string]interface{} `json:"result"`
+		Error  map[string]interface{} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResponse); err != nil {
+		return "", fmt.Errorf("failed to parse mode response: %w", err)
+	}
+
+	if rpcResponse.Error != nil {
+		return "", fmt.Errorf("daemon mode error: %v", rpcResponse.Error)
+	}
+
+	// Check if previous session was found
+	if rpcResponse.Result != nil {
+		if found, ok := rpcResponse.Result["found"].(bool); ok && found {
+			var contextParts []string
+
+			// Add session continuity context
+			if daysAgo, ok := rpcResponse.Result["days_ago"].(float64); ok {
+				if lastDate, ok := rpcResponse.Result["last_session_date"].(string); ok {
+					if int(daysAgo) == 0 {
+						contextParts = append(contextParts, "We spoke earlier today.")
+					} else if int(daysAgo) == 1 {
+						contextParts = append(contextParts, "We spoke yesterday.")
+					} else {
+						contextParts = append(contextParts, fmt.Sprintf("We last spoke %d days ago on %s.", int(daysAgo), lastDate))
+					}
+				}
+			}
+
+			// Add summary if available
+			if summary, ok := rpcResponse.Result["summary"].(string); ok && summary != "" {
+				contextParts = append(contextParts, fmt.Sprintf("Previous session summary: %s", summary))
+			}
+
+			// Add key topics if available
+			if keyTopicsInterface, ok := rpcResponse.Result["key_topics"].([]interface{}); ok && len(keyTopicsInterface) > 0 {
+				var keyTopics []string
+				for _, topic := range keyTopicsInterface {
+					if topicStr, ok := topic.(string); ok {
+						keyTopics = append(keyTopics, topicStr)
+					}
+				}
+				if len(keyTopics) > 0 {
+					contextParts = append(contextParts, fmt.Sprintf("Key topics we discussed: %s.", strings.Join(keyTopics, ", ")))
+				}
+			}
+
+			// Add next steps if available
+			if nextSteps, ok := rpcResponse.Result["next_steps"].(string); ok && nextSteps != "" {
+				contextParts = append(contextParts, fmt.Sprintf("We planned to follow up on: %s", nextSteps))
+			}
+
+			if len(contextParts) > 0 {
+				return strings.Join(contextParts, " "), nil
+			}
+		} else {
+			// No previous session found, this is a new mode session
+			return getModeInitiationPrompt(config.Mode), nil
+		}
+	}
+
+	// If no daemon available or mode context fails, still provide initiation prompt
+	return getModeInitiationPrompt(config.Mode), nil
+}
+
+// getModeInitiationPrompt returns an auto-initiation prompt for each mental health mode
+func getModeInitiationPrompt(mode string) string {
+	switch mode {
+	case "checkin":
+		return "Session Auto-Initiation: Begin a wellness check-in session. Start by greeting the user warmly and asking how they're feeling today. Guide them through exploring their current mood, energy levels, stress, and what's been on their mind lately."
+	case "cbt":
+		return "Session Auto-Initiation: Begin a CBT (Cognitive Behavioral Therapy) session. Start by checking in with the user and asking what thoughts, feelings, or situations they'd like to work on today. Help them identify and examine thinking patterns."
+	case "therapy":
+		return "Session Auto-Initiation: Begin a therapy session. Start with a warm greeting and ask the user what's been on their mind or what they'd like to explore today. Create a safe space for deep emotional processing."
+	case "mindfulness":
+		return "Session Auto-Initiation: Begin a mindfulness session. Start by greeting the user and guiding them to take a moment to center themselves. Ask how they're feeling in this present moment and what would be most helpful for their mindfulness practice today."
+	case "goals":
+		return "Session Auto-Initiation: Begin a life coaching and goal-setting session. Start by greeting the user enthusiastically and asking what goals, dreams, or areas of their life they'd like to work on today. Help them clarify their objectives and create actionable plans."
+	default:
+		return ""
+	}
 }
