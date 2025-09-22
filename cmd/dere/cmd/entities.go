@@ -209,7 +209,7 @@ func getEntities(db *database.TursoDB) ([]EntityDisplay, error) {
 
 	query := `
 		SELECT e.id, e.entity_type, e.entity_value, e.normalized_value,
-		       e.confidence, e.conversation_id, e.created_at
+		       MAX(e.confidence) as confidence, e.conversation_id, e.created_at
 		FROM entities e
 	`
 	args := []interface{}{}
@@ -222,7 +222,7 @@ func getEntities(db *database.TursoDB) ([]EntityDisplay, error) {
 		args = append(args, entitiesProject)
 		query = `
 			SELECT e.id, e.entity_type, e.entity_value, e.normalized_value,
-			       e.confidence, e.conversation_id, e.created_at
+			       MAX(e.confidence) as confidence, e.conversation_id, e.created_at
 			FROM entities e
 			JOIN sessions s ON e.session_id = s.id
 		`
@@ -237,7 +237,7 @@ func getEntities(db *database.TursoDB) ([]EntityDisplay, error) {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	query += " ORDER BY e.confidence DESC, e.created_at DESC LIMIT ?"
+	query += " GROUP BY e.normalized_value, e.entity_type ORDER BY confidence DESC, e.created_at DESC LIMIT ?"
 	args = append(args, entitiesLimit)
 
 	rows, err := sqlDB.Query(query, args...)
