@@ -5,18 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"dere/src/config"
 )
 
 type OllamaClient struct {
-	baseURL string
-	model   string
-	client  *http.Client
+	baseURL        string
+	model          string
+	client         *http.Client
+	lastHealthCheck time.Time
+	isHealthy      bool
+	healthMutex    sync.RWMutex
 }
 
 type OllamaEmbedRequest struct {
@@ -41,13 +46,32 @@ type OllamaGenerateResponse struct {
 }
 
 func NewOllamaClient(cfg *config.OllamaConfig) *OllamaClient {
-	return &OllamaClient{
-		baseURL: cfg.URL,
-		model:   cfg.EmbeddingModel,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+	// Create transport with connection pooling and keep-alive
+	transport := &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableKeepAlives:   false,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
 	}
+
+	client := &OllamaClient{
+		baseURL:   cfg.URL,
+		model:     cfg.EmbeddingModel,
+		client: &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: transport,
+		},
+		isHealthy: true, // Assume healthy initially
+	}
+
+	// Do initial health check
+	go client.checkHealth()
+
+	return client
 }
 
 func (c *OllamaClient) GetEmbeddingModel() string {
@@ -55,45 +79,72 @@ func (c *OllamaClient) GetEmbeddingModel() string {
 }
 
 func (c *OllamaClient) GetEmbedding(text string) ([]float32, error) {
+	// Check health first
+	if !c.ensureHealthy() {
+		return nil, fmt.Errorf("Ollama server is not healthy")
+	}
+
 	reqBody := OllamaEmbedRequest{
 		Model:  c.model,
 		Prompt: text,
 	}
-	
+
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
-	req, err := http.NewRequest("POST", c.baseURL+"/api/embeddings", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+
+	// Retry with exponential backoff
+	maxRetries := 3
+	baseDelay := time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		req, err := http.NewRequest("POST", c.baseURL+"/api/embeddings", bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			// Check health and retry
+			if !c.IsAvailable() {
+				c.setHealthy(false)
+			}
+			if attempt < maxRetries-1 {
+				delay := baseDelay * time.Duration(1<<uint(attempt))
+				time.Sleep(delay)
+				continue
+			}
+			return nil, fmt.Errorf("failed to send request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			if attempt < maxRetries-1 && resp.StatusCode >= 500 {
+				delay := baseDelay * time.Duration(1<<uint(attempt))
+				time.Sleep(delay)
+				continue
+			}
+			return nil, fmt.Errorf("ollama API error (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response: %w", err)
+		}
+
+		var embedResp OllamaEmbedResponse
+		if err := json.Unmarshal(body, &embedResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		return embedResp.Embedding, nil
 	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ollama API error (status %d): %s", resp.StatusCode, string(body))
-	}
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-	
-	var embedResp OllamaEmbedResponse
-	if err := json.Unmarshal(body, &embedResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-	
-	return embedResp.Embedding, nil
+
+	return nil, fmt.Errorf("failed after %d retries", maxRetries)
 }
 
 func (c *OllamaClient) Generate(prompt string) (string, error) {
@@ -101,16 +152,50 @@ func (c *OllamaClient) Generate(prompt string) (string, error) {
 }
 
 func (c *OllamaClient) GenerateWithModel(prompt, model string, schema interface{}) (string, error) {
-	// Try normal HTTP call first
-	response, err := c.tryGenerate(prompt, model, schema)
-	if err != nil && strings.Contains(err.Error(), "model runner has unexpectedly stopped") {
-		// Model conflict - stop it and retry
-		if stopErr := c.stopModel(model); stopErr == nil {
-			time.Sleep(2 * time.Second)
-			return c.tryGenerate(prompt, model, schema)
+	// Check health first
+	if !c.ensureHealthy() {
+		return "", fmt.Errorf("Ollama server is not healthy")
+	}
+
+	// Implement exponential backoff for retries
+	maxRetries := 3
+	baseDelay := time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		response, err := c.tryGenerate(prompt, model, schema)
+
+		if err == nil {
+			return response, nil
+		}
+
+		// Check if it's a model runner error
+		if strings.Contains(err.Error(), "model runner has unexpectedly stopped") {
+			// Try to stop and restart the model
+			if stopErr := c.stopModel(model); stopErr == nil {
+				// Exponential backoff
+				delay := baseDelay * time.Duration(1<<uint(attempt))
+				time.Sleep(delay)
+				continue
+			}
+		}
+
+		// For other errors, check if server is still healthy
+		if !c.IsAvailable() {
+			c.setHealthy(false)
+			// Try to recover
+			if c.ensureHealthy() {
+				continue
+			}
+		}
+
+		// If not the last attempt, wait with exponential backoff
+		if attempt < maxRetries-1 {
+			delay := baseDelay * time.Duration(1<<uint(attempt))
+			time.Sleep(delay)
 		}
 	}
-	return response, err
+
+	return "", fmt.Errorf("failed after %d retries", maxRetries)
 }
 
 // GetEntityExtractionSchema returns the JSON schema for entity extraction
@@ -241,6 +326,97 @@ func (c *OllamaClient) IsAvailable() bool {
 	}
 
 	return false
+}
+
+// checkHealth performs a health check on the Ollama server
+func (c *OllamaClient) checkHealth() bool {
+	resp, err := c.client.Get(c.baseURL + "/api/tags")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
+}
+
+// setHealthy updates the health status
+func (c *OllamaClient) setHealthy(healthy bool) {
+	c.healthMutex.Lock()
+	defer c.healthMutex.Unlock()
+	c.isHealthy = healthy
+	c.lastHealthCheck = time.Now()
+}
+
+// getHealthStatus returns current health status and when it was last checked
+func (c *OllamaClient) getHealthStatus() (bool, time.Time) {
+	c.healthMutex.RLock()
+	defer c.healthMutex.RUnlock()
+	return c.isHealthy, c.lastHealthCheck
+}
+
+// ensureHealthy checks if the server is healthy, attempting to restore if not
+func (c *OllamaClient) ensureHealthy() bool {
+	healthy, lastCheck := c.getHealthStatus()
+
+	// If healthy and checked within last 30 seconds, assume still healthy
+	if healthy && time.Since(lastCheck) < 30*time.Second {
+		return true
+	}
+
+	// Perform health check
+	if c.checkHealth() {
+		c.setHealthy(true)
+		return true
+	}
+
+	// Server is not healthy, try to recover
+	c.setHealthy(false)
+
+	// Wait a bit and retry
+	time.Sleep(2 * time.Second)
+	if c.checkHealth() {
+		c.setHealthy(true)
+		return true
+	}
+
+	return false
+}
+
+// PrewarmModel loads a model into memory before use
+func (c *OllamaClient) PrewarmModel(modelName string) error {
+	// Simple generate request to load the model
+	reqBody := OllamaGenerateRequest{
+		Model:  modelName,
+		Prompt: "test",
+		Stream: false,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.baseURL+"/api/generate", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to prewarm model: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to prewarm model (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Read and discard the response
+	_, _ = io.ReadAll(resp.Body)
+	return nil
 }
 
 func (c *OllamaClient) GetModelContextLength(modelName string) (int, error) {
