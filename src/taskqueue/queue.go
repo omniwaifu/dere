@@ -1,6 +1,7 @@
 package taskqueue
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,10 +10,11 @@ import (
 	"dere/src/database"
 )
 
-// Queue manages tasks in the SQLite database
+// Queue manages tasks in the SQLite database with proper transaction management
 type Queue struct {
-	db     *sql.DB
-	tursoDB *database.TursoDB
+	db        *sql.DB
+	txManager *database.TxManager
+	tursoDB   *database.TursoDB
 }
 
 // NewQueue creates a new task queue
@@ -24,8 +26,9 @@ func NewQueue(dbPath string) (*Queue, error) {
 	}
 
 	return &Queue{
-		db:      tursoDB.GetDB(), // We'll need to add this method
-		tursoDB: tursoDB,
+		db:        tursoDB.GetDB(),
+		txManager: tursoDB.GetTxManager(),
+		tursoDB:   tursoDB,
 	}, nil
 }
 
@@ -109,37 +112,82 @@ func (q *Queue) GetPendingTasks(modelName string, limit int) ([]*Task, error) {
 	return q.scanTasks(rows)
 }
 
-// GetTasksByModel returns pending tasks grouped by model
+// GetTasksByModel returns pending tasks grouped by model using proper transaction isolation
 func (q *Queue) GetTasksByModel() (map[string][]*Task, error) {
-	query := `
-		SELECT model_name, COUNT(*) as count
-		FROM task_queue
-		WHERE status = 'pending'
-		GROUP BY model_name
-		ORDER BY count DESC
-	`
+	return q.GetTasksByModelWithContext(context.Background())
+}
 
-	rows, err := q.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query tasks by model: %w", err)
-	}
-	defer rows.Close()
-
+// GetTasksByModelWithContext returns pending tasks grouped by model with context support
+func (q *Queue) GetTasksByModelWithContext(ctx context.Context) (map[string][]*Task, error) {
 	result := make(map[string][]*Task)
 
-	for rows.Next() {
-		var modelName string
-		var count int
-		if err := rows.Scan(&modelName, &count); err != nil {
-			continue
-		}
+	// Execute everything in a single read transaction to ensure consistency
+	err := q.txManager.ExecuteInReadTransaction(ctx, func(tx *sql.Tx) error {
+		// First, get the count of tasks per model
+		countQuery := `
+			SELECT model_name, COUNT(*) as count
+			FROM task_queue
+			WHERE status = ?
+			GROUP BY model_name
+			ORDER BY count DESC
+		`
 
-		tasks, err := q.GetPendingTasks(modelName, count)
+		rows, err := tx.QueryContext(ctx, countQuery, "pending")
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to query task counts: %w", err)
+		}
+		defer rows.Close()
+
+		// Collect model names and counts
+		type modelCount struct {
+			name  string
+			count int
+		}
+		var models []modelCount
+
+		for rows.Next() {
+			var mc modelCount
+			if err := rows.Scan(&mc.name, &mc.count); err != nil {
+				return fmt.Errorf("failed to scan model count: %w", err)
+			}
+			models = append(models, mc)
 		}
 
-		result[modelName] = tasks
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("error iterating model counts: %w", err)
+		}
+
+		// Now fetch tasks for each model within the same transaction
+		for _, mc := range models {
+			taskQuery := `
+				SELECT id, task_type, model_name, content, metadata, priority, status, session_id,
+				       created_at, processed_at, retry_count, error_message
+				FROM task_queue
+				WHERE status = ? AND model_name = ?
+				ORDER BY priority ASC, created_at ASC
+				LIMIT ?
+			`
+
+			taskRows, err := tx.QueryContext(ctx, taskQuery, "pending", mc.name, mc.count)
+			if err != nil {
+				return fmt.Errorf("failed to query tasks for model %s: %w", mc.name, err)
+			}
+
+			tasks, err := q.scanTasks(taskRows)
+			taskRows.Close() // Close immediately after scanning
+
+			if err != nil {
+				return fmt.Errorf("failed to scan tasks for model %s: %w", mc.name, err)
+			}
+
+			result[mc.name] = tasks
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks by model: %w", err)
 	}
 
 	return result, nil

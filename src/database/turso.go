@@ -55,6 +55,7 @@ type ConversationSegment struct {
 
 type TursoDB struct {
 	db        *sql.DB
+	txManager *TxManager // Transaction manager for proper isolation
 	stmtCache *PreparedStatementCache
 	embedPool *sync.Pool // Pool for embedding byte conversions
 }
@@ -126,13 +127,25 @@ func NewTursoDB(dbPath string) (*TursoDB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Configure SQLite for concurrent access
+	// Configure SQLite for optimal concurrent access
 	pragmas := []string{
+		// WAL mode for better concurrency
 		"PRAGMA journal_mode=WAL",
+		// Longer timeout to reduce lock conflicts (30 seconds)
 		"PRAGMA busy_timeout=30000",
+		// Balance between safety and performance
 		"PRAGMA synchronous=NORMAL",
-		"PRAGMA cache_size=1000",
+		// Larger cache for better performance
+		"PRAGMA cache_size=-64000", // 64MB cache (negative = KB)
+		// Enable foreign keys
 		"PRAGMA foreign_keys=ON",
+		// Optimize WAL behavior
+		"PRAGMA wal_autocheckpoint=1000", // Checkpoint every 1000 pages
+		"PRAGMA wal_checkpoint(PASSIVE)",  // Non-blocking checkpoint
+		// Use memory for temp tables
+		"PRAGMA temp_store=MEMORY",
+		// Enable query optimizer
+		"PRAGMA optimize",
 	}
 
 	for _, pragma := range pragmas {
@@ -151,6 +164,7 @@ func NewTursoDB(dbPath string) (*TursoDB, error) {
 
 	tdb := &TursoDB{
 		db:        db,
+		txManager: NewTxManager(db),
 		stmtCache: &PreparedStatementCache{},
 		embedPool: &sync.Pool{
 			New: func() interface{} {
@@ -245,7 +259,7 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to add message_type column: %w", err)
 	}
 
-	// Task queue table for background processing
+	// Task queue table for background processing with optimized structure
 	taskQueueTableSQL := `
 	CREATE TABLE IF NOT EXISTS task_queue (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,7 +268,7 @@ func (t *TursoDB) initSchema() error {
 		content TEXT NOT NULL,
 		metadata TEXT, -- JSON
 		priority INTEGER DEFAULT 5,
-		status TEXT DEFAULT 'pending', -- pending, processing, completed, failed
+		status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
 		session_id INTEGER REFERENCES sessions(id),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		processed_at TIMESTAMP,
@@ -392,15 +406,26 @@ func (t *TursoDB) initSchema() error {
 		return fmt.Errorf("failed to create wellness_sessions table: %w", err)
 	}
 
-	// Create indexes
+	// Create optimized indexes for common query patterns
 	indexes := []string{
+		// Session indexes
 		`CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)`,
-		`CREATE INDEX IF NOT EXISTS sessions_start_time_idx ON sessions(start_time)`,
+		`CREATE INDEX IF NOT EXISTS sessions_start_time_idx ON sessions(start_time DESC)`,
+
+		// Conversation indexes
 		`CREATE INDEX IF NOT EXISTS conversations_session_idx ON conversations(session_id)`,
-		`CREATE INDEX IF NOT EXISTS conversations_timestamp_idx ON conversations(timestamp)`,
-		`CREATE INDEX IF NOT EXISTS task_queue_status_model_idx ON task_queue(status, model_name, priority)`,
-		`CREATE INDEX IF NOT EXISTS task_queue_session_idx ON task_queue(session_id)`,
-		`CREATE INDEX IF NOT EXISTS task_queue_created_idx ON task_queue(created_at)`,
+		`CREATE INDEX IF NOT EXISTS conversations_timestamp_idx ON conversations(timestamp DESC)`,
+
+		// Task queue composite indexes for optimal query performance
+		// This index specifically helps the problematic GetTasksByModel query
+		`CREATE INDEX IF NOT EXISTS task_queue_pending_model_idx ON task_queue(status, model_name) WHERE status = 'pending'`,
+		// Index for claiming tasks (priority-based selection)
+		`CREATE INDEX IF NOT EXISTS task_queue_claim_idx ON task_queue(status, model_name, priority, created_at) WHERE status = 'pending'`,
+		// Index for task updates
+		`CREATE INDEX IF NOT EXISTS task_queue_id_status_idx ON task_queue(id, status)`,
+		// General indexes
+		`CREATE INDEX IF NOT EXISTS task_queue_session_idx ON task_queue(session_id) WHERE session_id IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS task_queue_created_idx ON task_queue(created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS entities_session_idx ON entities(session_id)`,
 		`CREATE INDEX IF NOT EXISTS entities_conversation_idx ON entities(conversation_id)`,
 		`CREATE INDEX IF NOT EXISTS entities_type_value_idx ON entities(entity_type, entity_value)`,
@@ -997,6 +1022,11 @@ func (t *TursoDB) GetStats(days int, projectPath string) (*Stats, error) {
 // GetDB returns the underlying database connection
 func (t *TursoDB) GetDB() *sql.DB {
 	return t.db
+}
+
+// GetTxManager returns the transaction manager for controlled access
+func (t *TursoDB) GetTxManager() *TxManager {
+	return t.txManager
 }
 
 // Close closes the database connection and all prepared statements
