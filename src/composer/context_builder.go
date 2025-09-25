@@ -33,7 +33,7 @@ func (cb *ContextBuilder) BuildContext(metadata taskqueue.ContextBuildingMetadat
 		SessionsReferenced: []int64{},
 	}
 
-	var contextParts []string
+	contextParts := make([]string, 0, 10) // Pre-allocate with reasonable capacity
 	totalTokens := 0
 	maxTokens := metadata.MaxTokens
 	if maxTokens == 0 {
@@ -166,28 +166,38 @@ func (cb *ContextBuilder) BuildContext(metadata taskqueue.ContextBuildingMetadat
 
 // formatContext formats the context parts based on personality
 func (cb *ContextBuilder) formatContext(parts []string, personality string) string {
-	var header string
+	var builder strings.Builder
+
+	// Pre-allocate approximate capacity to minimize reallocations
+	estimatedSize := 100 // for header
+	for _, part := range parts {
+		estimatedSize += len(part) + 2 // +2 for newlines
+	}
+	builder.Grow(estimatedSize)
 
 	// Adjust formatting based on personality
 	switch personality {
 	case "tsun":
-		header = "## Previous Interactions (not that you need reminding...)"
+		builder.WriteString("## Previous Interactions (not that you need reminding...)")
 	case "kuu":
-		header = "## Historical Context"
+		builder.WriteString("## Historical Context")
 	case "yan":
-		header = "## Our Previous Conversations Together! 💕"
+		builder.WriteString("## Our Previous Conversations Together! 💕")
 	case "dere":
-		header = "## Previous Context"
+		builder.WriteString("## Previous Context")
 	case "ero":
-		header = "## Our History Together~"
+		builder.WriteString("## Our History Together~")
 	default:
-		header = "## Conversation Context"
+		builder.WriteString("## Conversation Context")
 	}
 
-	context := []string{header}
-	context = append(context, parts...)
+	// Add parts with efficient concatenation
+	for _, part := range parts {
+		builder.WriteString("\n\n")
+		builder.WriteString(part)
+	}
 
-	return strings.Join(context, "\n\n")
+	return builder.String()
 }
 
 // estimateTokenCount provides a rough estimate of token count
@@ -237,12 +247,29 @@ func InjectContext(prompt string, context string) string {
 	parts := strings.Split(prompt, "\n\n---\n\n")
 
 	if len(parts) > 1 {
-		// Insert context as the second layer (after main prompt, before personality)
-		newParts := []string{parts[0], context}
-		newParts = append(newParts, parts[1:]...)
-		return strings.Join(newParts, "\n\n---\n\n")
+		// Use strings.Builder for efficient concatenation
+		var builder strings.Builder
+
+		// Pre-calculate capacity
+		totalSize := len(prompt) + len(context) + (len(parts)-1)*7 // 7 for separator
+		builder.Grow(totalSize)
+
+		// Build the result
+		builder.WriteString(parts[0])
+		builder.WriteString("\n\n---\n\n")
+		builder.WriteString(context)
+		for i := 1; i < len(parts); i++ {
+			builder.WriteString("\n\n---\n\n")
+			builder.WriteString(parts[i])
+		}
+		return builder.String()
 	}
 
 	// If no layers, just prepend context
-	return context + "\n\n---\n\n" + prompt
+	var builder strings.Builder
+	builder.Grow(len(context) + len(prompt) + 7)
+	builder.WriteString(context)
+	builder.WriteString("\n\n---\n\n")
+	builder.WriteString(prompt)
+	return builder.String()
 }

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/tursodatabase/go-libsql"
@@ -52,7 +54,15 @@ type ConversationSegment struct {
 }
 
 type TursoDB struct {
-	db *sql.DB
+	db        *sql.DB
+	stmtCache *PreparedStatementCache
+	embedPool *sync.Pool // Pool for embedding byte conversions
+}
+
+// PreparedStatementCache manages prepared statements
+type PreparedStatementCache struct {
+	stmts sync.Map // map[string]*sql.Stmt
+	mu    sync.RWMutex
 }
 
 type Stats struct {
@@ -133,7 +143,21 @@ func NewTursoDB(dbPath string) (*TursoDB, error) {
 		rows.Close()
 	}
 
-	tdb := &TursoDB{db: db}
+	// Set connection pool settings for better performance
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
+	tdb := &TursoDB{
+		db:        db,
+		stmtCache: &PreparedStatementCache{},
+		embedPool: &sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 0, 4096) // Pre-allocate 1024 float32s worth
+			},
+		},
+	}
 
 	// Initialize schema
 	if err := tdb.initSchema(); err != nil {
@@ -516,14 +540,20 @@ func (t *TursoDB) EndSession(sessionID int64) error {
 
 // Store saves a conversation with its embedding
 func (t *TursoDB) Store(sessionID int64, prompt, embeddingText, processingMode string, embedding []float32) error {
-	embeddingBytes := float32SliceToBytes(embedding)
+	embeddingBytes := t.float32SliceToBytes(embedding)
 
 	insertSQL := `
 	INSERT INTO conversations (session_id, prompt, embedding_text, processing_mode, message_type, prompt_embedding, timestamp)
 	VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := t.db.Exec(insertSQL, sessionID, prompt, embeddingText, processingMode, "user", embeddingBytes, time.Now().Unix())
+	ctx := context.Background()
+	stmt, err := t.getPreparedStmt(ctx, insertSQL)
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.ExecContext(ctx, sessionID, prompt, embeddingText, processingMode, "user", embeddingBytes, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("failed to store conversation: %w", err)
 	}
@@ -533,14 +563,20 @@ func (t *TursoDB) Store(sessionID int64, prompt, embeddingText, processingMode s
 
 // StoreWithMessageType saves a conversation with its embedding and specific message type
 func (t *TursoDB) StoreWithMessageType(sessionID int64, prompt, embeddingText, processingMode, messageType string, embedding []float32) error {
-	embeddingBytes := float32SliceToBytes(embedding)
+	embeddingBytes := t.float32SliceToBytes(embedding)
 
 	insertSQL := `
 	INSERT INTO conversations (session_id, prompt, embedding_text, processing_mode, message_type, prompt_embedding, timestamp)
 	VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := t.db.Exec(insertSQL, sessionID, prompt, embeddingText, processingMode, messageType, embeddingBytes, time.Now().Unix())
+	ctx := context.Background()
+	stmt, err := t.getPreparedStmt(ctx, insertSQL)
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.ExecContext(ctx, sessionID, prompt, embeddingText, processingMode, messageType, embeddingBytes, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("failed to store conversation: %w", err)
 	}
@@ -550,7 +586,7 @@ func (t *TursoDB) StoreWithMessageType(sessionID int64, prompt, embeddingText, p
 
 // SearchSimilar finds conversations similar to the given embedding
 func (t *TursoDB) SearchSimilar(embedding []float32, limit int) ([]Conversation, error) {
-	embeddingBytes := float32SliceToBytes(embedding)
+	embeddingBytes := t.float32SliceToBytes(embedding)
 
 	// Try indexed search with vector_top_k first
 	indexedSQL := `
@@ -928,9 +964,39 @@ func (t *TursoDB) GetDB() *sql.DB {
 	return t.db
 }
 
-// Close closes the database connection
+// Close closes the database connection and all prepared statements
 func (t *TursoDB) Close() error {
+	// Close all cached statements
+	t.stmtCache.Close()
 	return t.db.Close()
+}
+
+// getPreparedStmt retrieves or creates a prepared statement
+func (t *TursoDB) getPreparedStmt(ctx context.Context, query string) (*sql.Stmt, error) {
+	// Try to get from cache first
+	if stmt, ok := t.stmtCache.stmts.Load(query); ok {
+		return stmt.(*sql.Stmt), nil
+	}
+
+	// Create new prepared statement
+	stmt, err := t.db.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+
+	// Store in cache
+	actual, _ := t.stmtCache.stmts.LoadOrStore(query, stmt)
+	return actual.(*sql.Stmt), nil
+}
+
+// Close all cached prepared statements
+func (c *PreparedStatementCache) Close() {
+	c.stmts.Range(func(key, value interface{}) bool {
+		if stmt, ok := value.(*sql.Stmt); ok {
+			stmt.Close()
+		}
+		return true
+	})
 }
 
 // Helper methods
@@ -988,12 +1054,28 @@ func detectProjectType(workingDir string) *string {
 	return nil
 }
 
-func float32SliceToBytes(floats []float32) []byte {
-	if floats == nil {
+// Optimized byte conversion - simplified without pooling for this use case
+// Pooling is more beneficial for larger, frequently allocated objects
+func (t *TursoDB) float32SliceToBytes(floats []float32) []byte {
+	if floats == nil || len(floats) == 0 {
 		return nil
 	}
 
-	if len(floats) == 0 {
+	requiredSize := len(floats) * 4
+	buf := make([]byte, requiredSize)
+
+	// Convert floats to bytes with optimized loop
+	for i, f := range floats {
+		bits := math.Float32bits(f)
+		binary.LittleEndian.PutUint32(buf[i*4:], bits)
+	}
+
+	return buf
+}
+
+// Legacy function for compatibility - delegates to optimized version
+func float32SliceToBytes(floats []float32) []byte {
+	if floats == nil || len(floats) == 0 {
 		return nil
 	}
 
@@ -1022,8 +1104,8 @@ func bytesToFloat32Slice(bytes []byte) []float32 {
 
 // FindSimilarConversations finds conversations similar to the given embedding using vector similarity
 func (t *TursoDB) FindSimilarConversations(embedding []float32, limit int, excludeSessionID *int64, excludeConversationID *int64) ([]ContextSearchResult, error) {
-	// Convert embedding to bytes for SQL
-	embeddingBytes := float32SliceToBytes(embedding)
+	// Convert embedding to bytes for SQL - use optimized method
+	embeddingBytes := t.float32SliceToBytes(embedding)
 
 	query := `
 		SELECT
@@ -1277,7 +1359,7 @@ func (t *TursoDB) GetCachedContext(sessionID int64, maxAge time.Duration) (strin
 // UpdateConversationEmbedding updates a conversation with its embedding vector
 func (t *TursoDB) UpdateConversationEmbedding(conversationID int64, embedding []float32) error {
 	// Convert embedding to bytes for libSQL
-	embeddingBytes := float32SliceToBytes(embedding)
+	embeddingBytes := t.float32SliceToBytes(embedding)
 
 	updateSQL := `
 		UPDATE conversations

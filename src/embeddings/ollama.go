@@ -2,6 +2,7 @@ package embeddings
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,12 @@ import (
 	"dere/src/config"
 )
 
+// Package-level singleton HTTP client for optimal connection reuse
+var (
+	globalHTTPClient *http.Client
+	clientOnce       sync.Once
+)
+
 type OllamaClient struct {
 	baseURL        string
 	model          string
@@ -22,6 +29,8 @@ type OllamaClient struct {
 	lastHealthCheck time.Time
 	isHealthy      bool
 	healthMutex    sync.RWMutex
+	ctx            context.Context // Add context for proper cancellation
+	cancel         context.CancelFunc
 }
 
 type OllamaEmbedRequest struct {
@@ -45,27 +54,44 @@ type OllamaGenerateResponse struct {
 	Done     bool   `json:"done"`
 }
 
+// getHTTPClient returns the singleton HTTP client with optimized settings
+func getHTTPClient() *http.Client {
+	clientOnce.Do(func() {
+		// Create transport with optimized connection pooling
+		transport := &http.Transport{
+			MaxIdleConns:        100,              // Increased for better reuse
+			MaxIdleConnsPerHost: 50,               // Higher per-host connections
+			MaxConnsPerHost:     50,               // Limit concurrent connections
+			IdleConnTimeout:     90 * time.Second,
+			DisableKeepAlives:   false,
+			ForceAttemptHTTP2:   true, // Enable HTTP/2 when available
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true, // Enable IPv4/IPv6
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+
+		globalHTTPClient = &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: transport,
+		}
+	})
+	return globalHTTPClient
+}
+
 func NewOllamaClient(cfg *config.OllamaConfig) *OllamaClient {
-	// Create transport with connection pooling and keep-alive
-	transport := &http.Transport{
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-		DisableKeepAlives:   false,
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-	}
+	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &OllamaClient{
 		baseURL:   cfg.URL,
 		model:     cfg.EmbeddingModel,
-		client: &http.Client{
-			Timeout:   60 * time.Second,
-			Transport: transport,
-		},
+		client:    getHTTPClient(), // Use singleton client
 		isHealthy: true, // Assume healthy initially
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 
 	// Do initial health check
@@ -99,7 +125,7 @@ func (c *OllamaClient) GetEmbedding(text string) ([]float32, error) {
 	baseDelay := time.Second
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		req, err := http.NewRequest("POST", c.baseURL+"/api/embeddings", bytes.NewBuffer(jsonData))
+		req, err := http.NewRequestWithContext(c.ctx, "POST", c.baseURL+"/api/embeddings", bytes.NewBuffer(jsonData))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
@@ -234,7 +260,7 @@ func (c *OllamaClient) tryGenerate(prompt, model string, schema interface{}) (st
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", c.baseURL+"/api/generate", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(c.ctx, "POST", c.baseURL+"/api/generate", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -396,7 +422,7 @@ func (c *OllamaClient) PrewarmModel(modelName string) error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", c.baseURL+"/api/generate", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(c.ctx, "POST", c.baseURL+"/api/generate", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
