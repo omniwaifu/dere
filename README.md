@@ -364,6 +364,3 @@ CREATE TABLE wellness_sessions (
 - **ActivityWatch integration**: MCP server provides real-time activity monitoring for comprehensive wellness insights
 - **Session continuity**: Mental health sessions automatically reference previous sessions for continuity of care
 
-## License
-
-MIT
