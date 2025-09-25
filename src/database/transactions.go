@@ -36,8 +36,8 @@ func DefaultTxOptions() *TxOptions {
 // ReadOnlyTxOptions returns options for read-only transactions
 func ReadOnlyTxOptions() *TxOptions {
 	return &TxOptions{
-		Isolation: sql.LevelReadCommitted,
-		ReadOnly:  true,
+		Isolation: sql.LevelDefault, // SQLite only supports default isolation
+		ReadOnly:  false,
 		Timeout:   10 * time.Second,
 	}
 }
@@ -45,7 +45,7 @@ func ReadOnlyTxOptions() *TxOptions {
 // ImmediateTxOptions returns options for immediate write locks
 func ImmediateTxOptions() *TxOptions {
 	return &TxOptions{
-		Isolation: sql.LevelSerializable, // Forces IMMEDIATE mode in SQLite
+		Isolation: sql.LevelDefault, // SQLite only supports default isolation
 		ReadOnly:  false,
 		Timeout:   30 * time.Second,
 	}

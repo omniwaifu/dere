@@ -206,33 +206,15 @@ func (s *Server) writeError(w http.ResponseWriter, id interface{}, code int, mes
 // processTasksLoop runs the background task processor
 func (s *Server) processTasksLoop() {
 	ticker := time.NewTicker(10 * time.Second)
-	healthTicker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	defer healthTicker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			// Check Ollama health before processing
-			if !s.ollama.IsAvailable() {
-				log.Printf("Ollama server not available, skipping task processing")
-				continue
-			}
-
-			if err := s.processor.ProcessTasks(); err != nil {
-				log.Printf("Error processing tasks: %v", err)
-			}
-
-			// Update stats
-			s.updateStats()
-
-		case <-healthTicker.C:
-			// Periodic health check of Ollama
-			if !s.ollama.IsAvailable() {
-				log.Printf("Warning: Ollama server health check failed")
-				// Could implement recovery logic here if needed
-			}
+	for range ticker.C {
+		if err := s.processor.ProcessTasks(); err != nil {
+			log.Printf("Error processing tasks: %v", err)
 		}
+
+		// Update stats
+		s.updateStats()
 	}
 }
 
