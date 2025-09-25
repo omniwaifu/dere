@@ -478,7 +478,7 @@ func buildSessionContext(sessionID int64, config *Config) (string, error) {
 	}
 
 	if getResponse.Error != nil {
-		return "", fmt.Errorf("daemon context get error: %v", getResponse.Error)
+		return "", fmt.Errorf("daemon context get error: %w", fmt.Errorf("%v", getResponse.Error))
 	}
 
 	// Extract context text
@@ -549,7 +549,7 @@ func buildModeContext(sessionID int64, config *Config) (string, error) {
 	}
 
 	if rpcResponse.Error != nil {
-		return "", fmt.Errorf("daemon mode error: %v", rpcResponse.Error)
+		return "", fmt.Errorf("daemon mode error: %w", fmt.Errorf("%v", rpcResponse.Error))
 	}
 
 	// Check if previous session was found

@@ -482,6 +482,11 @@ func (t *TursoDB) addMessageTypeColumn() error {
 
 // CreateSession creates a new session record
 func (t *TursoDB) CreateSession(workingDir string, personalities []string, mcpServers []string, flags map[string]string, continuedFrom *int64) (int64, error) {
+	return t.CreateSessionWithContext(context.Background(), workingDir, personalities, mcpServers, flags, continuedFrom)
+}
+
+// CreateSessionWithContext creates a new session record with context support
+func (t *TursoDB) CreateSessionWithContext(ctx context.Context, workingDir string, personalities []string, mcpServers []string, flags map[string]string, continuedFrom *int64) (int64, error) {
 	// Detect project type from working directory
 	projectType := detectProjectType(workingDir)
 
@@ -491,7 +496,12 @@ func (t *TursoDB) CreateSession(workingDir string, personalities []string, mcpSe
 	VALUES (?, ?, ?, ?)
 	`
 
-	result, err := t.db.Exec(sessionSQL, workingDir, time.Now().Unix(), continuedFrom, projectType)
+	stmt, err := t.getPreparedStmt(ctx, sessionSQL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+
+	result, err := stmt.ExecContext(ctx, workingDir, time.Now().Unix(), continuedFrom, projectType)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -502,25 +512,40 @@ func (t *TursoDB) CreateSession(workingDir string, personalities []string, mcpSe
 	}
 
 	// Insert personalities
+	personalitySQL := `INSERT INTO session_personalities (session_id, personality_name) VALUES (?, ?)`
+	personalityStmt, err := t.getPreparedStmt(ctx, personalitySQL)
+	if err != nil {
+		return 0, err
+	}
+
 	for _, personality := range personalities {
-		personalitySQL := `INSERT INTO session_personalities (session_id, personality_name) VALUES (?, ?)`
-		if _, err := t.db.Exec(personalitySQL, sessionID, personality); err != nil {
+		if _, err := personalityStmt.ExecContext(ctx, sessionID, personality); err != nil {
 			return 0, fmt.Errorf("failed to insert personality: %w", err)
 		}
 	}
 
 	// Insert MCP servers
+	mcpSQL := `INSERT INTO session_mcps (session_id, mcp_name) VALUES (?, ?)`
+	mcpStmt, err := t.getPreparedStmt(ctx, mcpSQL)
+	if err != nil {
+		return 0, err
+	}
+
 	for _, mcpServer := range mcpServers {
-		mcpSQL := `INSERT INTO session_mcps (session_id, mcp_name) VALUES (?, ?)`
-		if _, err := t.db.Exec(mcpSQL, sessionID, mcpServer); err != nil {
+		if _, err := mcpStmt.ExecContext(ctx, sessionID, mcpServer); err != nil {
 			return 0, fmt.Errorf("failed to insert MCP server: %w", err)
 		}
 	}
 
 	// Insert flags
+	flagSQL := `INSERT INTO session_flags (session_id, flag_name, flag_value) VALUES (?, ?, ?)`
+	flagStmt, err := t.getPreparedStmt(ctx, flagSQL)
+	if err != nil {
+		return 0, err
+	}
+
 	for flagName, flagValue := range flags {
-		flagSQL := `INSERT INTO session_flags (session_id, flag_name, flag_value) VALUES (?, ?, ?)`
-		if _, err := t.db.Exec(flagSQL, sessionID, flagName, flagValue); err != nil {
+		if _, err := flagStmt.ExecContext(ctx, sessionID, flagName, flagValue); err != nil {
 			return 0, fmt.Errorf("failed to insert flag: %w", err)
 		}
 	}
@@ -530,8 +555,18 @@ func (t *TursoDB) CreateSession(workingDir string, personalities []string, mcpSe
 
 // EndSession updates the end time of a session
 func (t *TursoDB) EndSession(sessionID int64) error {
+	return t.EndSessionWithContext(context.Background(), sessionID)
+}
+
+// EndSessionWithContext updates the end time of a session with context
+func (t *TursoDB) EndSessionWithContext(ctx context.Context, sessionID int64) error {
 	endSQL := `UPDATE sessions SET end_time = ? WHERE id = ?`
-	_, err := t.db.Exec(endSQL, time.Now().Unix(), sessionID)
+	stmt, err := t.getPreparedStmt(ctx, endSQL)
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.ExecContext(ctx, time.Now().Unix(), sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to end session: %w", err)
 	}

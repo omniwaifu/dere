@@ -31,6 +31,7 @@ type OllamaClient struct {
 	healthMutex    sync.RWMutex
 	ctx            context.Context // Add context for proper cancellation
 	cancel         context.CancelFunc
+	healthCheckDone chan struct{} // Signal for health check goroutine termination
 }
 
 type OllamaEmbedRequest struct {
@@ -86,18 +87,51 @@ func NewOllamaClient(cfg *config.OllamaConfig) *OllamaClient {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &OllamaClient{
-		baseURL:   cfg.URL,
-		model:     cfg.EmbeddingModel,
-		client:    getHTTPClient(), // Use singleton client
-		isHealthy: true, // Assume healthy initially
-		ctx:       ctx,
-		cancel:    cancel,
+		baseURL:         cfg.URL,
+		model:           cfg.EmbeddingModel,
+		client:          getHTTPClient(), // Use singleton client
+		isHealthy:       true, // Assume healthy initially
+		ctx:             ctx,
+		cancel:          cancel,
+		healthCheckDone: make(chan struct{}),
 	}
 
-	// Do initial health check
-	go client.checkHealth()
+	// Start health check goroutine with proper lifecycle management
+	go client.runHealthCheck()
 
 	return client
+}
+
+// runHealthCheck runs periodic health checks in a goroutine
+func (c *OllamaClient) runHealthCheck() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	defer close(c.healthCheckDone)
+
+	// Do initial check
+	c.checkHealth()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.checkHealth()
+		}
+	}
+}
+
+// Shutdown gracefully shuts down the client
+func (c *OllamaClient) Shutdown() error {
+	c.cancel() // Cancel context to stop goroutines
+
+	// Wait for health check to complete
+	select {
+	case <-c.healthCheckDone:
+	case <-time.After(1 * time.Second): // Timeout after 1 second
+	}
+
+	return nil
 }
 
 func (c *OllamaClient) GetEmbeddingModel() string {
