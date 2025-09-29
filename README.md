@@ -20,7 +20,7 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - **Context awareness**: Time, date, weather, and activity tracking
 - **MCP management**: Independent MCP server configuration with profiles and smart filtering
 - **Output styles**: Orthogonal output style layer (e.g., teaching mode, verbose mode)
-- **Dynamic commands**: Personality-specific slash commands auto-generated per session
+- **Custom personalities**: User-overridable TOML-based personality system with display customization
 - **Custom prompts**: Add your own domain-specific knowledge
 - **Vector search**: Turso/libSQL database with native vector similarity
 - **Background processing**: Daemon with task queue for embeddings and summarization
@@ -150,8 +150,44 @@ dere -P tsun,kuu -p "fix this code"      # Multiple personalities + print mode
 
 ## Configuration
 
+### Custom Personalities
+Personalities are defined in TOML files with prompts, display colors, and icons.
+
+**Built-in personalities** (embedded in binary):
+- `tsun` (tsundere) - Harsh but caring, red
+- `kuu` (kuudere) - Cold analytical, blue
+- `yan` (yandere) - Obsessively helpful, magenta
+- `dere` (deredere) - Genuinely sweet, green
+- `ero` (erodere) - Playfully teasing, yellow
+
+**Create custom personalities** in `~/.config/dere/personalities/`:
+```toml
+# ~/.config/dere/personalities/custom.toml
+[metadata]
+name = "custom-personality"
+short_name = "custom"
+aliases = ["custom", "my-personality"]
+
+[display]
+color = "cyan"        # Status line color
+icon = "●"            # Status line icon
+
+[prompt]
+content = """
+# Personality: Custom
+
+Your personality description here...
+
+## Core Traits:
+- Trait 1
+- Trait 2
+"""
+```
+
+Usage: `dere --personality custom`
+
 ### Custom Prompts
-Place `.md` files in `~/.config/dere/prompts/`:
+Add domain-specific knowledge as `.md` files in `~/.config/dere/prompts/`:
 ```bash
 ~/.config/dere/prompts/rust.md     # --prompts=rust
 ~/.config/dere/prompts/security.md # --prompts=security
@@ -346,7 +382,7 @@ CREATE TABLE wellness_sessions (
 - Ollama is optional but enables conversation similarity search and progressive summarization
 - Works alongside existing Claude CLI configuration without modifying global settings
 - Dynamic settings generation via `--settings` flag keeps Claude config clean
-- Personality commands (e.g., `/dere-tsun-rant`) are created per session in `~/.claude/commands/`
+- Personalities are TOML-based and user-overridable in `~/.config/dere/personalities/`
 - MCP configuration is independent from Claude Desktop for better control
 - Progressive summarization uses dynamic context length querying for zero information loss
 - Background daemon processes tasks efficiently with model switching optimization and PID-based status monitoring

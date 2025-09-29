@@ -20,7 +20,7 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 - **コンテキスト認識：** 時間、日付、天気、アクティビティトラッキング
 - **MCP管理：** 独立MCPサーバー構成、プロファイルとスマートフィルタリング付き
 - **出力スタイル：** 直交出力スタイルレイヤー（教育モード、詳細モードなど）
-- **動的コマンド：** セッションごとに自動生成される性格固有のスラッシュコマンド
+- **カスタム性格：** ユーザー上書き可能なTOMLベースの性格システムと表示カスタマイズ
 - **カスタムプロンプト：** 独自のドメイン固有の知識を追加
 - **ベクトル検索：** ネイティブベクトル類似性を持つTurso/libSQLデータベース
 - **バックグラウンド処理：** 埋め込みと要約用のデーモンとタスクキュー
@@ -150,8 +150,44 @@ dere -P tsun,kuu -p "このコードを修正"        # 複数性格 + プリン
 
 ## 設定
 
+### カスタム性格
+性格はプロンプト、表示色、アイコンを含むTOMLファイルで定義されます。
+
+**組み込み性格**（バイナリに埋め込み）：
+- `tsun`（ツンデレ）- 厳しいが思いやりがある、赤
+- `kuu`（クーデレ）- 冷静分析、青
+- `yan`（ヤンデレ）- 過度に親切、マゼンタ
+- `dere`（デレデレ）- 本当に優しい、緑
+- `ero`（エロデレ）- 遊び心のあるからかい、黄色
+
+**`~/.config/dere/personalities/`にカスタム性格を作成**：
+```toml
+# ~/.config/dere/personalities/custom.toml
+[metadata]
+name = "custom-personality"
+short_name = "custom"
+aliases = ["custom", "my-personality"]
+
+[display]
+color = "cyan"        # ステータスライン色
+icon = "●"            # ステータスラインアイコン
+
+[prompt]
+content = """
+# 性格：カスタム
+
+性格の説明をここに...
+
+## コアトレイト：
+- トレイト1
+- トレイト2
+"""
+```
+
+使用方法：`dere --personality custom`
+
 ### カスタムプロンプト
-`~/.config/dere/prompts/`に`.md`ファイルを配置：
+`~/.config/dere/prompts/`にドメイン固有の知識として`.md`ファイルを配置：
 ```bash
 ~/.config/dere/prompts/rust.md     # --prompts=rust
 ~/.config/dere/prompts/security.md # --prompts=security
@@ -311,7 +347,7 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - Ollamaはオプションですが、会話類似性検索と漸進的要約を有効にします
 - グローバル設定を変更せずに既存のClaude CLI設定と一緒に動作します
 - `--settings`フラグによる動的設定生成でClaude設定をクリーンに保ちます
-- 性格コマンド（例：`/dere-tsun-rant`）は`~/.claude/commands/`でセッションごとに作成されます
+- 性格はTOMLベースで、`~/.config/dere/personalities/`で上書き可能です
 - MCP設定はClaude Desktopから独立してより良い制御を実現
 - 漸進的要約は動的コンテキスト長クエリで情報損失ゼロを実現
 - バックグラウンドデーモンはモデル切り替え最適化とPIDベースのステータス監視で効率的にタスクを処理

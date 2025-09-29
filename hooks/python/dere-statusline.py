@@ -17,20 +17,31 @@ WHITE = "\033[37m"
 
 def format_personality(personality):
     """Format personality with colored indicator"""
-    colors = {
-        "tsun": RED + "●" + RESET + " tsun",
-        "kuu": BLUE + "●" + RESET + " kuu",
-        "yan": MAGENTA + "●" + RESET + " yan",
-        "dere": GREEN + "●" + RESET + " dere",
-        "ero": YELLOW + "●" + RESET + " ero"
+    # Get color and icon from environment if available
+    color_name = os.getenv("DERE_PERSONALITY_COLOR", "").lower()
+    icon = os.getenv("DERE_PERSONALITY_ICON", "●")
+
+    # Map color names to ANSI codes
+    color_map = {
+        "red": RED,
+        "blue": BLUE,
+        "magenta": MAGENTA,
+        "green": GREEN,
+        "yellow": YELLOW,
+        "cyan": CYAN,
+        "gray": GRAY,
+        "white": WHITE
     }
 
-    if personality in colors:
-        return colors[personality]
-    elif "+" in personality:
-        return GRAY + "●" + RESET + " " + personality
+    # Get the color code, default to GRAY
+    color_code = color_map.get(color_name, GRAY)
+
+    # Format with color and icon
+    if "+" in personality:
+        # Multiple personalities combined
+        return color_code + icon + RESET + " " + personality
     else:
-        return GRAY + "●" + RESET + " " + personality
+        return color_code + icon + RESET + " " + personality
 
 def format_model(model):
     """Format model name with indicator"""

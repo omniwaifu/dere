@@ -4,4 +4,7 @@ package personality
 type Personality interface {
 	GetPrompt() string
 	GetName() string
+	GetShortName() string
+	GetColor() string
+	GetIcon() string
 }

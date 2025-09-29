@@ -30,7 +30,7 @@ func ComposePrompt(personalities []string, customPrompts []string, includeContex
 	
 	// Layer 3: Custom prompts from files
 	for _, customPrompt := range customPrompts {
-		pers, err := personality.NewFileBasedPersonality(customPrompt)
+		pers, err := personality.CreatePersonality(customPrompt)
 		if err != nil {
 			return "", err
 		}

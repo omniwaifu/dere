@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"dere/src/config"
+	"dere/src/personality"
 )
 
 type SettingsBuilder struct {
@@ -242,6 +243,20 @@ func (sb *SettingsBuilder) addHookEnvironment(settings *ClaudeSettings) error {
 	// Add basic environment variables
 	settings.Env["DERE_PERSONALITY"] = sb.personality
 	settings.Env["DERE_DB_PATH"] = filepath.Join(os.Getenv("HOME"), ".local", "share", "dere", "dere.db")
+
+	// Extract and export personality display configuration
+	// Parse the first personality from the personality string
+	if sb.personality != "" && sb.personality != "bare" {
+		personalities := strings.Split(sb.personality, "+")
+		if len(personalities) > 0 {
+			// Load the first personality to get display config
+			pers, err := personality.CreatePersonality(personalities[0])
+			if err == nil {
+				settings.Env["DERE_PERSONALITY_COLOR"] = pers.GetColor()
+				settings.Env["DERE_PERSONALITY_ICON"] = pers.GetIcon()
+			}
+		}
+	}
 
 	// Add session ID if set
 	if sessionID := os.Getenv("DERE_SESSION_ID"); sessionID != "" {

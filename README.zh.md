@@ -20,7 +20,7 @@
 - **上下文感知：** 时间、日期、天气和活动跟踪
 - **MCP 管理：** 独立的 MCP 服务器配置，支持配置文件和智能过滤
 - **输出样式：** 正交输出样式层（如教学模式、详细模式）
-- **动态命令：** 每个会话自动生成的个性特定斜杠命令
+- **自定义人格：** 基于 TOML 的用户可覆盖人格系统，支持显示自定义
 - **自定义提示：** 添加您自己的领域特定知识
 - **向量搜索：** 带有原生向量相似性的 Turso/libSQL 数据库
 - **后台处理：** 用于嵌入和摘要的守护进程和任务队列
@@ -136,8 +136,44 @@ dere -P tsun,kuu -p "修复这段代码"        # 多重人格 + 打印模式
 
 ## 配置
 
+### 自定义人格
+人格定义在 TOML 文件中，包含提示词、显示颜色和图标。
+
+**内置人格**（嵌入到二进制文件中）：
+- `tsun`（傲娇）- 严厉但关心，红色
+- `kuu`（冷娇）- 冷静分析，蓝色
+- `yan`（病娇）- 过度热心，品红
+- `dere`（甜娇）- 真正友善，绿色
+- `ero`（色娇）- 俏皮戏谑，黄色
+
+**在 `~/.config/dere/personalities/` 中创建自定义人格**：
+```toml
+# ~/.config/dere/personalities/custom.toml
+[metadata]
+name = "custom-personality"
+short_name = "custom"
+aliases = ["custom", "my-personality"]
+
+[display]
+color = "cyan"        # 状态栏颜色
+icon = "●"            # 状态栏图标
+
+[prompt]
+content = """
+# 人格：自定义
+
+您的人格描述...
+
+## 核心特征：
+- 特征 1
+- 特征 2
+"""
+```
+
+使用方法：`dere --personality custom`
+
 ### 自定义提示
-在 `~/.config/dere/prompts/` 中放置 `.md` 文件：
+在 `~/.config/dere/prompts/` 中放置 `.md` 文件作为领域特定知识：
 ```bash
 ~/.config/dere/prompts/rust.md     # --prompts=rust
 ~/.config/dere/prompts/security.md # --prompts=security
@@ -283,7 +319,7 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - Ollama 是可选的，但可以启用对话相似性搜索和渐进式摘要
 - 与现有 Claude CLI 配置一起工作，不修改全局设置
 - 通过 `--settings` 标志动态生成设置，保持 Claude 配置干净
-- 每个会话在 `~/.claude/commands/` 中创建个性特定命令（如 `/dere-tsun-rant`）
+- 人格基于 TOML，可在 `~/.config/dere/personalities/` 中覆盖
 - MCP 配置独立于 Claude Desktop，便于更好控制
 - 渐进式摘要使用动态上下文长度查询，实现零信息损失
 - 后台守护进程通过模型切换优化和基于 PID 的状态监控高效处理任务
