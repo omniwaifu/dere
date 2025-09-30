@@ -36,13 +36,13 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - Python 3.8+ (for hook scripts)
 - [Just](https://github.com/casey/just) (optional, for modern build commands)
 - [Ollama](https://ollama.ai) (optional, for embeddings and summarization)
-- [rustormy](https://github.com/yourusername/rustormy) (optional, for weather context)
+- [rustormy](https://github.com/Tairesh/rustormy) (optional, for weather context)
 - [ActivityWatch](https://activitywatch.net/) (optional, for activity monitoring and wellness tracking)
 
 ### Quick Install (Linux/macOS)
 
 ```bash
-git clone https://github.com/yourusername/dere.git
+git clone https://github.com/omniwaifu/dere.git
 cd dere
 just install
 ```

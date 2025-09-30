@@ -36,13 +36,13 @@
 - Python 3.8+（用于钩子脚本）
 - [Just](https://github.com/casey/just)（可选，用于现代构建命令）
 - [Ollama](https://ollama.ai)（可选，用于嵌入和摘要）
-- [rustormy](https://github.com/yourusername/rustormy)（可选，用于天气上下文）
+- [rustormy](https://github.com/Tairesh/rustormy)（可选，用于天气上下文）
 - [ActivityWatch](https://activitywatch.net/)（可选，用于活动监测和健康跟踪）
 
 ### 快速安装（Linux/macOS）
 
 ```bash
-git clone https://github.com/yourusername/dere.git
+git clone https://github.com/omniwaifu/dere.git
 cd dere
 just install
 ```

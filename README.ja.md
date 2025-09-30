@@ -42,7 +42,7 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 ### クイックインストール（Linux/macOS）
 
 ```bash
-git clone https://github.com/yourusername/dere.git
+git clone https://github.com/omniwaifu/dere.git
 cd dere
 just install
 ```
