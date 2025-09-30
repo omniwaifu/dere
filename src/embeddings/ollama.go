@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -228,21 +227,9 @@ func (c *OllamaClient) GenerateWithModel(prompt, model string, schema interface{
 			return response, nil
 		}
 
-		// Check if it's a model runner error
-		if strings.Contains(err.Error(), "model runner has unexpectedly stopped") {
-			// Try to stop and restart the model
-			if stopErr := c.stopModel(model); stopErr == nil {
-				// Exponential backoff
-				delay := baseDelay * time.Duration(1<<uint(attempt))
-				time.Sleep(delay)
-				continue
-			}
-		}
-
-		// For other errors, check if server is still healthy
+		// Check if server is still healthy
 		if !c.IsAvailable() {
 			c.setHealthy(false)
-			// Try to recover
 			if c.ensureHealthy() {
 				continue
 			}
@@ -323,33 +310,6 @@ func (c *OllamaClient) tryGenerate(prompt, model string, schema interface{}) (st
 	}
 
 	return genResp.Response, nil
-}
-
-func (c *OllamaClient) stopModel(model string) error {
-	// Extract hostname from baseURL (e.g., "http://192.168.1.8:11434" -> "192.168.1.8")
-	hostname := strings.TrimPrefix(c.baseURL, "http://")
-	hostname = strings.TrimPrefix(hostname, "https://")
-	hostname = strings.Split(hostname, ":")[0]
-
-	// If it's localhost/127.0.0.1, run locally, otherwise SSH
-	var cmd *exec.Cmd
-	if hostname == "localhost" || hostname == "127.0.0.1" {
-		cmd = exec.Command("ollama", "stop", model)
-	} else {
-		// SSH to remote host - assuming hostname is "macbook" or similar
-		if hostname == "192.168.1.8" {
-			cmd = exec.Command("ssh", "macbook", "/opt/homebrew/bin/ollama", "stop", model)
-		} else {
-			cmd = exec.Command("ssh", hostname, "ollama", "stop", model)
-		}
-	}
-
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to stop model %s: %w", model, err)
-	}
-
-	return nil
 }
 
 func (c *OllamaClient) IsAvailable() bool {
