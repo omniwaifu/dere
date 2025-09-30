@@ -39,36 +39,49 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 - [rustormy](https://github.com/Tairesh/rustormy)（オプション、天気コンテキスト用）
 - [ActivityWatch](https://activitywatch.net/)（オプション、アクティビティ監視とウェルネストラッキング用）
 
-### クイックインストール
+### クイックインストール（Linux/macOS）
 
 ```bash
 git clone https://github.com/yourusername/dere.git
 cd dere
-just install  # または 'make install' を使用
+just install
 ```
 
 これにより：
 - メインdereバイナリをビルド
-- dereバイナリとPythonフックスクリプトを~/.local/binにインストール
+- dereバイナリとPythonフックスクリプトを~/.local/bin (Linux) または ~/Library/Application Support (macOS) にインストール
 - 会話キャプチャ、セッション要約、デーモン通信を自動設定
 
 ### 手動セットアップ
 
+#### Linux/macOS
+
 1. プロジェクトをビルド：
 ```bash
-just build  # または 'make build'
+just build
 ```
 
-2. バイナリとスクリプトをPATHにコピーまたはリンク：
+2. バイナリとスクリプトをPATHにコピー：
 ```bash
 cp bin/dere ~/.local/bin/  # または /usr/local/bin/
-cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
-cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
-cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
-cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
-cp hooks/python/rpc_client.py ~/.local/bin/
-chmod +x ~/.local/bin/dere-*
+cp hooks/python/*.py ~/.local/bin/
+chmod +x ~/.local/bin/dere-*.py
 ```
+
+#### Windows
+
+1. プロジェクトをビルド：
+```powershell
+go build -o bin\dere.exe cmd\dere\main.go
+```
+
+2. `bin` ディレクトリをPATHに追加、またはPATH内の場所にコピー：
+```powershell
+copy bin\dere.exe %LOCALAPPDATA%\Programs\
+copy hooks\python\*.py %LOCALAPPDATA%\Programs\
+```
+
+3. Pythonが `.py` ファイルに関連付けられていることを確認、またはClaude CLIがフックを呼び出す際に `python` プレフィックスを使用
 
 3. Ollamaを設定（オプション、会話埋め込み用）：
 ```toml
@@ -237,7 +250,7 @@ dere daemon start                  # バックグラウンドタスクプロセ�
 dere daemon stop                   # デーモンを停止
 dere daemon restart                # デーモンを再起動（ホットリロード）
 dere daemon status                 # デーモンステータス、PID、キュー統計を表示
-dere daemon reload                 # 設定をリロード（SIGHUP）
+dere daemon reload                 # 設定をリロード（SIGHUP、Linux/macOSのみ）
 
 # キュー管理
 dere queue list                    # 保留中のタスクをリスト

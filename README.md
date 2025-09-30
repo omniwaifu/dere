@@ -39,36 +39,49 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - [rustormy](https://github.com/yourusername/rustormy) (optional, for weather context)
 - [ActivityWatch](https://activitywatch.net/) (optional, for activity monitoring and wellness tracking)
 
-### Quick Install
+### Quick Install (Linux/macOS)
 
 ```bash
 git clone https://github.com/yourusername/dere.git
 cd dere
-just install  # or 'make install' if you prefer make
+just install
 ```
 
 This will:
 - Build the main dere binary
-- Install dere binary and Python hook scripts to ~/.local/bin
+- Install dere binary and Python hook scripts to ~/.local/bin (Linux) or ~/Library/Application Support (macOS)
 - Set up conversation capture, session summarization, and daemon communication automatically
 
 ### Manual Setup
 
+#### Linux/macOS
+
 1. Build the project:
 ```bash
-just build  # or 'make build'
+just build
 ```
 
-2. Copy or link binaries and scripts to your PATH:
+2. Copy binaries and scripts to your PATH:
 ```bash
 cp bin/dere ~/.local/bin/  # or /usr/local/bin/
-cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
-cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
-cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
-cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
-cp hooks/python/rpc_client.py ~/.local/bin/
-chmod +x ~/.local/bin/dere-*
+cp hooks/python/*.py ~/.local/bin/
+chmod +x ~/.local/bin/dere-*.py
 ```
+
+#### Windows
+
+1. Build the project:
+```powershell
+go build -o bin\dere.exe cmd\dere\main.go
+```
+
+2. Add `bin` directory to your PATH, or copy to a location in PATH:
+```powershell
+copy bin\dere.exe %LOCALAPPDATA%\Programs\
+copy hooks\python\*.py %LOCALAPPDATA%\Programs\
+```
+
+3. Ensure Python is associated with `.py` files, or use `python` prefix when Claude CLI invokes hooks
 
 3. Configure Ollama (optional, for conversation embeddings):
 ```toml
@@ -238,7 +251,7 @@ dere daemon start                  # Start background task processor
 dere daemon stop                   # Stop the daemon
 dere daemon restart                # Restart daemon (hot reload)
 dere daemon status                 # Show daemon status, PID, and queue stats
-dere daemon reload                 # Reload configuration (SIGHUP)
+dere daemon reload                 # Reload configuration (SIGHUP, Linux/macOS only)
 
 # Queue management
 dere queue list                    # List pending tasks

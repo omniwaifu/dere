@@ -39,36 +39,49 @@
 - [rustormy](https://github.com/yourusername/rustormy)（可选，用于天气上下文）
 - [ActivityWatch](https://activitywatch.net/)（可选，用于活动监测和健康跟踪）
 
-### 快速安装
+### 快速安装（Linux/macOS）
 
 ```bash
 git clone https://github.com/yourusername/dere.git
 cd dere
-just install  # 或者使用 'make install'
+just install
 ```
 
 这将：
 - 构建主 dere 二进制文件
-- 安装 dere 二进制文件和 Python 钩子脚本到 ~/.local/bin
+- 安装 dere 二进制文件和 Python 钩子脚本到 ~/.local/bin (Linux) 或 ~/Library/Application Support (macOS)
 - 自动设置对话捕获、会话摘要和守护进程通信
 
 ### 手动设置
 
+#### Linux/macOS
+
 1. 构建项目：
 ```bash
-just build  # 或者 'make build'
+just build
 ```
 
-2. 复制或链接二进制文件和脚本到您的 PATH：
+2. 复制二进制文件和脚本到您的 PATH：
 ```bash
 cp bin/dere ~/.local/bin/  # 或者 /usr/local/bin/
-cp hooks/python/dere-hook.py ~/.local/bin/dere-hook
-cp hooks/python/dere-hook-session-end.py ~/.local/bin/dere-hook-session-end
-cp hooks/python/dere-statusline.py ~/.local/bin/dere-statusline
-cp hooks/python/dere-stop-hook.py ~/.local/bin/dere-stop-hook
-cp hooks/python/rpc_client.py ~/.local/bin/
-chmod +x ~/.local/bin/dere-*
+cp hooks/python/*.py ~/.local/bin/
+chmod +x ~/.local/bin/dere-*.py
 ```
+
+#### Windows
+
+1. 构建项目：
+```powershell
+go build -o bin\dere.exe cmd\dere\main.go
+```
+
+2. 将 `bin` 目录添加到 PATH，或复制到 PATH 中的位置：
+```powershell
+copy bin\dere.exe %LOCALAPPDATA%\Programs\
+copy hooks\python\*.py %LOCALAPPDATA%\Programs\
+```
+
+3. 确保 Python 与 `.py` 文件关联，或在 Claude CLI 调用钩子时使用 `python` 前缀
 
 3. 配置 Ollama（可选，用于对话嵌入）：
 ```toml
@@ -223,7 +236,7 @@ dere daemon start                  # 启动后台任务处理器
 dere daemon stop                   # 停止守护进程
 dere daemon restart                # 重启守护进程（热重载）
 dere daemon status                 # 显示守护进程状态、PID 和队列统计
-dere daemon reload                 # 重载配置（SIGHUP）
+dere daemon reload                 # 重载配置（SIGHUP，仅 Linux/macOS）
 
 # 队列管理
 dere queue list                    # 列出待处理任务
