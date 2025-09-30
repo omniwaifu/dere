@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -14,6 +15,34 @@ import (
 	"dere/src/config"
 	"dere/src/embeddings"
 )
+
+// isProcessRunning checks if a process is running (cross-platform)
+// On Windows, FindProcess succeeding means the process exists
+// On Unix, we need to send signal 0 to verify
+func isProcessRunning(process *os.Process) bool {
+	if process == nil {
+		return false
+	}
+
+	if runtime.GOOS == "windows" {
+		// On Windows, FindProcess always succeeds, so we return true
+		// The process handle will fail on actual operations if process doesn't exist
+		return true
+	}
+
+	// On Unix, send signal 0 to check if process exists
+	return process.Signal(syscall.Signal(0)) == nil
+}
+
+// terminateProcess terminates a process gracefully (cross-platform)
+// On Windows, uses Kill() since there's no SIGTERM
+// On Unix, uses SIGTERM for graceful shutdown
+func terminateProcess(process *os.Process) error {
+	if runtime.GOOS == "windows" {
+		return process.Kill()
+	}
+	return process.Signal(syscall.SIGTERM)
+}
 
 // Run starts the daemon with JSON-RPC server
 func Run(interval time.Duration) error {
@@ -72,13 +101,19 @@ func Run(interval time.Duration) error {
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	if runtime.GOOS == "windows" {
+		// Windows doesn't support SIGHUP
+		signal.Notify(sigChan, os.Interrupt)
+	} else {
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	}
 
 	for {
 		select {
 		case sig := <-sigChan:
 			switch sig {
 			case syscall.SIGHUP:
+				// SIGHUP only available on Unix
 				log.Println("Received SIGHUP, reloading configuration...")
 				// Reload configuration
 				if newConfig, err := config.LoadSettings(); err == nil {
@@ -117,7 +152,7 @@ func IsRunning() (bool, int) {
 		return false, 0
 	}
 
-	if err := process.Signal(syscall.Signal(0)); err != nil {
+	if !isProcessRunning(process) {
 		// Process doesn't exist, clean up stale PID file
 		os.Remove(pidPath)
 		return false, 0
@@ -133,15 +168,15 @@ func Stop(pid int) error {
 		return fmt.Errorf("failed to find process: %w", err)
 	}
 
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
+	if err := terminateProcess(process); err != nil {
+		return fmt.Errorf("failed to terminate process: %w", err)
 	}
 
 	// Wait for graceful shutdown
 	time.Sleep(2 * time.Second)
 
 	// Check if still running
-	if err := process.Signal(syscall.Signal(0)); err == nil {
+	if isProcessRunning(process) {
 		// Force kill
 		log.Println("Graceful shutdown timed out, forcing kill...")
 		if err := process.Kill(); err != nil {
@@ -208,8 +243,8 @@ func cleanupStaleFiles() error {
 		return cleanupStaleFilesForce(pidPath, socketPath)
 	}
 
-	// Send signal 0 to check if process exists
-	if err := process.Signal(syscall.Signal(0)); err != nil {
+	// Check if process exists (cross-platform)
+	if !isProcessRunning(process) {
 		log.Printf("Process %d not running, cleaning up stale files", pid)
 		return cleanupStaleFilesForce(pidPath, socketPath)
 	}

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -94,14 +96,20 @@ func (cg *CommandGenerator) cleanupOrphanedFiles() {
 	}
 }
 
-// isProcessRunning checks if a process with given PID is still running
+// isProcessRunning checks if a process with given PID is still running (cross-platform)
 func isProcessRunning(pid int) bool {
-	// Unix-specific: Check if we can send signal 0 (no-op) to the process
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
-	err = process.Signal(os.Signal(nil))
+
+	if runtime.GOOS == "windows" {
+		// On Windows, FindProcess succeeding means the process exists
+		return true
+	}
+
+	// On Unix, send signal 0 to verify process exists
+	err = process.Signal(syscall.Signal(0))
 	return err == nil
 }
 

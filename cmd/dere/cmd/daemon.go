@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -82,6 +83,10 @@ var daemonReloadCmd = &cobra.Command{
 	Use:   "reload",
 	Short: "Reload daemon configuration (SIGHUP)",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("daemon reload is not supported on Windows (no SIGHUP signal)")
+		}
+
 		isRunning, pid := isDaemonRunning()
 		if !isRunning {
 			return fmt.Errorf("daemon is not running")
