@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"dere/src/config"
 	"dere/src/database"
 	"dere/src/embeddings"
 	"dere/src/taskqueue"
@@ -70,8 +71,8 @@ func NewServer(dbPath string, ollama *embeddings.OllamaClient) (*Server, error) 
 
 	processor := taskqueue.NewProcessor(queue, db, ollama)
 
-	home, _ := os.UserHomeDir()
-	socketPath := filepath.Join(home, ".local", "share", "dere", "daemon.sock")
+	dataDir, _ := config.GetDataDir()
+	socketPath := filepath.Join(dataDir, "daemon.sock")
 
 	return &Server{
 		db:         db,

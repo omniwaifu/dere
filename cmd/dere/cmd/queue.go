@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
+	dconfig "dere/src/config"
 	"dere/src/taskqueue"
 
 	"github.com/spf13/cobra"
@@ -196,23 +196,23 @@ var queueRetryCmd = &cobra.Command{
 }
 
 func getTaskQueue() (*taskqueue.Queue, error) {
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
+		return nil, fmt.Errorf("failed to get data directory: %w", err)
 	}
 
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+	dbPath := filepath.Join(dataDir, "dere.db")
 	return taskqueue.NewQueue(dbPath)
 }
 
 func processQueueManually() error {
 	// Initialize the same components as daemon
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return fmt.Errorf("failed to get data directory: %w", err)
 	}
 
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+	dbPath := filepath.Join(dataDir, "dere.db")
 
 	// Initialize components (similar to daemon)
 	// This is a simplified version for manual processing

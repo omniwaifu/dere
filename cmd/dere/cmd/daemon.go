@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	dconfig "dere/src/config"
 	"dere/src/daemon"
 	"dere/src/taskqueue"
 
@@ -136,18 +137,18 @@ func isDaemonRunning() (bool, int) {
 }
 
 func getPidFilePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "dere", "daemon.pid")
+	dataDir, _ := dconfig.GetDataDir()
+	return filepath.Join(dataDir, "daemon.pid")
 }
 
 
 func showQueueStats() error {
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return fmt.Errorf("failed to get data directory: %w", err)
 	}
 
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+	dbPath := filepath.Join(dataDir, "dere.db")
 	queue, err := taskqueue.NewQueue(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to create task queue: %w", err)

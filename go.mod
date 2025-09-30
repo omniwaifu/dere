@@ -4,6 +4,7 @@ go 1.24.6
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/adrg/xdg v0.5.3
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	github.com/tursodatabase/go-libsql v0.0.0-20250912065916-9dd20bb43d31

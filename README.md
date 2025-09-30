@@ -72,7 +72,7 @@ chmod +x ~/.local/bin/dere-*
 
 3. Configure Ollama (optional, for conversation embeddings):
 ```toml
-# ~/.config/dere/config.toml
+# config.toml in config directory (see File Locations section)
 [ollama]
 enabled = true
 url = "http://localhost:11434"
@@ -83,7 +83,7 @@ summarization_threshold = 500  # Characters before attempting summarization
 
 4. Configure Weather (optional):
 ```toml
-# ~/.config/dere/config.toml
+# config.toml in config directory (see File Locations section)
 [weather]
 enabled = true
 location = "London, UK"
@@ -150,6 +150,22 @@ dere -P tsun,kuu -p "fix this code"      # Multiple personalities + print mode
 
 ## Configuration
 
+### File Locations
+
+dere follows platform conventions for storing configuration and data files:
+
+**Linux/Unix:**
+- Config: `~/.config/dere/`
+- Data: `~/.local/share/dere/`
+
+**macOS:**
+- Config: `~/Library/Application Support/dere/`
+- Data: `~/Library/Application Support/dere/`
+
+**Windows:**
+- Config: `%LOCALAPPDATA%\dere\`
+- Data: `%LOCALAPPDATA%\dere\`
+
 ### Custom Personalities
 Personalities are defined in TOML files with prompts, display colors, and icons.
 
@@ -160,9 +176,11 @@ Personalities are defined in TOML files with prompts, display colors, and icons.
 - `dere` (deredere) - Genuinely sweet, green
 - `ero` (erodere) - Playfully teasing, yellow
 
-**Create custom personalities** in `~/.config/dere/personalities/`:
+**Create custom personalities** in the config directory under `personalities/`:
 ```toml
-# ~/.config/dere/personalities/custom.toml
+# Linux: ~/.config/dere/personalities/custom.toml
+# macOS: ~/Library/Application Support/dere/personalities/custom.toml
+# Windows: %LOCALAPPDATA%\dere\personalities\custom.toml
 [metadata]
 name = "custom-personality"
 short_name = "custom"
@@ -187,14 +205,13 @@ Your personality description here...
 Usage: `dere --personality custom`
 
 ### Custom Prompts
-Add domain-specific knowledge as `.md` files in `~/.config/dere/prompts/`:
-```bash
-~/.config/dere/prompts/rust.md     # --prompts=rust
-~/.config/dere/prompts/security.md # --prompts=security
-```
+Add domain-specific knowledge as `.md` files in the config directory under `prompts/`:
+- **Linux/Unix:** `~/.config/dere/prompts/rust.md`
+- **macOS:** `~/Library/Application Support/dere/prompts/rust.md`
+- **Windows:** `%LOCALAPPDATA%\dere\prompts\rust.md`
 
 ### MCP Servers
-Managed independently in `~/.config/dere/mcp_config.json`
+Managed independently in the config directory as `mcp_config.json`
 
 ```bash
 # MCP management commands
@@ -266,7 +283,10 @@ dere entities graph React          # Show relationships for specific entity
 ```
 
 ### Conversation Database
-Conversations are automatically stored in `~/.local/share/dere/conversations.db` using Turso/libSQL with vector embeddings for similarity search.
+Conversations are automatically stored in the data directory as `dere.db` using Turso/libSQL with vector embeddings for similarity search:
+- **Linux/Unix:** `~/.local/share/dere/dere.db`
+- **macOS:** `~/Library/Application Support/dere/dere.db`
+- **Windows:** `%LOCALAPPDATA%\dere\dere.db`
 
 #### Message Processing
 - Messages under 500 characters: Stored directly
@@ -382,7 +402,8 @@ CREATE TABLE wellness_sessions (
 - Ollama is optional but enables conversation similarity search and progressive summarization
 - Works alongside existing Claude CLI configuration without modifying global settings
 - Dynamic settings generation via `--settings` flag keeps Claude config clean
-- Personalities are TOML-based and user-overridable in `~/.config/dere/personalities/`
+- Personalities are TOML-based and user-overridable (see File Locations section)
+- Cross-platform support for Linux, macOS, and Windows with proper directory conventions
 - MCP configuration is independent from Claude Desktop for better control
 - Progressive summarization uses dynamic context length querying for zero information loss
 - Background daemon processes tasks efficiently with model switching optimization and PID-based status monitoring

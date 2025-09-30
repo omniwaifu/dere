@@ -44,8 +44,8 @@ type HookMatcher struct {
 }
 
 func NewSettingsBuilder(personality string, outputStyle string) *SettingsBuilder {
-	homeDir, _ := os.UserHomeDir()
-	hooksDir := filepath.Join(homeDir, ".config", "dere", "hooks")
+	configDir, _ := config.GetConfigDir()
+	hooksDir := filepath.Join(configDir, "hooks")
 
 	return &SettingsBuilder{
 		outputStyle:         outputStyle,
@@ -60,13 +60,14 @@ func NewSettingsBuilder(personality string, outputStyle string) *SettingsBuilder
 }
 
 func findHookScript() string {
-	homeDir, _ := os.UserHomeDir()
+	configDir, _ := config.GetConfigDir()
+	hooksDir := filepath.Join(configDir, "hooks")
 
 	locations := []string{
-		filepath.Join(homeDir, ".config", "dere", "hooks", "dere-hook.py"),
+		filepath.Join(hooksDir, "dere-hook.py"),
 		"./dere-hook.py",
 		filepath.Join(filepath.Dir(os.Args[0]), "dere-hook.py"),
-		filepath.Join(homeDir, ".config", "dere", "hooks", "capture_embedding.py"),
+		filepath.Join(hooksDir, "capture_embedding.py"),
 	}
 
 	for _, loc := range locations {
@@ -242,7 +243,8 @@ func (sb *SettingsBuilder) addHookEnvironment(settings *ClaudeSettings) error {
 
 	// Add basic environment variables
 	settings.Env["DERE_PERSONALITY"] = sb.personality
-	settings.Env["DERE_DB_PATH"] = filepath.Join(os.Getenv("HOME"), ".local", "share", "dere", "dere.db")
+	dataDir, _ := config.GetDataDir()
+	settings.Env["DERE_DB_PATH"] = filepath.Join(dataDir, "dere.db")
 
 	// Extract and export personality display configuration
 	// Parse the first personality from the personality string
@@ -350,12 +352,12 @@ func GetPersonalityString(personalities []string) string {
 
 // findModeFile looks for mode files in multiple locations
 func (sb *SettingsBuilder) findModeFile(modeName string) string {
-	homeDir, _ := os.UserHomeDir()
+	configDir, _ := config.GetConfigDir()
 
 	// Try locations in order of preference
 	locations := []string{
 		// User config directory (highest priority)
-		filepath.Join(homeDir, ".config", "dere", "modes", modeName+".md"),
+		filepath.Join(configDir, "modes", modeName+".md"),
 		// System-wide installation
 		filepath.Join("/usr/local/share/dere/modes", modeName+".md"),
 		// Development/source directory fallback

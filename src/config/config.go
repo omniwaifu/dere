@@ -3,48 +3,26 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"runtime"
+
+	"github.com/adrg/xdg"
 )
 
 // GetConfigDir returns the OS-appropriate configuration directory for dere
+// Linux: $XDG_CONFIG_HOME/dere or ~/.config/dere
+// macOS: ~/Library/Application Support/dere
+// Windows: %LOCALAPPDATA%/dere
 func GetConfigDir() (string, error) {
-	var configDir string
-
-	switch runtime.GOOS {
-	case "windows":
-		// Use %APPDATA%/dere on Windows
-		appData := os.Getenv("APPDATA")
-		if appData == "" {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
-			}
-			configDir = filepath.Join(homeDir, "AppData", "Roaming", "dere")
-		} else {
-			configDir = filepath.Join(appData, "dere")
-		}
-	case "darwin":
-		// Use ~/Library/Application Support/dere on macOS
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		configDir = filepath.Join(homeDir, "Library", "Application Support", "dere")
-	default:
-		// Use XDG spec on Linux/Unix: $XDG_CONFIG_HOME/dere or ~/.config/dere
-		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
-		if xdgConfig != "" {
-			configDir = filepath.Join(xdgConfig, "dere")
-		} else {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
-			}
-			configDir = filepath.Join(homeDir, ".config", "dere")
-		}
-	}
-
+	configDir := filepath.Join(xdg.ConfigHome, "dere")
 	return configDir, nil
+}
+
+// GetDataDir returns the OS-appropriate data directory for dere
+// Linux: $XDG_DATA_HOME/dere or ~/.local/share/dere
+// macOS: ~/Library/Application Support/dere
+// Windows: %LOCALAPPDATA%/dere
+func GetDataDir() (string, error) {
+	dataDir := filepath.Join(xdg.DataHome, "dere")
+	return dataDir, nil
 }
 
 // GetPromptsDir returns the directory where custom prompt files are stored

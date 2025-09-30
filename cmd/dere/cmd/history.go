@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"dere/src/config"
+	dconfig "dere/src/config"
 	"dere/src/database"
 	"dere/src/embeddings"
-	
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -92,7 +92,7 @@ var historySearchCmd = &cobra.Command{
 		}
 		
 		// Create config for Ollama client
-		ollamaConfig := &config.OllamaConfig{
+		ollamaConfig := &dconfig.OllamaConfig{
 			Enabled:        true,
 			URL:            ollamaURL,
 			EmbeddingModel: model,
@@ -227,12 +227,12 @@ var historyCleanCmd = &cobra.Command{
 
 // getDatabase returns a database connection
 func getDatabase() (*database.TursoDB, error) {
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
 		return nil, err
 	}
-	
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+
+	dbPath := filepath.Join(dataDir, "dere.db")
 	return database.NewTursoDB(dbPath)
 }
 

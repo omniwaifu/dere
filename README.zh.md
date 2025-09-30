@@ -72,7 +72,7 @@ chmod +x ~/.local/bin/dere-*
 
 3. 配置 Ollama（可选，用于对话嵌入）：
 ```toml
-# ~/.config/dere/config.toml
+# 配置目录中的 config.toml（参见文件位置部分）
 [ollama]
 enabled = true
 url = "http://localhost:11434"
@@ -83,7 +83,7 @@ summarization_threshold = 500  # 尝试摘要前的字符数
 
 4. 配置天气（可选）：
 ```toml
-# ~/.config/dere/config.toml
+# 配置目录中的 config.toml（参见文件位置部分）
 [weather]
 enabled = true
 location = "Beijing, China"
@@ -136,6 +136,22 @@ dere -P tsun,kuu -p "修复这段代码"        # 多重人格 + 打印模式
 
 ## 配置
 
+### 文件位置
+
+dere 遵循各平台约定存储配置和数据文件：
+
+**Linux/Unix:**
+- 配置: `~/.config/dere/`
+- 数据: `~/.local/share/dere/`
+
+**macOS:**
+- 配置: `~/Library/Application Support/dere/`
+- 数据: `~/Library/Application Support/dere/`
+
+**Windows:**
+- 配置: `%LOCALAPPDATA%\dere\`
+- 数据: `%LOCALAPPDATA%\dere\`
+
 ### 自定义人格
 人格定义在 TOML 文件中，包含提示词、显示颜色和图标。
 
@@ -146,9 +162,11 @@ dere -P tsun,kuu -p "修复这段代码"        # 多重人格 + 打印模式
 - `dere`（甜娇）- 真正友善，绿色
 - `ero`（色娇）- 俏皮戏谑，黄色
 
-**在 `~/.config/dere/personalities/` 中创建自定义人格**：
+**在配置目录的 `personalities/` 下创建自定义人格**：
 ```toml
-# ~/.config/dere/personalities/custom.toml
+# Linux: ~/.config/dere/personalities/custom.toml
+# macOS: ~/Library/Application Support/dere/personalities/custom.toml
+# Windows: %LOCALAPPDATA%\dere\personalities\custom.toml
 [metadata]
 name = "custom-personality"
 short_name = "custom"
@@ -173,14 +191,13 @@ content = """
 使用方法：`dere --personality custom`
 
 ### 自定义提示
-在 `~/.config/dere/prompts/` 中放置 `.md` 文件作为领域特定知识：
-```bash
-~/.config/dere/prompts/rust.md     # --prompts=rust
-~/.config/dere/prompts/security.md # --prompts=security
-```
+在配置目录的 `prompts/` 下放置 `.md` 文件作为领域特定知识：
+- **Linux/Unix:** `~/.config/dere/prompts/rust.md`
+- **macOS:** `~/Library/Application Support/dere/prompts/rust.md`
+- **Windows:** `%LOCALAPPDATA%\dere\prompts\rust.md`
 
 ### MCP 服务器
-在 `~/.config/dere/mcp_config.json` 中独立管理
+在配置目录中作为 `mcp_config.json` 独立管理
 
 ```bash
 # MCP 管理命令
@@ -238,7 +255,10 @@ dere entities graph React          # 显示特定实体的关系
 ```
 
 ### 对话数据库
-对话使用 Turso/libSQL 自动存储在 `~/.local/share/dere/conversations.db` 中，带有用于相似性搜索的向量嵌入。
+对话使用 Turso/libSQL 自动存储在数据目录的 `dere.db` 中，带有用于相似性搜索的向量嵌入：
+- **Linux/Unix:** `~/.local/share/dere/dere.db`
+- **macOS:** `~/Library/Application Support/dere/dere.db`
+- **Windows:** `%LOCALAPPDATA%\dere\dere.db`
 
 #### 消息处理
 - 500 字符以下的消息：直接存储
@@ -319,7 +339,8 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - Ollama 是可选的，但可以启用对话相似性搜索和渐进式摘要
 - 与现有 Claude CLI 配置一起工作，不修改全局设置
 - 通过 `--settings` 标志动态生成设置，保持 Claude 配置干净
-- 人格基于 TOML，可在 `~/.config/dere/personalities/` 中覆盖
+- 人格基于 TOML，可覆盖（参见文件位置部分）
+- 跨平台支持 Linux、macOS 和 Windows，遵循各平台目录约定
 - MCP 配置独立于 Claude Desktop，便于更好控制
 - 渐进式摘要使用动态上下文长度查询，实现零信息损失
 - 后台守护进程通过模型切换优化和基于 PID 的状态监控高效处理任务

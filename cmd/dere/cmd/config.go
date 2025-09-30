@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	dconfig "dere/src/config"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -61,11 +63,10 @@ var configSetCmd = &cobra.Command{
 		configFile := viper.ConfigFileUsed()
 		if configFile == "" {
 			// No config file exists yet, create it
-			home, err := os.UserHomeDir()
+			configDir, err := dconfig.GetConfigDir()
 			if err != nil {
 				return err
 			}
-			configDir := filepath.Join(home, ".config", "dere")
 			if err := os.MkdirAll(configDir, 0755); err != nil {
 				return err
 			}
@@ -126,11 +127,10 @@ var configEditCmd = &cobra.Command{
 		configFile := viper.ConfigFileUsed()
 		if configFile == "" {
 			// Create default config file
-			home, err := os.UserHomeDir()
+			configDir, err := dconfig.GetConfigDir()
 			if err != nil {
 				return err
 			}
-			configDir := filepath.Join(home, ".config", "dere")
 			if err := os.MkdirAll(configDir, 0755); err != nil {
 				return err
 			}

@@ -50,11 +50,11 @@ func Run(interval time.Duration) error {
 	ollama := embeddings.NewOllamaClient(ollamaConfig)
 
 	// Get database path
-	home, err := os.UserHomeDir()
+	dataDir, err := config.GetDataDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
+		return fmt.Errorf("failed to get data directory: %w", err)
 	}
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+	dbPath := filepath.Join(dataDir, "dere.db")
 
 	// Create and start JSON-RPC server
 	server, err := NewServer(dbPath, ollama)
@@ -155,8 +155,8 @@ func Stop(pid int) error {
 }
 
 func getPidFilePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "dere", "daemon.pid")
+	dataDir, _ := config.GetDataDir()
+	return filepath.Join(dataDir, "daemon.pid")
 }
 
 func writePidFile(path string) error {
@@ -251,6 +251,6 @@ func cleanupSocket(socketPath string) error {
 }
 
 func getSocketPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "dere", "daemon.sock")
+	dataDir, _ := config.GetDataDir()
+	return filepath.Join(dataDir, "daemon.sock")
 }

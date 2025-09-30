@@ -72,7 +72,7 @@ chmod +x ~/.local/bin/dere-*
 
 3. Ollamaを設定（オプション、会話埋め込み用）：
 ```toml
-# ~/.config/dere/config.toml
+# 設定ディレクトリ内のconfig.toml（ファイルの場所セクションを参照）
 [ollama]
 enabled = true
 url = "http://localhost:11434"
@@ -83,7 +83,7 @@ summarization_threshold = 500  # 要約を試みる前の文字数
 
 4. 天気を設定（オプション）：
 ```toml
-# ~/.config/dere/config.toml
+# 設定ディレクトリ内のconfig.toml（ファイルの場所セクションを参照）
 [weather]
 enabled = true
 location = "Tokyo, Japan"
@@ -150,6 +150,22 @@ dere -P tsun,kuu -p "このコードを修正"        # 複数性格 + プリン
 
 ## 設定
 
+### ファイルの場所
+
+dereは各プラットフォームの慣例に従って設定ファイルとデータファイルを保存します：
+
+**Linux/Unix:**
+- 設定: `~/.config/dere/`
+- データ: `~/.local/share/dere/`
+
+**macOS:**
+- 設定: `~/Library/Application Support/dere/`
+- データ: `~/Library/Application Support/dere/`
+
+**Windows:**
+- 設定: `%LOCALAPPDATA%\dere\`
+- データ: `%LOCALAPPDATA%\dere\`
+
 ### カスタム性格
 性格はプロンプト、表示色、アイコンを含むTOMLファイルで定義されます。
 
@@ -160,9 +176,11 @@ dere -P tsun,kuu -p "このコードを修正"        # 複数性格 + プリン
 - `dere`（デレデレ）- 本当に優しい、緑
 - `ero`（エロデレ）- 遊び心のあるからかい、黄色
 
-**`~/.config/dere/personalities/`にカスタム性格を作成**：
+**設定ディレクトリの`personalities/`配下にカスタム性格を作成**：
 ```toml
-# ~/.config/dere/personalities/custom.toml
+# Linux: ~/.config/dere/personalities/custom.toml
+# macOS: ~/Library/Application Support/dere/personalities/custom.toml
+# Windows: %LOCALAPPDATA%\dere\personalities\custom.toml
 [metadata]
 name = "custom-personality"
 short_name = "custom"
@@ -187,14 +205,13 @@ content = """
 使用方法：`dere --personality custom`
 
 ### カスタムプロンプト
-`~/.config/dere/prompts/`にドメイン固有の知識として`.md`ファイルを配置：
-```bash
-~/.config/dere/prompts/rust.md     # --prompts=rust
-~/.config/dere/prompts/security.md # --prompts=security
-```
+設定ディレクトリの`prompts/`配下にドメイン固有の知識として`.md`ファイルを配置：
+- **Linux/Unix:** `~/.config/dere/prompts/rust.md`
+- **macOS:** `~/Library/Application Support/dere/prompts/rust.md`
+- **Windows:** `%LOCALAPPDATA%\dere\prompts\rust.md`
 
 ### MCPサーバー
-`~/.config/dere/mcp_config.json`で独立管理
+設定ディレクトリ内の`mcp_config.json`で独立管理
 
 ```bash
 # MCP管理コマンド
@@ -252,7 +269,10 @@ dere entities graph React          # 特定エンティティの関係を表示
 ```
 
 ### 会話データベース
-会話は`~/.local/share/dere/conversations.db`にTurso/libSQLを使用して自動的に保存され、類似性検索用のベクトル埋め込みが含まれます。
+会話はTurso/libSQLを使用してデータディレクトリの`dere.db`に自動的に保存され、類似性検索用のベクトル埋め込みが含まれます：
+- **Linux/Unix:** `~/.local/share/dere/dere.db`
+- **macOS:** `~/Library/Application Support/dere/dere.db`
+- **Windows:** `%LOCALAPPDATA%\dere\dere.db`
 
 #### メッセージ処理
 - 500文字未満のメッセージ：直接保存
@@ -347,7 +367,8 @@ ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
 - Ollamaはオプションですが、会話類似性検索と漸進的要約を有効にします
 - グローバル設定を変更せずに既存のClaude CLI設定と一緒に動作します
 - `--settings`フラグによる動的設定生成でClaude設定をクリーンに保ちます
-- 性格はTOMLベースで、`~/.config/dere/personalities/`で上書き可能です
+- 性格はTOMLベースで上書き可能です（ファイルの場所セクションを参照）
+- Linux、macOS、Windowsのクロスプラットフォームサポート、各プラットフォームのディレクトリ規則に従います
 - MCP設定はClaude Desktopから独立してより良い制御を実現
 - 漸進的要約は動的コンテキスト長クエリで情報損失ゼロを実現
 - バックグラウンドデーモンはモデル切り替え最適化とPIDベースのステータス監視で効率的にタスクを処理

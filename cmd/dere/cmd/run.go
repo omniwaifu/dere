@@ -10,14 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"path/filepath"
 
 	"dere/src/commands"
 	"dere/src/composer"
+	dconfig "dere/src/config"
 	"dere/src/database"
 	"dere/src/mcp"
 	"dere/src/settings"
@@ -304,12 +305,12 @@ func generateSessionID() int64 {
 
 // createSessionRecord creates a new session record in the database
 func createSessionRecord(config *Config) (int64, *database.TursoDB, error) {
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
 		return 0, nil, err
 	}
 
-	dbPath := filepath.Join(home, ".local", "share", "dere", "dere.db")
+	dbPath := filepath.Join(dataDir, "dere.db")
 	db, err := database.NewTursoDB(dbPath)
 	if err != nil {
 		return 0, nil, err
@@ -383,11 +384,11 @@ func buildSessionContext(sessionID int64, config *Config) (string, error) {
 	personalityStr := settings.GetPersonalityString(config.Personalities)
 
 	// Create HTTP client for Unix socket
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf("failed to get data directory: %w", err)
 	}
-	socketPath := filepath.Join(home, ".local", "share", "dere", "daemon.sock")
+	socketPath := filepath.Join(dataDir, "daemon.sock")
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -500,11 +501,11 @@ func buildModeContext(sessionID int64, config *Config) (string, error) {
 	}
 
 	// Create HTTP client for Unix socket
-	home, err := os.UserHomeDir()
+	dataDir, err := dconfig.GetDataDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf("failed to get data directory: %w", err)
 	}
-	socketPath := filepath.Join(home, ".local", "share", "dere", "daemon.sock")
+	socketPath := filepath.Join(dataDir, "daemon.sock")
 
 	client := &http.Client{
 		Transport: &http.Transport{
