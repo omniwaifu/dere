@@ -111,8 +111,7 @@ class TaskProcessor:
                 return
 
             if result and result.get("success"):
-                logger.info(f"Task {task.id} completed successfully: {task.task_type}")
-                print(f"✓ Task {task.id} completed: {task.task_type}")
+                logger.info(f"✓ Task {task.id} completed: {task.task_type}")
                 self.db.update_task_status(task.id, TaskStatus.COMPLETED)
             else:
                 error = result.get("error", "Unknown error") if result else "No result"
@@ -132,9 +131,8 @@ class TaskProcessor:
             self.db.increment_task_retry(task.id)
             self.db.update_task_status(task.id, TaskStatus.PENDING)
         else:
-            logger.error(f"Task {task.id} failed after {self.max_retries} retries: {error}")
+            logger.error(f"✗ Task {task.id} failed after {self.max_retries} retries: {error}")
             self.db.update_task_status(task.id, TaskStatus.FAILED, error)
-            print(f"Task {task.id} failed: {error}")
 
     async def process_embedding_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an embedding generation task"""
