@@ -304,6 +304,17 @@ def cli(
     if not bare and not personalities_list:
         personalities_list = ["tsun"]
 
+    # Export personality metadata for statusline
+    if personalities_list:
+        config_dir = get_config_dir()
+        loader = PersonalityLoader(config_dir)
+        try:
+            first_pers = loader.load(personalities_list[0])
+            os.environ["DERE_PERSONALITY_COLOR"] = first_pers.color
+            os.environ["DERE_PERSONALITY_ICON"] = first_pers.icon
+        except ValueError:
+            pass
+
     # Build settings
     personality_str = ",".join(personalities_list) if personalities_list else None
     effective_output_style = output_style or (mode if mode else None)
