@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,28 @@ type SessionID = int
 type Embedding = list[float]
 type JSONDict = dict[str, Any]
 type Timestamp = int
+
+
+# Python 3.12 TypedDicts for metadata structures
+class EmbeddingMetadata(TypedDict):
+    conversation_id: NotRequired[int]
+    processing_mode: NotRequired[str]
+
+
+class SummarizationMetadata(TypedDict):
+    personality: NotRequired[str]
+    max_length: NotRequired[int]
+
+
+class EntityExtractionMetadata(TypedDict):
+    conversation_id: NotRequired[int]
+    context_hint: NotRequired[str]
+
+
+class ContextBuildingMetadata(TypedDict):
+    session_id: NotRequired[int]
+    context_depth: NotRequired[int]
+    max_tokens: NotRequired[int]
 
 
 class TaskStatus(str, Enum):

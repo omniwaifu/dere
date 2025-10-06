@@ -3,11 +3,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from dere_daemon.database import Database
 from dere_daemon.ollama_client import OllamaClient, get_entity_extraction_schema
-from dere_shared.models import TaskQueue, TaskStatus
+from dere_shared.models import (
+    ContextBuildingMetadata,
+    EmbeddingMetadata,
+    EntityExtractionMetadata,
+    SummarizationMetadata,
+    TaskQueue,
+    TaskStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +144,8 @@ class TaskProcessor:
     async def process_embedding_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an embedding generation task"""
         try:
-            metadata = task.metadata or {}
+            # Python 3.12 TypedDict with NotRequired
+            metadata = cast(EmbeddingMetadata, task.metadata or {})
 
             # Generate embedding
             embedding = await self.ollama.get_embedding(task.content)
@@ -161,7 +169,8 @@ class TaskProcessor:
     async def process_summarization_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process a summarization task"""
         try:
-            metadata = task.metadata or {}
+            # Python 3.12 TypedDict with NotRequired
+            metadata = cast(SummarizationMetadata, task.metadata or {})
             personality = metadata.get("personality", "")
             max_length = metadata.get("max_length", 200)
 
@@ -200,7 +209,8 @@ Summary:"""
     async def process_entity_extraction_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an entity extraction task"""
         try:
-            metadata = task.metadata or {}
+            # Python 3.12 TypedDict with NotRequired
+            metadata = cast(EntityExtractionMetadata, task.metadata or {})
             context_hint = metadata.get("context_hint", "coding")
 
             # Build entity extraction prompt
@@ -251,7 +261,8 @@ JSON:"""
     async def process_context_building_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process a context building task"""
         try:
-            metadata = task.metadata or {}
+            # Python 3.12 TypedDict with NotRequired
+            metadata = cast(ContextBuildingMetadata, task.metadata or {})
             session_id = metadata.get("session_id")
             context_depth = metadata.get("context_depth", 5)
             max_tokens = metadata.get("max_tokens", 2000)
