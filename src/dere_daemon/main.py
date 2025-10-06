@@ -128,12 +128,13 @@ class AppState:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown"""
-    # Startup
-    data_dir = Path.home() / ".local" / "share" / "dere"
-    if os.name == "nt":
-        data_dir = Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    elif platform.system() == "Darwin":
-        data_dir = Path.home() / "Library" / "Application Support" / "dere"
+    match platform.system():
+        case "Windows":
+            data_dir = Path(os.getenv("LOCALAPPDATA", "")) / "dere"
+        case "Darwin":
+            data_dir = Path.home() / "Library" / "Application Support" / "dere"
+        case _:
+            data_dir = Path.home() / ".local" / "share" / "dere"
 
     data_dir.mkdir(parents=True, exist_ok=True)
     db_path = data_dir / "dere.db"

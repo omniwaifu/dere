@@ -81,15 +81,15 @@ def _parse_simple_toml(content: str) -> dict[str, Any]:
             key = key.strip()
             value = value.split("#")[0].strip().strip("\"'")
 
-            # Convert values to appropriate types
-            if value.lower() == "true":
-                parsed_value: Any = True
-            elif value.lower() == "false":
-                parsed_value = False
-            elif value.isdigit():
-                parsed_value = int(value)
-            else:
-                parsed_value = value
+            match value.lower():
+                case "true":
+                    parsed_value: Any = True
+                case "false":
+                    parsed_value = False
+                case _ if value.isdigit():
+                    parsed_value = int(value)
+                case _:
+                    parsed_value = value
 
             config[current_section][key] = parsed_value
 

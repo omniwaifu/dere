@@ -101,21 +101,21 @@ class TaskProcessor:
         logger.info(f"Task {task.id} starting: {task.task_type}")
 
         try:
-            result = None
-            if task.task_type == "embedding":
-                result = await self.process_embedding_task(task)
-            elif task.task_type == "summarization":
-                result = await self.process_summarization_task(task)
-            elif task.task_type == "entity_extraction":
-                result = await self.process_entity_extraction_task(task)
-            elif task.task_type == "context_building":
-                result = await self.process_context_building_task(task)
-            else:
-                logger.error(f"Unknown task type: {task.task_type}")
-                self.db.update_task_status(
-                    task.id, TaskStatus.FAILED, f"Unknown task type: {task.task_type}"
-                )
-                return
+            match task.task_type:
+                case "embedding":
+                    result = await self.process_embedding_task(task)
+                case "summarization":
+                    result = await self.process_summarization_task(task)
+                case "entity_extraction":
+                    result = await self.process_entity_extraction_task(task)
+                case "context_building":
+                    result = await self.process_context_building_task(task)
+                case _:
+                    logger.error(f"Unknown task type: {task.task_type}")
+                    self.db.update_task_status(
+                        task.id, TaskStatus.FAILED, f"Unknown task type: {task.task_type}"
+                    )
+                    return
 
             if result and result.get("success"):
                 logger.info(f"✓ Task {task.id} completed: {task.task_type}")
@@ -144,7 +144,6 @@ class TaskProcessor:
     async def process_embedding_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an embedding generation task"""
         try:
-            # Python 3.12 TypedDict with NotRequired
             metadata = cast(EmbeddingMetadata, task.metadata or {})
 
             # Generate embedding
@@ -169,7 +168,6 @@ class TaskProcessor:
     async def process_summarization_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process a summarization task"""
         try:
-            # Python 3.12 TypedDict with NotRequired
             metadata = cast(SummarizationMetadata, task.metadata or {})
             personality = metadata.get("personality", "")
             max_length = metadata.get("max_length", 200)
@@ -209,7 +207,6 @@ Summary:"""
     async def process_entity_extraction_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an entity extraction task"""
         try:
-            # Python 3.12 TypedDict with NotRequired
             metadata = cast(EntityExtractionMetadata, task.metadata or {})
             context_hint = metadata.get("context_hint", "coding")
 
@@ -261,7 +258,6 @@ JSON:"""
     async def process_context_building_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process a context building task"""
         try:
-            # Python 3.12 TypedDict with NotRequired
             metadata = cast(ContextBuildingMetadata, task.metadata or {})
             session_id = metadata.get("session_id")
             context_depth = metadata.get("context_depth", 5)

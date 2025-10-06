@@ -18,22 +18,24 @@ from dere_shared.personalities import PersonalityLoader
 
 def get_config_dir() -> Path:
     """Get platform-specific config directory"""
-    if os.name == "nt":
-        return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    elif platform.system() == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "dere"
-    else:
-        return Path.home() / ".config" / "dere"
+    match platform.system():
+        case "Windows":
+            return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
+        case "Darwin":
+            return Path.home() / "Library" / "Application Support" / "dere"
+        case _:
+            return Path.home() / ".config" / "dere"
 
 
 def get_data_dir() -> Path:
     """Get platform-specific data directory"""
-    if os.name == "nt":
-        return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    elif platform.system() == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "dere"
-    else:
-        return Path.home() / ".local" / "share" / "dere"
+    match platform.system():
+        case "Windows":
+            return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
+        case "Darwin":
+            return Path.home() / "Library" / "Application Support" / "dere"
+        case _:
+            return Path.home() / ".local" / "share" / "dere"
 
 
 def generate_session_id() -> int:
