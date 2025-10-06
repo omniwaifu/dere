@@ -171,16 +171,33 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
-    await app.state.processor.shutdown()
-    await app.state.ollama.shutdown()
-    app.state.db.close()
+    # Shutdown - collect all exceptions
+    errors = []
 
-    # Remove PID file
+    try:
+        await app.state.processor.shutdown()
+    except Exception as e:
+        errors.append(e)
+
+    try:
+        await app.state.ollama.shutdown()
+    except Exception as e:
+        errors.append(e)
+
+    try:
+        app.state.db.close()
+    except Exception as e:
+        errors.append(e)
+
     try:
         pid_file.unlink()
     except FileNotFoundError:
         pass
+    except Exception as e:
+        errors.append(e)
+
+    if errors:
+        raise ExceptionGroup("Errors during shutdown", errors)
 
     print("👋 Dere daemon shutdown")
 

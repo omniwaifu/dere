@@ -113,7 +113,10 @@ class OllamaClient:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)
                     continue
-                raise RuntimeError(f"Failed to get embedding: {e}")
+                e.add_note(f"Failed after {max_retries} attempts")
+                e.add_note(f"Ollama URL: {self.base_url}")
+                e.add_note(f"Model: {self.embedding_model}")
+                raise
 
         raise RuntimeError(f"Failed to get embedding after {max_retries} retries: {last_error}")
 
@@ -165,7 +168,10 @@ class OllamaClient:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)
                     continue
-                raise RuntimeError(f"Failed to generate: {e}")
+                e.add_note(f"Failed after {max_retries} attempts")
+                e.add_note(f"Ollama URL: {self.base_url}")
+                e.add_note(f"Model: {model}")
+                raise
 
         raise RuntimeError(f"Failed to generate after {max_retries} retries: {last_error}")
 
