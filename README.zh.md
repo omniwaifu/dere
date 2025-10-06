@@ -32,11 +32,11 @@
 ### 要求
 
 - [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
-- Go 1.20+（用于构建）
-- Python 3.8+（用于钩子脚本）
+- Python 3.13+
+- [uv](https://github.com/astral-sh/uv)（Python 包管理器）
 - [Just](https://github.com/casey/just)（可选，用于现代构建命令）
+- [fd](https://github.com/sharkdp/fd)（可选，用于最近文件跟踪）
 - [Ollama](https://ollama.ai)（可选，用于嵌入和摘要）
-- [rustormy](https://github.com/Tairesh/rustormy)（可选，用于天气上下文）
 - [ActivityWatch](https://activitywatch.net/)（可选，用于活动监测和健康跟踪）
 
 ### 快速安装（Linux/macOS）
@@ -48,40 +48,34 @@ just install
 ```
 
 这将：
-- 构建主 dere 二进制文件
-- 安装 dere 二进制文件和 Python 钩子脚本到 ~/.local/bin (Linux) 或 ~/Library/Application Support (macOS)
+- 使用 uv 构建 Python 包
+- 通过 `uv tool` 全局安装 dere CLI 命令
+- 安装 Python 钩子脚本到 `~/.config/dere/hooks/`
 - 自动设置对话捕获、会话摘要和守护进程通信
 
 ### 手动设置
 
-#### Linux/macOS
-
-1. 构建项目：
+1. 安装 uv（如果尚未安装）：
 ```bash
-just build
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-2. 复制二进制文件和脚本到您的 PATH：
+2. 构建并同步依赖：
 ```bash
-cp bin/dere ~/.local/bin/  # 或者 /usr/local/bin/
-cp hooks/python/*.py ~/.local/bin/
-chmod +x ~/.local/bin/dere-*.py
+just build  # 或: uv sync
 ```
 
-#### Windows
-
-1. 构建项目：
-```powershell
-go build -o bin\dere.exe cmd\dere\main.go
+3. 通过 uv tool 安装：
+```bash
+uv tool install --editable .
 ```
 
-2. 将 `bin` 目录添加到 PATH，或复制到 PATH 中的位置：
-```powershell
-copy bin\dere.exe %LOCALAPPDATA%\Programs\
-copy hooks\python\*.py %LOCALAPPDATA%\Programs\
+4. 安装钩子：
+```bash
+mkdir -p ~/.config/dere/hooks
+cp hooks/python/*.py ~/.config/dere/hooks/
+chmod +x ~/.config/dere/hooks/dere-*.py
 ```
-
-3. 确保 Python 与 `.py` 文件关联，或在 Claude CLI 调用钩子时使用 `python` 前缀
 
 3. 配置 Ollama（可选，用于对话嵌入）：
 ```toml
@@ -225,23 +219,25 @@ dere --mcp=dev                     # 使用 'dev' 配置文件
 dere --mcp="linear,obsidian"       # 使用特定服务器
 dere --mcp="*spotify*"             # 模式匹配
 dere --mcp="tag:media"             # 基于标签选择
+dere --mcp=activitywatch           # 启用 ActivityWatch 进行健康跟踪
 ```
 
 ### 守护进程和队列管理
 用于嵌入、摘要和其他 LLM 任务的后台处理：
 
 ```bash
-# 守护进程管理
+# 启动守护进程（开发）
+uv run dere-daemon                 # 在端口 8787 启动 FastAPI 守护进程
+
+# 守护进程命令（通过 dere CLI）
 dere daemon start                  # 启动后台任务处理器
 dere daemon stop                   # 停止守护进程
-dere daemon restart                # 重启守护进程（热重载）
 dere daemon status                 # 显示守护进程状态、PID 和队列统计
-dere daemon reload                 # 重载配置（SIGHUP，仅 Linux/macOS）
 
 # 队列管理
 dere queue list                    # 列出待处理任务
 dere queue stats                   # 显示队列统计
-dere queue process                 # 手动处理待处理任务
+dere queue process                 # 手动触发任务处理
 ```
 
 ### 会话摘要
@@ -252,6 +248,19 @@ dere queue process                 # 手动处理待处理任务
 dere summaries list                # 列出所有会话摘要
 dere summaries list --project=/path  # 按项目路径过滤
 dere summaries show <id>           # 显示详细摘要
+dere summaries latest              # 显示最近摘要
+```
+
+### 健康数据管理
+跟踪和分析从会话中自动提取的心理健康数据：
+
+```bash
+# 健康数据管理
+dere wellness history              # 查看健康数据历史
+dere wellness history --days=7     # 最近 7 天的健康数据
+dere wellness history --mode=cbt   # 按特定模式过滤
+dere wellness trends               # 显示健康趋势和模式
+dere wellness export               # 导出健康数据
 ```
 
 ### 实体管理
@@ -284,50 +293,50 @@ dere entities graph React          # 显示特定实体的关系
 ### 项目结构
 ```
 dere/
-├── cmd/
-│   └── dere/                    # 主 CLI 入口点
 ├── src/
-│   ├── commands/                # 动态命令生成
-│   ├── composer/                # 提示组合
-│   ├── config/                  # 配置管理
-│   ├── daemon/                  # 后台守护进程服务器
-│   ├── database/                # 带有向量搜索的 Turso/libSQL
-│   ├── embeddings/              # Ollama 嵌入客户端
-│   ├── mcp/                     # MCP 服务器管理
-│   ├── settings/                # Claude 设置生成
-│   ├── taskqueue/               # 后台任务处理
-│   └── weather/                 # 天气上下文集成
-├── hooks/
-│   └── python/                  # Python 钩子脚本
-│       ├── dere-hook.py         # 对话捕获钩子
-│       ├── dere-hook-session-end.py  # 会话结束钩子
-│       ├── dere-statusline.py   # 状态栏显示
-│       ├── dere-stop-hook.py    # 停止钩子捕获
-│       └── rpc_client.py        # RPC 通信客户端
+│   ├── dere_cli/                # CLI 入口点
+│   │   ├── main.py             # 主 CLI 逻辑
+│   │   └── mcp.py              # MCP 配置构建器
+│   ├── dere_daemon/             # FastAPI 守护进程
+│   │   ├── main.py             # 守护进程服务器
+│   │   ├── database.py         # 带向量搜索的 LibSQL
+│   │   ├── ollama_client.py    # Ollama 客户端
+│   │   └── task_processor.py   # 后台任务处理
+│   └── dere_shared/             # 共享工具
+│       ├── config.py           # TOML 配置加载
+│       ├── context.py          # 上下文收集（时间/天气/活动/文件）
+│       ├── activitywatch.py    # ActivityWatch 集成
+│       ├── weather.py          # 天气 API 集成
+│       ├── personalities.py    # 人格系统
+│       └── models.py           # Pydantic 数据模型
+├── hooks/python/                # Python 钩子脚本
+│   ├── dere-hook.py            # 对话捕获钩子
+│   ├── dere-context-hook.py    # 动态上下文注入钩子
+│   ├── dere-hook-session-end.py # 会话结束钩子
+│   ├── dere-wellness-hook.py   # 健康数据提取钩子
+│   ├── dere-statusline.py      # 状态栏显示
+│   ├── dere-stop-hook.py       # 停止钩子捕获
+│   └── rpc_client.py           # RPC 通信客户端
 ├── prompts/                     # 内置人格提示
-└── scripts/                     # 安装脚本
+│   ├── commands/               # 动态命令提示
+│   └── modes/                  # 心理健康模式提示
+└── pyproject.toml              # Python 包配置
 ```
 
 ### 从源代码构建
 ```bash
-just build      # 构建主二进制文件
-just clean      # 清理构建产物
-just install    # 构建并安装到 ~/.local/bin
-just test       # 运行测试
-just lint       # 运行代码检查
+just build      # 同步 Python 依赖（使用 uv）
+just clean      # 清理构建产物和 Python 缓存
+just install    # 构建并通过 uv tool 安装
+just test       # 运行 pytest 测试
+just lint       # 运行 ruff 代码检查
+just fmt        # 使用 ruff 格式化代码
 just dev        # 启动开发守护进程
 just --list     # 显示所有可用命令
 ```
 
-或使用传统 make：
-```bash
-make build      # 构建二进制文件
-make clean      # 清理构建产物
-make install    # 构建并安装
-```
-
 ### 数据库架构
-对话数据库使用 libSQL 的原生向量类型：
+对话数据库使用 libSQL 的原生向量类型，支持渐进式摘要：
 ```sql
 CREATE TABLE conversations (
     id INTEGER PRIMARY KEY,
@@ -342,30 +351,80 @@ CREATE TABLE conversations (
     created_at TIMESTAMP
 );
 
-CREATE INDEX conversations_embedding_idx 
+CREATE TABLE conversation_segments (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER REFERENCES sessions(id),
+    segment_number INTEGER NOT NULL,
+    segment_summary TEXT NOT NULL,
+    original_length INTEGER NOT NULL,
+    summary_length INTEGER NOT NULL,
+    start_conversation_id INTEGER REFERENCES conversations(id),
+    end_conversation_id INTEGER REFERENCES conversations(id),
+    model_used TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, segment_number)
+);
+
+CREATE INDEX conversations_embedding_idx
 ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
+
+-- 健康跟踪表
+CREATE TABLE wellness_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT UNIQUE NOT NULL,
+    mode TEXT NOT NULL,
+    mood INTEGER,
+    energy INTEGER,
+    stress INTEGER,
+    key_themes TEXT,
+    notes TEXT,
+    homework TEXT,
+    next_step_notes TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
 ```
 
 ## 注意事项
 
+### 核心功能
 - 数据库和嵌入在首次使用时自动创建
 - Ollama 是可选的，但可以启用对话相似性搜索和渐进式摘要
 - 与现有 Claude CLI 配置一起工作，不修改全局设置
 - 通过 `--settings` 标志动态生成设置，保持 Claude 配置干净
-- 人格基于 TOML，可覆盖（参见文件位置部分）
+- 人格基于 TOML，用户可覆盖（参见文件位置部分）
 - 跨平台支持 Linux、macOS 和 Windows，遵循各平台目录约定
 - MCP 配置独立于 Claude Desktop，便于更好控制
-- 渐进式摘要使用动态上下文长度查询，实现零信息损失
-- 后台守护进程通过模型切换优化和基于 PID 的状态监控高效处理任务
-- 守护进程在启动时清理陈旧文件并正确管理进程
-- 上下文缓存系统，30 分钟 TTL
-- 会话延续使用嵌入和相似性搜索查找相关上下文
-- 通过透传标志支持完全兼容 Claude CLI
-- 状态栏显示实时个性、守护进程状态和队列统计
-- 向量搜索使用余弦相似度查找相关对话
-- **Python 钩子**：对话捕获和处理现在使用 Python 脚本而非 Go 二进制文件，便于开发和自定义
-- **RPC 通信**：钩子通过 RPC 与守护进程通信，实现高效后台处理
-- **停止钩子**：新的停止钩子捕获 Claude 响应，改善对话连续性
+
+### Python 实现
+- **Python 3.13+**：使用 FastAPI 守护进程的现代 async/await 模式
+- **uv 包管理器**：快速、可靠的依赖管理
+- **类型安全**：使用 Pydantic 模型的完整类型提示
+- **Python 钩子**：所有钩子都是 Python 脚本，便于自定义
+- **RPC 通信**：带有 HTTP/JSON RPC 的 FastAPI 守护进程
+
+### 上下文系统
+- **动态注入**：每条消息更新上下文，而非静态系统提示
+- **最近文件**：使用 `fd` 跟踪最近修改的文件（可配置时间范围）
+- **实时更新**：每条消息刷新时间、天气、活动和文件上下文
+- **平台感知**：使用 `platform.system()` 正确检测 Windows/macOS/Linux
+
+### 后台处理
+- **异步任务处理器**：用于嵌入和摘要的后台任务队列
+- **模型切换**：按模型高效批处理任务
+- **会话日志**：守护进程记录带有人格信息的新会话
+- **向量搜索**：带有原生 F32 向量支持的 LibSQL，余弦相似度
+
+### 心理健康功能
+- **专用模式**：带结构化提示的 CBT、治疗、正念、目标跟踪
+- **健康跟踪**：自动情绪、精力和压力监测
+- **ActivityWatch 集成**：用于健康洞察的实时活动监测
+- **会话连续性**：心理健康会话自动引用之前的会话
+
+### 开发
+- **状态栏**：实时个性、守护进程状态和队列统计
+- **完全 Claude CLI 兼容性**：所有 Claude 选项的透传标志支持
+- **停止钩子**：捕获 Claude 响应以改善对话连续性
 
 ## 许可证
 

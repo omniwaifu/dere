@@ -32,9 +32,10 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 ### Requirements
 
 - [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
-- Go 1.20+ (for building)
-- Python 3.8+ (for hook scripts)
+- Python 3.13+
+- [uv](https://github.com/astral-sh/uv) (Python package manager)
 - [Just](https://github.com/casey/just) (optional, for modern build commands)
+- [fd](https://github.com/sharkdp/fd) (optional, for recent file tracking)
 - [Ollama](https://ollama.ai) (optional, for embeddings and summarization)
 - [rustormy](https://github.com/Tairesh/rustormy) (optional, for weather context)
 - [ActivityWatch](https://activitywatch.net/) (optional, for activity monitoring and wellness tracking)
@@ -48,40 +49,34 @@ just install
 ```
 
 This will:
-- Build the main dere binary
-- Install dere binary and Python hook scripts to ~/.local/bin (Linux) or ~/Library/Application Support (macOS)
+- Build the Python package with uv
+- Install dere CLI command globally via `uv tool`
+- Install Python hook scripts to `~/.config/dere/hooks/`
 - Set up conversation capture, session summarization, and daemon communication automatically
 
 ### Manual Setup
 
-#### Linux/macOS
-
-1. Build the project:
+1. Install uv if you haven't:
 ```bash
-just build
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-2. Copy binaries and scripts to your PATH:
+2. Build and sync dependencies:
 ```bash
-cp bin/dere ~/.local/bin/  # or /usr/local/bin/
-cp hooks/python/*.py ~/.local/bin/
-chmod +x ~/.local/bin/dere-*.py
+just build  # or: uv sync
 ```
 
-#### Windows
-
-1. Build the project:
-```powershell
-go build -o bin\dere.exe cmd\dere\main.go
+3. Install via uv tool:
+```bash
+uv tool install --editable .
 ```
 
-2. Add `bin` directory to your PATH, or copy to a location in PATH:
-```powershell
-copy bin\dere.exe %LOCALAPPDATA%\Programs\
-copy hooks\python\*.py %LOCALAPPDATA%\Programs\
+4. Install hooks:
+```bash
+mkdir -p ~/.config/dere/hooks
+cp hooks/python/*.py ~/.config/dere/hooks/
+chmod +x ~/.config/dere/hooks/dere-*.py
 ```
-
-3. Ensure Python is associated with `.py` files, or use `python` prefix when Claude CLI invokes hooks
 
 3. Configure Ollama (optional, for conversation embeddings):
 ```toml
@@ -246,17 +241,18 @@ dere --mcp=activitywatch           # Enable ActivityWatch for wellness tracking
 Background processing for embeddings, summarization, and other LLM tasks:
 
 ```bash
-# Daemon management
+# Start daemon (development)
+uv run dere-daemon                 # Start FastAPI daemon on port 8787
+
+# Daemon commands (via dere CLI)
 dere daemon start                  # Start background task processor
 dere daemon stop                   # Stop the daemon
-dere daemon restart                # Restart daemon (hot reload)
 dere daemon status                 # Show daemon status, PID, and queue stats
-dere daemon reload                 # Reload configuration (SIGHUP, Linux/macOS only)
 
 # Queue management
 dere queue list                    # List pending tasks
 dere queue stats                   # Show queue statistics
-dere queue process                 # Manually process pending tasks
+dere queue process                 # Manually trigger task processing
 ```
 
 ### Session Summaries
@@ -312,51 +308,46 @@ Conversations are automatically stored in the data directory as `dere.db` using 
 ### Project Structure
 ```
 dere/
-├── cmd/
-│   └── dere/                    # Main CLI entry point
 ├── src/
-│   ├── commands/                # Dynamic command generation
-│   ├── composer/                # Prompt composition
-│   ├── config/                  # Configuration management
-│   ├── daemon/                  # Background daemon server
-│   ├── database/                # Turso/libSQL with vector search
-│   ├── embeddings/              # Ollama embedding client
-│   ├── mcp/                     # MCP server management
-│   ├── settings/                # Claude settings generation
-│   ├── taskqueue/               # Background task processing
-│   └── weather/                 # Weather context integration
-├── hooks/
-│   └── python/                  # Python hook scripts
-│       ├── dere-hook.py         # Conversation capture hook
-│       ├── dere-hook-session-end.py  # Session end hook
-│       ├── dere-wellness-hook.py # Wellness data extraction hook
-│       ├── dere-statusline.py   # Status line display
-│       ├── dere-stop-hook.py    # Stop hook for capture
-│       └── rpc_client.py        # RPC communication client
-├── mcp/                         # MCP servers
-│   └── dere_mcp/               # ActivityWatch MCP server
+│   ├── dere_cli/                # CLI entry point
+│   │   ├── main.py             # Main CLI logic
+│   │   └── mcp.py              # MCP configuration builder
+│   ├── dere_daemon/             # FastAPI daemon
+│   │   ├── main.py             # Daemon server
+│   │   ├── database.py         # LibSQL with vector search
+│   │   ├── ollama_client.py    # Ollama client
+│   │   └── task_processor.py   # Background task processing
+│   └── dere_shared/             # Shared utilities
+│       ├── config.py           # TOML configuration loading
+│       ├── context.py          # Context gathering (time/weather/activity/files)
+│       ├── activitywatch.py    # ActivityWatch integration
+│       ├── weather.py          # Weather API integration
+│       ├── personalities.py    # Personality system
+│       └── models.py           # Pydantic data models
+├── hooks/python/                # Python hook scripts
+│   ├── dere-hook.py            # Conversation capture hook
+│   ├── dere-context-hook.py    # Dynamic context injection hook
+│   ├── dere-hook-session-end.py # Session end hook
+│   ├── dere-wellness-hook.py   # Wellness data extraction hook
+│   ├── dere-statusline.py      # Status line display
+│   ├── dere-stop-hook.py       # Stop hook for capture
+│   └── rpc_client.py           # RPC communication client
 ├── prompts/                     # Built-in personality prompts
 │   ├── commands/               # Dynamic command prompts
 │   └── modes/                  # Mental health mode prompts
-└── scripts/                     # Installation scripts
+└── pyproject.toml              # Python package configuration
 ```
 
 ### Building from Source
 ```bash
-just build      # Build main binary
-just clean      # Clean build artifacts
-just install    # Build and install to ~/.local/bin
-just test       # Run tests
-just lint       # Run linting
+just build      # Sync Python dependencies with uv
+just clean      # Clean build artifacts and Python cache
+just install    # Build and install via uv tool
+just test       # Run pytest tests
+just lint       # Run ruff linting
+just fmt        # Format code with ruff
 just dev        # Start development daemon
 just --list     # Show all available commands
-```
-
-Or use traditional make:
-```bash
-make build      # Build binaries
-make clean      # Clean build artifacts
-make install    # Build and install
 ```
 
 ### Database Schema
@@ -411,6 +402,7 @@ CREATE TABLE wellness_sessions (
 
 ## Notes
 
+### Core Features
 - Database and embeddings are created automatically on first use
 - Ollama is optional but enables conversation similarity search and progressive summarization
 - Works alongside existing Claude CLI configuration without modifying global settings
@@ -418,19 +410,34 @@ CREATE TABLE wellness_sessions (
 - Personalities are TOML-based and user-overridable (see File Locations section)
 - Cross-platform support for Linux, macOS, and Windows with proper directory conventions
 - MCP configuration is independent from Claude Desktop for better control
-- Progressive summarization uses dynamic context length querying for zero information loss
-- Background daemon processes tasks efficiently with model switching optimization and PID-based status monitoring
-- Daemon cleans up stale files on startup and manages processes properly
-- Context caching system with 30-minute TTL
-- Session continuation uses embeddings and similarity search to find relevant context
-- Full Claude CLI compatibility through passthrough flag support
-- Status line shows real-time personality, daemon status, and queue statistics
-- Vector search uses cosine similarity for finding related conversations
-- **Python hooks**: Conversation capture and processing now use Python scripts instead of Go binaries for easier development and customization
-- **RPC communication**: Hooks communicate with the daemon via RPC for efficient background processing
-- **Stop hook**: New stop hook captures Claude responses for improved conversation continuity
-- **Mental health modes**: Specialized prompts and workflows for therapeutic interactions with automatic wellness data extraction
-- **Wellness tracking**: Automatic mood, energy, and stress monitoring with structured data storage and trend analysis
-- **ActivityWatch integration**: MCP server provides real-time activity monitoring for comprehensive wellness insights
-- **Session continuity**: Mental health sessions automatically reference previous sessions for continuity of care
+
+### Python Implementation
+- **Python 3.13+**: Modern async/await patterns with FastAPI daemon
+- **uv package manager**: Fast, reliable dependency management
+- **Type safety**: Full type hints with Pydantic models
+- **Python hooks**: All hooks are Python scripts for easier customization
+- **RPC communication**: FastAPI daemon with HTTP/JSON RPC
+
+### Context System
+- **Dynamic injection**: Context updated per-message, not static system prompt
+- **Recent files**: Uses `fd` to track recently modified files (configurable timeframe)
+- **Live updates**: Time, weather, activity, and file context refreshed with each message
+- **Platform aware**: Proper `platform.system()` detection for Windows/macOS/Linux
+
+### Background Processing
+- **Async task processor**: Background task queue for embeddings and summarization
+- **Model switching**: Efficient batching of tasks by model
+- **Session logging**: Daemon logs new sessions with personality info
+- **Vector search**: LibSQL with native F32 vector support, cosine similarity
+
+### Mental Health Features
+- **Specialized modes**: CBT, therapy, mindfulness, goal tracking with structured prompts
+- **Wellness tracking**: Automatic mood, energy, and stress monitoring
+- **ActivityWatch integration**: Real-time activity monitoring for wellness insights
+- **Session continuity**: Mental health sessions reference previous sessions automatically
+
+### Development
+- **Status line**: Real-time personality, daemon status, and queue statistics
+- **Full Claude CLI compatibility**: Passthrough flag support for all Claude options
+- **Stop hook**: Captures Claude responses for improved conversation continuity
 
