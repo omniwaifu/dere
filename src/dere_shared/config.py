@@ -52,7 +52,7 @@ def load_dere_config() -> dict[str, Any]:
                 else:
                     config[section] = values
 
-        except Exception:
+        except (ImportError, OSError, ValueError):
             pass
 
     return config

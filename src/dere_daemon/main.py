@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -131,7 +132,7 @@ async def lifespan(app: FastAPI):
     data_dir = Path.home() / ".local" / "share" / "dere"
     if os.name == "nt":
         data_dir = Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    elif os.uname().sysname == "Darwin":
+    elif platform.system() == "Darwin":
         data_dir = Path.home() / "Library" / "Application Support" / "dere"
 
     data_dir.mkdir(parents=True, exist_ok=True)

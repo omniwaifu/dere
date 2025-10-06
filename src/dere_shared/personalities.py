@@ -60,7 +60,7 @@ class PersonalityLoader:
                 .read_text()
             )
             return self._parse_toml(data)
-        except (FileNotFoundError, AttributeError):
+        except FileNotFoundError:
             pass
 
         # Search all embedded personalities by alias
@@ -72,7 +72,7 @@ class PersonalityLoader:
                     personality = self._parse_toml(data)
                     if self._matches(personality, name):
                         return personality
-        except (FileNotFoundError, AttributeError):
+        except FileNotFoundError:
             pass
 
         return None

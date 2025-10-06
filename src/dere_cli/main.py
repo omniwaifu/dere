@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -19,7 +20,7 @@ def get_config_dir() -> Path:
     """Get platform-specific config directory"""
     if os.name == "nt":
         return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    elif os.uname().sysname == "Darwin":
+    elif platform.system() == "Darwin":
         return Path.home() / "Library" / "Application Support" / "dere"
     else:
         return Path.home() / ".config" / "dere"
@@ -29,7 +30,7 @@ def get_data_dir() -> Path:
     """Get platform-specific data directory"""
     if os.name == "nt":
         return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    elif os.uname().sysname == "Darwin":
+    elif platform.system() == "Darwin":
         return Path.home() / "Library" / "Application Support" / "dere"
     else:
         return Path.home() / ".local" / "share" / "dere"
