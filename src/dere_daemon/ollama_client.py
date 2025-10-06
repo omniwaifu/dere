@@ -140,12 +140,11 @@ class OllamaClient:
                 if resp.status_code != 200:
                     error_body = resp.text
                     last_error = f"ollama API error (status {resp.status_code}): {error_body}"
-                    print(f"Ollama generate attempt {attempt + 1} failed: {last_error}")
+                    logger.error(f"Ollama generate attempt {attempt + 1} failed: {last_error}")
 
                     if not await self.is_available():
                         self._is_healthy = False
-                        if await self._ensure_healthy():
-                            continue
+                        await self._ensure_healthy()
 
                     if attempt < max_retries - 1 and resp.status_code >= 500:
                         delay = base_delay * (2**attempt)
@@ -161,7 +160,7 @@ class OllamaClient:
                 raise
             except Exception as e:
                 last_error = str(e)
-                print(f"Ollama generate attempt {attempt + 1} failed: {e}")
+                logger.error(f"Ollama generate attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)

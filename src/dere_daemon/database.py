@@ -486,7 +486,7 @@ class Database:
         """Update conversation with embedding vector"""
         embedding_json = json.dumps(embedding)
         self._execute_and_commit(
-            "UPDATE conversations SET prompt_embedding = ? WHERE id = ?",
+            "UPDATE conversations SET prompt_embedding = vector32(?) WHERE id = ?",
             [embedding_json, conversation_id],
         )
 

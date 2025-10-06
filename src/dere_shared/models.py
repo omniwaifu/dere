@@ -154,7 +154,7 @@ class SessionRelationship(BaseModel):
 
 class WellnessSession(BaseModel):
     id: int | None = None
-    session_id: str
+    session_id: int
     mode: str
     mood: int | None = None
     energy: int | None = None
