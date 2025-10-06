@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import sys
 import os
+import sys
 
 # Add the hooks directory to Python path
 hooks_dir = os.path.dirname(os.path.abspath(__file__))
@@ -11,18 +11,21 @@ try:
 except ImportError:
     # Try different path locations
     import sys
+
     possible_paths = [
-        os.path.join(hooks_dir, '..', '..', 'hooks', 'python'),
-        '/home/justin/.local/bin',
-        '/home/justin/.config/dere/.claude/hooks'
+        os.path.join(hooks_dir, "..", "..", "hooks", "python"),
+        "/home/justin/.local/bin",
+        "/home/justin/.config/dere/.claude/hooks",
     ]
     for path in possible_paths:
-        if os.path.exists(os.path.join(path, 'rpc_client.py')):
+        if os.path.exists(os.path.join(path, "rpc_client.py")):
             sys.path.insert(0, path)
             from rpc_client import RPCClient
+
             break
     else:
         raise ImportError("Could not find rpc_client module")
+
 
 def main():
     # Debug: log all arguments
@@ -33,6 +36,7 @@ def main():
     if len(sys.argv) == 1:
         try:
             import json
+
             stdin_data = sys.stdin.read().strip()
             with open("/tmp/dere_hook_debug.log", "a") as f:
                 f.write(f"Reading from stdin: {stdin_data}\n")
@@ -48,7 +52,7 @@ def main():
                     sys.exit(0)
 
                 # Use the dere session ID from environment variable, not Claude Code's session ID
-                session_id = int(os.getenv('DERE_SESSION_ID', '0'))
+                session_id = int(os.getenv("DERE_SESSION_ID", "0"))
 
                 project_path = data.get("cwd", "")
                 prompt = data.get("prompt", "")
@@ -72,11 +76,16 @@ def main():
     else:
         with open("/tmp/dere_hook_debug.log", "a") as f:
             f.write(f"ERROR: Not enough args. Got {len(sys.argv)}, need 5\n")
-        print("Usage: dere-hook.py <session_id> <personality> <project_path> <prompt>", file=sys.stderr)
+        print(
+            "Usage: dere-hook.py <session_id> <personality> <project_path> <prompt>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     with open("/tmp/dere_hook_debug.log", "a") as f:
-        f.write(f"Calling RPC with session_id={session_id}, personality={personality}, project_path={project_path}, prompt='{prompt}'\n")
+        f.write(
+            f"Calling RPC with session_id={session_id}, personality={personality}, project_path={project_path}, prompt='{prompt}'\n"
+        )
 
     rpc = RPCClient()
     result = rpc.capture_conversation(session_id, personality, project_path, prompt)
@@ -89,6 +98,7 @@ def main():
     else:
         print("Failed to capture conversation", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

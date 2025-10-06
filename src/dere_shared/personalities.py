@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import importlib.resources
+import tomllib
 from pathlib import Path
-
-import tomli
 
 from dere_shared.models import Personality
 
@@ -55,9 +54,11 @@ class PersonalityLoader:
         """Load personality from embedded resources"""
         # Try direct match first
         try:
-            data = importlib.resources.files("dere_shared").joinpath(
-                f"personalities/{name}.toml"
-            ).read_text()
+            data = (
+                importlib.resources.files("dere_shared")
+                .joinpath(f"personalities/{name}.toml")
+                .read_text()
+            )
             return self._parse_toml(data)
         except (FileNotFoundError, AttributeError):
             pass
@@ -78,7 +79,7 @@ class PersonalityLoader:
 
     def _parse_toml(self, data: str) -> Personality:
         """Parse TOML data into Personality model"""
-        parsed = tomli.loads(data)
+        parsed = tomllib.loads(data)
 
         metadata = parsed.get("metadata", {})
         display = parsed.get("display", {})

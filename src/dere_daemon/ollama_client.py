@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-from ollama import AsyncClient
 
 
 class OllamaClient:
@@ -17,12 +17,12 @@ class OllamaClient:
         embedding_model: str = "mxbai-embed-large",
         summarization_model: str = "gemma3n:latest",
     ):
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
         self.embedding_model = embedding_model
         self.summarization_model = summarization_model
 
-        # Use ollama's async client
-        self.client = AsyncClient(host=base_url)
+        # Use httpx for direct control over errors
+        self.client = httpx.AsyncClient(timeout=60.0)
 
         # Health check state
         self._is_healthy = True
@@ -41,6 +41,7 @@ class OllamaClient:
                 await self._health_check_task
             except asyncio.CancelledError:
                 pass
+        await self.client.aclose()
 
     async def _run_health_check(self) -> None:
         """Run periodic health checks"""
@@ -53,11 +54,10 @@ class OllamaClient:
     async def _check_health(self) -> bool:
         """Check if Ollama server is healthy"""
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{self.base_url}/api/tags", timeout=5.0)
-                self._is_healthy = resp.status_code == 200
-                self._last_health_check = datetime.now()
-                return self._is_healthy
+            resp = await self.client.get(f"{self.base_url}/api/tags", timeout=5.0)
+            self._is_healthy = resp.status_code == 200
+            self._last_health_check = datetime.now()
+            return self._is_healthy
         except Exception:
             self._is_healthy = False
             self._last_health_check = datetime.now()
@@ -84,20 +84,38 @@ class OllamaClient:
 
         max_retries = 3
         base_delay = 1.0
+        last_error = None
 
         for attempt in range(max_retries):
             try:
-                response = await self.client.embeddings(model=self.embedding_model, prompt=text)
-                return response["embedding"]
+                resp = await self.client.post(
+                    f"{self.base_url}/api/embeddings",
+                    json={"model": self.embedding_model, "prompt": text},
+                )
 
+                if resp.status_code != 200:
+                    error_body = resp.text
+                    last_error = f"ollama API error (status {resp.status_code}): {error_body}"
+                    if attempt < max_retries - 1 and resp.status_code >= 500:
+                        delay = base_delay * (2**attempt)
+                        await asyncio.sleep(delay)
+                        continue
+                    raise RuntimeError(last_error)
+
+                data = resp.json()
+                return data["embedding"]
+
+            except RuntimeError:
+                raise
             except Exception as e:
+                last_error = str(e)
                 if attempt < max_retries - 1:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)
                     continue
-                raise RuntimeError(f"Failed to get embedding after {max_retries} retries: {e}")
+                raise RuntimeError(f"Failed to get embedding: {e}")
 
-        raise RuntimeError(f"Failed to get embedding after {max_retries} retries")
+        raise RuntimeError(f"Failed to get embedding after {max_retries} retries: {last_error}")
 
     async def generate(
         self, prompt: str, model: str | None = None, schema: dict[str, Any] | None = None
@@ -109,39 +127,66 @@ class OllamaClient:
         model = model or self.summarization_model
         max_retries = 3
         base_delay = 1.0
+        last_error = None
 
         for attempt in range(max_retries):
             try:
-                response = await self.client.generate(
-                    model=model, prompt=prompt, stream=False, format=schema if schema else None
-                )
-                return response["response"]
+                payload: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False}
+                if schema:
+                    payload["format"] = schema
 
-            except Exception as e:
-                if not await self.is_available():
-                    self._is_healthy = False
-                    if await self._ensure_healthy():
+                resp = await self.client.post(f"{self.base_url}/api/generate", json=payload)
+
+                if resp.status_code != 200:
+                    error_body = resp.text
+                    last_error = f"ollama API error (status {resp.status_code}): {error_body}"
+                    print(f"Ollama generate attempt {attempt + 1} failed: {last_error}")
+
+                    if not await self.is_available():
+                        self._is_healthy = False
+                        if await self._ensure_healthy():
+                            continue
+
+                    if attempt < max_retries - 1 and resp.status_code >= 500:
+                        delay = base_delay * (2**attempt)
+                        await asyncio.sleep(delay)
                         continue
 
+                    raise RuntimeError(last_error)
+
+                data = resp.json()
+                return data["response"]
+
+            except RuntimeError:
+                raise
+            except Exception as e:
+                last_error = str(e)
+                print(f"Ollama generate attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)
                     continue
+                raise RuntimeError(f"Failed to generate: {e}")
 
-                raise RuntimeError(f"Failed to generate after {max_retries} retries: {e}")
-
-        raise RuntimeError(f"Failed to generate after {max_retries} retries")
+        raise RuntimeError(f"Failed to generate after {max_retries} retries: {last_error}")
 
     async def is_available(self) -> bool:
         """Check if Ollama server is available and has the required model"""
         try:
-            response = await self.client.list()
-            models = response.get("models", [])
+            resp = await self.client.get(f"{self.base_url}/api/tags")
+            if resp.status_code != 200:
+                return False
+
+            data = resp.json()
+            models = data.get("models", [])
 
             # Check if our model exists
             for model in models:
                 model_name = model.get("name", "")
-                if model_name == self.embedding_model or model_name == f"{self.embedding_model}:latest":
+                if (
+                    model_name == self.embedding_model
+                    or model_name == f"{self.embedding_model}:latest"
+                ):
                     return True
 
             return False
@@ -152,15 +197,26 @@ class OllamaClient:
     async def prewarm_model(self, model_name: str) -> None:
         """Prewarm a model by loading it into memory"""
         try:
-            await self.client.generate(model=model_name, prompt="test", stream=False)
+            resp = await self.client.post(
+                f"{self.base_url}/api/generate",
+                json={"model": model_name, "prompt": "test", "stream": False},
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
         except Exception as e:
             raise RuntimeError(f"Failed to prewarm model {model_name}: {e}")
 
     async def get_model_context_length(self, model_name: str) -> int:
         """Get the context length for a model"""
         try:
-            response = await self.client.show(model_name)
-            model_info = response.get("model_info", {})
+            resp = await self.client.post(
+                f"{self.base_url}/api/show", json={"name": model_name}
+            )
+            if resp.status_code != 200:
+                return 2048
+
+            data = resp.json()
+            model_info = data.get("model_info", {})
 
             # Look for context_length in model_info
             for key, value in model_info.items():
