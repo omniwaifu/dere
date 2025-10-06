@@ -492,21 +492,25 @@ class Database:
 
     def get_previous_mode_session(self, mode: str, working_dir: str) -> dict[str, Any] | None:
         """Find the most recent completed session for a given mode"""
-        result = self.conn.execute(
-            """
-            SELECT s.id, s.start_time, COALESCE(ss.summary, '') as summary,
-                   COALESCE(ss.key_topics, '') as key_topics, COALESCE(ss.next_steps, '') as next_steps
+        # Python 3.13 multi-line f-string
+        query = f"""
+            SELECT s.id, s.start_time,
+                   COALESCE(ss.summary, '') as summary,
+                   COALESCE(ss.key_topics, '') as key_topics,
+                   COALESCE(ss.next_steps, '') as next_steps
             FROM sessions s
-            LEFT JOIN session_summaries ss ON s.id = ss.session_id AND ss.summary_type = 'wellness'
+            LEFT JOIN session_summaries ss
+                ON s.id = ss.session_id
+                AND ss.summary_type = 'wellness'
             JOIN session_flags sf ON s.id = sf.session_id
-            WHERE sf.flag_name = 'mode' AND sf.flag_value = ?
-            AND s.working_dir = ?
-            AND s.end_time IS NOT NULL
+            WHERE sf.flag_name = 'mode'
+              AND sf.flag_value = ?
+              AND s.working_dir = ?
+              AND s.end_time IS NOT NULL
             ORDER BY s.start_time DESC
             LIMIT 1
-            """,
-            [mode, working_dir],
-        )
+        """
+        result = self.conn.execute(query, [mode, working_dir])
 
         row = result.fetchone()
         if not row:

@@ -6,6 +6,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# Python 3.13 type aliases
+type SessionID = int
+type Embedding = list[float]
+type JSONDict = dict[str, Any]
+type Timestamp = int
+
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
@@ -33,40 +39,40 @@ class RelationshipType(str, Enum):
 
 
 class Session(BaseModel):
-    id: int | None = None
+    id: SessionID | None = None
     working_dir: str
-    start_time: int
-    end_time: int | None = None
-    continued_from: int | None = None
+    start_time: Timestamp
+    end_time: Timestamp | None = None
+    continued_from: SessionID | None = None
     project_type: str | None = None
     created_at: datetime | None = None
 
 
 class SessionPersonality(BaseModel):
-    session_id: int
+    session_id: SessionID
     personality_name: str
 
 
 class SessionMCP(BaseModel):
-    session_id: int
+    session_id: SessionID
     mcp_name: str
 
 
 class SessionFlag(BaseModel):
-    session_id: int
+    session_id: SessionID
     flag_name: str
     flag_value: str | None = None
 
 
 class Conversation(BaseModel):
     id: int | None = None
-    session_id: int
+    session_id: SessionID
     prompt: str
     message_type: MessageType = MessageType.USER
     embedding_text: str | None = None
     processing_mode: str | None = None
-    prompt_embedding: list[float] | None = None
-    timestamp: int
+    prompt_embedding: Embedding | None = None
+    timestamp: Timestamp
     created_at: datetime | None = None
 
 
@@ -75,10 +81,10 @@ class TaskQueue(BaseModel):
     task_type: str
     model_name: str
     content: str
-    metadata: dict[str, Any] | None = None
+    metadata: JSONDict | None = None
     priority: int = 5
     status: TaskStatus = TaskStatus.PENDING
-    session_id: int | None = None
+    session_id: SessionID | None = None
     created_at: datetime | None = None
     processed_at: datetime | None = None
     retry_count: int = 0
