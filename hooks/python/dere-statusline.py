@@ -7,12 +7,12 @@ import sys
 RESET = "\033[0m"
 RED = "\033[31m"
 GREEN = "\033[32m"
-YELLOW = "\033[33m"
+YELLOW = "\033[93m"
 BLUE = "\033[34m"
 MAGENTA = "\033[35m"
 CYAN = "\033[36m"
 GRAY = "\033[90m"
-WHITE = "\033[37m"
+WHITE = "\033[97m"
 
 
 def format_personality(personality):
@@ -51,7 +51,7 @@ def format_model(model):
     if "opus" in model_lower:
         return YELLOW + "◆" + RESET + " opus"
     elif "sonnet" in model_lower:
-        return WHITE + "◇" + RESET + " sonnet"
+        return BLUE + "◇" + RESET + " sonnet"
     elif "haiku" in model_lower:
         return GRAY + "◦" + RESET + " haiku"
     else:
@@ -184,7 +184,7 @@ def main():
 
     # Context awareness
     if context == "true":
-        parts.append(YELLOW + "⊙" + RESET + " ctx")
+        parts.append(GREEN + "⊙" + RESET + " ctx")
 
     # Session type
     if session_type and session_type != "new":
