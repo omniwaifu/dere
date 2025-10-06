@@ -4,23 +4,24 @@
 # Default recipe
 default: build
 
-# Build main dere binary
+# Build/sync Python environment
 build:
-    go mod tidy
-    mkdir -p bin
-    go build -o bin/dere cmd/dere/main.go
+    uv sync
 
-# Build all binaries (same as build since hooks are now Python)
+# Build all (same as build for Python)
 build-all: build
 
 # Install binaries and Python hooks to user PATH
 install: build-all
     mkdir -p ~/.local/bin
+    mkdir -p ~/.local/share/dere
     mkdir -p ~/.config/dere/hooks
     mkdir -p ~/.config/dere/modes
-    cp bin/dere ~/.local/bin/
+    uv tool install --force --editable .
+    cp -r src/ ~/.local/share/dere/
     cp -f hooks/python/dere-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-hook-session-end.py ~/.config/dere/hooks/
+    cp -f hooks/python/dere-context-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-statusline.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-stop-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-wellness-hook.py ~/.config/dere/hooks/
@@ -28,28 +29,15 @@ install: build-all
     cp -f prompts/modes/*.md ~/.config/dere/modes/
     chmod +x ~/.config/dere/hooks/dere-hook.py
     chmod +x ~/.config/dere/hooks/dere-hook-session-end.py
+    chmod +x ~/.config/dere/hooks/dere-context-hook.py
     chmod +x ~/.config/dere/hooks/dere-statusline.py
     chmod +x ~/.config/dere/hooks/dere-stop-hook.py
     chmod +x ~/.config/dere/hooks/dere-wellness-hook.py
 
 # Install to system-wide location (requires sudo)
 install-system: build-all
-    sudo mkdir -p /usr/local/bin
-    sudo mkdir -p /usr/local/share/dere/hooks
-    sudo mkdir -p /usr/local/share/dere/modes
-    sudo cp bin/dere /usr/local/bin/
-    sudo cp hooks/python/dere-hook.py /usr/local/share/dere/hooks/
-    sudo cp hooks/python/dere-hook-session-end.py /usr/local/share/dere/hooks/
-    sudo cp hooks/python/dere-statusline.py /usr/local/share/dere/hooks/
-    sudo cp hooks/python/dere-stop-hook.py /usr/local/share/dere/hooks/
-    sudo cp hooks/python/dere-wellness-hook.py /usr/local/share/dere/hooks/
-    sudo cp hooks/python/rpc_client.py /usr/local/share/dere/hooks/
-    sudo cp prompts/modes/*.md /usr/local/share/dere/modes/
-    sudo chmod +x /usr/local/share/dere/hooks/dere-hook.py
-    sudo chmod +x /usr/local/share/dere/hooks/dere-hook-session-end.py
-    sudo chmod +x /usr/local/share/dere/hooks/dere-statusline.py
-    sudo chmod +x /usr/local/share/dere/hooks/dere-stop-hook.py
-    sudo chmod +x /usr/local/share/dere/hooks/dere-wellness-hook.py
+    @echo "System-wide installation not yet implemented for Python version"
+    @echo "Use 'just install' for user installation via uv tool install"
 
 # Clean build artifacts
 clean:
@@ -59,45 +47,37 @@ clean:
 
 # Run tests
 test:
-    go test ./...
+    uv run pytest -v
 
 # Run linting
 lint:
-    golangci-lint run
+    uv run ruff check .
 
-# Format Go code
+# Format Python code
 fmt:
-    go fmt ./...
+    uv run ruff format .
 
-# Run development build and start daemon
+# Run development daemon
 dev: build
-    ./bin/dere daemon start
+    uv run python -m dere_daemon.main
 
-# Stop development daemon
-dev-stop:
-    ./bin/dere daemon stop || true
-
-# Restart development daemon
-dev-restart: dev-stop dev
-
-# Show daemon status and logs
-dev-status:
-    ./bin/dere daemon status
+# Run development CLI
+dev-cli: build
+    uv run dere
 
 # Quick test of personality modes
 test-personalities: build
     @echo "Testing personalities..."
-    @echo "Tsun:" && echo "test" | ./bin/dere -P tsun -p "Hello"
-    @echo "Kuu:" && echo "test" | ./bin/dere -P kuu -p "Hello"
+    @echo "Tsun:" && echo "test" | uv run dere -P tsun -p "Hello"
+    @echo "Kuu:" && echo "test" | uv run dere -P kuu -p "Hello"
 
 # Update dependencies
 deps:
-    go mod tidy
-    go mod download
+    uv sync
 
 # Check for dependency updates
 deps-check:
-    go list -u -m all
+    uv pip list --outdated
 
 # Generate documentation
 docs:
@@ -111,21 +91,17 @@ info:
     @echo "dere - personality-layered wrapper for Claude CLI"
     @echo "Version: $(git describe --tags --always 2>/dev/null || echo 'dev')"
     @echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
-    @echo "Go version: $(go version)"
-    @echo "Python version: $(python3 --version 2>/dev/null || echo 'not found')"
+    @echo "Python version: $(uv run python --version 2>/dev/null || echo 'not found')"
+    @echo "UV version: $(uv --version 2>/dev/null || echo 'not found')"
 
 # Create release build
-release: clean
-    @echo "Building release..."
-    go mod tidy
-    mkdir -p bin
-    CGO_ENABLED=0 go build -ldflags="-w -s" -o bin/dere cmd/dere/main.go
-    @echo "Release binary created: bin/dere"
+release: clean build
+    @echo "Release build complete"
 
 # Package for distribution
 package: release
     mkdir -p dist
-    tar -czf dist/dere-$(shell git describe --tags --always).tar.gz bin/ hooks/ prompts/ README.md LICENSE
+    tar -czf dist/dere-$(shell git describe --tags --always).tar.gz src/ pyproject.toml uv.lock README.md LICENSE
 
 # Show help
 help:

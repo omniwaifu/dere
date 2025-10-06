@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import sys
-import os
 import json
+import os
+import sys
 
 # Add the hooks directory to Python path
 hooks_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,23 +12,26 @@ try:
 except ImportError:
     # Try different path locations
     import sys
+
     possible_paths = [
-        os.path.join(hooks_dir, '..', '..', 'hooks', 'python'),
-        '/home/justin/.local/bin',
-        '/home/justin/.config/dere/.claude/hooks'
+        os.path.join(hooks_dir, "..", "..", "hooks", "python"),
+        "/home/justin/.local/bin",
+        "/home/justin/.config/dere/.claude/hooks",
     ]
     for path in possible_paths:
-        if os.path.exists(os.path.join(path, 'rpc_client.py')):
+        if os.path.exists(os.path.join(path, "rpc_client.py")):
             sys.path.insert(0, path)
             from rpc_client import RPCClient
+
             break
     else:
         raise ImportError("Could not find rpc_client module")
 
+
 def read_transcript(transcript_path):
     """Read and parse the Claude Code transcript file (JSONL format)"""
     try:
-        with open(transcript_path, 'r') as f:
+        with open(transcript_path) as f:
             lines = f.readlines()
 
         # Parse each line as JSON
@@ -48,22 +51,23 @@ def read_transcript(transcript_path):
             f.write(f"Error reading transcript: {e}\n")
         return []
 
+
 def extract_claude_response(transcript_entries):
     """Extract Claude's latest response from transcript entries"""
     try:
         # Look for the latest assistant message
         for entry in reversed(transcript_entries):
-            if entry.get('type') == 'assistant' and 'message' in entry:
-                message = entry['message']
-                if message.get('role') == 'assistant' and 'content' in message:
-                    content = message['content']
+            if entry.get("type") == "assistant" and "message" in entry:
+                message = entry["message"]
+                if message.get("role") == "assistant" and "content" in message:
+                    content = message["content"]
                     if isinstance(content, list) and len(content) > 0:
                         # Extract text from content array
                         text_parts = []
                         for item in content:
-                            if isinstance(item, dict) and item.get('type') == 'text':
-                                text_parts.append(item.get('text', ''))
-                        return '\n'.join(text_parts) if text_parts else None
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                text_parts.append(item.get("text", ""))
+                        return "\n".join(text_parts) if text_parts else None
                     elif isinstance(content, str):
                         return content
         return None
@@ -71,6 +75,7 @@ def extract_claude_response(transcript_entries):
         with open("/tmp/dere_stop_hook_debug.log", "a") as f:
             f.write(f"Error extracting Claude response: {e}\n")
         return None
+
 
 def main():
     # Debug: log all input
@@ -98,11 +103,11 @@ def main():
             sys.exit(0)
 
         # Get session ID from environment
-        session_id = int(os.getenv('DERE_SESSION_ID', '0'))
-        project_path = os.getenv('PWD', '')
+        session_id = int(os.getenv("DERE_SESSION_ID", "0"))
+        project_path = os.getenv("PWD", "")
 
         # Extract transcript path
-        transcript_path = hook_data.get('transcript_path')
+        transcript_path = hook_data.get("transcript_path")
         if not transcript_path:
             with open("/tmp/dere_stop_hook_debug.log", "a") as f:
                 f.write("No transcript path provided\n")
@@ -143,6 +148,7 @@ def main():
         with open("/tmp/dere_stop_hook_debug.log", "a") as f:
             f.write(f"Error in stop hook: {e}\n")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

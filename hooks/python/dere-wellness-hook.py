@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import sys
-import os
 import json
+import os
+import sys
 
 # Add the hooks directory to Python path
 hooks_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,23 +12,26 @@ try:
 except ImportError:
     # Try different path locations
     import sys
+
     possible_paths = [
-        os.path.join(hooks_dir, '..', '..', 'hooks', 'python'),
-        '/home/justin/.local/bin',
-        '/home/justin/.config/dere/.claude/hooks'
+        os.path.join(hooks_dir, "..", "..", "hooks", "python"),
+        "/home/justin/.local/bin",
+        "/home/justin/.config/dere/.claude/hooks",
     ]
     for path in possible_paths:
-        if os.path.exists(os.path.join(path, 'rpc_client.py')):
+        if os.path.exists(os.path.join(path, "rpc_client.py")):
             sys.path.insert(0, path)
             from rpc_client import RPCClient
+
             break
     else:
         raise ImportError("Could not find rpc_client module")
 
+
 def read_transcript(transcript_path):
     """Read and parse the Claude Code transcript file (JSONL format)"""
     try:
-        with open(transcript_path, 'r') as f:
+        with open(transcript_path) as f:
             lines = f.readlines()
 
         # Parse each line as JSON
@@ -48,61 +51,63 @@ def read_transcript(transcript_path):
             f.write(f"Error reading transcript: {e}\n")
         return []
 
+
 def extract_conversation_text(transcript_entries):
     """Extract the full conversation text from transcript entries"""
     try:
         conversation_parts = []
 
         for entry in transcript_entries:
-            if entry.get('type') == 'user' and 'message' in entry:
-                message = entry['message']
-                if message.get('role') == 'user' and 'content' in message:
-                    content = message['content']
+            if entry.get("type") == "user" and "message" in entry:
+                message = entry["message"]
+                if message.get("role") == "user" and "content" in message:
+                    content = message["content"]
                     if isinstance(content, str):
                         conversation_parts.append(f"User: {content}")
                     elif isinstance(content, list):
                         text_parts = []
                         for item in content:
-                            if isinstance(item, dict) and item.get('type') == 'text':
-                                text_parts.append(item.get('text', ''))
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                text_parts.append(item.get("text", ""))
                         if text_parts:
                             conversation_parts.append(f"User: {' '.join(text_parts)}")
 
-            elif entry.get('type') == 'assistant' and 'message' in entry:
-                message = entry['message']
-                if message.get('role') == 'assistant' and 'content' in message:
-                    content = message['content']
+            elif entry.get("type") == "assistant" and "message" in entry:
+                message = entry["message"]
+                if message.get("role") == "assistant" and "content" in message:
+                    content = message["content"]
                     if isinstance(content, str):
                         conversation_parts.append(f"Assistant: {content}")
                     elif isinstance(content, list):
                         text_parts = []
                         for item in content:
-                            if isinstance(item, dict) and item.get('type') == 'text':
-                                text_parts.append(item.get('text', ''))
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                text_parts.append(item.get("text", ""))
                         if text_parts:
                             conversation_parts.append(f"Assistant: {' '.join(text_parts)}")
 
-        return '\n\n'.join(conversation_parts) if conversation_parts else None
+        return "\n\n".join(conversation_parts) if conversation_parts else None
 
     except Exception as e:
         with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
             f.write(f"Error extracting conversation: {e}\n")
         return None
 
+
 def extract_wellness_data(conversation_text, mode, session_id):
     """Extract wellness data from conversation using RPC call"""
     try:
         rpc = RPCClient()
-        result = rpc.call("mode.wellness.extract", {
-            "mode": mode,
-            "conversation": conversation_text,
-            "session_id": session_id
-        })
+        result = rpc.call(
+            "mode.wellness.extract",
+            {"mode": mode, "conversation": conversation_text, "session_id": session_id},
+        )
         return result
     except Exception as e:
         with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
             f.write(f"Error extracting wellness data: {e}\n")
         return None
+
 
 def main():
     # Debug: log all input
@@ -130,14 +135,14 @@ def main():
             sys.exit(0)
 
         # Get session ID from environment (dere's numeric session ID)
-        session_id = int(os.getenv('DERE_SESSION_ID', '0'))
+        session_id = int(os.getenv("DERE_SESSION_ID", "0"))
         if session_id == 0:
             with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
                 f.write("No valid session ID found\n")
             sys.exit(0)
 
         # Extract transcript path
-        transcript_path = hook_data.get('transcript_path')
+        transcript_path = hook_data.get("transcript_path")
         if not transcript_path:
             with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
                 f.write("No transcript path provided\n")
@@ -173,6 +178,7 @@ def main():
         with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
             f.write(f"Error in wellness hook: {e}\n")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

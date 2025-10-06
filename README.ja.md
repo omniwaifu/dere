@@ -32,9 +32,10 @@ Claude CLI用の構成可能な性格レイヤーを持つ階層型AIアシス�
 ### 必要条件
 
 - [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
-- Go 1.20+（ビルド用）
-- Python 3.8+（フックスクリプト用）
+- Python 3.13+
+- [uv](https://github.com/astral-sh/uv)（Pythonパッケージマネージャー）
 - [Just](https://github.com/casey/just)（オプション、モダンビルドコマンド用）
+- [fd](https://github.com/sharkdp/fd)（オプション、最近のファイル追跡用）
 - [Ollama](https://ollama.ai)（オプション、埋め込みと要約用）
 - [rustormy](https://github.com/Tairesh/rustormy)（オプション、天気コンテキスト用）
 - [ActivityWatch](https://activitywatch.net/)（オプション、アクティビティ監視とウェルネストラッキング用）
@@ -48,40 +49,34 @@ just install
 ```
 
 これにより：
-- メインdereバイナリをビルド
-- dereバイナリとPythonフックスクリプトを~/.local/bin (Linux) または ~/Library/Application Support (macOS) にインストール
+- uvでPythonパッケージをビルド
+- `uv tool`を使用してdere CLIコマンドをグローバルインストール
+- Pythonフックスクリプトを`~/.config/dere/hooks/`にインストール
 - 会話キャプチャ、セッション要約、デーモン通信を自動設定
 
 ### 手動セットアップ
 
-#### Linux/macOS
-
-1. プロジェクトをビルド：
+1. uvをインストール（未インストールの場合）：
 ```bash
-just build
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-2. バイナリとスクリプトをPATHにコピー：
+2. ビルドと依存関係の同期：
 ```bash
-cp bin/dere ~/.local/bin/  # または /usr/local/bin/
-cp hooks/python/*.py ~/.local/bin/
-chmod +x ~/.local/bin/dere-*.py
+just build  # または: uv sync
 ```
 
-#### Windows
-
-1. プロジェクトをビルド：
-```powershell
-go build -o bin\dere.exe cmd\dere\main.go
+3. uv toolでインストール：
+```bash
+uv tool install --editable .
 ```
 
-2. `bin` ディレクトリをPATHに追加、またはPATH内の場所にコピー：
-```powershell
-copy bin\dere.exe %LOCALAPPDATA%\Programs\
-copy hooks\python\*.py %LOCALAPPDATA%\Programs\
+4. フックをインストール：
+```bash
+mkdir -p ~/.config/dere/hooks
+cp hooks/python/*.py ~/.config/dere/hooks/
+chmod +x ~/.config/dere/hooks/dere-*.py
 ```
-
-3. Pythonが `.py` ファイルに関連付けられていることを確認、またはClaude CLIがフックを呼び出す際に `python` プレフィックスを使用
 
 3. Ollamaを設定（オプション、会話埋め込み用）：
 ```toml
@@ -239,23 +234,25 @@ dere --mcp=dev                     # 'dev'プロファイルを使用
 dere --mcp="linear,obsidian"       # 特定サーバーを使用
 dere --mcp="*spotify*"             # パターンマッチング
 dere --mcp="tag:media"             # タグベース選択
+dere --mcp=activitywatch           # ウェルネストラッキング用ActivityWatchを有効化
 ```
 
 ### デーモンとキュー管理
 埋め込み、要約、その他のLLMタスクのバックグラウンド処理：
 
 ```bash
-# デーモン管理
+# デーモン起動（開発）
+uv run dere-daemon                 # ポート8787でFastAPIデーモンを起動
+
+# デーモンコマンド（dere CLI経由）
 dere daemon start                  # バックグラウンドタスクプロセッサを開始
 dere daemon stop                   # デーモンを停止
-dere daemon restart                # デーモンを再起動（ホットリロード）
 dere daemon status                 # デーモンステータス、PID、キュー統計を表示
-dere daemon reload                 # 設定をリロード（SIGHUP、Linux/macOSのみ）
 
 # キュー管理
 dere queue list                    # 保留中のタスクをリスト
 dere queue stats                   # キュー統計を表示
-dere queue process                 # 保留中のタスクを手動処理
+dere queue process                 # タスク処理を手動トリガー
 ```
 
 ### セッション要約
@@ -266,6 +263,19 @@ dere queue process                 # 保留中のタスクを手動処理
 dere summaries list                # すべてのセッション要約をリスト
 dere summaries list --project=/path  # プロジェクトパスでフィルタ
 dere summaries show <id>           # 詳細要約を表示
+dere summaries latest              # 最新の要約を表示
+```
+
+### ウェルネスデータ管理
+セッションから自動抽出されたメンタルヘルスデータの追跡と分析：
+
+```bash
+# ウェルネスデータ管理
+dere wellness history              # ウェルネスデータ履歴を表示
+dere wellness history --days=7     # 過去7日間のウェルネスデータ
+dere wellness history --mode=cbt   # 特定モードでフィルタ
+dere wellness trends               # ウェルネストレンドとパターンを表示
+dere wellness export               # ウェルネスデータをエクスポート
 ```
 
 ### エンティティ管理
@@ -298,46 +308,46 @@ dere entities graph React          # 特定エンティティの関係を表示
 ### プロジェクト構造
 ```
 dere/
-├── cmd/
-│   └── dere/                    # メインCLIエントリーポイント
 ├── src/
-│   ├── commands/                # 動的コマンド生成
-│   ├── composer/                # プロンプト構成
-│   ├── config/                  # 設定管理
-│   ├── daemon/                  # バックグラウンドデーモンサーバー
-│   ├── database/                # ベクトル検索付きTurso/libSQL
-│   ├── embeddings/              # Ollama埋め込みクライアント
-│   ├── mcp/                     # MCPサーバー管理
-│   ├── settings/                # Claude設定生成
-│   ├── taskqueue/               # バックグラウンドタスク処理
-│   └── weather/                 # 天気コンテキスト統合
-├── hooks/
-│   └── python/                  # Pythonフックスクリプト
-│       ├── dere-hook.py         # 会話キャプチャフック
-│       ├── dere-hook-session-end.py  # セッション終了フック
-│       ├── dere-statusline.py   # ステータスライン表示
-│       ├── dere-stop-hook.py    # キャプチャ停止フック
-│       └── rpc_client.py        # RPC通信クライアント
+│   ├── dere_cli/                # CLIエントリーポイント
+│   │   ├── main.py             # メインCLIロジック
+│   │   └── mcp.py              # MCP設定ビルダー
+│   ├── dere_daemon/             # FastAPIデーモン
+│   │   ├── main.py             # デーモンサーバー
+│   │   ├── database.py         # ベクトル検索付きLibSQL
+│   │   ├── ollama_client.py    # Ollamaクライアント
+│   │   └── task_processor.py   # バックグラウンドタスク処理
+│   └── dere_shared/             # 共有ユーティリティ
+│       ├── config.py           # TOML設定読み込み
+│       ├── context.py          # コンテキスト収集（時間/天気/活動/ファイル）
+│       ├── activitywatch.py    # ActivityWatch統合
+│       ├── weather.py          # 天気API統合
+│       ├── personalities.py    # 性格システム
+│       └── models.py           # Pydanticデータモデル
+├── hooks/python/                # Pythonフックスクリプト
+│   ├── dere-hook.py            # 会話キャプチャフック
+│   ├── dere-context-hook.py    # 動的コンテキスト注入フック
+│   ├── dere-hook-session-end.py # セッション終了フック
+│   ├── dere-wellness-hook.py   # ウェルネスデータ抽出フック
+│   ├── dere-statusline.py      # ステータスライン表示
+│   ├── dere-stop-hook.py       # 停止フックキャプチャ
+│   └── rpc_client.py           # RPC通信クライアント
 ├── prompts/                     # ビルトイン性格プロンプト
-└── scripts/                     # インストールスクリプト
+│   ├── commands/               # 動的コマンドプロンプト
+│   └── modes/                  # メンタルヘルスモードプロンプト
+└── pyproject.toml              # Pythonパッケージ設定
 ```
 
 ### ソースからビルド
 ```bash
-just build      # メインバイナリをビルド
-just clean      # ビルド成果物をクリーン
-just install    # ビルドして~/.local/binにインストール
-just test       # テストを実行
-just lint       # リンティングを実行
+just build      # Python依存関係を同期（uv使用）
+just clean      # ビルド成果物とPythonキャッシュをクリーン
+just install    # ビルドしてuv toolでインストール
+just test       # pytestテストを実行
+just lint       # ruffリンティングを実行
+just fmt        # ruffでコードをフォーマット
 just dev        # 開発デーモンを開始
 just --list     # 利用可能なコマンドをすべて表示
-```
-
-従来のmakeも使用可能：
-```bash
-make build      # バイナリをビルド
-make clean      # ビルド成果物をクリーン
-make install    # ビルドしてインストール
 ```
 
 ### データベーススキーマ
@@ -372,28 +382,64 @@ CREATE TABLE conversation_segments (
 
 CREATE INDEX conversations_embedding_idx
 ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
+
+-- ウェルネストラッキングテーブル
+CREATE TABLE wellness_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT UNIQUE NOT NULL,
+    mode TEXT NOT NULL,
+    mood INTEGER,
+    energy INTEGER,
+    stress INTEGER,
+    key_themes TEXT,
+    notes TEXT,
+    homework TEXT,
+    next_step_notes TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+);
 ```
 
 ## 注意事項
 
+### コア機能
 - データベースと埋め込みは初回使用時に自動的に作成されます
 - Ollamaはオプションですが、会話類似性検索と漸進的要約を有効にします
 - グローバル設定を変更せずに既存のClaude CLI設定と一緒に動作します
 - `--settings`フラグによる動的設定生成でClaude設定をクリーンに保ちます
-- 性格はTOMLベースで上書き可能です（ファイルの場所セクションを参照）
+- 性格はTOMLベースでユーザーが上書き可能です（ファイルの場所セクションを参照）
 - Linux、macOS、Windowsのクロスプラットフォームサポート、各プラットフォームのディレクトリ規則に従います
 - MCP設定はClaude Desktopから独立してより良い制御を実現
-- 漸進的要約は動的コンテキスト長クエリで情報損失ゼロを実現
-- バックグラウンドデーモンはモデル切り替え最適化とPIDベースのステータス監視で効率的にタスクを処理
-- デーモンは起動時に古いファイルをクリーンアップし、プロセスを適切に管理
-- 30分TTLのコンテキストキャッシュシステム
-- 会話継続は埋め込みと類似性検索を使用して関連コンテキストを見つけます
-- パススルーフラグサポートによる完全Claude CLI互換性
-- ステータスラインはリアルタイムの性格、デーモンステータス、キュー統計を表示
-- ベクトル検索はコサイン類似度を使用して関連する会話を見つけます
-- **Pythonフック**：会話キャプチャと処理で開発とカスタマイズを容易にするためにGoバイナリの代わりにPythonスクリプトを使用
-- **RPC通信**：フックは効率的なバックグラウンド処理のためにRPC経由でデーモンと通信
-- **停止フック**：会話連続性を改善するためにClaude応答をキャプチャする新しい停止フック
+
+### Python実装
+- **Python 3.13+**：FastAPIデーモンを使用したモダンなasync/awaitパターン
+- **uvパッケージマネージャー**：高速で信頼性の高い依存関係管理
+- **型安全性**：Pydanticモデルを使用した完全な型ヒント
+- **Pythonフック**：カスタマイズを容易にするすべてのフックがPythonスクリプト
+- **RPC通信**：HTTP/JSON RPCを使用したFastAPIデーモン
+
+### コンテキストシステム
+- **動的注入**：静的システムプロンプトではなく、メッセージごとにコンテキストを更新
+- **最近のファイル**：`fd`を使用して最近変更されたファイルを追跡（設定可能な時間範囲）
+- **ライブ更新**：各メッセージで時間、天気、活動、ファイルコンテキストを更新
+- **プラットフォーム認識**：`platform.system()`を使用してWindows/macOS/Linuxを正しく検出
+
+### バックグラウンド処理
+- **非同期タスクプロセッサ**：埋め込みと要約用のバックグラウンドタスクキュー
+- **モデル切り替え**：モデルごとの効率的なタスクバッチ処理
+- **セッションログ**：デーモンが性格情報付きの新しいセッションをログ
+- **ベクトル検索**：ネイティブF32ベクトルサポート付きLibSQL、コサイン類似度
+
+### メンタルヘルス機能
+- **専用モード**：構造化プロンプト付きCBT、セラピー、マインドフルネス、目標追跡
+- **ウェルネストラッキング**：気分、エネルギー、ストレスの自動監視
+- **ActivityWatch統合**：ウェルネス洞察のためのリアルタイムアクティビティ監視
+- **セッション継続性**：メンタルヘルスセッションは以前のセッションを自動参照
+
+### 開発
+- **ステータスライン**：リアルタイムの性格、デーモンステータス、キュー統計
+- **完全Claude CLI互換性**：すべてのClaudeオプションのパススルーフラグサポート
+- **停止フック**：会話連続性を改善するためにClaude応答をキャプチャ
 
 ## ライセンス
 

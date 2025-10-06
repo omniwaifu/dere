@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-import sys
-import os
 import json
-import subprocess
+import os
+import sys
 
 # ANSI color codes
 RESET = "\033[0m"
@@ -14,6 +13,7 @@ MAGENTA = "\033[35m"
 CYAN = "\033[36m"
 GRAY = "\033[90m"
 WHITE = "\033[37m"
+
 
 def format_personality(personality):
     """Format personality with colored indicator"""
@@ -30,7 +30,7 @@ def format_personality(personality):
         "yellow": YELLOW,
         "cyan": CYAN,
         "gray": GRAY,
-        "white": WHITE
+        "white": WHITE,
     }
 
     # Get the color code, default to GRAY
@@ -42,6 +42,7 @@ def format_personality(personality):
         return color_code + icon + RESET + " " + personality
     else:
         return color_code + icon + RESET + " " + personality
+
 
 def format_model(model):
     """Format model name with indicator"""
@@ -59,6 +60,7 @@ def format_model(model):
             return GRAY + "◈" + RESET + " " + parts[0]
         return GRAY + "◈" + RESET + " model"
 
+
 def format_mcp_servers(servers):
     """Format MCP servers"""
     if not servers:
@@ -72,6 +74,7 @@ def format_mcp_servers(servers):
     else:
         return CYAN + "▪" + RESET + f" {count}"
 
+
 def format_session_type(session_type):
     """Format session type"""
     if session_type == "continue":
@@ -80,6 +83,7 @@ def format_session_type(session_type):
         return YELLOW + "↵" + RESET + " resume"
     else:
         return GRAY + "●" + RESET + " " + session_type
+
 
 def check_daemon_status():
     """Check if dere daemon is running by checking PID file"""
@@ -90,7 +94,7 @@ def check_daemon_status():
         if not os.path.exists(pid_file):
             return False
 
-        with open(pid_file, 'r') as f:
+        with open(pid_file) as f:
             pid = int(f.read().strip())
 
         # Check if process exists
@@ -102,6 +106,7 @@ def check_daemon_status():
     except (FileNotFoundError, ValueError, PermissionError):
         return False
 
+
 def format_daemon_status(is_running):
     """Format daemon status indicator"""
     if is_running:
@@ -109,11 +114,12 @@ def format_daemon_status(is_running):
     else:
         return RED + "●" + RESET + " daemon"
 
+
 def shorten_path(path):
     """Shorten long paths"""
     home = os.path.expanduser("~")
     if path.startswith(home):
-        path = "~" + path[len(home):]
+        path = "~" + path[len(home) :]
 
     if len(path) > 25:
         parts = path.split("/")
@@ -121,6 +127,7 @@ def shorten_path(path):
             return parts[0] + "/.../" + parts[-1]
 
     return path
+
 
 def show_dere_status_only():
     """Show minimal dere status when no session data"""
@@ -138,6 +145,7 @@ def show_dere_status_only():
         parts.append(GRAY + "dere" + RESET)
 
     print((GRAY + " │ " + RESET).join(parts), end="")
+
 
 def main():
     """Main statusline function"""
@@ -197,6 +205,7 @@ def main():
     # Join with separators
     if parts:
         print((GRAY + " │ " + RESET).join(parts), end="")
+
 
 if __name__ == "__main__":
     main()
