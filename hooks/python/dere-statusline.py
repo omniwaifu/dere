@@ -49,16 +49,16 @@ def format_model(model):
     model_lower = model.lower()
 
     if "opus" in model_lower:
-        return YELLOW + "◆" + RESET + " opus"
+        return YELLOW + "◆ opus" + RESET
     elif "sonnet" in model_lower:
-        return WHITE + "◇" + RESET + " sonnet"
+        return WHITE + "◇ sonnet" + RESET
     elif "haiku" in model_lower:
-        return GRAY + "◦" + RESET + " haiku"
+        return GRAY + "◦ haiku" + RESET
     else:
         parts = model.split("-")
         if parts:
-            return GRAY + "◈" + RESET + " " + parts[0]
-        return GRAY + "◈" + RESET + " model"
+            return GRAY + "◈ " + parts[0] + RESET
+        return GRAY + "◈ model" + RESET
 
 
 def format_mcp_servers(servers):
@@ -184,7 +184,7 @@ def main():
 
     # Context awareness
     if context == "true":
-        parts.append(GRAY + "⊙" + RESET + " ctx")
+        parts.append(CYAN + "⊙ ctx" + RESET)
 
     # Session type
     if session_type and session_type != "new":
