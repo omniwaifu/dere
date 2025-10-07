@@ -332,8 +332,11 @@ async def conversation_capture(req: ConversationCaptureRequest):
 @app.post("/session/end")
 async def session_end(req: SessionEndRequest):
     """Handle session end and queue summarization"""
-    # Get session content
-    content = app.state.db.get_session_content(req.session_id)
+    # Get recent session content (last 30 minutes or last 50 messages)
+    thirty_minutes_ago = int(time.time()) - 1800
+    content = app.state.db.get_session_content(
+        req.session_id, since_timestamp=thirty_minutes_ago, max_messages=50
+    )
 
     if not content:
         return {"status": "skipped", "reason": "no_content"}

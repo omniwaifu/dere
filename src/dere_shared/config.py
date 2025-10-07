@@ -36,6 +36,15 @@ def load_dere_config() -> dict[str, Any]:
             "city": None,
             "units": "metric",
         },
+        "discord": {
+            "token": "",
+            "default_persona": "tsun",
+            "allowed_guilds": "",
+            "allowed_channels": "",
+            "idle_timeout_seconds": 1200,
+            "summary_grace_seconds": 30,
+            "context_enabled": True,
+        },
     }
 
     config_path = os.path.expanduser("~/.config/dere/config.toml")

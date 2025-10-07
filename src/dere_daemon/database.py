@@ -384,19 +384,46 @@ class Database:
                 [session_id, personality],
             )
 
-    def get_session_content(self, session_id: int) -> str:
-        """Get formatted conversation content for a session"""
-        result = self.conn.execute(
-            """
-            SELECT prompt, message_type
-            FROM conversations
-            WHERE session_id = ?
-            ORDER BY timestamp ASC
-            """,
-            [session_id],
-        )
+    def get_session_content(
+        self, session_id: int, since_timestamp: int | None = None, max_messages: int = 50
+    ) -> str:
+        """Get formatted conversation content for a session.
+
+        Args:
+            session_id: Session to get content for
+            since_timestamp: Only include messages after this timestamp (unix seconds)
+            max_messages: Maximum number of recent messages to include (default 50)
+
+        Returns:
+            Formatted conversation string
+        """
+        if since_timestamp is not None:
+            result = self.conn.execute(
+                """
+                SELECT prompt, message_type
+                FROM conversations
+                WHERE session_id = ? AND timestamp >= ?
+                ORDER BY timestamp ASC
+                """,
+                [session_id, since_timestamp],
+            )
+        else:
+            result = self.conn.execute(
+                """
+                SELECT prompt, message_type
+                FROM conversations
+                WHERE session_id = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                [session_id, max_messages],
+            )
 
         rows = self._rows_to_dicts(result, result.fetchall())
+
+        if since_timestamp is None:
+            rows = list(reversed(rows))
+
         content_parts = []
         for row in rows:
             if row["message_type"] == "assistant":

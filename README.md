@@ -27,6 +27,23 @@ Layered AI assistant with composable personalities for Claude CLI, featuring con
 - **Claude CLI compatibility**: Full passthrough support for Claude flags like `-p`, `--debug`, `--verbose`
 - **Status line**: Real-time personality and queue status display
 
+## Discord Bot (Experimental)
+
+- `uv run dere-discord --persona tsun` launches a Discord bot that reuses dere personalities and daemon memory.
+- Configure tokens and allow-lists via `~/.config/dere/config.toml`:
+
+```toml
+[discord]
+token = "discord-bot-token"
+default_persona = "tsun"
+allowed_guilds = "1234567890"
+allowed_channels = "1234567890,1234567891"
+idle_timeout_seconds = 1200
+summary_grace_seconds = 30
+context_enabled = true
+```
+- Slash command `/persona` (Manage Channels permission required) updates the active persona for a channel; conversations auto-summarize after idle time and resume on next message.
+
 ## Installation
 
 ### Requirements
@@ -440,4 +457,3 @@ CREATE TABLE wellness_sessions (
 - **Status line**: Real-time personality, daemon status, and queue statistics
 - **Full Claude CLI compatibility**: Passthrough flag support for all Claude options
 - **Stop hook**: Captures Claude responses for improved conversation continuity
-

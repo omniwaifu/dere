@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.11.10",
     "click>=8.3.0",
+    "discord.py>=2.4.0",
 ]
 
 [project.optional-dependencies]
@@ -25,13 +26,14 @@ dev = [
 [project.scripts]
 dere = "dere_cli.main:cli"
 dere-daemon = "dere_daemon.main:main"
+dere-discord = "dere_discord.main:run"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared"]
+packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord"]
 
 [tool.ruff]
 line-length = 100
