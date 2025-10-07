@@ -75,6 +75,7 @@ class DiscordBotConfig:
     idle_timeout_seconds: int
     summary_grace_seconds: int
     context_enabled: bool
+    session_expiry_hours: int
 
 
 def load_discord_config(
@@ -86,6 +87,7 @@ def load_discord_config(
     idle_timeout_override: int | None = None,
     summary_grace_override: int | None = None,
     context_override: bool | None = None,
+    session_expiry_override: int | None = None,
 ) -> DiscordBotConfig:
     """Load configuration from TOML/overrides/environment."""
 
@@ -151,6 +153,14 @@ def load_discord_config(
         or True,
     )
 
+    session_expiry_hours = _coerce_int(
+        "session_expiry_hours",
+        session_expiry_override
+        or os.getenv("DERE_DISCORD_SESSION_EXPIRY")
+        or discord_section.get("session_expiry_hours"),
+        default=24,
+    )
+
     return DiscordBotConfig(
         token=token,
         default_personas=default_personas,
@@ -159,4 +169,5 @@ def load_discord_config(
         idle_timeout_seconds=idle_timeout_seconds,
         summary_grace_seconds=summary_grace_seconds,
         context_enabled=context_enabled,
+        session_expiry_hours=session_expiry_hours,
     )

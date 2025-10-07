@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # Disable httpx logging
-logging.getLogger("httpx").setLevel(logging.ERROR)
+logger.disable("httpx")
 
 
 class OllamaClient:
@@ -145,14 +142,13 @@ class OllamaClient:
                 if schema:
                     payload["format"] = schema
 
-                logger.debug(f"Ollama generate attempt {attempt + 1}: POST {self.base_url}/api/generate")
+                logger.debug("Ollama generate attempt {}: POST {}/api/generate", attempt + 1, self.base_url)
                 resp = await self.client.post(f"{self.base_url}/api/generate", json=payload)
 
                 if resp.status_code != 200:
                     error_body = resp.text
                     last_error = f"ollama API error (status {resp.status_code}): {error_body}"
-                    print(f"Ollama generate attempt {attempt + 1} failed: {last_error}")
-                    logger.error(f"Ollama generate attempt {attempt + 1} failed: {last_error}")
+                    logger.error("Ollama generate attempt {} failed: {}", attempt + 1, last_error)
 
                     if not await self.is_available():
                         self._is_healthy = False
@@ -172,8 +168,7 @@ class OllamaClient:
                 raise
             except Exception as e:
                 last_error = str(e)
-                print(f"Ollama generate attempt {attempt + 1} exception: {type(e).__name__}: {e}")
-                logger.error(f"Ollama generate attempt {attempt + 1} failed: {e}")
+                logger.error("Ollama generate attempt {} exception: {}: {}", attempt + 1, type(e).__name__, e)
                 if attempt < max_retries - 1:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)

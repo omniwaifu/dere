@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-import libsql
+import psycopg
 
 from dere_shared.models import (
     Conversation,
@@ -15,16 +16,14 @@ from dere_shared.models import (
 
 
 class Database:
-    def __init__(self, db_path: str | Path):
-        self.db_path = str(db_path)
-        self.conn = libsql.connect(str(db_path))
+    def __init__(self, db_url: str):
+        self.db_url = db_url
+        self.conn = psycopg.connect(db_url, autocommit=True)
         self._init_schema()
 
     def _execute_and_commit(self, query: str, params: list | None = None):
         """Execute query and commit immediately"""
-        result = self.conn.execute(query, params or [])
-        self.conn.commit()
-        return result
+        return self.conn.execute(query, params or [])
 
     def _row_to_dict(self, cursor, row) -> dict[str, Any]:
         """Convert cursor row tuple to dictionary"""
@@ -43,23 +42,35 @@ class Database:
     def _init_schema(self) -> None:
         """Initialize database schema with all tables and indexes"""
 
+        # Enable pgvector extension
+        self.conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
         # Sessions table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 working_dir TEXT NOT NULL,
-                start_time INTEGER NOT NULL,
-                end_time INTEGER,
-                continued_from INTEGER REFERENCES sessions(id),
+                start_time BIGINT NOT NULL,
+                end_time BIGINT,
+                continued_from BIGINT REFERENCES sessions(id),
                 project_type TEXT,
+                claude_session_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
+        # Migration: Add claude_session_id column if it doesn't exist
+        try:
+            self.conn.execute("""
+                ALTER TABLE sessions ADD COLUMN claude_session_id TEXT
+            """)
+        except Exception:
+            pass
+
         # Session personalities
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS session_personalities (
-                session_id INTEGER REFERENCES sessions(id),
+                session_id BIGINT REFERENCES sessions(id),
                 personality_name TEXT NOT NULL,
                 PRIMARY KEY (session_id, personality_name)
             )
@@ -68,7 +79,7 @@ class Database:
         # Session MCPs
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS session_mcps (
-                session_id INTEGER REFERENCES sessions(id),
+                session_id BIGINT REFERENCES sessions(id),
                 mcp_name TEXT NOT NULL,
                 PRIMARY KEY (session_id, mcp_name)
             )
@@ -77,7 +88,7 @@ class Database:
         # Session flags
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS session_flags (
-                session_id INTEGER REFERENCES sessions(id),
+                session_id BIGINT REFERENCES sessions(id),
                 flag_name TEXT NOT NULL,
                 flag_value TEXT,
                 PRIMARY KEY (session_id, flag_name)
@@ -87,14 +98,14 @@ class Database:
         # Conversations with vector embeddings
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER REFERENCES sessions(id),
+                id BIGSERIAL PRIMARY KEY,
+                session_id BIGINT REFERENCES sessions(id),
                 prompt TEXT NOT NULL,
                 message_type TEXT NOT NULL DEFAULT 'user',
                 embedding_text TEXT,
                 processing_mode TEXT,
-                prompt_embedding FLOAT32(1024),
-                timestamp INTEGER NOT NULL,
+                prompt_embedding VECTOR(1024),
+                timestamp BIGINT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -102,14 +113,14 @@ class Database:
         # Task queue
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS task_queue (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 task_type TEXT NOT NULL,
                 model_name TEXT NOT NULL,
                 content TEXT NOT NULL,
                 metadata TEXT,
                 priority INTEGER DEFAULT 5,
                 status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
-                session_id INTEGER REFERENCES sessions(id),
+                session_id BIGINT REFERENCES sessions(id),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 processed_at TIMESTAMP,
                 retry_count INTEGER DEFAULT 0,
@@ -120,9 +131,9 @@ class Database:
         # Entities
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS entities (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER REFERENCES sessions(id),
-                conversation_id INTEGER REFERENCES conversations(id),
+                id BIGSERIAL PRIMARY KEY,
+                session_id BIGINT REFERENCES sessions(id),
+                conversation_id BIGINT REFERENCES conversations(id),
                 entity_type TEXT NOT NULL,
                 entity_value TEXT NOT NULL,
                 normalized_value TEXT NOT NULL,
@@ -137,9 +148,9 @@ class Database:
         # Entity relationships
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS entity_relationships (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entity_1_id INTEGER REFERENCES entities(id),
-                entity_2_id INTEGER REFERENCES entities(id),
+                id BIGSERIAL PRIMARY KEY,
+                entity_1_id BIGINT REFERENCES entities(id),
+                entity_2_id BIGINT REFERENCES entities(id),
                 relationship_type TEXT NOT NULL,
                 confidence FLOAT NOT NULL,
                 metadata TEXT,
@@ -150,8 +161,8 @@ class Database:
         # Session summaries
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS session_summaries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER REFERENCES sessions(id),
+                id BIGSERIAL PRIMARY KEY,
+                session_id BIGINT REFERENCES sessions(id),
                 summary_type TEXT NOT NULL,
                 summary TEXT NOT NULL,
                 key_topics TEXT,
@@ -167,14 +178,14 @@ class Database:
         # Conversation segments
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS conversation_segments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER REFERENCES sessions(id),
+                id BIGSERIAL PRIMARY KEY,
+                session_id BIGINT REFERENCES sessions(id),
                 segment_number INTEGER NOT NULL,
                 segment_summary TEXT NOT NULL,
                 original_length INTEGER NOT NULL,
                 summary_length INTEGER NOT NULL,
-                start_conversation_id INTEGER REFERENCES conversations(id),
-                end_conversation_id INTEGER REFERENCES conversations(id),
+                start_conversation_id BIGINT REFERENCES conversations(id),
+                end_conversation_id BIGINT REFERENCES conversations(id),
                 model_used TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(session_id, segment_number)
@@ -184,7 +195,7 @@ class Database:
         # Context cache
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS context_cache (
-                session_id INTEGER PRIMARY KEY REFERENCES sessions(id),
+                session_id BIGINT PRIMARY KEY REFERENCES sessions(id),
                 context_text TEXT NOT NULL,
                 metadata TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -195,8 +206,8 @@ class Database:
         # Session relationships
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS session_relationships (
-                session_id INTEGER REFERENCES sessions(id),
-                related_session_id INTEGER REFERENCES sessions(id),
+                session_id BIGINT REFERENCES sessions(id),
+                related_session_id BIGINT REFERENCES sessions(id),
                 relationship_type TEXT NOT NULL,
                 strength REAL DEFAULT 1.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -207,7 +218,7 @@ class Database:
         # Wellness sessions
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS wellness_sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 session_id TEXT UNIQUE NOT NULL,
                 mode TEXT NOT NULL,
                 mood INTEGER,
@@ -217,18 +228,19 @@ class Database:
                 notes TEXT,
                 homework TEXT,
                 next_step_notes TEXT,
-                created_at INTEGER DEFAULT (strftime('%s', 'now')),
-                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+                created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+                updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
             )
         """)
 
         # Create indexes
         self._create_indexes()
 
-        # Create vector index for embeddings
+        # Create vector index for embeddings using ivfflat
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS conversations_embedding_idx
-            ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'))
+            ON conversations USING ivfflat (prompt_embedding vector_cosine_ops)
+            WITH (lists = 100)
         """)
 
     def _create_indexes(self) -> None:
@@ -255,8 +267,9 @@ class Database:
         """Create a new session and return its ID"""
         result = self._execute_and_commit(
             """
-            INSERT INTO sessions (working_dir, start_time, end_time, continued_from, project_type)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions (working_dir, start_time, end_time, continued_from, project_type, claude_session_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             [
                 session.working_dir,
@@ -264,9 +277,10 @@ class Database:
                 session.end_time,
                 session.continued_from,
                 session.project_type,
+                session.claude_session_id,
             ],
         )
-        return result.lastrowid
+        return result.fetchone()[0]
 
     def store_conversation(self, conv: Conversation) -> int:
         """Store a conversation message"""
@@ -278,7 +292,8 @@ class Database:
                 """
                 INSERT INTO conversations
                 (session_id, prompt, message_type, embedding_text, processing_mode, prompt_embedding, timestamp)
-                VALUES (?, ?, ?, ?, ?, vector32(?), ?)
+                VALUES (%s, %s, %s, %s, %s, %s::vector, %s)
+                RETURNING id
                 """,
                 [
                     conv.session_id,
@@ -295,7 +310,8 @@ class Database:
                 """
                 INSERT INTO conversations
                 (session_id, prompt, message_type, embedding_text, processing_mode, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
                 """,
                 [
                     conv.session_id,
@@ -306,7 +322,7 @@ class Database:
                     conv.timestamp,
                 ],
             )
-        return result.lastrowid
+        return result.fetchone()[0]
 
     def search_similar(
         self, embedding: list[float], limit: int = 10, threshold: float = 0.7
@@ -318,13 +334,14 @@ class Database:
         result = self.conn.execute(
             """
             SELECT c.id, c.session_id, c.prompt, c.message_type, c.timestamp,
-                   vtk.distance
-            FROM vector_top_k('conversations_embedding_idx', vector32(?), ?) AS vtk
-            JOIN conversations c ON c.rowid = vtk.id
-            WHERE vtk.distance < ?
-            ORDER BY vtk.distance
+                   (1 - (c.prompt_embedding <=> %s::vector)) as distance
+            FROM conversations c
+            WHERE c.prompt_embedding IS NOT NULL
+              AND (1 - (c.prompt_embedding <=> %s::vector)) >= %s
+            ORDER BY c.prompt_embedding <=> %s::vector
+            LIMIT %s
             """,
-            [embedding_json, limit, 1.0 - threshold],
+            [embedding_json, embedding_json, threshold, embedding_json, limit],
         )
 
         return [dict(row) for row in result.fetchall()]
@@ -337,7 +354,8 @@ class Database:
             """
             INSERT INTO task_queue
             (task_type, model_name, content, metadata, priority, status, session_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             [
                 task.task_type,
@@ -349,14 +367,14 @@ class Database:
                 task.session_id,
             ],
         )
-        return result.lastrowid
+        return result.fetchone()[0]
 
     def ensure_session_exists(
         self, session_id: int, working_dir: str, personality: str | None = None
     ) -> None:
         """Ensure session exists, create if it doesn't"""
         result = self.conn.execute(
-            "SELECT COUNT(*) as count FROM sessions WHERE id = ?", [session_id]
+            "SELECT COUNT(*) as count FROM sessions WHERE id = %s", [session_id]
         )
         row = result.fetchone()
         count = self._row_to_dict(result, row)["count"]
@@ -368,7 +386,7 @@ class Database:
         self._execute_and_commit(
             """
             INSERT INTO sessions (id, working_dir, start_time, project_type)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             [session_id, working_dir, int(Path(working_dir).stat().st_mtime), "unknown"],
         )
@@ -380,7 +398,7 @@ class Database:
         # Store personality if provided
         if personality:
             self._execute_and_commit(
-                "INSERT INTO session_personalities (session_id, personality_name) VALUES (?, ?)",
+                "INSERT INTO session_personalities (session_id, personality_name) VALUES (%s, %s)",
                 [session_id, personality],
             )
 
@@ -402,7 +420,7 @@ class Database:
                 """
                 SELECT prompt, message_type
                 FROM conversations
-                WHERE session_id = ? AND timestamp >= ?
+                WHERE session_id = %s AND timestamp >= %s
                 ORDER BY timestamp ASC
                 """,
                 [session_id, since_timestamp],
@@ -412,9 +430,9 @@ class Database:
                 """
                 SELECT prompt, message_type
                 FROM conversations
-                WHERE session_id = ?
+                WHERE session_id = %s
                 ORDER BY timestamp DESC
-                LIMIT ?
+                LIMIT %s
                 """,
                 [session_id, max_messages],
             )
@@ -438,12 +456,12 @@ class Database:
         import time
 
         end_time = end_time or int(time.time())
-        self._execute_and_commit("UPDATE sessions SET end_time = ? WHERE id = ?", [end_time, session_id])
+        self._execute_and_commit("UPDATE sessions SET end_time = %s WHERE id = %s", [end_time, session_id])
 
     def get_session_personality(self, session_id: int) -> str | None:
         """Get personality for a session"""
         result = self.conn.execute(
-            "SELECT personality_name FROM session_personalities WHERE session_id = ? LIMIT 1",
+            "SELECT personality_name FROM session_personalities WHERE session_id = %s LIMIT 1",
             [session_id],
         )
         row = result.fetchone()
@@ -456,7 +474,7 @@ class Database:
         import time
 
         result = self._execute_and_commit(
-            "SELECT context_text, updated_at FROM context_cache WHERE session_id = ?", [session_id]
+            "SELECT context_text, updated_at FROM context_cache WHERE session_id = %s", [session_id]
         )
 
         row = result.fetchone()
@@ -483,7 +501,7 @@ class Database:
         self._execute_and_commit(
             """
             INSERT INTO context_cache (session_id, context_text, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT(session_id) DO UPDATE SET
                 context_text = excluded.context_text,
                 metadata = excluded.metadata,
@@ -513,9 +531,73 @@ class Database:
         """Update conversation with embedding vector"""
         embedding_json = json.dumps(embedding)
         self._execute_and_commit(
-            "UPDATE conversations SET prompt_embedding = vector32(?) WHERE id = ?",
+            "UPDATE conversations SET prompt_embedding = %s::vector WHERE id = %s",
             [embedding_json, conversation_id],
         )
+
+    def get_latest_session_for_channel(
+        self, working_dir: str, max_age_hours: int | None = None
+    ) -> dict[str, Any] | None:
+        """Find the most recent session for a channel/working directory.
+
+        Args:
+            working_dir: The working directory (e.g., discord://guild/123/channel/456)
+            max_age_hours: Optional maximum age in hours to consider session active
+
+        Returns:
+            Session dict with id, working_dir, start_time, end_time, or None if not found
+        """
+        import time
+
+        if max_age_hours is not None:
+            cutoff = int(time.time()) - (max_age_hours * 3600)
+            result = self.conn.execute(
+                """
+                SELECT id, working_dir, start_time, end_time, claude_session_id
+                FROM sessions
+                WHERE working_dir = %s AND start_time >= %s
+                ORDER BY start_time DESC
+                LIMIT 1
+                """,
+                [working_dir, cutoff],
+            )
+        else:
+            result = self.conn.execute(
+                """
+                SELECT id, working_dir, start_time, end_time, claude_session_id
+                FROM sessions
+                WHERE working_dir = %s
+                ORDER BY start_time DESC
+                LIMIT 1
+                """,
+                [working_dir],
+            )
+
+        row = result.fetchone()
+        if not row:
+            return None
+
+        return self._row_to_dict(result, row)
+
+    def update_claude_session_id(self, session_id: int, claude_session_id: str) -> None:
+        """Update the Claude SDK session ID for an existing session.
+
+        Args:
+            session_id: Daemon session ID
+            claude_session_id: Claude SDK session ID to store for future resumption
+        """
+        from loguru import logger
+
+        logger.info(
+            "Updating claude_session_id for session {} to {}",
+            session_id,
+            claude_session_id,
+        )
+        result = self._execute_and_commit(
+            "UPDATE sessions SET claude_session_id = %s WHERE id = %s",
+            [claude_session_id, session_id],
+        )
+        logger.info("UPDATE affected {} rows", result.rowcount)
 
     def get_previous_mode_session(self, mode: str, working_dir: str) -> dict[str, Any] | None:
         """Find the most recent completed session for a given mode"""
@@ -531,8 +613,8 @@ class Database:
                 AND ss.summary_type = 'wellness'
             JOIN session_flags sf ON s.id = sf.session_id
             WHERE sf.flag_name = 'mode'
-              AND sf.flag_value = ?
-              AND s.working_dir = ?
+              AND sf.flag_value = %s
+              AND s.working_dir = %s
               AND s.end_time IS NOT NULL
             ORDER BY s.start_time DESC
             LIMIT 1
@@ -553,7 +635,7 @@ class Database:
             """
             INSERT INTO wellness_sessions
             (session_id, mode, mood, energy, stress, key_themes, notes, homework, next_step_notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(session_id) DO UPDATE SET
                 mood = excluded.mood,
                 energy = excluded.energy,
@@ -591,7 +673,7 @@ class Database:
             """
             INSERT INTO session_summaries
             (session_id, summary_type, summary, key_topics, next_steps, model_used)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             [session_id, summary_type, summary, key_topics, next_steps, model_used],
         )
@@ -632,23 +714,21 @@ class Database:
         self, task_id: int, status: TaskStatus, error_message: str | None = None
     ) -> None:
         """Update task status"""
-        import time
-
         if error_message:
             self._execute_and_commit(
-                "UPDATE task_queue SET status = ?, error_message = ?, processed_at = ? WHERE id = ?",
-                [status.value, error_message, int(time.time()), task_id],
+                "UPDATE task_queue SET status = %s, error_message = %s, processed_at = NOW() WHERE id = %s",
+                [status.value, error_message, task_id],
             )
         else:
             self._execute_and_commit(
-                "UPDATE task_queue SET status = ?, processed_at = ? WHERE id = ?",
-                [status.value, int(time.time()), task_id],
+                "UPDATE task_queue SET status = %s, processed_at = NOW() WHERE id = %s",
+                [status.value, task_id],
             )
 
     def increment_task_retry(self, task_id: int) -> None:
         """Increment task retry count"""
         self._execute_and_commit(
-            "UPDATE task_queue SET retry_count = retry_count + 1 WHERE id = ?", [task_id]
+            "UPDATE task_queue SET retry_count = retry_count + 1 WHERE id = %s", [task_id]
         )
 
     def reset_stuck_tasks(self) -> int:
@@ -672,7 +752,7 @@ class Database:
             """
             INSERT INTO entities
             (session_id, conversation_id, entity_type, entity_value, normalized_value, confidence)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             [session_id, conversation_id, entity_type, entity_value, normalized_value, confidence],
         )

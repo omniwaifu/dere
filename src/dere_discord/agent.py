@@ -3,25 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 
 from claude_agent_sdk import (
     AssistantMessage,
+    SystemMessage,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
+from loguru import logger
 
 from dere_shared.context import get_full_context
 
 from .persona import PersonaProfile
 from .session import SessionManager
-
-logger = logging.getLogger(__name__)
 
 
 class DiscordAgent:
@@ -76,7 +75,7 @@ class DiscordAgent:
             try:
                 await session.client.query(prompt)
             except Exception:
-                logger.exception("Claude query failed for channel %s", key)
+                logger.exception("Claude query failed for channel {}", key)
                 raise
 
             pre_tool_chunks: list[str] = []
@@ -86,6 +85,19 @@ class DiscordAgent:
 
             try:
                 async for message in session.client.receive_response():
+                    # Capture Claude session ID from init message
+                    if isinstance(message, SystemMessage):
+                        subtype = getattr(message, "subtype", None)
+                        logger.debug("Received SystemMessage: subtype={}, data={}", subtype, message.data)
+                        if subtype == "init":
+                            claude_session_id = message.data.get("session_id")
+                            logger.info("Found init message with session_id: {}", claude_session_id)
+                            if claude_session_id:
+                                await self._sessions.capture_claude_session_id(
+                                    session, claude_session_id
+                                )
+                        continue
+
                     if isinstance(message, AssistantMessage | UserMessage):
                         for block in getattr(message, "content", []) or []:
                             if isinstance(block, TextBlock | ThinkingBlock):
@@ -139,7 +151,7 @@ class DiscordAgent:
                                 pre_tool_chunks.clear()
                             tool_events.append(event)
             except Exception:
-                logger.exception("Failed while streaming response for channel %s", key)
+                logger.exception("Failed while streaming response for channel {}", key)
                 await finalize()
                 raise
             else:

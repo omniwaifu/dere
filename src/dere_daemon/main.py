@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, Body, FastAPI
 from pydantic import BaseModel
 
 from dere_daemon.database import Database
@@ -99,6 +99,19 @@ class CreateSessionResponse(BaseModel):
     session_id: int
 
 
+class FindOrCreateSessionRequest(BaseModel):
+    working_dir: str
+    personality: str | None = None
+    medium: str = "cli"
+    max_age_hours: int | None = None
+
+
+class FindOrCreateSessionResponse(BaseModel):
+    session_id: int
+    resumed: bool
+    claude_session_id: str | None
+
+
 class StoreMessageRequest(BaseModel):
     message: str
     role: str = "user"
@@ -146,9 +159,10 @@ async def lifespan(app: FastAPI):
     # Load config
     config = load_dere_config()
     ollama_config = config["ollama"]
+    db_url = config.get("database", {}).get("url", "postgresql://postgres:dere@localhost/dere")
 
     app.state = AppState()
-    app.state.db = Database(db_path)
+    app.state.db = Database(db_url)
     app.state.ollama = OllamaClient(
         base_url=ollama_config["url"],
         embedding_model=ollama_config["embedding_model"],
@@ -226,6 +240,61 @@ async def create_session(req: CreateSessionRequest):
 
     session_id = app.state.db.create_session(session)
     return CreateSessionResponse(session_id=session_id)
+
+
+@app.post("/sessions/find_or_create", response_model=FindOrCreateSessionResponse)
+async def find_or_create_session(req: FindOrCreateSessionRequest):
+    """Find existing session or create new one with continuity support.
+
+    If an existing session is found within max_age_hours, it will be resumed.
+    If an old session exists but is outside max_age_hours, a new session will
+    be created with continued_from linkage for historical continuity.
+    """
+    existing = app.state.db.get_latest_session_for_channel(
+        req.working_dir, max_age_hours=req.max_age_hours
+    )
+
+    if existing and req.max_age_hours is not None:
+        return FindOrCreateSessionResponse(
+            session_id=existing["id"],
+            resumed=True,
+            claude_session_id=existing.get("claude_session_id"),
+        )
+
+    if existing and req.max_age_hours is None:
+        return FindOrCreateSessionResponse(
+            session_id=existing["id"],
+            resumed=True,
+            claude_session_id=existing.get("claude_session_id"),
+        )
+
+    session = Session(
+        working_dir=req.working_dir,
+        start_time=int(time.time()),
+        continued_from=existing["id"] if existing else None,
+    )
+
+    session_id = app.state.db.create_session(session)
+    return FindOrCreateSessionResponse(session_id=session_id, resumed=False, claude_session_id=None)
+
+
+@app.post("/sessions/{session_id}/claude_session")
+async def update_claude_session(session_id: int, claude_session_id: str = Body(...)):
+    """Update the Claude SDK session ID for a daemon session.
+
+    This is called after creating a ClaudeSDKClient and capturing its session ID
+    from the first system init message.
+    """
+    from loguru import logger
+
+    logger.info(
+        "Received claude_session_id update: session_id={}, claude_session_id={}",
+        session_id,
+        claude_session_id,
+    )
+    app.state.db.update_claude_session_id(session_id, claude_session_id)
+    logger.info("Successfully updated claude_session_id for session {}", session_id)
+    return {"status": "updated"}
 
 
 @app.post("/sessions/{session_id}/message", response_model=StoreMessageResponse)

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+import sys
 from typing import Iterable
 
 import click
+from loguru import logger
 
 from .agent import DiscordAgent
 from .bot import DereDiscordClient
@@ -103,12 +104,13 @@ def cli(
 def _display_config(config: DiscordBotConfig) -> None:
     """Print a human-friendly configuration summary."""
     click.echo("Dere Discord configuration:")
-    click.echo(f"  Persona      : {', '.join(config.default_personas)}")
-    click.echo(f"  Idle timeout : {config.idle_timeout_seconds}s")
-    click.echo(f"  Summary grace: {config.summary_grace_seconds}s")
-    click.echo(f"  Context      : {'on' if config.context_enabled else 'off'}")
-    click.echo(f"  Guilds       : {_format_collection(config.allowed_guilds)}")
-    click.echo(f"  Channels     : {_format_collection(config.allowed_channels)}")
+    click.echo(f"  Persona         : {', '.join(config.default_personas)}")
+    click.echo(f"  Idle timeout    : {config.idle_timeout_seconds}s")
+    click.echo(f"  Summary grace   : {config.summary_grace_seconds}s")
+    click.echo(f"  Context         : {'on' if config.context_enabled else 'off'}")
+    click.echo(f"  Session expiry  : {config.session_expiry_hours}h")
+    click.echo(f"  Guilds          : {_format_collection(config.allowed_guilds)}")
+    click.echo(f"  Channels        : {_format_collection(config.allowed_channels)}")
 
 
 def run() -> None:
@@ -117,9 +119,13 @@ def run() -> None:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s")
-    # Suppress httpx request logging
-    logging.getLogger("httpx").setLevel(logging.ERROR)
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        format="[{time:YYYY-MM-DD HH:mm:ss}] {level}:{name}: {message}",
+    )
+    logger.disable("httpx")
 
 
 async def _run_bot(config: DiscordBotConfig) -> None:

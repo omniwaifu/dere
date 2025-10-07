@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from typing import Any, cast
+
+from loguru import logger
 
 from dere_daemon.database import Database
 from dere_daemon.ollama_client import OllamaClient, get_entity_extraction_schema
@@ -15,8 +16,6 @@ from dere_shared.models import (
     TaskQueue,
     TaskStatus,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class TaskProcessor:
@@ -58,7 +57,7 @@ class TaskProcessor:
             try:
                 await self.process_tasks()
             except Exception as e:
-                logger.error(f"Error in task processing loop: {e}")
+                logger.error("Error in task processing loop: {}", e)
 
             # Wait for trigger or timeout
             try:
@@ -72,20 +71,20 @@ class TaskProcessor:
         tasks_by_model = self.db.get_tasks_by_model()
 
         if not tasks_by_model:
-            print(f"DEBUG: No tasks found in queue")
+            logger.debug("No tasks found in queue")
             return
 
-        print(f"DEBUG: Found tasks: {tasks_by_model}")
+        logger.debug("Found tasks: {}", tasks_by_model)
 
         for model_name, tasks in tasks_by_model.items():
             if not tasks:
                 continue
 
-            logger.info(f"Processing {len(tasks)} tasks for model {model_name}")
+            logger.info("Processing {} tasks for model {}", len(tasks), model_name)
 
             # Switch model if needed
             if self.current_model != model_name:
-                logger.info(f"Switching to model: {model_name}")
+                logger.info("Switching to model: {}", model_name)
                 self.current_model = model_name
                 await asyncio.sleep(0.5)
 
@@ -98,7 +97,7 @@ class TaskProcessor:
         # Mark as processing
         self.db.update_task_status(task.id, TaskStatus.PROCESSING)
 
-        logger.info(f"Task {task.id} starting: {task.task_type}")
+        logger.info("Task {} starting: {}", task.id, task.task_type)
 
         try:
             match task.task_type:
@@ -111,22 +110,22 @@ class TaskProcessor:
                 case "context_building":
                     result = await self.process_context_building_task(task)
                 case _:
-                    logger.error(f"Unknown task type: {task.task_type}")
+                    logger.error("Unknown task type: {}", task.task_type)
                     self.db.update_task_status(
                         task.id, TaskStatus.FAILED, f"Unknown task type: {task.task_type}"
                     )
                     return
 
             if result and result.get("success"):
-                logger.info(f"✓ Task {task.id} completed: {task.task_type}")
+                logger.info("✓ Task {} completed: {}", task.id, task.task_type)
                 self.db.update_task_status(task.id, TaskStatus.COMPLETED)
             else:
                 error = result.get("error", "Unknown error") if result else "No result"
-                logger.error(f"Task {task.id} failed: {error}")
+                logger.error("Task {} failed: {}", task.id, error)
                 self._handle_task_error(task, error)
 
         except Exception as e:
-            logger.error(f"Task {task.id} failed with exception: {e}")
+            logger.error("Task {} failed with exception: {}", task.id, e)
             self._handle_task_error(task, str(e))
 
     def _handle_task_error(self, task: TaskQueue, error: str) -> None:
@@ -134,11 +133,11 @@ class TaskProcessor:
         retry_count = task.retry_count or 0
 
         if retry_count < self.max_retries:
-            logger.info(f"Task {task.id} retry {retry_count + 1}/{self.max_retries}")
+            logger.info("Task {} retry {}/{}", task.id, retry_count + 1, self.max_retries)
             self.db.increment_task_retry(task.id)
             self.db.update_task_status(task.id, TaskStatus.PENDING)
         else:
-            logger.error(f"✗ Task {task.id} failed after {self.max_retries} retries: {error}")
+            logger.error("✗ Task {} failed after {} retries: {}", task.id, self.max_retries, error)
             self.db.update_task_status(task.id, TaskStatus.FAILED, error)
 
     async def process_embedding_task(self, task: TaskQueue) -> dict[str, Any]:
@@ -153,7 +152,7 @@ class TaskProcessor:
             conversation_id = metadata.get("conversation_id")
             if conversation_id:
                 self.db.update_conversation_embedding(conversation_id, embedding)
-                logger.info(f"Stored embedding for conversation {conversation_id}")
+                logger.info("Stored embedding for conversation {}", conversation_id)
 
             return {
                 "success": True,
@@ -197,7 +196,7 @@ Summary:"""
                     summary.strip(),
                     model_used=task.model_name,
                 )
-                logger.info(f"Stored summary for session {session_id}")
+                logger.info("Stored summary for session {}", session_id)
 
             return {"success": True, "summary": summary.strip()}
 
@@ -248,7 +247,7 @@ JSON:"""
                         entity.get("normalized_value", entity.get("value", "").lower()),
                         entity.get("confidence", 0.5),
                     )
-                logger.info(f"Stored {len(entities)} entities for session {task.session_id}")
+                logger.info("Stored {} entities for session {}", len(entities), task.session_id)
 
             return {"success": True, "entities": entities}
 
@@ -288,7 +287,7 @@ JSON:"""
                 self.db.store_context_cache(
                     session_id, context, {"sources": len(context_parts), "tokens": total_tokens}
                 )
-                logger.info(f"Cached context for session {session_id}")
+                logger.info("Cached context for session {}", session_id)
 
             return {"success": True, "context": context}
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Literal
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, SystemMessage
 
 from .config import DiscordBotConfig
 from .daemon import ConversationCapturePayload, DaemonClient
@@ -61,10 +61,7 @@ Keep responses SHORT and conversational:
         discord_style.write_text(content)
 
 
-import logging
-
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 @dataclass(slots=True)
@@ -81,6 +78,7 @@ class ChannelSession:
     client: ClaudeSDKClient
     exit_stack: AsyncExitStack
     summary_task: asyncio.Task | None = None
+    needs_session_id_capture: bool = False
 
     def touch(self) -> None:
         self.last_activity = _now()
@@ -92,7 +90,7 @@ class ChannelSession:
         try:
             await self.exit_stack.aclose()
         except RuntimeError as exc:  # pragma: no cover - defensive guard
-            logger.warning("Error closing Claude session %s: %s", self.key, exc)
+            logger.warning("Error closing Claude session {}: {}", self.key, exc)
 
 
 class SessionManager:
@@ -174,7 +172,21 @@ class SessionManager:
                 user_id=user_id,
             )
             persona_label = ",".join(profile.names)
-            session_id = await self._daemon.create_session(project_path, persona_label)
+            session_id, resumed, claude_session_id = await self._daemon.find_or_create_session(
+                project_path, persona_label, max_age_hours=self._config.session_expiry_hours
+            )
+
+            if resumed and claude_session_id:
+                logger.info(
+                    "Resumed session {} (Claude session: {}) for channel {}",
+                    session_id,
+                    claude_session_id,
+                    key,
+                )
+            elif resumed:
+                logger.info("Resumed session {} for channel {} (no Claude session yet)", session_id, key)
+            else:
+                logger.info("Created new session {} for channel {}", session_id, key)
 
             # Embed discord style in system prompt since output styles don't work in stream-json mode
             discord_instructions = (
@@ -198,6 +210,7 @@ class SessionManager:
                 system_prompt={"type": "preset", "append": combined_prompt},
                 allowed_tools=["Read", "Write", "Bash"],
                 permission_mode="acceptEdits",
+                resume=claude_session_id,  # Resume Claude SDK session if available
             )
 
             exit_stack = AsyncExitStack()
@@ -215,6 +228,7 @@ class SessionManager:
                 last_activity=now,
                 client=client,
                 exit_stack=exit_stack,
+                needs_session_id_capture=(claude_session_id is None),
             )
             self._sessions[key] = session
             return session
@@ -251,6 +265,24 @@ class SessionManager:
         await self._daemon.capture_message(payload)
         await self.cancel_summary(session)
         session.touch()
+
+    async def capture_claude_session_id(
+        self,
+        session: ChannelSession,
+        claude_session_id: str,
+    ) -> None:
+        """Capture and store the Claude SDK session ID."""
+
+        if not session.needs_session_id_capture:
+            return
+
+        await self._daemon.update_claude_session_id(session.session_id, claude_session_id)
+        session.needs_session_id_capture = False
+        logger.info(
+            "Captured Claude session ID {} for daemon session {}",
+            claude_session_id,
+            session.session_id,
+        )
 
     async def schedule_summary(
         self,
@@ -324,7 +356,7 @@ class SessionManager:
                     }
                 )
             except Exception as exc:  # pragma: no cover - log unexpected daemon failures
-                logger.warning("Failed to queue summary for session %s: %s", key, exc)
+                logger.warning("Failed to queue summary for session {}: {}", key, exc)
 
         await session.close_client()
 
@@ -336,4 +368,4 @@ class SessionManager:
             try:
                 await self._close_session(key, reason="shutdown")
             except RuntimeError as exc:  # pragma: no cover - defensive guard
-                logger.warning("Failed to close session %s cleanly: %s", key, exc)
+                logger.warning("Failed to close session {} cleanly: {}", key, exc)

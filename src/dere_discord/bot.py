@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import logging
-
 import discord
 from discord import AllowedMentions, app_commands
+from loguru import logger
 
 from .agent import DiscordAgent
 from .config import DiscordBotConfig
 from .daemon import DaemonClient
 from .persona import PersonaProfile, PersonaService
 from .session import SessionManager
-
-logger = logging.getLogger(__name__)
 
 
 class DereDiscordClient(discord.Client):
@@ -74,7 +71,7 @@ class DereDiscordClient(discord.Client):
             )
             profile = self.persona_service.resolve(resolved)
         except ValueError as exc:
-            logger.warning("Persona resolution failed: %s", exc)
+            logger.warning("Persona resolution failed: {}", exc)
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
 
@@ -98,7 +95,7 @@ class DereDiscordClient(discord.Client):
 
     async def on_ready(self) -> None:
         if self.user:
-            logger.info("Logged in as %s (id=%s)", self.user, self.user.id)
+            logger.info("Logged in as {} (id={})", self.user, self.user.id)
             self.sessions.set_bot_identity(self.user.display_name or self.user.name)
 
     async def close(self) -> None:
@@ -170,7 +167,7 @@ class DereDiscordClient(discord.Client):
                 finalize=finalize,
             )
         except Exception as exc:  # pragma: no cover - network errors
-            logger.exception("Failed handling message in channel %s: %s", channel_id, exc)
+            logger.exception("Failed handling message in channel {}: {}", channel_id, exc)
             await message.channel.send("Sorry, something went wrong while contacting Claude.")
         finally:
             if typing_active:

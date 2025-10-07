@@ -67,6 +67,7 @@ class Session(BaseModel):
     end_time: Timestamp | None = None
     continued_from: SessionID | None = None
     project_type: str | None = None
+    claude_session_id: str | None = None
     created_at: datetime | None = None
 
 

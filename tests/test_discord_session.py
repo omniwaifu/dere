@@ -10,9 +10,14 @@ if "claude_agent_sdk" not in sys.modules:
     class _PlaceholderAssistantMessage:  # pragma: no cover - placeholder for imports
         content: list[str] = []
 
+    class _PlaceholderSystemMessage:  # pragma: no cover - placeholder for imports
+        subtype: str | None = None
+        session_id: str | None = None
+
     dummy_module.ClaudeAgentOptions = object
     dummy_module.ClaudeSDKClient = object
     dummy_module.AssistantMessage = _PlaceholderAssistantMessage
+    dummy_module.SystemMessage = _PlaceholderSystemMessage
     sys.modules["claude_agent_sdk"] = dummy_module
 
 from dere_discord.config import DiscordBotConfig
@@ -25,10 +30,20 @@ class DummyDaemon:
         self.created: list[tuple[str, str]] = []
         self.captured: list[dict] = []
         self.ended: list[dict] = []
+        self.claude_session_updates: list[tuple[int, str]] = []
 
     async def create_session(self, working_dir: str, personality: str) -> int:
         self.created.append((working_dir, personality))
         return 42
+
+    async def find_or_create_session(
+        self, working_dir: str, personality: str, max_age_hours: int | None = None
+    ) -> tuple[int, bool, str | None]:
+        self.created.append((working_dir, personality))
+        return (42, False, None)
+
+    async def update_claude_session_id(self, session_id: int, claude_session_id: str) -> None:
+        self.claude_session_updates.append((session_id, claude_session_id))
 
     async def capture_message(self, payload: dict) -> None:
         self.captured.append(payload)

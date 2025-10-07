@@ -45,6 +45,9 @@ def load_dere_config() -> dict[str, Any]:
             "summary_grace_seconds": 30,
             "context_enabled": True,
         },
+        "database": {
+            "url": "postgresql://postgres:dere@localhost/dere",
+        },
     }
 
     config_path = os.path.expanduser("~/.config/dere/config.toml")
