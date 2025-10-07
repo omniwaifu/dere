@@ -2,44 +2,11 @@
 
 [English](README.md) | 中文 | [日本語](README.ja.md)
 
-为 Claude CLI 提供可组合人格层的分层 AI 助手，具有通过嵌入的对话记忆、智能消息摘要、基于 LLM 的实体提取和全面的心理健康与健康跟踪功能。
+Claude CLI 的人格包装器，具有会话记忆、嵌入和心理健康跟踪功能。
 
-**为什么要这样做：** 我在所有事情上都使用 Claude Code，我喜欢在打开终端时让它保持"角色扮演"，例如 `dere --personality tsun --mcp=spotify`
-
-## 功能特性
-
-- **人格层：** 傲娇、冷娇、病娇、甜娇等多种人格
-- **心理健康模式：** 专用于签到、CBT、治疗、正念和目标跟踪的特殊模式
-- **健康数据跟踪：** 自动情绪、精力和压力监测，结构化数据存储
-- **ActivityWatch 集成：** 用于实时活动和行为监测的 MCP 服务器
-- **对话记忆：** 自动嵌入生成和相似性搜索
-- **实体提取：** 基于 LLM 的语义提取技术、人物、概念和关系
-- **渐进式摘要：** 使用动态上下文限制的零损失智能摘要处理长对话
-- **语义会话延续：** 使用相似性搜索从之前对话智能构建上下文
-- **智能摘要：** 长消息自动摘要以获得更好的嵌入
-- **上下文感知：** 时间、日期、天气和活动跟踪
-- **MCP 管理：** 独立的 MCP 服务器配置，支持配置文件和智能过滤
-- **输出样式：** 正交输出样式层（如教学模式、详细模式）
-- **自定义人格：** 基于 TOML 的用户可覆盖人格系统，支持显示自定义
-- **自定义提示：** 添加您自己的领域特定知识
-- **向量搜索：** 带有原生向量相似性的 Turso/libSQL 数据库
-- **后台处理：** 用于嵌入和摘要的守护进程和任务队列
-- **Claude CLI 兼容性：** 完全支持 Claude 标志如 `-p`、`--debug`、`--verbose`
-- **状态栏：** 实时个性和队列状态显示
+**为什么：** 我在所有事情上都使用 Claude Code，希望打开终端时它能保持"角色扮演"。
 
 ## 安装
-
-### 要求
-
-- [Claude CLI](https://github.com/anthropics/claude-cli) (`npm install -g @anthropic-ai/claude-code`)
-- Python 3.13+
-- [uv](https://github.com/astral-sh/uv)（Python 包管理器）
-- [Just](https://github.com/casey/just)（可选，用于现代构建命令）
-- [fd](https://github.com/sharkdp/fd)（可选，用于最近文件跟踪）
-- [Ollama](https://ollama.ai)（可选，用于嵌入和摘要）
-- [ActivityWatch](https://activitywatch.net/)（可选，用于活动监测和健康跟踪）
-
-### 快速安装（Linux/macOS）
 
 ```bash
 git clone https://github.com/omniwaifu/dere.git
@@ -47,385 +14,93 @@ cd dere
 just install
 ```
 
-这将：
-- 使用 uv 构建 Python 包
-- 通过 `uv tool` 全局安装 dere CLI 命令
-- 安装 Python 钩子脚本到 `~/.config/dere/hooks/`
-- 自动设置对话捕获、会话摘要和守护进程通信
+**要求：**
+- [Claude CLI](https://github.com/anthropics/claude-cli)
+- Python 3.13+
+- [uv](https://github.com/astral-sh/uv)
+- [Ollama](https://ollama.ai)（可选，用于嵌入）
 
-### 手动设置
+## 使用
 
-1. 安装 uv（如果尚未安装）：
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+dere --personality tsun          # 傲娇（严厉但关心）
+dere -P kuu                      # 冷娇（冷静分析）
+dere --personality yan           # 病娇（过度热心）
+dere -P dere                     # 甜娇（真心友善）
+dere --bare                      # 纯 Claude
 
-2. 构建并同步依赖：
-```bash
-just build  # 或: uv sync
-```
+# 心理健康模式
+dere --mode checkin              # 每日签到
+dere --mode cbt                  # CBT 会话
+dere --mode therapy              # 治疗会话
 
-3. 通过 uv tool 安装：
-```bash
-uv tool install --editable .
-```
-
-4. 安装钩子：
-```bash
-mkdir -p ~/.config/dere/hooks
-cp hooks/python/*.py ~/.config/dere/hooks/
-chmod +x ~/.config/dere/hooks/dere-*.py
-```
-
-3. 配置 Ollama（可选，用于对话嵌入）：
-```toml
-# 配置目录中的 config.toml（参见文件位置部分）
-[ollama]
-enabled = true
-url = "http://localhost:11434"
-embedding_model = "mxbai-embed-large"
-summarization_model = "gemma3n:latest"
-summarization_threshold = 500  # 尝试摘要前的字符数
-```
-
-4. 配置天气（可选）：
-```toml
-# 配置目录中的 config.toml（参见文件位置部分）
-[weather]
-enabled = true
-location = "Beijing, China"
-units = "metric"  # 或 "imperial"
-```
-
-## 使用方法
-
-### 基本人格
-```bash
-dere --personality tsun           # 傲娇模式（严厉但关心）
-dere -P kuu                       # 冷娇（冷静分析）
-dere --personality yan            # 病娇（过度热心）
-dere -P dere                      # 甜娇（真正友善）
-dere --personality ero            # 色娇（调皮戏弄）
-dere --bare                       # 纯净 Claude，无人格
-
-# 多重人格
-dere -P tsun,kuu                  # 组合傲娇 + 冷娇
-dere --personality "yan,ero"       # 组合病娇 + 色娇
-```
-
-### 高级功能
-```bash
-dere --context                    # 添加时间/日期/天气/活动上下文
-dere -c                          # 继续上次对话
-dere --context-depth=10          # 控制语义上下文搜索深度
-dere --context-mode=smart        # 设置上下文模式（summary/full/smart）
+# 功能
+dere --context                   # 添加时间/日期/天气上下文
+dere -c                          # 继续之前的对话
 dere --prompts=rust,security     # 加载自定义提示
 dere --mcp=dev                   # 使用 MCP 配置文件
-dere --mcp="linear,obsidian"      # 使用特定 MCP 服务器
-dere --mcp="tag:media"            # 使用标签选择 MCP 服务器
-dere --output-style=verbose      # 更改 Claude 输出样式
-
-# Claude CLI 透传（完全兼容）
-dere -p "hello world"             # 打印模式（非交互）
-dere --debug api                 # 调试模式带过滤
-dere --verbose                   # 详细输出模式
-dere --output-format json        # JSON 输出格式
 ```
 
-### 组合层
+## Discord Bot（实验性）
+
 ```bash
-dere -P tsun --context                    # 傲娇 + 上下文感知
-dere --personality kuu --mcp=spotify     # 冷静 + Spotify 控制
-dere -P yan --output-style=terse         # 病娇 + 简洁回应
-dere --prompts=go --context              # Go 专业知识 + 上下文
-dere -P tsun,kuu -p "修复这段代码"        # 多重人格 + 打印模式
+uv run dere-discord --persona tsun
+```
+
+通过 `~/.config/dere/config.toml` 配置：
+
+```toml
+[discord]
+token = "your-discord-bot-token"
+default_persona = "tsun"
+allowed_guilds = ""
+allowed_channels = ""
+idle_timeout_seconds = 1200
+summary_grace_seconds = 30
+context_enabled = true
 ```
 
 ## 配置
 
-### 文件位置
-
-dere 遵循各平台约定存储配置和数据文件：
-
-**Linux/Unix:**
-- 配置: `~/.config/dere/`
-- 数据: `~/.local/share/dere/`
-
-**macOS:**
-- 配置: `~/Library/Application Support/dere/`
-- 数据: `~/Library/Application Support/dere/`
-
-**Windows:**
-- 配置: `%LOCALAPPDATA%\dere\`
-- 数据: `%LOCALAPPDATA%\dere\`
+**配置：** `~/.config/dere/`（Linux）、`~/Library/Application Support/dere/`（macOS）
+**数据：** `~/.local/share/dere/`（Linux）、`~/Library/Application Support/dere/`（macOS）
 
 ### 自定义人格
-人格定义在 TOML 文件中，包含提示词、显示颜色和图标。
 
-**内置人格**（嵌入到二进制文件中）：
-- `tsun`（傲娇）- 严厉但关心，红色
-- `kuu`（冷娇）- 冷静分析，蓝色
-- `yan`（病娇）- 过度热心，品红
-- `dere`（甜娇）- 真正友善，绿色
-- `ero`（色娇）- 俏皮戏谑，黄色
+创建 `~/.config/dere/personalities/custom.toml`：
 
-**在配置目录的 `personalities/` 下创建自定义人格**：
 ```toml
-# Linux: ~/.config/dere/personalities/custom.toml
-# macOS: ~/Library/Application Support/dere/personalities/custom.toml
-# Windows: %LOCALAPPDATA%\dere\personalities\custom.toml
 [metadata]
-name = "custom-personality"
-short_name = "custom"
-aliases = ["custom", "my-personality"]
+name = "custom"
+aliases = ["custom"]
 
 [display]
-color = "cyan"        # 状态栏颜色
-icon = "●"            # 状态栏图标
+color = "cyan"
+icon = "●"
 
 [prompt]
 content = """
-# 人格：自定义
-
-您的人格描述...
-
-## 核心特征：
-- 特征 1
-- 特征 2
+在这里写人格描述...
 """
 ```
 
-使用方法：`dere --personality custom`
-
 ### 自定义提示
-在配置目录的 `prompts/` 下放置 `.md` 文件作为领域特定知识：
-- **Linux/Unix:** `~/.config/dere/prompts/rust.md`
-- **macOS:** `~/Library/Application Support/dere/prompts/rust.md`
-- **Windows:** `%LOCALAPPDATA%\dere\prompts\rust.md`
 
-### MCP 服务器
-在配置目录中作为 `mcp_config.json` 独立管理
+将 `.md` 文件添加到 `~/.config/dere/prompts/` 以添加领域特定知识。
+
+### 守护进程
 
 ```bash
-# MCP 管理命令
-dere mcp list                      # 列出配置的服务器
-dere mcp profiles                  # 显示可用配置文件
-dere mcp add <name> <command>      # 添加新服务器
-dere mcp remove <name>             # 删除服务器
-dere mcp copy-from-claude          # 从 Claude Desktop 导入
-
-# 使用 MCP 服务器
-dere --mcp=dev                     # 使用 'dev' 配置文件
-dere --mcp="linear,obsidian"       # 使用特定服务器
-dere --mcp="*spotify*"             # 模式匹配
-dere --mcp="tag:media"             # 基于标签选择
-dere --mcp=activitywatch           # 启用 ActivityWatch 进行健康跟踪
+dere daemon start                # 启动后台处理器
+dere daemon status               # 显示状态
+dere queue list                  # 列出待处理任务
 ```
-
-### 守护进程和队列管理
-用于嵌入、摘要和其他 LLM 任务的后台处理：
-
-```bash
-# 启动守护进程（开发）
-uv run dere-daemon                 # 在端口 8787 启动 FastAPI 守护进程
-
-# 守护进程命令（通过 dere CLI）
-dere daemon start                  # 启动后台任务处理器
-dere daemon stop                   # 停止守护进程
-dere daemon status                 # 显示守护进程状态、PID 和队列统计
-
-# 队列管理
-dere queue list                    # 列出待处理任务
-dere queue stats                   # 显示队列统计
-dere queue process                 # 手动触发任务处理
-```
-
-### 会话摘要
-查看和管理自动生成的会话摘要：
-
-```bash
-# 摘要管理
-dere summaries list                # 列出所有会话摘要
-dere summaries list --project=/path  # 按项目路径过滤
-dere summaries show <id>           # 显示详细摘要
-dere summaries latest              # 显示最近摘要
-```
-
-### 健康数据管理
-跟踪和分析从会话中自动提取的心理健康数据：
-
-```bash
-# 健康数据管理
-dere wellness history              # 查看健康数据历史
-dere wellness history --days=7     # 最近 7 天的健康数据
-dere wellness history --mode=cbt   # 按特定模式过滤
-dere wellness trends               # 显示健康趋势和模式
-dere wellness export               # 导出健康数据
-```
-
-### 实体管理
-从对话中提取的实体会自动存储，并可以通过 CLI 命令进行管理：
-
-```bash
-# 实体管理命令
-dere entities list                 # 列出所有提取的实体
-dere entities list --type=technology  # 按实体类型过滤
-dere entities list --project=/path    # 按项目路径过滤
-dere entities search "react"       # 按值搜索实体
-dere entities graph                # 显示实体关系图
-dere entities graph React          # 显示特定实体的关系
-```
-
-### 对话数据库
-对话使用 Turso/libSQL 自动存储在数据目录的 `dere.db` 中，带有用于相似性搜索的向量嵌入：
-- **Linux/Unix:** `~/.local/share/dere/dere.db`
-- **macOS:** `~/Library/Application Support/dere/dere.db`
-- **Windows:** `%LOCALAPPDATA%\dere\dere.db`
-
-#### 消息处理
-- 500 字符以下的消息：直接存储
-- 500-2000 字符的消息：轻量摘要，保留关键术语
-- 超过 2000 字符的消息：用于语义搜索的提取式摘要
-- 所有嵌入使用来自 mxbai-embed-large 的 1024 维向量
 
 ## 开发
 
-### 项目结构
-```
-dere/
-├── src/
-│   ├── dere_cli/                # CLI 入口点
-│   │   ├── main.py             # 主 CLI 逻辑
-│   │   └── mcp.py              # MCP 配置构建器
-│   ├── dere_daemon/             # FastAPI 守护进程
-│   │   ├── main.py             # 守护进程服务器
-│   │   ├── database.py         # 带向量搜索的 LibSQL
-│   │   ├── ollama_client.py    # Ollama 客户端
-│   │   └── task_processor.py   # 后台任务处理
-│   └── dere_shared/             # 共享工具
-│       ├── config.py           # TOML 配置加载
-│       ├── context.py          # 上下文收集（时间/天气/活动/文件）
-│       ├── activitywatch.py    # ActivityWatch 集成
-│       ├── weather.py          # 天气 API 集成
-│       ├── personalities.py    # 人格系统
-│       └── models.py           # Pydantic 数据模型
-├── hooks/python/                # Python 钩子脚本
-│   ├── dere-hook.py            # 对话捕获钩子
-│   ├── dere-context-hook.py    # 动态上下文注入钩子
-│   ├── dere-hook-session-end.py # 会话结束钩子
-│   ├── dere-wellness-hook.py   # 健康数据提取钩子
-│   ├── dere-statusline.py      # 状态栏显示
-│   ├── dere-stop-hook.py       # 停止钩子捕获
-│   └── rpc_client.py           # RPC 通信客户端
-├── prompts/                     # 内置人格提示
-│   ├── commands/               # 动态命令提示
-│   └── modes/                  # 心理健康模式提示
-└── pyproject.toml              # Python 包配置
-```
-
-### 从源代码构建
 ```bash
-just build      # 同步 Python 依赖（使用 uv）
-just clean      # 清理构建产物和 Python 缓存
-just install    # 构建并通过 uv tool 安装
-just test       # 运行 pytest 测试
-just lint       # 运行 ruff 代码检查
-just fmt        # 使用 ruff 格式化代码
-just dev        # 启动开发守护进程
-just --list     # 显示所有可用命令
+just build      # 使用 uv 构建
+just test       # 运行测试
+just lint       # 使用 ruff 检查
+just fmt        # 格式化代码
 ```
-
-### 数据库架构
-对话数据库使用 libSQL 的原生向量类型，支持渐进式摘要：
-```sql
-CREATE TABLE conversations (
-    id INTEGER PRIMARY KEY,
-    session_id TEXT,
-    project_path TEXT,
-    personality TEXT,
-    prompt TEXT,
-    embedding_text TEXT,
-    processing_mode TEXT,
-    prompt_embedding FLOAT32(1024),
-    timestamp INTEGER,
-    created_at TIMESTAMP
-);
-
-CREATE TABLE conversation_segments (
-    id INTEGER PRIMARY KEY,
-    session_id INTEGER REFERENCES sessions(id),
-    segment_number INTEGER NOT NULL,
-    segment_summary TEXT NOT NULL,
-    original_length INTEGER NOT NULL,
-    summary_length INTEGER NOT NULL,
-    start_conversation_id INTEGER REFERENCES conversations(id),
-    end_conversation_id INTEGER REFERENCES conversations(id),
-    model_used TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(session_id, segment_number)
-);
-
-CREATE INDEX conversations_embedding_idx
-ON conversations (libsql_vector_idx(prompt_embedding, 'metric=cosine'));
-
--- 健康跟踪表
-CREATE TABLE wellness_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT UNIQUE NOT NULL,
-    mode TEXT NOT NULL,
-    mood INTEGER,
-    energy INTEGER,
-    stress INTEGER,
-    key_themes TEXT,
-    notes TEXT,
-    homework TEXT,
-    next_step_notes TEXT,
-    created_at INTEGER DEFAULT (strftime('%s', 'now')),
-    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-);
-```
-
-## 注意事项
-
-### 核心功能
-- 数据库和嵌入在首次使用时自动创建
-- Ollama 是可选的，但可以启用对话相似性搜索和渐进式摘要
-- 与现有 Claude CLI 配置一起工作，不修改全局设置
-- 通过 `--settings` 标志动态生成设置，保持 Claude 配置干净
-- 人格基于 TOML，用户可覆盖（参见文件位置部分）
-- 跨平台支持 Linux、macOS 和 Windows，遵循各平台目录约定
-- MCP 配置独立于 Claude Desktop，便于更好控制
-
-### Python 实现
-- **Python 3.13+**：使用 FastAPI 守护进程的现代 async/await 模式
-- **uv 包管理器**：快速、可靠的依赖管理
-- **类型安全**：使用 Pydantic 模型的完整类型提示
-- **Python 钩子**：所有钩子都是 Python 脚本，便于自定义
-- **RPC 通信**：带有 HTTP/JSON RPC 的 FastAPI 守护进程
-
-### 上下文系统
-- **动态注入**：每条消息更新上下文，而非静态系统提示
-- **最近文件**：使用 `fd` 跟踪最近修改的文件（可配置时间范围）
-- **实时更新**：每条消息刷新时间、天气、活动和文件上下文
-- **平台感知**：使用 `platform.system()` 正确检测 Windows/macOS/Linux
-
-### 后台处理
-- **异步任务处理器**：用于嵌入和摘要的后台任务队列
-- **模型切换**：按模型高效批处理任务
-- **会话日志**：守护进程记录带有人格信息的新会话
-- **向量搜索**：带有原生 F32 向量支持的 LibSQL，余弦相似度
-
-### 心理健康功能
-- **专用模式**：带结构化提示的 CBT、治疗、正念、目标跟踪
-- **健康跟踪**：自动情绪、精力和压力监测
-- **ActivityWatch 集成**：用于健康洞察的实时活动监测
-- **会话连续性**：心理健康会话自动引用之前的会话
-
-### 开发
-- **状态栏**：实时个性、守护进程状态和队列统计
-- **完全 Claude CLI 兼容性**：所有 Claude 选项的透传标志支持
-- **停止钩子**：捕获 Claude 响应以改善对话连续性
-
-## 许可证
-
-MIT
