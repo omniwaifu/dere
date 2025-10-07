@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -142,7 +141,9 @@ class OllamaClient:
                 if schema:
                     payload["format"] = schema
 
-                logger.debug("Ollama generate attempt {}: POST {}/api/generate", attempt + 1, self.base_url)
+                logger.debug(
+                    "Ollama generate attempt {}: POST {}/api/generate", attempt + 1, self.base_url
+                )
                 resp = await self.client.post(f"{self.base_url}/api/generate", json=payload)
 
                 if resp.status_code != 200:
@@ -168,7 +169,9 @@ class OllamaClient:
                 raise
             except Exception as e:
                 last_error = str(e)
-                logger.error("Ollama generate attempt {} exception: {}: {}", attempt + 1, type(e).__name__, e)
+                logger.error(
+                    "Ollama generate attempt {} exception: {}: {}", attempt + 1, type(e).__name__, e
+                )
                 if attempt < max_retries - 1:
                     delay = base_delay * (2**attempt)
                     await asyncio.sleep(delay)
@@ -219,9 +222,7 @@ class OllamaClient:
     async def get_model_context_length(self, model_name: str) -> int:
         """Get the context length for a model"""
         try:
-            resp = await self.client.post(
-                f"{self.base_url}/api/show", json={"name": model_name}
-            )
+            resp = await self.client.post(f"{self.base_url}/api/show", json={"name": model_name})
             if resp.status_code != 200:
                 return 2048
 

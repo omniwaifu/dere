@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -456,7 +455,9 @@ class Database:
         import time
 
         end_time = end_time or int(time.time())
-        self._execute_and_commit("UPDATE sessions SET end_time = %s WHERE id = %s", [end_time, session_id])
+        self._execute_and_commit(
+            "UPDATE sessions SET end_time = %s WHERE id = %s", [end_time, session_id]
+        )
 
     def get_session_personality(self, session_id: int) -> str | None:
         """Get personality for a session"""
@@ -602,7 +603,7 @@ class Database:
     def get_previous_mode_session(self, mode: str, working_dir: str) -> dict[str, Any] | None:
         """Find the most recent completed session for a given mode"""
         # Python 3.13 multi-line f-string
-        query = f"""
+        query = """
             SELECT s.id, s.start_time,
                    COALESCE(ss.summary, '') as summary,
                    COALESCE(ss.key_topics, '') as key_topics,
@@ -756,6 +757,191 @@ class Database:
             """,
             [session_id, conversation_id, entity_type, entity_value, normalized_value, confidence],
         )
+
+    def get_entities_for_conversation(self, conversation_id: int) -> list[dict[str, Any]]:
+        """Get all entities extracted from a specific conversation"""
+        result = self.conn.execute(
+            """
+            SELECT id, entity_type, entity_value, normalized_value, confidence
+            FROM entities
+            WHERE conversation_id = %s
+            ORDER BY confidence DESC
+            """,
+            [conversation_id],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def get_entities_by_session(
+        self, session_id: int, entity_type: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Get entities for a session, optionally filtered by type"""
+        if entity_type:
+            result = self.conn.execute(
+                """
+                SELECT id, conversation_id, entity_type, entity_value,
+                       normalized_value, confidence, created_at
+                FROM entities
+                WHERE session_id = %s AND entity_type = %s
+                ORDER BY created_at DESC
+                """,
+                [session_id, entity_type],
+            )
+        else:
+            result = self.conn.execute(
+                """
+                SELECT id, conversation_id, entity_type, entity_value,
+                       normalized_value, confidence, created_at
+                FROM entities
+                WHERE session_id = %s
+                ORDER BY created_at DESC
+                """,
+                [session_id],
+            )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def get_conversations_with_entities(
+        self, entity_values: list[str], limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Find conversations that mention specific entities"""
+        result = self.conn.execute(
+            """
+            SELECT DISTINCT c.id, c.session_id, c.prompt, c.message_type,
+                   c.timestamp, s.working_dir,
+                   ARRAY_AGG(DISTINCT e.normalized_value) as matched_entities
+            FROM conversations c
+            JOIN entities e ON e.conversation_id = c.id
+            JOIN sessions s ON s.id = c.session_id
+            WHERE e.normalized_value = ANY(%s)
+            GROUP BY c.id, s.working_dir
+            ORDER BY c.timestamp DESC
+            LIMIT %s
+            """,
+            [entity_values, limit],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def find_co_occurring_entities(
+        self, entity_value: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Find entities that frequently appear with the given entity"""
+        result = self.conn.execute(
+            """
+            SELECT e2.normalized_value, e2.entity_type,
+                   COUNT(DISTINCT e2.conversation_id) as co_occurrence_count,
+                   AVG(e2.confidence) as avg_confidence
+            FROM entities e1
+            JOIN entities e2 ON e1.conversation_id = e2.conversation_id
+            WHERE e1.normalized_value = %s
+              AND e2.normalized_value != %s
+            GROUP BY e2.normalized_value, e2.entity_type
+            ORDER BY co_occurrence_count DESC, avg_confidence DESC
+            LIMIT %s
+            """,
+            [entity_value, entity_value, limit],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def get_entity_timeline(self, entity_value: str) -> list[dict[str, Any]]:
+        """Get chronological timeline of entity mentions across sessions"""
+        result = self.conn.execute(
+            """
+            SELECT
+                s.id as session_id,
+                s.working_dir,
+                s.start_time,
+                COUNT(e.id) as mention_count,
+                MAX(c.timestamp) as last_mentioned,
+                ARRAY_AGG(DISTINCT e.entity_type) as context_types
+            FROM entities e
+            JOIN conversations c ON c.id = e.conversation_id
+            JOIN sessions s ON s.id = e.session_id
+            WHERE e.normalized_value = %s
+            GROUP BY s.id, s.working_dir, s.start_time
+            ORDER BY s.start_time DESC
+            """,
+            [entity_value],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def search_with_entities_and_embeddings(
+        self,
+        entity_values: list[str],
+        embedding: list[float],
+        limit: int = 10,
+        entity_weight: float = 0.6,
+        recency_weight: float = 0.3,
+    ) -> list[dict[str, Any]]:
+        """Hybrid search combining entity matching, embedding similarity, and recency
+
+        Args:
+            entity_values: List of normalized entity values to match
+            embedding: Query embedding vector
+            limit: Maximum results to return
+            entity_weight: Weight for entity matching score (0-1)
+            recency_weight: Weight for recency score (0-1), remaining weight goes to semantic+entity
+
+        Returns:
+            List of conversations with scores and timestamps
+        """
+        import time
+
+        embedding_json = json.dumps(embedding)
+        semantic_weight = 1.0 - entity_weight
+        current_time = int(time.time())
+
+        result = self.conn.execute(
+            """
+            WITH entity_matches AS (
+                SELECT c.id, COUNT(DISTINCT e.id)::float as entity_score
+                FROM conversations c
+                JOIN entities e ON e.conversation_id = c.id
+                WHERE e.normalized_value = ANY(%s)
+                GROUP BY c.id
+            ),
+            semantic_matches AS (
+                SELECT c.id, (1 - (c.prompt_embedding <=> %s::vector)) as semantic_score
+                FROM conversations c
+                WHERE c.prompt_embedding IS NOT NULL
+            )
+            SELECT
+                c.id, c.session_id, c.prompt, c.message_type, c.timestamp,
+                s.working_dir,
+                COALESCE(em.entity_score, 0) as entity_score,
+                COALESCE(sm.semantic_score, 0) as semantic_score,
+                EXP(-(%s - c.timestamp)::float / 604800.0) as recency_score,
+                (
+                    (COALESCE(em.entity_score, 0) / %s * %s +
+                     COALESCE(sm.semantic_score, 0) * %s) * (1 - %s) +
+                    EXP(-(%s - c.timestamp)::float / 604800.0) * %s
+                ) as combined_score,
+                ARRAY(
+                    SELECT e.normalized_value
+                    FROM entities e
+                    WHERE e.conversation_id = c.id
+                ) as matched_entities
+            FROM conversations c
+            JOIN sessions s ON s.id = c.session_id
+            LEFT JOIN entity_matches em ON em.id = c.id
+            LEFT JOIN semantic_matches sm ON sm.id = c.id
+            WHERE COALESCE(em.entity_score, 0) > 0
+               OR COALESCE(sm.semantic_score, 0) >= 0.65
+            ORDER BY combined_score DESC
+            LIMIT %s
+            """,
+            [
+                entity_values,
+                embedding_json,
+                current_time,
+                float(len(entity_values)),
+                entity_weight,
+                semantic_weight,
+                recency_weight,
+                current_time,
+                recency_weight,
+                limit,
+            ],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
 
     def close(self) -> None:
         """Close database connection"""

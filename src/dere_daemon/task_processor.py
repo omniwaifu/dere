@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, cast
 
 from loguru import logger
@@ -16,6 +17,31 @@ from dere_shared.models import (
     TaskQueue,
     TaskStatus,
 )
+
+
+def format_relative_time(timestamp: int) -> str:
+    """Format timestamp as relative time string
+
+    Args:
+        timestamp: Unix timestamp in seconds
+
+    Returns:
+        Human-readable relative time (e.g., "2h ago", "3 days ago")
+    """
+    age_seconds = int(time.time()) - timestamp
+
+    if age_seconds < 3600:  # Less than 1 hour
+        minutes = age_seconds // 60
+        return f"{minutes}m ago" if minutes > 0 else "just now"
+    elif age_seconds < 86400:  # Less than 1 day
+        hours = age_seconds // 3600
+        return f"{hours}h ago"
+    elif age_seconds < 604800:  # Less than 1 week
+        days = age_seconds // 86400
+        return f"{days}d ago"
+    else:  # 1 week or more
+        weeks = age_seconds // 604800
+        return f"{weeks}w ago"
 
 
 class TaskProcessor:
@@ -63,7 +89,7 @@ class TaskProcessor:
             try:
                 await asyncio.wait_for(self._trigger_event.wait(), timeout=5.0)
                 self._trigger_event.clear()
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def process_tasks(self) -> None:
@@ -255,41 +281,127 @@ JSON:"""
             return {"success": False, "error": str(e)}
 
     async def process_context_building_task(self, task: TaskQueue) -> dict[str, Any]:
-        """Process a context building task"""
+        """Process a context building task with hybrid entity+embedding search"""
         try:
             metadata = cast(ContextBuildingMetadata, task.metadata or {})
             session_id = metadata.get("session_id")
             context_depth = metadata.get("context_depth", 5)
             max_tokens = metadata.get("max_tokens", 2000)
+            include_entities = metadata.get("include_entities", False)
 
             # Generate embedding for current prompt
             embedding = await self.ollama.get_embedding(task.content)
 
-            # Search for similar conversations
-            similar = self.db.search_similar(embedding, limit=context_depth, threshold=0.7)
+            # Extract entities from prompt for hybrid search
+            entity_values: list[str] = []
+            if include_entities:
+                try:
+                    schema = get_entity_extraction_schema()
+                    entity_prompt = f"""Extract key entities from this text. Focus on technical terms, names, and concepts.
 
-            # Build context from similar conversations
+Text: {task.content}
+
+JSON:"""
+                    result = await self.ollama.generate(
+                        entity_prompt, model="gemma3n:latest", schema=schema
+                    )
+                    entities_data = json.loads(result)
+                    entity_values = [
+                        e.get("normalized_value", e.get("value", "").lower())
+                        for e in entities_data.get("entities", [])
+                        if e.get("confidence", 0) > 0.6
+                    ]
+                    logger.debug("Extracted {} entities for context building", len(entity_values))
+                except Exception as e:
+                    logger.warning("Entity extraction failed for context building: {}", e)
+
+            # Perform hybrid search if entities found, otherwise use pure embedding search
+            if entity_values:
+                results = self.db.search_with_entities_and_embeddings(
+                    entity_values, embedding, limit=context_depth * 2, entity_weight=0.6
+                )
+            else:
+                results = self.db.search_similar(embedding, limit=context_depth, threshold=0.7)
+
+            # Group results by recency tiers
+            recent = []  # < 24h
+            this_week = []  # 24h - 7 days
+            earlier = []  # > 7 days
+
+            current_time = int(time.time())
+            for conv in results:
+                age = current_time - conv.get("timestamp", current_time)
+                if age < 86400:
+                    recent.append(conv)
+                elif age < 604800:
+                    this_week.append(conv)
+                else:
+                    earlier.append(conv)
+
+            # Build context with temporal sections
             context_parts = []
             total_tokens = 0
+            seen_sessions = set()
 
-            for conv in similar:
-                tokens = len(conv["prompt"]) // 4
-                if total_tokens + tokens > max_tokens:
-                    break
+            def add_tier_context(tier_name: str, conversations: list[dict]) -> None:
+                nonlocal total_tokens
+                if not conversations:
+                    return
 
-                context_parts.append(f"Related past conversation:\n{conv['prompt']}")
-                total_tokens += tokens
+                tier_parts = []
+                for conv in conversations:
+                    tokens = len(conv["prompt"]) // 4
+                    if total_tokens + tokens > max_tokens:
+                        break
+
+                    working_dir = conv.get("working_dir", "")
+                    medium = "Discord" if "discord://" in working_dir else "CLI"
+                    seen_sessions.add(working_dir)
+
+                    timestamp = conv.get("timestamp", current_time)
+                    time_ago = format_relative_time(timestamp)
+
+                    matched = conv.get("matched_entities", [])
+                    if matched and include_entities:
+                        entities_str = ", ".join(matched[:3])
+                        tier_parts.append(
+                            f"[{time_ago}, {medium}] Related: {entities_str}\n{conv['prompt']}"
+                        )
+                    else:
+                        tier_parts.append(f"[{time_ago}, {medium}]\n{conv['prompt']}")
+
+                    total_tokens += tokens
+
+                if tier_parts:
+                    context_parts.append(f"[{tier_name}]\n" + "\n\n".join(tier_parts))
+
+            # Add tiers in order
+            add_tier_context("Recent (last 24h)", recent)
+            add_tier_context("This week", this_week)
+            add_tier_context("Earlier", earlier)
 
             context = "\n\n---\n\n".join(context_parts)
 
-            # Cache context
+            # Cache context with metadata
             if session_id:
-                self.db.store_context_cache(
-                    session_id, context, {"sources": len(context_parts), "tokens": total_tokens}
+                cache_meta = {
+                    "sources": len(context_parts),
+                    "tokens": total_tokens,
+                    "used_entities": bool(entity_values),
+                    "entity_count": len(entity_values),
+                    "cross_session_count": len(seen_sessions),
+                }
+                self.db.store_context_cache(session_id, context, cache_meta)
+                logger.info(
+                    "Cached context for session {} ({} sources)", session_id, len(context_parts)
                 )
-                logger.info("Cached context for session {}", session_id)
 
-            return {"success": True, "context": context}
+            return {
+                "success": True,
+                "context": context,
+                "sources": len(context_parts),
+                "entities_used": entity_values,
+            }
 
         except Exception as e:
             return {"success": False, "error": str(e)}

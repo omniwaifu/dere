@@ -165,8 +165,8 @@ def detect_continuous_activities(
                 if "data" in event:
                     artist = event["data"].get("artist", "Unknown Artist")
                     track_title = event["data"].get("title", "Unknown Track")
-                    media_app = event["data"].get("app", "Media Player")
-                    event["data"]["app"] = f"{media_app} (Playing)"
+                    player = event["data"].get("player", "Media Player")
+                    event["data"]["app"] = f"{player} (Playing)"
                     event["data"]["title"] = f"{artist} - {track_title}"
 
             all_period_events = window_events + media_events
@@ -241,8 +241,8 @@ def get_activity_context(config: dict[str, Any]) -> dict[str, Any] | None:
             if "data" in event:
                 artist = event["data"].get("artist", "Unknown Artist")
                 title = event["data"].get("title", "Unknown Track")
-                app = event["data"].get("app", "Media Player")
-                event["data"]["app"] = f"{app} (Playing)"
+                player = event["data"].get("player", "Media Player")
+                event["data"]["app"] = f"{player} (Playing)"
                 event["data"]["title"] = f"{artist} - {title}"
 
         all_recent_events = window_events + media_events

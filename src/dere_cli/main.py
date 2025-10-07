@@ -469,10 +469,144 @@ def history():
     click.echo("History commands coming soon...")
 
 
-@cli.command()
+@cli.group()
 def entities():
-    """View extracted entities"""
-    click.echo("Entities commands coming soon...")
+    """View and search extracted entities"""
+    pass
+
+
+@entities.command("list")
+@click.option("--session", type=int, help="Session ID to filter by")
+@click.option("--type", "entity_type", help="Entity type to filter by")
+def entities_list(session, entity_type):
+    """List entities for a session"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    if not session:
+        click.echo("Error: --session is required", err=True)
+        sys.exit(1)
+
+    try:
+        params = {}
+        if entity_type:
+            params["entity_type"] = entity_type
+
+        response = requests.get(
+            f"{daemon_url}/entities/session/{session}", params=params, timeout=5
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        entities = data.get("entities", [])
+        if not entities:
+            click.echo(f"No entities found for session {session}")
+            return
+
+        click.echo(f"\nEntities for session {session}:")
+        click.echo("-" * 80)
+
+        for entity in entities:
+            entity_type = entity.get("entity_type", "unknown")
+            value = entity.get("entity_value", "")
+            confidence = entity.get("confidence", 0)
+            click.echo(f"  [{entity_type}] {value} (confidence: {confidence:.2f})")
+
+        click.echo(f"\nTotal: {len(entities)} entities")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@entities.command("timeline")
+@click.argument("entity")
+def entities_timeline(entity):
+    """Show timeline of entity mentions across sessions"""
+    from datetime import datetime
+
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        response = requests.get(f"{daemon_url}/entities/timeline/{entity}", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+
+        sessions = data.get("sessions", [])
+        if not sessions:
+            click.echo(f"No mentions found for entity: {entity}")
+            return
+
+        click.echo(f"\nTimeline for entity: {entity}")
+        click.echo("-" * 80)
+
+        for session in sessions:
+            session_id = session.get("session_id")
+            working_dir = session.get("working_dir", "unknown")
+            mention_count = session.get("mention_count", 0)
+            start_time = session.get("start_time", 0)
+            timestamp = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M")
+
+            medium = "discord" if "discord://" in working_dir else "cli"
+            click.echo(f"  [{timestamp}] Session {session_id} ({medium}): {mention_count} mentions")
+
+        click.echo(f"\nTotal: {len(sessions)} sessions")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@entities.command("related")
+@click.argument("entity")
+@click.option("--limit", default=20, help="Max number of related entities")
+def entities_related(entity, limit):
+    """Show entities that co-occur with given entity"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        response = requests.get(
+            f"{daemon_url}/entities/related/{entity}", params={"limit": limit}, timeout=5
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        related = data.get("related", [])
+        if not related:
+            click.echo(f"No related entities found for: {entity}")
+            return
+
+        click.echo(f"\nEntities related to: {entity}")
+        click.echo("-" * 80)
+
+        for rel in related:
+            value = rel.get("normalized_value", "")
+            entity_type = rel.get("entity_type", "unknown")
+            count = rel.get("co_occurrence_count", 0)
+            confidence = rel.get("avg_confidence", 0)
+            click.echo(
+                f"  [{entity_type}] {value} (co-occurs {count}x, avg conf: {confidence:.2f})"
+            )
+
+        click.echo(f"\nTotal: {len(related)} related entities")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command()

@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections import defaultdict
+from collections.abc import Iterable
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, SystemMessage
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
 from .config import DiscordBotConfig
 from .daemon import ConversationCapturePayload, DaemonClient
 from .paths import format_project_path
 from .persona import PersonaProfile, PersonaService
-
 
 MessageRole = Literal["user", "assistant", "system"]
 
@@ -184,7 +183,9 @@ class SessionManager:
                     key,
                 )
             elif resumed:
-                logger.info("Resumed session {} for channel {} (no Claude session yet)", session_id, key)
+                logger.info(
+                    "Resumed session {} for channel {} (no Claude session yet)", session_id, key
+                )
             else:
                 logger.info("Created new session {} for channel {}", session_id, key)
 
@@ -316,7 +317,9 @@ class SessionManager:
             )
             await self._close_session(session.key, reason="idle_timeout", queue_summary=False)
 
-        session.summary_task = asyncio.create_task(_request_summary(), name=f"dere-summary-{session.key}")
+        session.summary_task = asyncio.create_task(
+            _request_summary(), name=f"dere-summary-{session.key}"
+        )
 
     async def cancel_summary(self, session: ChannelSession) -> None:
         """Cancel scheduled summary task if it exists."""

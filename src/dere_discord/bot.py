@@ -57,7 +57,9 @@ class DereDiscordClient(discord.Client):
         persona_names = tuple(part.strip() for part in names.split(",") if part.strip())
         target_channel = interaction.channel
         if target_channel is None:
-            await interaction.response.send_message("Unable to resolve channel for this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "Unable to resolve channel for this command.", ephemeral=True
+            )
             return
 
         guild_id = interaction.guild_id
@@ -140,7 +142,9 @@ class DereDiscordClient(discord.Client):
                 allowed_mentions=AllowedMentions.none(),
             )
 
-        async def send_tool_summary(tool_events: list[str], persona_profile: PersonaProfile) -> None:
+        async def send_tool_summary(
+            tool_events: list[str], persona_profile: PersonaProfile
+        ) -> None:
             if not tool_events:
                 return
             embed = self._build_embed_response(tool_events, persona_profile)
@@ -217,7 +221,10 @@ class DereDiscordClient(discord.Client):
 
     def _is_allowed_target(self, message: discord.Message) -> bool:
         if message.guild:
-            if self.config.allowed_guilds and str(message.guild.id) not in self.config.allowed_guilds:
+            if (
+                self.config.allowed_guilds
+                and str(message.guild.id) not in self.config.allowed_guilds
+            ):
                 return False
 
         if self.config.allowed_channels:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 import click
 from loguru import logger

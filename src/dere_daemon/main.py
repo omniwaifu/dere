@@ -127,6 +127,23 @@ class SearchRequest(BaseModel):
     threshold: float = 0.7
 
 
+class HybridSearchRequest(BaseModel):
+    query: str
+    entity_values: list[str] = []
+    limit: int = 10
+    entity_weight: float = 0.6
+
+
+class EntityTimelineResponse(BaseModel):
+    entity: str
+    sessions: list[dict[str, Any]]
+
+
+class RelatedEntitiesResponse(BaseModel):
+    entity: str
+    related: list[dict[str, Any]]
+
+
 class HookCaptureRequest(BaseModel):
     data: dict[str, Any]
 
@@ -341,6 +358,41 @@ async def generate_embedding(text: str):
     """Generate embedding for text"""
     embedding = await app.state.ollama.get_embedding(text)
     return {"embedding": embedding, "model": app.state.ollama.embedding_model}
+
+
+@app.post("/search/hybrid")
+async def search_hybrid(req: HybridSearchRequest):
+    """Hybrid search using entities and embeddings"""
+    # Generate embedding for query
+    embedding = await app.state.ollama.get_embedding(req.query)
+
+    # Perform hybrid search
+    results = app.state.db.search_with_entities_and_embeddings(
+        req.entity_values, embedding, limit=req.limit, entity_weight=req.entity_weight
+    )
+
+    return {"results": results, "entity_values": req.entity_values}
+
+
+@app.get("/entities/session/{session_id}")
+async def get_session_entities(session_id: int, entity_type: str | None = None):
+    """Get all entities for a session"""
+    entities = app.state.db.get_entities_by_session(session_id, entity_type)
+    return {"session_id": session_id, "entities": entities}
+
+
+@app.get("/entities/timeline/{entity}")
+async def get_entity_timeline(entity: str):
+    """Get timeline of entity mentions across sessions"""
+    timeline = app.state.db.get_entity_timeline(entity)
+    return EntityTimelineResponse(entity=entity, sessions=timeline)
+
+
+@app.get("/entities/related/{entity}")
+async def get_related_entities(entity: str, limit: int = 20):
+    """Get entities that co-occur with the given entity"""
+    related = app.state.db.find_co_occurring_entities(entity, limit)
+    return RelatedEntitiesResponse(entity=entity, related=related)
 
 
 @app.post("/conversation/capture")

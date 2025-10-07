@@ -37,7 +37,7 @@ def main():
         if not stdin_data:
             sys.exit(0)
 
-        input_data = json.loads(stdin_data)
+        json.loads(stdin_data)  # Validate JSON but don't need the data
     except json.JSONDecodeError as e:
         log_error(f"JSON decode error from stdin: {e}")
         sys.exit(0)
@@ -46,9 +46,13 @@ def main():
         sys.exit(0)
 
     try:
-        context_str = get_full_context()
+        # Get session ID from environment
+        session_id_str = os.getenv("DERE_SESSION_ID")
+        session_id = int(session_id_str) if session_id_str else None
+
+        context_str = get_full_context(session_id=session_id)
         if context_str:
-            print(f"\n[Context Update: {context_str}]\n")
+            print(f"\n{context_str}\n")
     except Exception as e:
         log_error(f"Context gathering error: {e}")
 

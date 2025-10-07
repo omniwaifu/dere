@@ -66,9 +66,9 @@ class DiscordAgent:
 
             prompt = content
             if self._context_enabled:
-                context_text = get_full_context()
+                context_text = get_full_context(session_id=session.session_id)
                 if context_text:
-                    prompt = f"[Context]\n{context_text}\n\n{content}"
+                    prompt = f"{context_text}\n\n{content}"
 
             await send_initial()
 
@@ -88,7 +88,9 @@ class DiscordAgent:
                     # Capture Claude session ID from init message
                     if isinstance(message, SystemMessage):
                         subtype = getattr(message, "subtype", None)
-                        logger.debug("Received SystemMessage: subtype={}, data={}", subtype, message.data)
+                        logger.debug(
+                            "Received SystemMessage: subtype={}, data={}", subtype, message.data
+                        )
                         if subtype == "init":
                             claude_session_id = message.data.get("session_id")
                             logger.info("Found init message with session_id: {}", claude_session_id)

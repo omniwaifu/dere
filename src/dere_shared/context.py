@@ -69,30 +69,36 @@ def get_recent_files_context(config: dict[str, Any]) -> list[str] | None:
         return None
 
 
-def get_full_context(config: dict[str, Any] | None = None) -> str:
+def get_full_context(
+    config: dict[str, Any] | None = None,
+    session_id: int | None = None,
+    daemon_url: str = "http://localhost:8787",
+) -> str:
     """Get full context from all enabled sources.
 
-    Gathers time, weather, and activity context based on configuration,
-    and formats them into a single context string. Handles errors gracefully
-    by providing partial context when some sources fail.
+    Gathers environmental context (time, weather, activity) and conversation context
+    (past relevant conversations with temporal formatting), then combines them into
+    a structured context block.
 
     Args:
         config: Optional configuration dictionary. If None, loads from config file.
+        session_id: Optional session ID for retrieving conversation context
+        daemon_url: URL of the dere daemon for conversation context retrieval
 
     Returns:
-        Formatted context string with all available context information
+        Formatted context string with environmental and conversation context
     """
     if config is None:
         config = load_dere_config()
 
-    parts = []
+    environmental_parts = []
 
     # Time context (always enabled)
     try:
         if config["context"]["time"]:
             time_ctx = get_time_context()
             if time_ctx:
-                parts.append(f"Current time: {time_ctx['time']}, {time_ctx['date']}")
+                environmental_parts.append(f"Current time: {time_ctx['time']}, {time_ctx['date']}")
     except Exception:
         pass
 
@@ -106,7 +112,7 @@ def get_full_context(config: dict[str, Any] | None = None) -> str:
                     f"{weather_ctx['temperature']} (feels like {weather_ctx['feels_like']}), "
                     f"Humidity: {weather_ctx['humidity']}, Pressure: {weather_ctx['pressure']}"
                 )
-                parts.append(weather_str)
+                environmental_parts.append(weather_str)
     except Exception:
         pass
 
@@ -117,9 +123,9 @@ def get_full_context(config: dict[str, Any] | None = None) -> str:
             if activity_ctx:
                 if activity_ctx.get("recent_apps"):
                     activity_str = "Recent activity: " + ", ".join(activity_ctx["recent_apps"])
-                    parts.append(activity_str)
+                    environmental_parts.append(activity_str)
                 elif activity_ctx.get("status"):
-                    parts.append(f"User status: {activity_ctx['status']}")
+                    environmental_parts.append(f"User status: {activity_ctx['status']}")
     except Exception:
         pass
 
@@ -129,8 +135,32 @@ def get_full_context(config: dict[str, Any] | None = None) -> str:
             files_ctx = get_recent_files_context(config)
             if files_ctx:
                 files_str = "Recently modified: " + ", ".join(files_ctx)
-                parts.append(files_str)
+                environmental_parts.append(files_str)
     except Exception:
         pass
 
-    return " | ".join(parts)
+    # Build environmental context section
+    sections = []
+    if environmental_parts:
+        env_context = " | ".join(environmental_parts)
+        sections.append(f"[Environmental Context]\n{env_context}")
+
+    # Fetch conversation context from daemon
+    if session_id:
+        try:
+            import requests
+
+            response = requests.get(
+                f"{daemon_url}/context/get",
+                json={"session_id": session_id, "max_age_minutes": 30},
+                timeout=2,
+            )
+            if response.ok:
+                data = response.json()
+                conv_context = data.get("context")
+                if conv_context and conv_context.strip():
+                    sections.append(f"[Conversation Context]\n{conv_context}")
+        except Exception:
+            pass  # Silent failure - conversation context is supplementary
+
+    return "\n\n".join(sections) if sections else ""
