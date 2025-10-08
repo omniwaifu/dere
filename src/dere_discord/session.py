@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import tempfile
 import time
 from collections import defaultdict
 from collections.abc import Iterable
@@ -12,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from loguru import logger
 
 from .config import DiscordBotConfig
 from .daemon import ConversationCapturePayload, DaemonClient
@@ -60,9 +63,6 @@ Keep responses SHORT and conversational:
         discord_style.write_text(content)
 
 
-from loguru import logger
-
-
 @dataclass(slots=True)
 class ChannelSession:
     """Active Discord conversation bridged to the daemon + Claude SDK."""
@@ -78,6 +78,7 @@ class ChannelSession:
     exit_stack: AsyncExitStack
     summary_task: asyncio.Task | None = None
     needs_session_id_capture: bool = False
+    settings_file: str | None = None
 
     def touch(self) -> None:
         self.last_activity = _now()
@@ -90,6 +91,13 @@ class ChannelSession:
             await self.exit_stack.aclose()
         except RuntimeError as exc:  # pragma: no cover - defensive guard
             logger.warning("Error closing Claude session {}: {}", self.key, exc)
+        finally:
+            # Clean up temporary settings file
+            if self.settings_file:
+                try:
+                    Path(self.settings_file).unlink(missing_ok=True)
+                except Exception as exc:
+                    logger.debug("Failed to cleanup settings file {}: {}", self.settings_file, exc)
 
 
 class SessionManager:
@@ -189,26 +197,20 @@ class SessionManager:
             else:
                 logger.info("Created new session {} for channel {}", session_id, key)
 
-            # Embed discord style in system prompt since output styles don't work in stream-json mode
-            discord_instructions = (
-                "\n\nDISCORD CHAT CONTEXT:\n"
-                "You are chatting in Discord, a casual social messaging app. This is NOT a professional coding environment.\n"
-                "Casual conversation, jokes, and social interaction are completely normal and expected here.\n"
-                "You can talk about anything - you don't need to redirect every conversation to code or work.\n"
-                "\n"
-                "CRITICAL FORMATTING RULES - FOLLOW EXACTLY:\n"
-                "1. Maximum response length: 1-2 sentences for simple messages, single paragraph for complex topics\n"
-                "2. NEVER use asterisks for actions (*fidgets*, *crosses arms*, etc.)\n"
-                "3. NEVER use stage directions or physical descriptions\n"
-                "4. NO preamble, NO explanations of your process\n"
-                "5. Respond conversationally and briefly\n"
-                "6. Keep personality but be CONCISE - one or two sentences maximum"
-            )
+            # Ensure discord output style exists
+            _ensure_discord_output_style()
 
-            combined_prompt = (profile.prompt or "") + discord_instructions
+            # Create temporary settings file with output style
+            # Using settings file with setting_sources to enable output styles
+            settings_data = {"outputStyle": "discord"}
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                json.dump(settings_data, f)
+                settings_path = f.name
 
             options = ClaudeAgentOptions(
-                system_prompt={"type": "preset", "append": combined_prompt},
+                settings=settings_path,
+                setting_sources=["user", "project", "local"],  # Required for settings to work
+                system_prompt={"type": "preset", "append": profile.prompt or ""},
                 allowed_tools=["Read", "Write", "Bash"],
                 permission_mode="acceptEdits",
                 resume=claude_session_id,  # Resume Claude SDK session if available
@@ -230,6 +232,7 @@ class SessionManager:
                 client=client,
                 exit_stack=exit_stack,
                 needs_session_id_capture=(claude_session_id is None),
+                settings_file=settings_path,
             )
             self._sessions[key] = session
             return session
