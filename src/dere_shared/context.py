@@ -139,6 +139,19 @@ def get_full_context(
     except Exception:
         pass
 
+    # Emotion context
+    if session_id:
+        try:
+            import requests
+
+            resp = requests.get(f"{daemon_url}/emotion/summary/{session_id}", timeout=1)
+            if resp.status_code == 200:
+                emotion_summary = resp.json().get("summary", "")
+                if emotion_summary and emotion_summary != "Currently in a neutral emotional state.":
+                    environmental_parts.append(f"Emotional state: {emotion_summary}")
+        except Exception:
+            pass
+
     # Build environmental context section
     sections = []
     if environmental_parts:

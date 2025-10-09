@@ -204,7 +204,6 @@ class DiscordAgent:
     def _summarize_tool_message(self, message: object) -> str | None:
         if isinstance(message, ToolUseBlock):
             tool_name = getattr(message, "name", "unknown")
-            tool_id = getattr(message, "id", "")
             tool_input = getattr(message, "input", {})
             preview = self._preview(tool_input)
             return f"Running `{tool_name}`: {preview}"

@@ -121,3 +121,10 @@ class DaemonClient:
             "duration_seconds": 0,
         }
         return await self.end_session(payload)
+
+    async def get_emotion_summary(self, session_id: int) -> str:
+        """Get emotion summary for prompt injection"""
+        resp = await self._client.get(f"/emotion/summary/{session_id}")
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("summary", "Currently in a neutral emotional state.")

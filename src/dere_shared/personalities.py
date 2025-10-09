@@ -84,6 +84,7 @@ class PersonalityLoader:
         metadata = parsed.get("metadata", {})
         display = parsed.get("display", {})
         prompt = parsed.get("prompt", {})
+        occ = parsed.get("occ", {})
 
         return Personality(
             name=metadata.get("name", ""),
@@ -92,6 +93,9 @@ class PersonalityLoader:
             color=display.get("color", "white"),
             icon=display.get("icon", "●"),
             prompt_content=prompt.get("content", ""),
+            occ_goals=occ.get("goals", []),
+            occ_standards=occ.get("standards", []),
+            occ_attitudes=occ.get("attitudes", []),
         )
 
     def _matches(self, personality: Personality, name: str) -> bool:

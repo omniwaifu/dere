@@ -205,3 +205,6 @@ class Personality(BaseModel):
     color: str = "white"
     icon: str = "●"
     prompt_content: str
+    occ_goals: list[dict[str, Any]] = Field(default_factory=list)
+    occ_standards: list[dict[str, Any]] = Field(default_factory=list)
+    occ_attitudes: list[dict[str, Any]] = Field(default_factory=list)

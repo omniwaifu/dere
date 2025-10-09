@@ -153,6 +153,7 @@ class AppState:
     db: Database
     ollama: OllamaClient
     processor: TaskProcessor
+    emotion_managers: dict[int, Any]  # session_id -> OCCEmotionManager
 
 
 @asynccontextmanager
@@ -186,6 +187,7 @@ async def lifespan(app: FastAPI):
         summarization_model=ollama_config["summarization_model"],
     )
     app.state.processor = TaskProcessor(app.state.db, app.state.ollama)
+    app.state.emotion_managers = {}
 
     # Reset any stuck tasks from previous runs
     stuck_count = app.state.db.reset_stuck_tasks()
@@ -234,6 +236,125 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
+
+
+def _get_time_of_day(hour: int) -> str:
+    """Convert hour to time of day description"""
+    if 5 <= hour < 12:
+        return "morning"
+    elif 12 <= hour < 17:
+        return "afternoon"
+    elif 17 <= hour < 21:
+        return "evening"
+    else:
+        return "night"
+
+
+# Helper functions for emotion system
+async def get_or_create_emotion_manager(session_id: int, personality: str | None = None):
+    """Get or create emotion manager for a session"""
+    from dere_shared.emotion.manager import OCCEmotionManager
+    from dere_shared.emotion.models import OCCAttitude, OCCGoal, OCCStandard
+    from dere_shared.personalities import PersonalityLoader
+
+    if session_id in app.state.emotion_managers:
+        return app.state.emotion_managers[session_id]
+
+    # Load personality-specific OCC config if available
+    goals = []
+    standards = []
+    attitudes = []
+
+    if personality:
+        try:
+            loader = PersonalityLoader()
+            persona = loader.load(personality)
+
+            # Convert personality OCC config to OCC models
+            if persona.occ_goals:
+                goals = [OCCGoal(**goal_dict) for goal_dict in persona.occ_goals]
+            if persona.occ_standards:
+                standards = [OCCStandard(**std_dict) for std_dict in persona.occ_standards]
+            if persona.occ_attitudes:
+                attitudes = [OCCAttitude(**att_dict) for att_dict in persona.occ_attitudes]
+        except Exception as e:
+            from loguru import logger
+
+            logger.warning(f"Failed to load personality OCC config for '{personality}': {e}")
+
+    # Fall back to defaults if no personality-specific config
+    if not goals:
+        goals = [
+            OCCGoal(
+                id="help_user",
+                description="Successfully help the user accomplish their task",
+                active=True,
+                importance=9,
+            ),
+            OCCGoal(
+                id="understand_intent",
+                description="Accurately understand user's intent and needs",
+                active=True,
+                importance=8,
+            ),
+            OCCGoal(
+                id="maintain_rapport",
+                description="Maintain positive relationship with the user",
+                active=True,
+                importance=7,
+            ),
+        ]
+
+    if not standards:
+        standards = [
+            OCCStandard(
+                id="be_helpful",
+                description="Provide useful, accurate assistance",
+                importance=9,
+                praiseworthiness=8,
+            ),
+            OCCStandard(
+                id="be_respectful",
+                description="Treat user with respect and consideration",
+                importance=8,
+                praiseworthiness=7,
+            ),
+            OCCStandard(
+                id="be_honest",
+                description="Be truthful and transparent",
+                importance=9,
+                praiseworthiness=9,
+            ),
+        ]
+
+    if not attitudes:
+        attitudes = [
+            OCCAttitude(
+                id="user_appreciation",
+                target_object="user",
+                description="Positive regard for the user",
+                appealingness=7,
+            ),
+            OCCAttitude(
+                id="coding_tasks",
+                target_object="coding",
+                description="Interest in programming and technical work",
+                appealingness=8,
+            ),
+        ]
+
+    manager = OCCEmotionManager(
+        goals=goals,
+        standards=standards,
+        attitudes=attitudes,
+        session_id=session_id,
+        db=app.state.db,
+    )
+
+    await manager.initialize()
+    app.state.emotion_managers[session_id] = manager
+
+    return manager
 
 
 @app.get("/health")
@@ -446,6 +567,63 @@ async def conversation_capture(req: ConversationCaptureRequest):
     )
     app.state.db.queue_task(entity_task)
     app.state.processor.trigger()  # Trigger immediate processing
+
+    # Queue emotion processing as background task (don't block response)
+    if req.message_type == "user":
+        import asyncio
+
+        async def process_emotion_background():
+            try:
+                emotion_manager = await get_or_create_emotion_manager(
+                    req.session_id, req.personality
+                )
+
+                # Build stimulus from conversation
+                stimulus = {
+                    "type": "user_message",
+                    "content": req.prompt,
+                    "message_type": req.message_type,
+                }
+
+                # Enrich context with temporal and session information
+                from datetime import datetime
+
+                now = datetime.now()
+
+                # Get session info
+                session_info = app.state.db.get_session(req.session_id)
+                session_start = session_info.get("start_time") if session_info else None
+
+                # Calculate session duration
+                session_duration_minutes = 0
+                if session_start:
+                    session_duration_minutes = (now.timestamp() - session_start) / 60
+
+                context = {
+                    "conversation_id": conversation_id,
+                    "personality": req.personality,
+                    "temporal": {
+                        "hour": now.hour,
+                        "day_of_week": now.strftime("%A"),
+                        "time_of_day": _get_time_of_day(now.hour),
+                    },
+                    "session": {
+                        "duration_minutes": int(session_duration_minutes),
+                        "working_dir": session_info.get("working_dir") if session_info else None,
+                    },
+                }
+
+                # Process stimulus through emotion system
+                await emotion_manager.process_stimulus(stimulus, context, req.personality or "AI")
+
+            except Exception as e:
+                # Don't fail if emotion processing fails
+                from loguru import logger
+
+                logger.error(f"[conversation_capture] Emotion processing failed: {e}")
+
+        # Fire and forget - don't await
+        asyncio.create_task(process_emotion_background())
 
     return {"status": "stored"}
 
@@ -718,6 +896,48 @@ Summary:"""
             "homework": [],
             "next_step_notes": "",
         }
+
+
+@app.get("/emotion/state/{session_id}")
+async def emotion_get_state(session_id: int):
+    """Get current emotional state for a session"""
+    try:
+        emotion_manager = await get_or_create_emotion_manager(session_id)
+        mood = emotion_manager.get_current_mood()
+
+        if not mood:
+            return {"has_emotion": False, "state": "neutral"}
+
+        return {
+            "has_emotion": True,
+            "dominant_emotion": mood.dominant_emotion_type,
+            "intensity": mood.intensity,
+            "last_updated": mood.last_updated,
+            "active_emotions": {
+                str(k): {"intensity": v.intensity, "last_updated": v.last_updated}
+                for k, v in emotion_manager.get_active_emotions().items()
+            },
+        }
+    except Exception as e:
+        from loguru import logger
+
+        logger.error(f"[emotion_get_state] Error: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.get("/emotion/summary/{session_id}")
+async def emotion_get_summary(session_id: int):
+    """Get human-readable emotion summary for prompt injection"""
+    try:
+        emotion_manager = await get_or_create_emotion_manager(session_id)
+        summary = emotion_manager.get_emotional_state_summary()
+
+        return {"summary": summary}
+    except Exception as e:
+        from loguru import logger
+
+        logger.error(f"[emotion_get_summary] Error: {e}")
+        return {"summary": "Currently in a neutral emotional state."}
 
 
 @app.post("/hooks/capture")

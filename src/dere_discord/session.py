@@ -200,6 +200,15 @@ class SessionManager:
             # Ensure discord output style exists
             _ensure_discord_output_style()
 
+            # Get emotion summary from daemon
+            emotion_summary = ""
+            try:
+                emotion_summary = await self._daemon.get_emotion_summary(session_id)
+                if emotion_summary and emotion_summary != "Currently in a neutral emotional state.":
+                    emotion_summary = f"\n\n## Current Emotional State\n{emotion_summary}"
+            except Exception:
+                pass  # Emotion system optional, don't fail if unavailable
+
             # Create temporary settings file with output style
             # Using settings file with setting_sources to enable output styles
             settings_data = {"outputStyle": "discord"}
@@ -207,10 +216,12 @@ class SessionManager:
                 json.dump(settings_data, f)
                 settings_path = f.name
 
+            prompt_with_emotion = (profile.prompt or "") + emotion_summary
+
             options = ClaudeAgentOptions(
                 settings=settings_path,
                 setting_sources=["user", "project", "local"],  # Required for settings to work
-                system_prompt={"type": "preset", "append": profile.prompt or ""},
+                system_prompt={"type": "preset", "append": prompt_with_emotion},
                 allowed_tools=["Read", "Write", "Bash"],
                 permission_mode="acceptEdits",
                 resume=claude_session_id,  # Resume Claude SDK session if available

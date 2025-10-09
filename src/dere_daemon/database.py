@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -232,6 +233,37 @@ class Database:
             )
         """)
 
+        # Emotion states
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS emotion_states (
+                id BIGSERIAL PRIMARY KEY,
+                session_id BIGINT REFERENCES sessions(id),
+                primary_emotion TEXT NOT NULL,
+                primary_intensity REAL NOT NULL,
+                secondary_emotion TEXT,
+                secondary_intensity REAL,
+                overall_intensity REAL NOT NULL,
+                appraisal_data JSONB,
+                trigger_data JSONB,
+                last_update TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Stimulus history
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS stimulus_history (
+                id BIGSERIAL PRIMARY KEY,
+                session_id BIGINT REFERENCES sessions(id),
+                stimulus_type TEXT NOT NULL,
+                valence REAL NOT NULL,
+                intensity REAL NOT NULL,
+                timestamp BIGINT NOT NULL,
+                context JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Create indexes
         self._create_indexes()
 
@@ -257,6 +289,10 @@ class Database:
             "CREATE INDEX IF NOT EXISTS entities_session_idx ON entities(session_id)",
             "CREATE INDEX IF NOT EXISTS entities_type_idx ON entities(entity_type)",
             "CREATE INDEX IF NOT EXISTS entities_normalized_idx ON entities(normalized_value)",
+            "CREATE INDEX IF NOT EXISTS emotion_states_session_idx ON emotion_states(session_id)",
+            "CREATE INDEX IF NOT EXISTS emotion_states_last_update_idx ON emotion_states(last_update DESC)",
+            "CREATE INDEX IF NOT EXISTS stimulus_history_session_idx ON stimulus_history(session_id)",
+            "CREATE INDEX IF NOT EXISTS stimulus_history_timestamp_idx ON stimulus_history(timestamp DESC)",
         ]
 
         for idx in indexes:
@@ -535,6 +571,19 @@ class Database:
             "UPDATE conversations SET prompt_embedding = %s::vector WHERE id = %s",
             [embedding_json, conversation_id],
         )
+
+    def get_session(self, session_id: int) -> dict[str, Any] | None:
+        """Get session by ID"""
+        result = self.conn.execute(
+            """
+            SELECT id, working_dir, start_time, end_time, claude_session_id
+            FROM sessions
+            WHERE id = %s
+            """,
+            [session_id],
+        )
+        row = result.fetchone()
+        return self._row_to_dict(result, row) if row else None
 
     def get_latest_session_for_channel(
         self, working_dir: str, max_age_hours: int | None = None
@@ -942,6 +991,109 @@ class Database:
             ],
         )
         return self._rows_to_dicts(result, result.fetchall())
+
+    # Emotion system methods
+
+    def store_emotion_state(self, session_id: int, active_emotions: dict, last_decay_time: int) -> None:
+        """Store current emotional state for a session"""
+
+        # Get dominant emotions
+        sorted_emotions = sorted(
+            [(k, v) for k, v in active_emotions.items() if k != "neutral"],
+            key=lambda x: x[1].intensity,
+            reverse=True
+        )
+
+        primary_emotion = sorted_emotions[0] if sorted_emotions else None
+        secondary_emotion = sorted_emotions[1] if len(sorted_emotions) > 1 else None
+
+        # Build appraisal data
+        appraisal_data = {
+            "active_emotions": {
+                str(k): {"intensity": v.intensity, "last_updated": v.last_updated}
+                for k, v in active_emotions.items()
+                if k != "neutral"
+            },
+            "last_decay_time": last_decay_time
+        }
+
+        if primary_emotion:
+            self._execute_and_commit(
+                """
+                INSERT INTO emotion_states
+                (session_id, primary_emotion, primary_intensity, secondary_emotion,
+                 secondary_intensity, overall_intensity, appraisal_data, last_update)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """,
+                [
+                    session_id,
+                    str(primary_emotion[0]),
+                    primary_emotion[1].intensity,
+                    str(secondary_emotion[0]) if secondary_emotion else None,
+                    secondary_emotion[1].intensity if secondary_emotion else None,
+                    primary_emotion[1].intensity,
+                    json.dumps(appraisal_data)
+                ]
+            )
+
+    def load_emotion_state(self, session_id: int) -> dict | None:
+        """Load most recent emotional state for a session"""
+        from dere_shared.emotion.models import EmotionInstance, OCCEmotionType
+
+        result = self._execute_and_commit(
+            """
+            SELECT appraisal_data, last_update
+            FROM emotion_states
+            WHERE session_id = %s
+            ORDER BY last_update DESC
+            LIMIT 1
+            """,
+            [session_id]
+        )
+
+        row = result.fetchone()
+        if not row:
+            return None
+
+        # Handle both string JSON and dict (postgres may deserialize JSONB automatically)
+        appraisal_data = row[0] if isinstance(row[0], dict) else (json.loads(row[0]) if row[0] else {})
+
+        # Reconstruct active emotions
+        active_emotions = {}
+        for emotion_str, data in appraisal_data.get("active_emotions", {}).items():
+            try:
+                emotion_type = OCCEmotionType(emotion_str)
+                active_emotions[emotion_type] = EmotionInstance(
+                    type=emotion_type,
+                    intensity=data["intensity"],
+                    last_updated=data["last_updated"]
+                )
+            except Exception:
+                continue
+
+        return {
+            "active_emotions": active_emotions,
+            "last_decay_time": appraisal_data.get("last_decay_time", int(time.time() * 1000))
+        }
+
+    def store_stimulus(self, session_id: int, stimulus_record) -> None:
+        """Store a stimulus record in history"""
+
+        self._execute_and_commit(
+            """
+            INSERT INTO stimulus_history
+            (session_id, stimulus_type, valence, intensity, timestamp, context)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            [
+                session_id,
+                stimulus_record.type,
+                stimulus_record.valence,
+                stimulus_record.intensity,
+                stimulus_record.timestamp,
+                json.dumps(stimulus_record.context)
+            ]
+        )
 
     def close(self) -> None:
         """Close database connection"""
