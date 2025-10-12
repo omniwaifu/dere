@@ -48,6 +48,11 @@ def load_dere_config() -> dict[str, Any]:
         "database": {
             "url": "postgresql://postgres:dere@localhost/dere",
         },
+        "synthesis": {
+            "enabled": True,
+            "auto_run_interval_hours": 24,
+            "min_sessions_for_patterns": 5,
+        },
     }
 
     config_path = os.path.expanduser("~/.config/dere/config.toml")

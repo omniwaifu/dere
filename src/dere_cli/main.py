@@ -881,6 +881,174 @@ def config_edit():
         sys.exit(1)
 
 
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def synthesis(ctx):
+    """Knowledge synthesis and pattern detection"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@synthesis.command("insights")
+@click.option("--personality", "-p", multiple=True, help="Personality combo (e.g., -p tsun)")
+@click.option("--limit", type=int, default=10, help="Maximum number of insights to show")
+@click.option("--no-format", is_flag=True, help="Disable personality formatting")
+def synthesis_insights(personality, limit, no_format):
+    """Show synthesized insights"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    if not personality:
+        click.echo("Error: --personality is required (e.g., --personality tsun)", err=True)
+        sys.exit(1)
+
+    try:
+        payload = {
+            "personality_combo": list(personality),
+            "limit": limit,
+            "format_with_personality": not no_format,
+        }
+
+        response = requests.post(
+            f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        insights = data.get("insights", [])
+        if not insights:
+            click.echo(f"No insights found for personality: {', '.join(personality)}")
+            return
+
+        click.echo(f"\nInsights for personality: {', '.join(personality)}")
+        click.echo("=" * 80)
+
+        for idx, insight in enumerate(insights, 1):
+            insight_type = insight.get("insight_type", "unknown")
+            content = insight.get("content", "")
+            confidence = insight.get("confidence", 0)
+            created_at = insight.get("created_at", "")
+
+            click.echo(f"\n[{idx}] {insight_type.upper()} (confidence: {confidence:.2f})")
+            click.echo(f"    {content}")
+            if created_at:
+                click.echo(f"    Generated: {created_at}")
+
+        click.echo(f"\nTotal: {len(insights)} insights")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@synthesis.command("patterns")
+@click.option("--personality", "-p", multiple=True, help="Personality combo (e.g., -p tsun)")
+@click.option("--limit", type=int, default=10, help="Maximum number of patterns to show")
+@click.option("--no-format", is_flag=True, help="Disable personality formatting")
+def synthesis_patterns(personality, limit, no_format):
+    """Show detected patterns"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    if not personality:
+        click.echo("Error: --personality is required (e.g., --personality tsun)", err=True)
+        sys.exit(1)
+
+    try:
+        payload = {
+            "personality_combo": list(personality),
+            "limit": limit,
+            "format_with_personality": not no_format,
+        }
+
+        response = requests.post(
+            f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        patterns = data.get("patterns", [])
+        if not patterns:
+            click.echo(f"No patterns found for personality: {', '.join(personality)}")
+            return
+
+        click.echo(f"\nPatterns for personality: {', '.join(personality)}")
+        click.echo("=" * 80)
+
+        for idx, pattern in enumerate(patterns, 1):
+            pattern_type = pattern.get("pattern_type", "unknown")
+            description = pattern.get("description", "")
+            frequency = pattern.get("frequency", 0)
+            created_at = pattern.get("created_at", "")
+
+            click.echo(f"\n[{idx}] {pattern_type.upper()} (frequency: {frequency})")
+            click.echo(f"    {description}")
+            if created_at:
+                click.echo(f"    Detected: {created_at}")
+
+        click.echo(f"\nTotal: {len(patterns)} patterns")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@synthesis.command("run")
+@click.option("--personality", "-p", multiple=True, help="Personality combo (e.g., -p tsun)")
+@click.option("--user-session", type=int, help="User session ID to synthesize")
+def synthesis_run(personality, user_session):
+    """Manually trigger synthesis"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    if not personality:
+        click.echo("Error: --personality is required (e.g., --personality tsun)", err=True)
+        sys.exit(1)
+
+    try:
+        payload = {
+            "personality_combo": list(personality),
+            "user_session_id": user_session,
+        }
+
+        click.echo(f"Running synthesis for personality: {', '.join(personality)}...")
+
+        response = requests.post(
+            f"{daemon_url}/api/synthesis/run", json=payload, timeout=60
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("success"):
+            click.echo("\nSynthesis completed successfully!")
+            click.echo(f"  Sessions analyzed: {data.get('total_sessions', 0)}")
+            click.echo(f"  Insights generated: {data.get('insights_generated', 0)}")
+            click.echo(f"  Patterns detected: {data.get('patterns_detected', 0)}")
+            click.echo(f"  Entity collisions resolved: {data.get('entity_collisions', 0)}")
+        else:
+            click.echo("Synthesis failed", err=True)
+            sys.exit(1)
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
+        sys.exit(1)
+    except requests.exceptions.Timeout:
+        click.echo("Error: Synthesis request timed out (taking longer than 60s)", err=True)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
 @cli.command()
 def version():
     """Show version"""
