@@ -114,47 +114,15 @@ class SessionManager:
         self._daemon = daemon
         self._persona_service = persona_service
         self._sessions: dict[str, ChannelSession] = {}
-        self._persona_overrides: dict[str, tuple[str, ...]] = {}
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._bot_identity: str | None = None
 
     def _make_key(self, guild_id: int | None, channel_id: int) -> str:
         return f"{guild_id or 'dm'}:{channel_id}"
 
-    def get_personas(
-        self,
-        *,
-        guild_id: int | None,
-        channel_id: int,
-    ) -> tuple[str, ...]:
-        key = self._make_key(guild_id, channel_id)
-        return self._persona_overrides.get(key, self._persona_service.default_personas)
-
     def set_bot_identity(self, identity: str | None) -> None:
         self._bot_identity = identity
         self._persona_service.set_identity(identity)
-
-    async def set_personas(
-        self,
-        *,
-        guild_id: int | None,
-        channel_id: int,
-        personas: Iterable[str],
-    ) -> tuple[str, ...]:
-        key = self._make_key(guild_id, channel_id)
-        resolved = tuple(personas)
-        if not resolved:
-            resolved = self._persona_service.default_personas
-
-        profile = self._persona_service.resolve(resolved)
-
-        self._persona_overrides[key] = profile.names
-
-        # Reset any active session so new persona takes effect immediately
-        if key in self._sessions:
-            await self._close_session(key, reason="persona_change")
-
-        return profile.names
 
     async def ensure_session(
         self,
@@ -171,7 +139,7 @@ class SessionManager:
             if session:
                 return session
 
-            personas = self._persona_overrides.get(key, self._persona_service.default_personas)
+            personas = self._persona_service.default_personas
             profile = self._persona_service.resolve(personas)
 
             project_path = format_project_path(

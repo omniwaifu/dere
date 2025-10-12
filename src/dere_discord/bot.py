@@ -38,62 +38,7 @@ class DereDiscordClient(discord.Client):
 
     async def setup_hook(self) -> None:
         """Register slash commands when the bot starts."""
-
-        @self.tree.command(name="persona", description="Set persona(s) for this channel.")
-        @app_commands.describe(names="Comma-separated persona names (e.g. tsun,kuu).")
-        async def persona_command(interaction: discord.Interaction, names: str):
-            await self._handle_persona_command(interaction, names)
-
         await self.tree.sync()
-
-    async def _handle_persona_command(self, interaction: discord.Interaction, names: str) -> None:
-        if interaction.guild and not await self._can_modify_persona(interaction):
-            await interaction.response.send_message(
-                "You need the Manage Channels permission to change personas.",
-                ephemeral=True,
-            )
-            return
-
-        persona_names = tuple(part.strip() for part in names.split(",") if part.strip())
-        target_channel = interaction.channel
-        if target_channel is None:
-            await interaction.response.send_message(
-                "Unable to resolve channel for this command.", ephemeral=True
-            )
-            return
-
-        guild_id = interaction.guild_id
-        channel_id = target_channel.id
-
-        try:
-            resolved = await self.sessions.set_personas(
-                guild_id=guild_id,
-                channel_id=channel_id,
-                personas=persona_names,
-            )
-            profile = self.persona_service.resolve(resolved)
-        except ValueError as exc:
-            logger.warning("Persona resolution failed: {}", exc)
-            await interaction.response.send_message(str(exc), ephemeral=True)
-            return
-
-        icon = profile.icon or "✨"
-        persona_label = ", ".join(profile.names)
-        await interaction.response.send_message(
-            f"{icon} Persona for this channel set to **{persona_label}**.",
-            ephemeral=True,
-        )
-
-    async def _can_modify_persona(self, interaction: discord.Interaction) -> bool:
-        if interaction.guild is None:
-            return True
-
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            return False
-
-        perms = member.guild_permissions
-        return perms.manage_channels or perms.administrator
 
     async def on_ready(self) -> None:
         if self.user:

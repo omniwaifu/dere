@@ -609,6 +609,40 @@ class Database:
         # 3. Fall back to system default
         return default_personality
 
+    def get_sessions_by_personalities(self, personality_names: tuple[str, ...]) -> list[dict]:
+        """Get all sessions with specific personality combination.
+
+        Args:
+            personality_names: Tuple of personality names (e.g. ("tsun",) or ("dere", "kuu"))
+
+        Returns:
+            List of session dicts with matching personality combination
+        """
+        if not personality_names:
+            return []
+
+        # Build query to find sessions with exact personality set
+        # This ensures we only match sessions with these exact personalities
+        placeholders = ",".join(["%s"] * len(personality_names))
+        query = f"""
+            WITH session_personality_sets AS (
+                SELECT
+                    session_id,
+                    array_agg(personality_name ORDER BY personality_name) as personalities
+                FROM session_personalities
+                GROUP BY session_id
+            )
+            SELECT s.id, s.working_dir, s.start_time, s.end_time, s.user_session_id
+            FROM sessions s
+            JOIN session_personality_sets sps ON s.id = sps.session_id
+            WHERE sps.personalities = ARRAY[{placeholders}]::text[]
+            ORDER BY s.start_time DESC
+        """
+
+        sorted_names = sorted(personality_names)
+        result = self.conn.execute(query, sorted_names)
+        return self._rows_to_dicts(result)
+
     def get_cached_context(self, session_id: int, max_age_seconds: int) -> tuple[str | None, bool]:
         """Get cached context if it exists and is fresh"""
         import time
