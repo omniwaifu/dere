@@ -22,6 +22,7 @@ install: build-all
     cp -f hooks/python/dere-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-hook-session-end.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-context-hook.py ~/.config/dere/hooks/
+    cp -f hooks/python/dere-task-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-statusline.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-stop-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-wellness-hook.py ~/.config/dere/hooks/
@@ -30,6 +31,7 @@ install: build-all
     chmod +x ~/.config/dere/hooks/dere-hook.py
     chmod +x ~/.config/dere/hooks/dere-hook-session-end.py
     chmod +x ~/.config/dere/hooks/dere-context-hook.py
+    chmod +x ~/.config/dere/hooks/dere-task-hook.py
     chmod +x ~/.config/dere/hooks/dere-statusline.py
     chmod +x ~/.config/dere/hooks/dere-stop-hook.py
     chmod +x ~/.config/dere/hooks/dere-wellness-hook.py

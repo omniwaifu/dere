@@ -174,9 +174,14 @@ def main():
             with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
                 f.write("Failed to extract wellness data\n")
 
+        # Suppress output to avoid cluttering message history
+        print(json.dumps({"suppressOutput": True}))
+
     except Exception as e:
         with open("/tmp/dere_wellness_hook_debug.log", "a") as f:
             f.write(f"Error in wellness hook: {e}\n")
+        # Suppress output even on error
+        print(json.dumps({"suppressOutput": True}))
         sys.exit(1)
 
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import sys
 
@@ -28,7 +29,6 @@ except ImportError:
 
 
 def main():
-    import json
     from datetime import datetime
 
     # Debug logging
@@ -64,10 +64,10 @@ def main():
     with open("/tmp/dere_session_end_debug.log", "a") as f:
         f.write(f"RPC result: {result}\n")
 
-    if result:
-        print("Session ended successfully")
-    else:
-        print("Failed to end session", file=sys.stderr)
+    # Suppress output to avoid cluttering message history
+    print(json.dumps({"suppressOutput": True}))
+
+    if not result:
         sys.exit(1)
 
 

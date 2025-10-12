@@ -93,10 +93,10 @@ def main():
     with open("/tmp/dere_hook_debug.log", "a") as f:
         f.write(f"RPC result: {result}\n")
 
-    if result:
-        print("Conversation captured successfully")
-    else:
-        print("Failed to capture conversation", file=sys.stderr)
+    # Always suppress output to avoid cluttering message history
+    print(json.dumps({"suppressOutput": True}))
+
+    if not result:
         sys.exit(1)
 
 

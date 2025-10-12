@@ -144,9 +144,14 @@ def main():
             with open("/tmp/dere_stop_hook_debug.log", "a") as f:
                 f.write("Failed to capture Claude response\n")
 
+        # Suppress output to avoid cluttering message history
+        print(json.dumps({"suppressOutput": True}))
+
     except Exception as e:
         with open("/tmp/dere_stop_hook_debug.log", "a") as f:
             f.write(f"Error in stop hook: {e}\n")
+        # Suppress output even on error
+        print(json.dumps({"suppressOutput": True}))
         sys.exit(1)
 
 

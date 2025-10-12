@@ -52,9 +52,22 @@ def main():
 
         context_str = get_full_context(session_id=session_id)
         if context_str:
-            print(f"\n{context_str}\n")
+            # Output JSON with additionalContext to inject context silently
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": f"\n{context_str}\n",
+                },
+                "suppressOutput": True,
+            }
+            print(json.dumps(output))
+        else:
+            # No context to add, just suppress output
+            print(json.dumps({"suppressOutput": True}))
     except Exception as e:
         log_error(f"Context gathering error: {e}")
+        # Suppress output even on error
+        print(json.dumps({"suppressOutput": True}))
 
     sys.exit(0)
 
