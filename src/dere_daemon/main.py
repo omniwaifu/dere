@@ -770,6 +770,29 @@ async def get_related_entities(entity: str, limit: int = 20):
     return RelatedEntitiesResponse(entity=entity, related=related)
 
 
+@app.get("/entities/importance")
+async def get_entity_importance(
+    user_id: str | None = None, limit: int = 50, recency_days: int = 30
+):
+    """Get entity importance scores based on mention count, recency, and cross-medium presence"""
+    entities = app.state.db.get_entity_importance_scores(user_id, limit, recency_days)
+    return {"entities": entities}
+
+
+@app.get("/entities/user/{user_id}")
+async def get_user_entities(user_id: str, entity_type: str | None = None, limit: int = 100):
+    """Get all entities for a user across all sessions and mediums"""
+    entities = app.state.db.get_entities_by_user(user_id, entity_type, limit)
+    return {"user_id": user_id, "entities": entities}
+
+
+@app.post("/entities/merge/{user_id}")
+async def merge_user_entities(user_id: str):
+    """Merge duplicate entities for a user across mediums using fingerprints"""
+    stats = app.state.db.merge_duplicate_entities(user_id)
+    return {"user_id": user_id, **stats}
+
+
 @app.post("/conversation/capture")
 async def conversation_capture(req: ConversationCaptureRequest):
     """Capture conversation and queue background tasks"""
@@ -1523,6 +1546,38 @@ async def get_patterns(req: SynthesisPatternsRequest):
     personality_combo = tuple(req.personality_combo)
     patterns = app.state.db.get_patterns_for_personality(personality_combo, limit=req.limit)
     return {"patterns": patterns}
+
+
+@app.post("/api/consolidate/memory")
+async def consolidate_memory(user_id: str, recency_days: int = 30, model: str = "gemma3n:latest"):
+    """Trigger memory consolidation for a user.
+
+    Analyzes entity patterns, generates LLM summary, stores insights.
+
+    Args:
+        user_id: User ID to consolidate memory for
+        recency_days: Number of days to look back
+        model: Model to use for summary generation
+
+    Returns:
+        Consolidation summary and statistics
+    """
+    # Queue memory consolidation task
+    task_id = app.state.db.queue_task(
+        task_type="memory_consolidation",
+        model_name=model,
+        content=f"Memory consolidation for user {user_id}",
+        session_id=None,
+        metadata={"user_id": user_id, "recency_days": recency_days},
+    )
+
+    # Wait for task to complete (or return immediately for async processing)
+    # For now, return task ID for async processing
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": f"Memory consolidation queued for user {user_id}",
+    }
 
 
 @app.post("/documents/upload", response_model=DocumentUploadResponse)

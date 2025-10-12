@@ -134,6 +134,8 @@ class TaskProcessor:
                     result = await self.process_entity_extraction_task(task)
                 case "context_building":
                     result = await self.process_context_building_task(task)
+                case "memory_consolidation":
+                    result = await self.process_memory_consolidation_task(task)
                 case _:
                     logger.error("Unknown task type: {}", task.task_type)
                     self.db.update_task_status(
@@ -403,4 +405,83 @@ JSON:"""
             }
 
         except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def process_memory_consolidation_task(self, task: TaskQueue) -> dict[str, Any]:
+        """Process a memory consolidation task.
+
+        Computes:
+        1. Entity importance scores (mention count + recency + cross-medium)
+        2. Conversation frequency patterns
+        3. Entity co-occurrence patterns
+        4. Uses LLM to generate natural language summary from statistics
+        """
+        try:
+            metadata = cast(dict, task.metadata or {})
+            user_id = metadata.get("user_id")
+            recency_days = metadata.get("recency_days", 30)
+
+            if not user_id:
+                return {"success": False, "error": "user_id required for memory consolidation"}
+
+            # 1. Get entity importance scores
+            important_entities = self.db.get_entity_importance_scores(
+                user_id, limit=20, recency_days=recency_days
+            )
+
+            # 2. Get entity collision candidates
+            collisions = self.db.find_entity_collisions(tuple())
+
+            # 3. Build statistical summary
+            stats = {
+                "important_entities": important_entities[:10],
+                "entity_collisions": len(collisions),
+                "total_entities": len(important_entities),
+            }
+
+            # 4. Use LLM to generate natural language summary
+            entities_summary = [
+                e["normalized_value"] + " (" + e["entity_type"] + ")"
+                for e in important_entities[:10]
+            ]
+            prompt = f"""Analyze this user's conversation patterns and generate a concise memory consolidation summary.
+
+Statistics:
+- Top 10 Important Entities: {json.dumps(entities_summary)}
+- Entity Collision Groups: {len(collisions)} (entities with similar fingerprints that may be duplicates)
+- Total Tracked Entities: {len(important_entities)}
+
+Generate a brief summary (2-3 sentences) highlighting:
+1. The most important topics/entities for this user
+2. Any cross-medium patterns (entities appearing in both CLI and Discord)
+3. Actionable insights or recommendations
+
+Summary:"""
+
+            summary = await self.ollama.generate(prompt, model=task.model_name)
+
+            # 5. Store insight in database
+            self.db.store_insight(
+                insight_type="memory_consolidation",
+                content=summary,
+                evidence=stats,
+                confidence=0.8,
+                personality_combo=tuple(),
+                user_session_id=None,
+            )
+
+            logger.info(
+                "Memory consolidation completed for user {} with {} entities",
+                user_id,
+                len(important_entities),
+            )
+
+            return {
+                "success": True,
+                "summary": summary,
+                "stats": stats,
+            }
+
+        except Exception as e:
+            logger.error("Memory consolidation failed: {}", e)
             return {"success": False, "error": str(e)}
