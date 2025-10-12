@@ -225,11 +225,13 @@ class SynthesisRunResponse(BaseModel):
 class SynthesisInsightsRequest(BaseModel):
     personality_combo: list[str]
     limit: int = 10
+    format_with_personality: bool = True
 
 
 class SynthesisPatternsRequest(BaseModel):
     personality_combo: list[str]
     limit: int = 10
+    format_with_personality: bool = True
 
 
 class DocumentUploadResponse(BaseModel):
@@ -251,12 +253,14 @@ class DocumentListResponse(BaseModel):
 class DocumentQueryRequest(BaseModel):
     query: str
     user_id: str
+    session_id: int | None = None
     limit: int = 10
     threshold: float = 0.7
 
 
 class DocumentQueryResponse(BaseModel):
     results: list[dict]
+    context: str | None = None
 
 
 class DocumentDeleteResponse(BaseModel):
@@ -1537,7 +1541,36 @@ async def get_insights(req: SynthesisInsightsRequest):
     """Get synthesized insights for a personality combination"""
     personality_combo = tuple(req.personality_combo)
     insights = app.state.db.get_insights_for_personality(personality_combo, limit=req.limit)
-    return {"insights": insights}
+
+    # Format with personality if requested
+    formatted_text = None
+    if req.format_with_personality and insights and req.personality_combo:
+        try:
+            from dere_shared.synthesis.presentation import format_insights_with_personality
+
+            # Load personality config
+            personality_name = req.personality_combo[0]  # Use first personality
+            personality = app.state.personality_loader.load(personality_name)
+
+            # Build personality config dict
+            personality_config = {
+                "name": personality.name,
+                "occ_goals": personality.occ_goals,
+                "occ_standards": personality.occ_standards,
+                "occ_attitudes": personality.occ_attitudes,
+            }
+
+            # Format insights
+            formatted_text = await format_insights_with_personality(
+                insights=insights,
+                personality_config=personality_config,
+                ollama_client=app.state.ollama,
+            )
+        except Exception:
+            # Fallback to raw insights if formatting fails
+            pass
+
+    return {"insights": insights, "formatted": formatted_text}
 
 
 @app.post("/api/synthesis/patterns")
@@ -1545,7 +1578,36 @@ async def get_patterns(req: SynthesisPatternsRequest):
     """Get detected patterns for a personality combination"""
     personality_combo = tuple(req.personality_combo)
     patterns = app.state.db.get_patterns_for_personality(personality_combo, limit=req.limit)
-    return {"patterns": patterns}
+
+    # Format with personality if requested
+    formatted_text = None
+    if req.format_with_personality and patterns and req.personality_combo:
+        try:
+            from dere_shared.synthesis.presentation import format_patterns_with_personality
+
+            # Load personality config
+            personality_name = req.personality_combo[0]  # Use first personality
+            personality = app.state.personality_loader.load(personality_name)
+
+            # Build personality config dict
+            personality_config = {
+                "name": personality.name,
+                "occ_goals": personality.occ_goals,
+                "occ_standards": personality.occ_standards,
+                "occ_attitudes": personality.occ_attitudes,
+            }
+
+            # Format patterns
+            formatted_text = await format_patterns_with_personality(
+                patterns=patterns,
+                personality_config=personality_config,
+                ollama_client=app.state.ollama,
+            )
+        except Exception:
+            # Fallback to raw patterns if formatting fails
+            pass
+
+    return {"patterns": patterns, "formatted": formatted_text}
 
 
 @app.post("/api/consolidate/memory")
@@ -1662,7 +1724,7 @@ async def list_documents(req: DocumentListRequest):
 
 @app.post("/documents/query", response_model=DocumentQueryResponse)
 async def query_documents(req: DocumentQueryRequest):
-    """Query documents using RAG"""
+    """Query documents using RAG with optional personality + emotion context"""
     from dere_shared.documents import DocumentEmbedder
 
     try:
@@ -1678,7 +1740,25 @@ async def query_documents(req: DocumentQueryRequest):
             threshold=req.threshold,
         )
 
-        return DocumentQueryResponse(results=results)
+        # Add personality + emotion context if session_id provided
+        context_summary = None
+        if req.session_id:
+            try:
+                from dere_daemon.context import compose_session_context
+
+                context, _ = await compose_session_context(
+                    session_id=req.session_id,
+                    db=app.state.db,
+                    personality_loader=app.state.personality_loader,
+                    include_emotion=True,
+                )
+                if context:
+                    context_summary = context
+            except Exception:
+                # Context unavailable, continue without it
+                pass
+
+        return DocumentQueryResponse(results=results, context=context_summary)
 
     except Exception as e:
         logger.error(f"Document query failed: {e}")
@@ -1696,8 +1776,14 @@ async def delete_document(document_id: int, user_id: str):
 
 
 @app.post("/documents/{document_id}/chat")
-async def document_chat(document_id: int, user_id: str, query: str, threshold: float = 0.5):
-    """Chat with a specific document"""
+async def document_chat(
+    document_id: int,
+    user_id: str,
+    query: str,
+    session_id: int | None = None,
+    threshold: float = 0.5,
+):
+    """Chat with a specific document with optional personality + emotion context"""
     from dere_shared.documents import DocumentEmbedder
 
     try:
@@ -1718,7 +1804,30 @@ async def document_chat(document_id: int, user_id: str, query: str, threshold: f
         # Filter to only this document
         doc_results = [r for r in results if r["document_id"] == document_id]
 
-        return {"document": doc, "relevant_chunks": doc_results, "query": query}
+        # Add personality + emotion context if session_id provided
+        context_summary = None
+        if session_id:
+            try:
+                from dere_daemon.context import compose_session_context
+
+                context, _ = await compose_session_context(
+                    session_id=session_id,
+                    db=app.state.db,
+                    personality_loader=app.state.personality_loader,
+                    include_emotion=True,
+                )
+                if context:
+                    context_summary = context
+            except Exception:
+                # Context unavailable, continue without it
+                pass
+
+        return {
+            "document": doc,
+            "relevant_chunks": doc_results,
+            "query": query,
+            "context": context_summary,
+        }
 
     except HTTPException:
         raise
