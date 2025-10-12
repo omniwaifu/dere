@@ -9,6 +9,7 @@ from typing import Any
 
 from .activitywatch import get_activity_context
 from .config import load_dere_config
+from .tasks import get_task_context
 from .weather import get_weather_context
 
 
@@ -136,6 +137,22 @@ def get_full_context(
             if files_ctx:
                 files_str = "Recently modified: " + ", ".join(files_ctx)
                 environmental_parts.append(files_str)
+    except Exception:
+        pass
+
+    # Task context
+    try:
+        if config["context"].get("tasks", False):
+            import os
+            working_dir = os.getenv("PWD")
+            task_ctx = get_task_context(
+                limit=5,
+                working_dir=working_dir,
+                include_overdue=True,
+                include_due_soon=True,
+            )
+            if task_ctx:
+                environmental_parts.append(task_ctx)
     except Exception:
         pass
 

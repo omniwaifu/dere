@@ -11,6 +11,7 @@ import httpx
 from loguru import logger
 
 from dere_shared.activitywatch import ActivityWatchClient, detect_continuous_activities
+from dere_shared.tasks import get_task_context
 
 from .config import AmbientConfig
 
@@ -240,6 +241,9 @@ class ContextAnalyzer:
         duration_seconds = current_activity.get("duration", 0)
         duration_hours = duration_seconds / 3600
 
+        # Get task context
+        task_context = get_task_context(limit=5, include_overdue=True, include_due_soon=True)
+
         # Build prompt for LLM decision
         prompt = f"""Analyze this user activity and decide if ambient engagement is warranted.
 
@@ -251,6 +255,7 @@ Current Activity:
 Context:
 - Previous conversation context: {previous_context if previous_context else "None (cold start)"}
 - Minutes since last interaction: {minutes_idle if minutes_idle else "N/A"}
+- {task_context if task_context else "Tasks: None"}
 
 Decide:
 1. Should I reach out? (yes/no)
