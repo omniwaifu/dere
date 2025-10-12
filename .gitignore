@@ -46,3 +46,6 @@ Thumbs.db
 *.log
 CLAUDE.md
 __pycache__/
+
+# Miscellaneous
+TODO.md
