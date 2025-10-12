@@ -10,7 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, Body, FastAPI
+from fastapi import BackgroundTasks, Body, FastAPI, Form, HTTPException, UploadFile
+from loguru import logger
 from pydantic import BaseModel
 
 from dere_daemon.database import Database
@@ -208,6 +209,61 @@ class NotificationCreateRequest(BaseModel):
     routing_reasoning: str
 
 
+class SynthesisRunRequest(BaseModel):
+    personality_combo: list[str]
+    user_session_id: int | None = None
+
+
+class SynthesisRunResponse(BaseModel):
+    success: bool
+    total_sessions: int
+    insights_generated: int
+    patterns_detected: int
+    entity_collisions: int
+
+
+class SynthesisInsightsRequest(BaseModel):
+    personality_combo: list[str]
+    limit: int = 10
+
+
+class SynthesisPatternsRequest(BaseModel):
+    personality_combo: list[str]
+    limit: int = 10
+
+
+class DocumentUploadResponse(BaseModel):
+    success: bool
+    document_id: int
+    filename: str
+    chunks_created: int
+
+
+class DocumentListRequest(BaseModel):
+    user_id: str
+    limit: int = 50
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[dict]
+
+
+class DocumentQueryRequest(BaseModel):
+    query: str
+    user_id: str
+    limit: int = 10
+    threshold: float = 0.7
+
+
+class DocumentQueryResponse(BaseModel):
+    results: list[dict]
+
+
+class DocumentDeleteResponse(BaseModel):
+    success: bool
+    message: str
+
+
 # Global state
 class AppState:
     db: Database
@@ -244,8 +300,9 @@ async def lifespan(app: FastAPI):
     app.state = AppState()
 
     # Initialize database with error handling
+    embedding_dimension = ollama_config.get("embedding_dimension", 1024)
     try:
-        app.state.db = Database(db_url)
+        app.state.db = Database(db_url, embedding_dimension=embedding_dimension)
         print(f"✓ Database connected: {db_url}")
     except Exception as e:
         print("❌ FATAL: Failed to connect to database")
@@ -920,7 +977,7 @@ async def context_build(req: ContextBuildRequest):
 
 @app.post("/context/get")
 async def context_get(req: ContextGetRequest):
-    """Get cached context for session"""
+    """Get cached context for session (body)"""
     max_age = req.max_age_minutes or 30
     context, found = app.state.db.get_cached_context(req.session_id, max_age * 60)
 
@@ -1356,6 +1413,230 @@ async def notification_failed(notification_id: int, req: NotificationFailedReque
     app.state.db.mark_notification_failed(notification_id, req.error_message)
     logger.warning("Notification {} failed: {}", notification_id, req.error_message)
     return {"status": "failed"}
+
+
+@app.post("/api/synthesis/run", response_model=SynthesisRunResponse)
+async def run_synthesis(req: SynthesisRunRequest):
+    """Run synthesis across conversations for a personality combination"""
+    from dere_shared.synthesis import ConversationStream, PatternDetector
+
+    personality_combo = tuple(req.personality_combo)
+
+    # Stream conversations
+    stream = ConversationStream(app.state.db)
+    conversations = stream.stream_for_personality(personality_combo)
+
+    if not conversations:
+        return SynthesisRunResponse(
+            success=True,
+            total_sessions=0,
+            insights_generated=0,
+            patterns_detected=0,
+            entity_collisions=0,
+        )
+
+    # Build analysis data
+    cooccurrences = stream.build_cooccurrence_matrix(conversations)
+    entity_frequencies = stream.compute_entity_frequencies(conversations)
+    temporal_data = stream.get_temporal_patterns(conversations)
+
+    # Detect patterns
+    detector = PatternDetector(min_frequency=3)
+    convergence_patterns = detector.find_convergence_patterns(cooccurrences, personality_combo)
+    temporal_patterns = detector.find_temporal_patterns(
+        temporal_data, entity_frequencies, personality_combo
+    )
+    divergence_patterns = detector.find_divergence_patterns(
+        entity_frequencies, cooccurrences, personality_combo
+    )
+    frequency_leaders = detector.find_frequency_leaders(entity_frequencies, personality_combo)
+
+    all_patterns = (
+        convergence_patterns + temporal_patterns + divergence_patterns + frequency_leaders
+    )
+
+    # Find entity collisions
+    collisions = app.state.db.find_entity_collisions(personality_combo)
+
+    # Store patterns
+    patterns_stored = 0
+    for pattern in all_patterns:
+        app.state.db.store_pattern(
+            pattern_type=pattern.pattern_type,
+            description=pattern.description,
+            frequency=pattern.frequency,
+            sessions=pattern.sessions,
+            personality_combo=personality_combo,
+            user_session_id=req.user_session_id,
+        )
+        patterns_stored += 1
+
+    # Count unique sessions
+    session_ids = {conv["session_id"] for conv in conversations}
+
+    return SynthesisRunResponse(
+        success=True,
+        total_sessions=len(session_ids),
+        insights_generated=0,  # Will be implemented with LLM presentation layer
+        patterns_detected=patterns_stored,
+        entity_collisions=len(collisions),
+    )
+
+
+@app.post("/api/synthesis/insights")
+async def get_insights(req: SynthesisInsightsRequest):
+    """Get synthesized insights for a personality combination"""
+    personality_combo = tuple(req.personality_combo)
+    insights = app.state.db.get_insights_for_personality(personality_combo, limit=req.limit)
+    return {"insights": insights}
+
+
+@app.post("/api/synthesis/patterns")
+async def get_patterns(req: SynthesisPatternsRequest):
+    """Get detected patterns for a personality combination"""
+    personality_combo = tuple(req.personality_combo)
+    patterns = app.state.db.get_patterns_for_personality(personality_combo, limit=req.limit)
+    return {"patterns": patterns}
+
+
+@app.post("/documents/upload", response_model=DocumentUploadResponse)
+async def upload_document(
+    file: UploadFile,
+    user_id: str = Form(...),
+    chunk_size: int = Form(1000),
+    chunk_overlap: int = Form(200),
+):
+    """Upload and process a document"""
+    from dere_shared.documents import DocumentChunker, DocumentEmbedder, DocumentLoader
+
+    doc_id = None
+    try:
+        # Read file bytes
+        file_bytes = await file.read()
+
+        # Load document
+        loader = DocumentLoader(max_file_size_mb=50)
+        doc_data = loader.load_from_bytes(file_bytes, file.filename)
+
+        # Store document
+        doc_id = app.state.db.store_document(
+            user_id=user_id,
+            filename=file.filename,
+            content=doc_data["content"],
+            mime_type=doc_data["mime_type"],
+            file_size=doc_data["file_size"],
+            metadata=doc_data["metadata"],
+        )
+
+        # Chunk document
+        chunker = DocumentChunker(chunk_size=chunk_size, overlap=chunk_overlap)
+        chunks = chunker.chunk(doc_data["content"], metadata=doc_data["metadata"])
+
+        # Generate embeddings and store chunks
+        embedder = DocumentEmbedder(app.state.ollama)
+        embedded_chunks = await embedder.embed_chunks(chunks)
+
+        chunks_created = 0
+        for chunk in embedded_chunks:
+            app.state.db.store_document_chunk(
+                document_id=doc_id,
+                chunk_index=chunk["chunk_index"],
+                content=chunk["content"],
+                embedding=chunk["embedding"],
+                tokens=chunk["tokens"],
+                metadata=chunk["metadata"],
+            )
+            chunks_created += 1
+
+        return DocumentUploadResponse(
+            success=True, document_id=doc_id, filename=file.filename, chunks_created=chunks_created
+        )
+
+    except Exception as e:
+        # Rollback: delete document if it was created
+        if doc_id is not None:
+            try:
+                app.state.db.delete_document(doc_id, user_id)
+                logger.info(f"Rolled back document {doc_id} after upload failure")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup document {doc_id}: {cleanup_error}")
+
+        logger.error(f"Document upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/documents/list", response_model=DocumentListResponse)
+async def list_documents(req: DocumentListRequest):
+    """List user's documents"""
+    documents = app.state.db.get_user_documents(user_id=req.user_id, limit=req.limit)
+    return DocumentListResponse(documents=documents)
+
+
+@app.post("/documents/query", response_model=DocumentQueryResponse)
+async def query_documents(req: DocumentQueryRequest):
+    """Query documents using RAG"""
+    from dere_shared.documents import DocumentEmbedder
+
+    try:
+        # Generate query embedding
+        embedder = DocumentEmbedder(app.state.ollama)
+        query_embedding = await embedder.embed_query(req.query)
+
+        # Search chunks
+        results = app.state.db.search_document_chunks(
+            embedding=query_embedding,
+            user_id=req.user_id,
+            limit=req.limit,
+            threshold=req.threshold,
+        )
+
+        return DocumentQueryResponse(results=results)
+
+    except Exception as e:
+        logger.error(f"Document query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/documents/{document_id}", response_model=DocumentDeleteResponse)
+async def delete_document(document_id: int, user_id: str):
+    """Delete a document"""
+    success = app.state.db.delete_document(document_id=document_id, user_id=user_id)
+    if success:
+        return DocumentDeleteResponse(success=True, message="Document deleted")
+    else:
+        return DocumentDeleteResponse(success=False, message="Document not found or unauthorized")
+
+
+@app.post("/documents/{document_id}/chat")
+async def document_chat(document_id: int, user_id: str, query: str, threshold: float = 0.5):
+    """Chat with a specific document"""
+    from dere_shared.documents import DocumentEmbedder
+
+    try:
+        # Get document
+        doc = app.state.db.get_document(document_id=document_id, user_id=user_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Generate query embedding
+        embedder = DocumentEmbedder(app.state.ollama)
+        query_embedding = await embedder.embed_query(query)
+
+        # Search only this document's chunks
+        results = app.state.db.search_document_chunks(
+            embedding=query_embedding, user_id=user_id, limit=5, threshold=threshold
+        )
+
+        # Filter to only this document
+        doc_results = [r for r in results if r["document_id"] == document_id]
+
+        return {"document": doc, "relevant_chunks": doc_results, "query": query}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def generate_embedding_task(message_id: int, text: str) -> None:

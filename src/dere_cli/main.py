@@ -239,7 +239,6 @@ def compose_system_prompt(personalities: list[str]) -> str:
 @click.option("--ide", is_flag=True, help="Auto-connect to IDE")
 @click.option("--mcp", "mcp_servers", multiple=True, help="MCP servers to use")
 @click.option("--dry-run", is_flag=True, help="Print command without executing")
-@click.argument("args", nargs=-1)
 @click.pass_context
 def cli(
     ctx,
@@ -264,13 +263,15 @@ def cli(
     ide,
     mcp_servers,
     dry_run,
-    args,
 ):
     """Dere - Personality-layered wrapper for Claude Code"""
 
     # If subcommand is being invoked, don't run claude
     if ctx.invoked_subcommand is not None:
         return
+
+    # Get remaining args from context (after subcommand dispatch)
+    args = ctx.args
 
     # Generate session ID
     session_id = generate_session_id()
@@ -451,28 +452,202 @@ def cli(
         builder.cleanup()
 
 
-@cli.command()
-def daemon():
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def daemon(ctx):
     """Daemon management"""
-    click.echo("Daemon commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-@cli.command()
-def queue():
+@daemon.command()
+def status():
+    """Check daemon status"""
+    import requests
+
+    try:
+        response = requests.get("http://localhost:8787/health", timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            click.echo("Daemon is running")
+            click.echo(f"  Database: {data.get('database', 'unknown')}")
+            click.echo(f"  Ollama: {data.get('ollama', 'unknown')}")
+        else:
+            click.echo("Daemon is not responding correctly")
+            sys.exit(1)
+    except requests.exceptions.ConnectionError:
+        click.echo("Daemon is not running")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error checking daemon: {e}", err=True)
+        sys.exit(1)
+
+
+@daemon.command()
+def start():
+    """Start daemon"""
+    import subprocess
+
+    data_dir = get_data_dir()
+    pid_file = data_dir / "daemon.pid"
+
+    if pid_file.exists():
+        click.echo("Daemon appears to be running (PID file exists)")
+        click.echo("Use 'dere daemon status' to verify")
+        sys.exit(1)
+
+    try:
+        subprocess.Popen(
+            ["dere-daemon"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        click.echo("Daemon started")
+    except Exception as e:
+        click.echo(f"Failed to start daemon: {e}", err=True)
+        sys.exit(1)
+
+
+@daemon.command()
+def stop():
+    """Stop daemon"""
+    import signal
+
+    data_dir = get_data_dir()
+    pid_file = data_dir / "daemon.pid"
+
+    if not pid_file.exists():
+        click.echo("Daemon is not running (no PID file)")
+        sys.exit(1)
+
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        click.echo(f"Sent stop signal to daemon (PID {pid})")
+    except ProcessLookupError:
+        click.echo("Daemon PID file exists but process not found")
+        pid_file.unlink()
+    except Exception as e:
+        click.echo(f"Failed to stop daemon: {e}", err=True)
+        sys.exit(1)
+
+
+@daemon.command()
+def restart():
+    """Restart daemon"""
+    import subprocess
+    import time
+
+    data_dir = get_data_dir()
+    pid_file = data_dir / "daemon.pid"
+
+    # Stop if running
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+            click.echo(f"Stopping daemon (PID {pid})...")
+            time.sleep(2)
+        except Exception:
+            pass
+
+    # Start
+    try:
+        subprocess.Popen(
+            ["dere-daemon"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        click.echo("Daemon restarted")
+    except Exception as e:
+        click.echo(f"Failed to restart daemon: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def queue(ctx):
     """Queue management"""
-    click.echo("Queue commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-@cli.command()
-def history():
+@queue.command("list")
+def queue_list():
+    """List queue items"""
+    import requests
+
+    try:
+        response = requests.get("http://localhost:8787/queue/status", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+
+        items = data.get("tasks", [])
+        if not items:
+            click.echo("Queue is empty")
+            return
+
+        click.echo(f"\nQueue ({len(items)} items):\n")
+        for item in items:
+            task_id = item.get("id")
+            status = item.get("status", "unknown")
+            model = item.get("model_name", "unknown")
+            click.echo(f"  [{task_id}] {status} - {model}")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def history(ctx):
     """View conversation history"""
-    click.echo("History commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-@cli.group()
-def entities():
+@history.command("show")
+@click.argument("session_id", type=int)
+def history_show(session_id):
+    """Show conversation history for a session"""
+    import requests
+
+    try:
+        response = requests.get(f"http://localhost:8787/sessions/{session_id}/history", timeout=5)
+        response.raise_for_status()
+        data = response.json()
+
+        messages = data.get("messages", [])
+        if not messages:
+            click.echo(f"No history found for session {session_id}")
+            return
+
+        click.echo(f"\nSession {session_id} history ({len(messages)} messages):\n")
+        for msg in messages:
+            role = msg.get("message_type", "unknown")
+            content = msg.get("prompt", "")[:100]
+            click.echo(f"  [{role}] {content}...")
+
+    except requests.exceptions.ConnectionError:
+        click.echo("Error: Cannot connect to daemon", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def entities(ctx):
     """View and search extracted entities"""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @entities.command("list")
@@ -609,34 +784,320 @@ def entities_related(entity, limit):
         sys.exit(1)
 
 
-@cli.command()
-def summaries():
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def summaries(ctx):
     """View session summaries"""
-    click.echo("Summaries commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-@cli.command()
-def wellness():
+@summaries.command("list")
+def summaries_list():
+    """List recent session summaries"""
+    click.echo("Summary listing not yet implemented")
+    click.echo("Will show recent session summaries from database")
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def wellness(ctx):
     """Wellness tracking"""
-    click.echo("Wellness commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-@cli.command()
-def stats():
+@wellness.command("checkin")
+def wellness_checkin():
+    """Start wellness check-in"""
+    import subprocess
+
+    try:
+        subprocess.run(["dere", "--mode", "checkin"], check=True)
+    except Exception as e:
+        click.echo(f"Failed to start wellness check-in: {e}", err=True)
+        sys.exit(1)
+
+
+@wellness.command("history")
+def wellness_history():
+    """View wellness session history"""
+    click.echo("Wellness history not yet implemented")
+    click.echo("Will show wellness check-in sessions from database")
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def stats(ctx):
     """View statistics"""
-    click.echo("Stats commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
-@cli.command()
-def config():
+@stats.command("show")
+def stats_show():
+    """Show system statistics"""
+    click.echo("Statistics not yet implemented")
+    click.echo("Will show session counts, entity counts, etc.")
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def config(ctx):
     """Configuration management"""
-    click.echo("Config commands coming soon...")
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@config.command("show")
+def config_show():
+    """Show current configuration"""
+    config_path = get_config_dir() / "config.toml"
+    if not config_path.exists():
+        click.echo(f"Config file not found: {config_path}")
+        sys.exit(1)
+
+    click.echo(config_path.read_text())
+
+
+@config.command("path")
+def config_path():
+    """Show config file path"""
+    click.echo(get_config_dir() / "config.toml")
+
+
+@config.command("edit")
+def config_edit():
+    """Edit configuration"""
+    import subprocess
+
+    config_path = get_config_dir() / "config.toml"
+    editor = os.environ.get("EDITOR", "nano")
+
+    try:
+        subprocess.run([editor, str(config_path)], check=True)
+    except Exception as e:
+        click.echo(f"Failed to open editor: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command()
 def version():
     """Show version"""
     click.echo("dere 0.1.0 (Python rewrite)")
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def docs(ctx):
+    """Document management and RAG queries"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@docs.command("list")
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+@click.option("--limit", default=50, help="Max number of documents")
+def docs_list(user_id, limit):
+    """List uploaded documents"""
+    import os
+
+    import requests
+
+    # Use system username if not specified
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        response = requests.post(
+            f"{daemon_url}/documents/list",
+            json={"user_id": user_id, "limit": limit},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if not data["documents"]:
+            click.echo("No documents found")
+            return
+
+        click.echo(f"\nFound {len(data['documents'])} documents:\n")
+        for doc in data["documents"]:
+            click.echo(f"  [{doc['id']}] {doc['filename']}")
+            click.echo(f"      Type: {doc['mime_type']}, Size: {doc['file_size']} bytes")
+            click.echo(f"      Uploaded: {doc['uploaded_at']}\n")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("upload")
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+@click.option("--chunk-size", default=1000, help="Chunk size in tokens")
+@click.option("--chunk-overlap", default=200, help="Chunk overlap in tokens")
+def docs_upload(file_path, user_id, chunk_size, chunk_overlap):
+    """Upload a document"""
+    import os
+
+    import requests
+
+    # Use system username if not specified
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+    file_path = Path(file_path)
+
+    click.echo(f"Uploading {file_path.name}...")
+
+    try:
+        with open(file_path, "rb") as f:
+            files = {"file": (file_path.name, f)}
+            data = {
+                "user_id": user_id,
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+            }
+            response = requests.post(
+                f"{daemon_url}/documents/upload", files=files, data=data, timeout=60
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo("✓ Uploaded successfully!")
+        click.echo(f"  Document ID: {result['document_id']}")
+        click.echo(f"  Chunks created: {result['chunks_created']}")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("query")
+@click.argument("query")
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+@click.option("--limit", default=10, help="Max number of results")
+@click.option("--threshold", default=0.5, help="Similarity threshold (0-1)")
+def docs_query(query, user_id, limit, threshold):
+    """Query documents using RAG"""
+    import os
+
+    import requests
+
+    # Use system username if not specified
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+
+    click.echo(f"Searching for: {query}\n")
+
+    try:
+        response = requests.post(
+            f"{daemon_url}/documents/query",
+            json={"query": query, "user_id": user_id, "limit": limit, "threshold": threshold},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if not data["results"]:
+            click.echo("No relevant chunks found")
+            return
+
+        click.echo(f"Found {len(data['results'])} relevant chunks:\n")
+        for result in data["results"]:
+            click.echo(f"  [{result['filename']}] (similarity: {result['similarity']:.2f})")
+            click.echo(f"  {result['content'][:200]}...\n")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("delete")
+@click.argument("document_id", type=int)
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+def docs_delete(document_id, user_id):
+    """Delete a document"""
+    import os
+
+    import requests
+
+    # Use system username if not specified
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+
+    if not click.confirm(f"Delete document {document_id}?"):
+        return
+
+    try:
+        response = requests.delete(
+            f"{daemon_url}/documents/{document_id}",
+            params={"user_id": user_id},
+            timeout=10,
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        if result["success"]:
+            click.echo(f"✓ {result['message']}")
+        else:
+            click.echo(f"✗ {result['message']}", err=True)
+            sys.exit(1)
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("chat")
+@click.argument("document_id", type=int)
+@click.argument("query")
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+@click.option("--threshold", default=0.5, help="Similarity threshold (0-1)")
+def docs_chat(document_id, query, user_id, threshold):
+    """Chat with a specific document"""
+    import os
+
+    import requests
+
+    # Use system username if not specified
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        response = requests.post(
+            f"{daemon_url}/documents/{document_id}/chat",
+            params={"user_id": user_id, "query": query, "threshold": threshold},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        click.echo(f"\nDocument: {data['document']['filename']}\n")
+        click.echo(f"Query: {query}\n")
+
+        if not data["relevant_chunks"]:
+            click.echo("No relevant sections found in this document")
+            return
+
+        click.echo(f"Found {len(data['relevant_chunks'])} relevant sections:\n")
+        for chunk in data["relevant_chunks"]:
+            click.echo(f"  Chunk {chunk['chunk_index']} (similarity: {chunk['similarity']:.2f})")
+            click.echo(f"  {chunk['content'][:200]}...\n")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

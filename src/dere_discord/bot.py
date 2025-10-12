@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import discord
 from discord import AllowedMentions, app_commands
 from loguru import logger
@@ -38,6 +40,90 @@ class DereDiscordClient(discord.Client):
 
     async def setup_hook(self) -> None:
         """Register slash commands when the bot starts."""
+
+        # Register document slash commands
+        @self.tree.command(name="docs-list", description="List uploaded documents")
+        async def docs_list_command(interaction: discord.Interaction):
+            """List user's documents"""
+            await interaction.response.defer(ephemeral=True)
+            user_id = str(interaction.user.id)
+
+            try:
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "http://localhost:8787/documents/list",
+                        json={"user_id": user_id, "limit": 20},
+                        timeout=10,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                if not data["documents"]:
+                    await interaction.followup.send("No documents found", ephemeral=True)
+                    return
+
+                # Build response
+                lines = [f"**Found {len(data['documents'])} documents:**\n"]
+                for doc in data["documents"]:
+                    lines.append(f"[{doc['id']}] **{doc['filename']}**")
+                    lines.append(
+                        f"  Size: {doc['file_size']} bytes | Uploaded: {doc['uploaded_at']}\n"
+                    )
+
+                response_text = "\n".join(lines)
+                if len(response_text) > 2000:
+                    response_text = response_text[:1997] + "..."
+
+                await interaction.followup.send(response_text, ephemeral=True)
+
+            except Exception as e:
+                logger.error(f"Failed to list documents: {e}")
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+        @self.tree.command(name="docs-query", description="Query uploaded documents")
+        @app_commands.describe(query="Query to search for")
+        async def docs_query_command(interaction: discord.Interaction, query: str):
+            """Query documents using RAG"""
+            await interaction.response.defer()
+            user_id = str(interaction.user.id)
+
+            try:
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "http://localhost:8787/documents/query",
+                        json={"query": query, "user_id": user_id, "limit": 5, "threshold": 0.7},
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                if not data["results"]:
+                    await interaction.followup.send("No relevant information found")
+                    return
+
+                # Build response
+                lines = [f"**Query:** {query}\n"]
+                for result in data["results"]:
+                    similarity = result["similarity"]
+                    filename = result["filename"]
+                    content = result["content"][:300]
+                    lines.append(f"**[{filename}]** (similarity: {similarity:.2f})")
+                    lines.append(f"```{content}...```\n")
+
+                response_text = "\n".join(lines)
+                if len(response_text) > 2000:
+                    response_text = response_text[:1997] + "..."
+
+                await interaction.followup.send(response_text)
+
+            except Exception as e:
+                logger.error(f"Failed to query documents: {e}")
+                await interaction.followup.send(f"Error: {e}")
+
         await self.tree.sync()
 
     async def on_ready(self) -> None:
@@ -179,6 +265,10 @@ class DereDiscordClient(discord.Client):
         if not self._is_allowed_target(message):
             return
 
+        # Check for document attachments
+        if message.attachments:
+            await self._handle_attachments(message)
+
         content = message.clean_content.strip()
         if not content:
             return
@@ -294,3 +384,63 @@ class DereDiscordClient(discord.Client):
                 return False
 
         return True
+
+    async def _handle_attachments(self, message: discord.Message) -> None:
+        """Handle document attachments (PDF, text files, etc.)"""
+        supported_extensions = {".pdf", ".txt", ".md"}
+        user_id = str(message.author.id)
+
+        for attachment in message.attachments:
+            # Check if file type is supported
+            file_ext = Path(attachment.filename).suffix.lower()
+            if file_ext not in supported_extensions:
+                continue
+
+            # Check file size (50MB limit)
+            if attachment.size > 50 * 1024 * 1024:
+                await message.channel.send(
+                    f"⚠️ {attachment.filename} is too large (max 50MB)",
+                    reference=message,
+                )
+                continue
+
+            try:
+                # Download attachment
+                file_bytes = await attachment.read()
+
+                # Upload to daemon
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    files = {"file": (attachment.filename, file_bytes)}
+                    data = {"user_id": user_id, "chunk_size": 1000, "chunk_overlap": 200}
+
+                    await message.add_reaction("⏳")
+
+                    response = await client.post(
+                        "http://localhost:8787/documents/upload",
+                        files=files,
+                        data=data,
+                        timeout=60,
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+
+                await message.remove_reaction("⏳", self.user)
+                await message.add_reaction("✅")
+
+                await message.channel.send(
+                    f"✓ Uploaded **{attachment.filename}** (ID: {result['document_id']}, "
+                    f"{result['chunks_created']} chunks)\n"
+                    f"Use `/docs-query` to search this document!",
+                    reference=message,
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to upload attachment {attachment.filename}: {e}")
+                await message.remove_reaction("⏳", self.user)
+                await message.add_reaction("❌")
+                await message.channel.send(
+                    f"⚠️ Failed to upload {attachment.filename}: {e}",
+                    reference=message,
+                )

@@ -181,7 +181,7 @@ def get_full_context(
         try:
             import requests
 
-            response = requests.get(
+            response = requests.post(
                 f"{daemon_url}/context/get",
                 json={"session_id": session_id, "max_age_minutes": 30},
                 timeout=2,

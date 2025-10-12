@@ -16,8 +16,9 @@ from dere_shared.models import (
 
 
 class Database:
-    def __init__(self, db_url: str):
+    def __init__(self, db_url: str, embedding_dimension: int = 1024):
         self.db_url = db_url
+        self.embedding_dimension = embedding_dimension
         self.conn = psycopg.connect(db_url, autocommit=True)
         self._init_schema()
 
@@ -45,29 +46,7 @@ class Database:
         # Enable pgvector extension
         self.conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-        # Sessions table
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                id BIGSERIAL PRIMARY KEY,
-                working_dir TEXT NOT NULL,
-                start_time BIGINT NOT NULL,
-                end_time BIGINT,
-                continued_from BIGINT REFERENCES sessions(id),
-                project_type TEXT,
-                claude_session_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        # Migration: Add claude_session_id column if it doesn't exist
-        try:
-            self.conn.execute("""
-                ALTER TABLE sessions ADD COLUMN claude_session_id TEXT
-            """)
-        except Exception:
-            pass
-
-        # User sessions - cross-medium continuity
+        # User sessions - cross-medium continuity (create first for FK reference)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS user_sessions (
                 id BIGSERIAL PRIMARY KEY,
@@ -79,13 +58,22 @@ class Database:
             )
         """)
 
-        # Migration: Add user_session_id to sessions if it doesn't exist
-        try:
-            self.conn.execute("""
-                ALTER TABLE sessions ADD COLUMN user_session_id BIGINT REFERENCES user_sessions(id)
-            """)
-        except Exception:
-            pass
+        # Sessions table
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id BIGSERIAL PRIMARY KEY,
+                working_dir TEXT NOT NULL,
+                start_time BIGINT NOT NULL,
+                end_time BIGINT,
+                continued_from BIGINT REFERENCES sessions(id),
+                project_type TEXT,
+                claude_session_id TEXT,
+                user_session_id BIGINT REFERENCES user_sessions(id),
+                medium TEXT,
+                user_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         # Session personalities
         self.conn.execute("""
@@ -116,7 +104,7 @@ class Database:
         """)
 
         # Conversations with vector embeddings
-        self.conn.execute("""
+        self.conn.execute(f"""
             CREATE TABLE IF NOT EXISTS conversations (
                 id BIGSERIAL PRIMARY KEY,
                 session_id BIGINT REFERENCES sessions(id),
@@ -124,7 +112,7 @@ class Database:
                 message_type TEXT NOT NULL DEFAULT 'user',
                 embedding_text TEXT,
                 processing_mode TEXT,
-                prompt_embedding VECTOR(1024),
+                prompt_embedding VECTOR({self.embedding_dimension}),
                 timestamp BIGINT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -172,6 +160,7 @@ class Database:
                 entity_type TEXT NOT NULL,
                 entity_value TEXT NOT NULL,
                 normalized_value TEXT NOT NULL,
+                fingerprint TEXT,
                 confidence FLOAT NOT NULL,
                 context_start INTEGER,
                 context_end INTEGER,
@@ -179,6 +168,14 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Migration: Add fingerprint column if it doesn't exist
+        try:
+            self.conn.execute("""
+                ALTER TABLE entities ADD COLUMN fingerprint TEXT
+            """)
+        except Exception:
+            pass
 
         # Entity relationships
         self.conn.execute("""
@@ -357,6 +354,33 @@ class Database:
             )
         """)
 
+        # Documents - uploaded documents for RAG
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                content TEXT,
+                mime_type TEXT,
+                file_size BIGINT,
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata JSONB
+            )
+        """)
+
+        # Document chunks - chunked documents with embeddings
+        self.conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                id BIGSERIAL PRIMARY KEY,
+                document_id BIGINT REFERENCES documents(id) ON DELETE CASCADE,
+                chunk_index INT NOT NULL,
+                content TEXT NOT NULL,
+                embedding vector({self.embedding_dimension}),
+                tokens INT,
+                metadata JSONB
+            )
+        """)
+
         # Create indexes
         self._create_indexes()
 
@@ -364,6 +388,12 @@ class Database:
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS conversations_embedding_idx
             ON conversations USING ivfflat (prompt_embedding vector_cosine_ops)
+            WITH (lists = 100)
+        """)
+
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS document_chunks_embedding_idx
+            ON document_chunks USING ivfflat (embedding vector_cosine_ops)
             WITH (lists = 100)
         """)
 
@@ -386,12 +416,16 @@ class Database:
             "CREATE INDEX IF NOT EXISTS entities_session_idx ON entities(session_id)",
             "CREATE INDEX IF NOT EXISTS entities_type_idx ON entities(entity_type)",
             "CREATE INDEX IF NOT EXISTS entities_normalized_idx ON entities(normalized_value)",
+            "CREATE INDEX IF NOT EXISTS entities_fingerprint_idx ON entities(fingerprint) WHERE fingerprint IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS emotion_states_session_idx ON emotion_states(session_id)",
             "CREATE INDEX IF NOT EXISTS emotion_states_last_update_idx ON emotion_states(last_update DESC)",
             "CREATE INDEX IF NOT EXISTS stimulus_history_session_idx ON stimulus_history(session_id)",
             "CREATE INDEX IF NOT EXISTS stimulus_history_timestamp_idx ON stimulus_history(timestamp DESC)",
             "CREATE INDEX IF NOT EXISTS conversation_insights_personality_idx ON conversation_insights USING GIN (personality_combo)",
             "CREATE INDEX IF NOT EXISTS conversation_patterns_personality_idx ON conversation_patterns USING GIN (personality_combo)",
+            "CREATE INDEX IF NOT EXISTS documents_user_idx ON documents(user_id)",
+            "CREATE INDEX IF NOT EXISTS documents_uploaded_idx ON documents(uploaded_at DESC)",
+            "CREATE INDEX IF NOT EXISTS document_chunks_document_idx ON document_chunks(document_id)",
         ]
 
         for idx in indexes:
@@ -671,7 +705,7 @@ class Database:
 
         sorted_names = sorted(personality_names)
         result = self.conn.execute(query, sorted_names)
-        return self._rows_to_dicts(result)
+        return self._rows_to_dicts(result, result.fetchall())
 
     def get_cached_context(self, session_id: int, max_age_seconds: int) -> tuple[str | None, bool]:
         """Get cached context if it exists and is fresh"""
@@ -1017,15 +1051,65 @@ class Database:
         normalized_value: str,
         confidence: float,
     ) -> None:
-        """Store extracted entity"""
+        """Store extracted entity with semantic fingerprint"""
+        from dere_shared.synthesis import SemanticFingerprinter
+
+        # Generate fingerprint for entity resolution
+        fingerprinter = SemanticFingerprinter()
+        fingerprint = fingerprinter.fingerprint(normalized_value)
+
         self._execute_and_commit(
             """
             INSERT INTO entities
-            (session_id, conversation_id, entity_type, entity_value, normalized_value, confidence)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            (session_id, conversation_id, entity_type, entity_value, normalized_value, fingerprint, confidence)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
-            [session_id, conversation_id, entity_type, entity_value, normalized_value, confidence],
+            [
+                session_id,
+                conversation_id,
+                entity_type,
+                entity_value,
+                normalized_value,
+                fingerprint,
+                confidence,
+            ],
         )
+
+    def find_entity_collisions(self, personality_combo: tuple[str, ...]) -> list[list[str]]:
+        """Find entity name variations (collisions) using fingerprints.
+
+        Args:
+            personality_combo: Personality combination to filter by
+
+        Returns:
+            List of entity name groups that likely refer to the same thing
+        """
+        from dere_shared.synthesis import SemanticFingerprinter
+
+        # Get all entities for this personality combo's sessions
+        sessions = self.get_sessions_by_personalities(personality_combo)
+        if not sessions:
+            return []
+
+        session_ids = [s["id"] for s in sessions]
+        placeholders = ",".join(["%s"] * len(session_ids))
+
+        result = self.conn.execute(
+            f"""
+            SELECT DISTINCT normalized_value, fingerprint
+            FROM entities
+            WHERE session_id IN ({placeholders})
+              AND fingerprint IS NOT NULL
+            """,
+            session_ids,
+        )
+
+        # Build fingerprint list
+        fingerprints = [(row[0], row[1]) for row in result]
+
+        # Use fingerprinter to find collisions
+        fingerprinter = SemanticFingerprinter()
+        return fingerprinter.find_collisions(fingerprints)
 
     def get_entities_for_conversation(self, conversation_id: int) -> list[dict[str, Any]]:
         """Get all entities extracted from a specific conversation"""
@@ -1837,7 +1921,7 @@ class Database:
             """,
             [list(personality_combo), limit],
         )
-        return self._rows_to_dicts(result)
+        return self._rows_to_dicts(result, result.fetchall())
 
     def get_patterns_for_personality(
         self, personality_combo: tuple[str, ...], limit: int = 10
@@ -1861,7 +1945,187 @@ class Database:
             """,
             [list(personality_combo), limit],
         )
-        return self._rows_to_dicts(result)
+        return self._rows_to_dicts(result, result.fetchall())
+
+    # Document methods
+
+    def store_document(
+        self,
+        user_id: str,
+        filename: str,
+        content: str,
+        mime_type: str,
+        file_size: int,
+        metadata: dict | None = None,
+    ) -> int:
+        """Store a document.
+
+        Args:
+            user_id: User identifier
+            filename: Original filename
+            content: Document content
+            mime_type: MIME type
+            file_size: File size in bytes
+            metadata: Optional metadata dict
+
+        Returns:
+            Document ID
+        """
+        result = self._execute_and_commit(
+            """
+            INSERT INTO documents (user_id, filename, content, mime_type, file_size, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            [user_id, filename, content, mime_type, file_size, json.dumps(metadata or {})],
+        )
+        return result.fetchone()[0]
+
+    def store_document_chunk(
+        self,
+        document_id: int,
+        chunk_index: int,
+        content: str,
+        embedding: list[float],
+        tokens: int,
+        metadata: dict | None = None,
+    ) -> int:
+        """Store a document chunk with embedding.
+
+        Args:
+            document_id: Parent document ID
+            chunk_index: Chunk index
+            content: Chunk content
+            embedding: Embedding vector
+            tokens: Token count
+            metadata: Optional metadata dict
+
+        Returns:
+            Chunk ID
+        """
+        embedding_json = json.dumps(embedding)
+        result = self._execute_and_commit(
+            """
+            INSERT INTO document_chunks (document_id, chunk_index, content, embedding, tokens, metadata)
+            VALUES (%s, %s, %s, %s::vector, %s, %s)
+            RETURNING id
+            """,
+            [document_id, chunk_index, content, embedding_json, tokens, json.dumps(metadata or {})],
+        )
+        return result.fetchone()[0]
+
+    def get_user_documents(self, user_id: str, limit: int = 50) -> list[dict]:
+        """Get documents for a user.
+
+        Args:
+            user_id: User identifier
+            limit: Maximum number of documents
+
+        Returns:
+            List of document dicts
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, filename, mime_type, file_size, uploaded_at, metadata
+            FROM documents
+            WHERE user_id = %s
+            ORDER BY uploaded_at DESC
+            LIMIT %s
+            """,
+            [user_id, limit],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def search_document_chunks(
+        self,
+        embedding: list[float],
+        user_id: str | None = None,
+        limit: int = 10,
+        threshold: float = 0.7,
+    ) -> list[dict]:
+        """Search document chunks by embedding similarity.
+
+        Args:
+            embedding: Query embedding vector
+            user_id: Optional user filter
+            limit: Maximum number of results
+            threshold: Similarity threshold (0-1)
+
+        Returns:
+            List of chunk dicts with similarity scores
+        """
+        embedding_json = json.dumps(embedding)
+
+        if user_id:
+            result = self.conn.execute(
+                """
+                SELECT dc.id, dc.document_id, dc.chunk_index, dc.content, dc.tokens, dc.metadata,
+                       d.filename, d.mime_type,
+                       1 - (dc.embedding <=> %s::vector) AS similarity
+                FROM document_chunks dc
+                JOIN documents d ON dc.document_id = d.id
+                WHERE d.user_id = %s AND 1 - (dc.embedding <=> %s::vector) >= %s
+                ORDER BY dc.embedding <=> %s::vector
+                LIMIT %s
+                """,
+                [embedding_json, user_id, embedding_json, threshold, embedding_json, limit],
+            )
+        else:
+            result = self.conn.execute(
+                """
+                SELECT dc.id, dc.document_id, dc.chunk_index, dc.content, dc.tokens, dc.metadata,
+                       d.filename, d.mime_type,
+                       1 - (dc.embedding <=> %s::vector) AS similarity
+                FROM document_chunks dc
+                JOIN documents d ON dc.document_id = d.id
+                WHERE 1 - (dc.embedding <=> %s::vector) >= %s
+                ORDER BY dc.embedding <=> %s::vector
+                LIMIT %s
+                """,
+                [embedding_json, embedding_json, threshold, embedding_json, limit],
+            )
+
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def delete_document(self, document_id: int, user_id: str) -> bool:
+        """Delete a document and its chunks.
+
+        Args:
+            document_id: Document ID
+            user_id: User identifier (for authorization)
+
+        Returns:
+            True if deleted, False if not found or unauthorized
+        """
+        result = self._execute_and_commit(
+            """
+            DELETE FROM documents
+            WHERE id = %s AND user_id = %s
+            """,
+            [document_id, user_id],
+        )
+        return result.rowcount > 0
+
+    def get_document(self, document_id: int, user_id: str) -> dict | None:
+        """Get a single document by ID.
+
+        Args:
+            document_id: Document ID
+            user_id: User identifier (for authorization)
+
+        Returns:
+            Document dict or None if not found
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, filename, content, mime_type, file_size, uploaded_at, metadata
+            FROM documents
+            WHERE id = %s AND user_id = %s
+            """,
+            [document_id, user_id],
+        )
+        rows = self._rows_to_dicts(result, result.fetchall())
+        return rows[0] if rows else None
 
     def close(self) -> None:
         """Close database connection"""
