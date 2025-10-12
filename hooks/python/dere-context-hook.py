@@ -28,6 +28,56 @@ def log_error(message):
         pass  # Don't let logging errors break the hook
 
 
+def _load_initial_documents(session_id: int | None) -> None:
+    """Load documents specified via CLI flags on session start."""
+    if not session_id:
+        return
+
+    # Check if we've already loaded documents for this session
+    state_file = Path(f"/tmp/dere_docs_loaded_{session_id}")
+    if state_file.exists():
+        return
+
+    # Check for document IDs to load
+    with_docs = os.getenv("DERE_WITH_DOCS", "")
+    with_tags = os.getenv("DERE_WITH_TAGS", "")
+
+    if not with_docs and not with_tags:
+        return
+
+    try:
+        import requests
+
+        daemon_url = "http://localhost:8787"
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+        # Prepare load request
+        request_data = {}
+        if with_docs:
+            doc_ids = [int(d.strip()) for d in with_docs.split(",") if d.strip()]
+            request_data["doc_ids"] = doc_ids
+        if with_tags:
+            tags = [t.strip() for t in with_tags.split(",") if t.strip()]
+            request_data["tags"] = tags
+
+        # Load documents
+        response = requests.post(
+            f"{daemon_url}/sessions/{session_id}/documents/load",
+            params={"user_id": user_id},
+            json=request_data,
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        # Mark as loaded
+        with open(state_file, "w") as f:
+            f.write("")
+
+        log_error(f"Loaded documents for session {session_id}: {request_data}")
+    except Exception as e:
+        log_error(f"Failed to load initial documents: {e}")
+
+
 def main():
     if os.getenv("DERE_CONTEXT") != "true":
         sys.exit(0)
@@ -49,6 +99,9 @@ def main():
         # Get session ID from environment
         session_id_str = os.getenv("DERE_SESSION_ID")
         session_id = int(session_id_str) if session_id_str else None
+
+        # Load documents on first message (if specified)
+        _load_initial_documents(session_id)
 
         context_str = get_full_context(session_id=session_id)
         if context_str:

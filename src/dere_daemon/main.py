@@ -264,6 +264,32 @@ class DocumentDeleteResponse(BaseModel):
     message: str
 
 
+class DocumentLoadRequest(BaseModel):
+    doc_ids: list[int] | None = None
+    tags: list[str] | None = None
+
+
+class DocumentLoadResponse(BaseModel):
+    success: bool
+    loaded_docs: list[int]
+    message: str
+
+
+class ActiveDocumentsResponse(BaseModel):
+    session_id: int
+    active_documents: list[int]
+
+
+class DocumentTagRequest(BaseModel):
+    tags: list[str]
+    action: str  # "add" or "remove"
+
+
+class DocumentTagResponse(BaseModel):
+    success: bool
+    message: str
+
+
 # Global state
 class AppState:
     db: Database
@@ -1505,6 +1531,7 @@ async def upload_document(
     user_id: str = Form(...),
     chunk_size: int = Form(1000),
     chunk_overlap: int = Form(200),
+    tags: str = Form(""),
 ):
     """Upload and process a document"""
     from dere_shared.documents import DocumentChunker, DocumentEmbedder, DocumentLoader
@@ -1527,6 +1554,12 @@ async def upload_document(
             file_size=doc_data["file_size"],
             metadata=doc_data["metadata"],
         )
+
+        # Add tags if provided
+        if tags:
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+            if tag_list:
+                app.state.db.add_tags_to_document(doc_id, tag_list, user_id)
 
         # Chunk document
         chunker = DocumentChunker(chunk_size=chunk_size, overlap=chunk_overlap)
@@ -1636,6 +1669,89 @@ async def document_chat(document_id: int, user_id: str, query: str, threshold: f
         raise
     except Exception as e:
         logger.error(f"Document chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/documents/{document_id}/tags", response_model=DocumentTagResponse)
+async def manage_document_tags(document_id: int, user_id: str, req: DocumentTagRequest):
+    """Add or remove tags from a document"""
+    try:
+        if req.action == "add":
+            success = app.state.db.add_tags_to_document(document_id, req.tags, user_id)
+            message = f"Added {len(req.tags)} tag(s)" if success else "Failed to add tags"
+        elif req.action == "remove":
+            success = app.state.db.remove_tags_from_document(document_id, req.tags, user_id)
+            message = f"Removed {len(req.tags)} tag(s)" if success else "Failed to remove tags"
+        else:
+            raise HTTPException(status_code=400, detail="Action must be 'add' or 'remove'")
+
+        return DocumentTagResponse(success=success, message=message)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Tag management failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sessions/{session_id}/documents/load", response_model=DocumentLoadResponse)
+async def load_session_documents(session_id: int, user_id: str, req: DocumentLoadRequest):
+    """Load documents into a session by ID or tag"""
+    try:
+        doc_ids = []
+
+        # Load by document IDs
+        if req.doc_ids:
+            doc_ids.extend(req.doc_ids)
+
+        # Load by tags
+        if req.tags:
+            tagged_docs = app.state.db.get_documents_by_tags(user_id, req.tags, match_all=False)
+            doc_ids.extend([doc["id"] for doc in tagged_docs])
+
+        # Remove duplicates
+        doc_ids = list(set(doc_ids))
+
+        if not doc_ids:
+            return DocumentLoadResponse(
+                success=False, loaded_docs=[], message="No documents found to load"
+            )
+
+        # Set active documents
+        app.state.db.set_active_documents(session_id, doc_ids)
+
+        return DocumentLoadResponse(
+            success=True,
+            loaded_docs=doc_ids,
+            message=f"Loaded {len(doc_ids)} document(s)",
+        )
+
+    except Exception as e:
+        logger.error(f"Document loading failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sessions/{session_id}/documents", response_model=ActiveDocumentsResponse)
+async def get_session_documents(session_id: int):
+    """Get active documents for a session"""
+    try:
+        active_docs = app.state.db.get_active_documents(session_id)
+        return ActiveDocumentsResponse(session_id=session_id, active_documents=active_docs)
+
+    except Exception as e:
+        logger.error(f"Failed to get session documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/sessions/{session_id}/documents")
+async def unload_session_documents(session_id: int):
+    """Unload all documents from a session"""
+    try:
+        app.state.db.clear_active_documents(session_id)
+        return {"success": True, "message": "All documents unloaded"}
+
+    except Exception as e:
+        logger.error(f"Failed to unload documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

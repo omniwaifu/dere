@@ -238,6 +238,8 @@ def compose_system_prompt(personalities: list[str]) -> str:
 @click.option("--add-dir", "add_dirs", multiple=True, help="Additional directories")
 @click.option("--ide", is_flag=True, help="Auto-connect to IDE")
 @click.option("--mcp", "mcp_servers", multiple=True, help="MCP servers to use")
+@click.option("--with-doc", "with_docs", multiple=True, type=int, help="Load document by ID")
+@click.option("--with-tag", "with_tags", multiple=True, help="Load documents by tag")
 @click.option("--dry-run", is_flag=True, help="Print command without executing")
 @click.pass_context
 def cli(
@@ -262,6 +264,8 @@ def cli(
     add_dirs,
     ide,
     mcp_servers,
+    with_docs,
+    with_tags,
     dry_run,
 ):
     """Dere - Personality-layered wrapper for Claude Code"""
@@ -291,6 +295,10 @@ def cli(
         os.environ["DERE_CONTEXT_DEPTH"] = str(context_depth)
         os.environ["DERE_CONTEXT_MODE"] = context_mode
         os.environ["DERE_MAX_CONTEXT_TOKENS"] = str(max_context_tokens)
+    if with_docs:
+        os.environ["DERE_WITH_DOCS"] = ",".join(str(d) for d in with_docs)
+    if with_tags:
+        os.environ["DERE_WITH_TAGS"] = ",".join(with_tags)
 
     # Determine session type
     if continue_conv:
@@ -1094,6 +1102,150 @@ def docs_chat(document_id, query, user_id, threshold):
         for chunk in data["relevant_chunks"]:
             click.echo(f"  Chunk {chunk['chunk_index']} (similarity: {chunk['similarity']:.2f})")
             click.echo(f"  {chunk['content'][:200]}...\n")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("tag")
+@click.argument("document_id", type=int)
+@click.option("--add", "tags_to_add", help="Tags to add (comma-separated)")
+@click.option("--remove", "tags_to_remove", help="Tags to remove (comma-separated)")
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+def docs_tag(document_id, tags_to_add, tags_to_remove, user_id):
+    """Add or remove tags from a document"""
+    import os
+
+    import requests
+
+    if not tags_to_add and not tags_to_remove:
+        click.echo("Error: Must specify --add or --remove", err=True)
+        sys.exit(1)
+
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        if tags_to_add:
+            tags = [t.strip() for t in tags_to_add.split(",") if t.strip()]
+            response = requests.post(
+                f"{daemon_url}/documents/{document_id}/tags",
+                params={"user_id": user_id},
+                json={"tags": tags, "action": "add"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            click.echo(f"✓ Added tags: {', '.join(tags)}")
+
+        if tags_to_remove:
+            tags = [t.strip() for t in tags_to_remove.split(",") if t.strip()]
+            response = requests.post(
+                f"{daemon_url}/documents/{document_id}/tags",
+                params={"user_id": user_id},
+                json={"tags": tags, "action": "remove"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            click.echo(f"✓ Removed tags: {', '.join(tags)}")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("load")
+@click.option("--session", type=int, required=True, help="Session ID")
+@click.option("--doc-id", "doc_ids", multiple=True, type=int, help="Document ID to load")
+@click.option("--tag", "tags", multiple=True, help="Load all documents with tag")
+@click.option("--user-id", default=None, help="User ID (defaults to system user)")
+def docs_load(session, doc_ids, tags, user_id):
+    """Load documents into a session"""
+    import os
+
+    import requests
+
+    if not doc_ids and not tags:
+        click.echo("Error: Must specify --doc-id or --tag", err=True)
+        sys.exit(1)
+
+    if not user_id:
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        request_data = {}
+        if doc_ids:
+            request_data["doc_ids"] = list(doc_ids)
+        if tags:
+            request_data["tags"] = list(tags)
+
+        response = requests.post(
+            f"{daemon_url}/sessions/{session}/documents/load",
+            params={"user_id": user_id},
+            json=request_data,
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        click.echo(f"✓ {data['message']}")
+        click.echo(f"  Loaded {len(data['loaded_docs'])} documents")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("unload")
+@click.argument("session_id", type=int)
+def docs_unload(session_id):
+    """Unload all documents from a session"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        response = requests.delete(
+            f"{daemon_url}/sessions/{session_id}/documents",
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        click.echo(f"✓ Unloaded all documents from session {session_id}")
+
+    except requests.RequestException as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@docs.command("status")
+@click.argument("session_id", type=int)
+def docs_status(session_id):
+    """Show which documents are loaded in a session"""
+    import requests
+
+    daemon_url = "http://localhost:8787"
+
+    try:
+        response = requests.get(
+            f"{daemon_url}/sessions/{session_id}/documents",
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        active_docs = data.get("active_documents", [])
+
+        if not active_docs:
+            click.echo(f"No documents loaded in session {session_id}")
+            return
+
+        click.echo(f"\nSession {session_id} has {len(active_docs)} documents loaded:")
+        click.echo(f"  Document IDs: {', '.join(str(d) for d in active_docs)}")
 
     except requests.RequestException as e:
         click.echo(f"Error: {e}", err=True)

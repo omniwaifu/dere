@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dere_shared.emotion.models import EMOTION_CHARACTERISTICS, OCCEmotionType
+from dere_shared.emotion.models import OCCEmotionType
 
 
 class TensionDetector:
@@ -139,9 +139,7 @@ class TensionDetector:
 
                 opposites = self.opposing_emotions[emotion_type]
                 conflicts = [
-                    r
-                    for r in emotion_records
-                    if r["emotion"] in [opp.value for opp in opposites]
+                    r for r in emotion_records if r["emotion"] in [opp.value for opp in opposites]
                 ]
 
                 if conflicts:

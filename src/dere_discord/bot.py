@@ -124,6 +124,226 @@ class DereDiscordClient(discord.Client):
                 logger.error(f"Failed to query documents: {e}")
                 await interaction.followup.send(f"Error: {e}")
 
+        @self.tree.command(name="docs-load", description="Load document(s) into conversation")
+        @app_commands.describe(doc_ids="Document IDs (comma-separated, e.g., 1,2,3)")
+        async def docs_load_command(interaction: discord.Interaction, doc_ids: str):
+            """Load documents into the current conversation"""
+            await interaction.response.defer(ephemeral=True)
+            user_id = str(interaction.user.id)
+            channel_id = interaction.channel_id
+
+            try:
+                # Get or create session for this channel
+                session = await self.sessions.get_or_create_session(
+                    guild_id=interaction.guild_id,
+                    channel_id=channel_id,
+                    user_id=interaction.user.id,
+                )
+                session_id = session.session_id
+
+                # Parse document IDs
+                doc_id_list = [int(d.strip()) for d in doc_ids.split(",") if d.strip()]
+
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"http://localhost:8787/sessions/{session_id}/documents/load",
+                        params={"user_id": user_id},
+                        json={"doc_ids": doc_id_list},
+                        timeout=10,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                await interaction.followup.send(
+                    f"✓ {data['message']}\nLoaded {len(data['loaded_docs'])} documents",
+                    ephemeral=True,
+                )
+
+            except ValueError:
+                await interaction.followup.send(
+                    "Error: Invalid document IDs format", ephemeral=True
+                )
+            except Exception as e:
+                logger.error(f"Failed to load documents: {e}")
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+        @self.tree.command(name="docs-load-tag", description="Load documents by tag")
+        @app_commands.describe(tags="Tags (comma-separated, e.g., python,docs)")
+        async def docs_load_tag_command(interaction: discord.Interaction, tags: str):
+            """Load documents by tag into the current conversation"""
+            await interaction.response.defer(ephemeral=True)
+            user_id = str(interaction.user.id)
+            channel_id = interaction.channel_id
+
+            try:
+                # Get or create session for this channel
+                session = await self.sessions.get_or_create_session(
+                    guild_id=interaction.guild_id,
+                    channel_id=channel_id,
+                    user_id=interaction.user.id,
+                )
+                session_id = session.session_id
+
+                # Parse tags
+                tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"http://localhost:8787/sessions/{session_id}/documents/load",
+                        params={"user_id": user_id},
+                        json={"tags": tag_list},
+                        timeout=10,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                await interaction.followup.send(
+                    f"✓ {data['message']}\nLoaded {len(data['loaded_docs'])} documents",
+                    ephemeral=True,
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to load documents by tag: {e}")
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+        @self.tree.command(name="docs-unload", description="Unload all documents from conversation")
+        async def docs_unload_command(interaction: discord.Interaction):
+            """Unload all documents from the current conversation"""
+            await interaction.response.defer(ephemeral=True)
+            channel_id = interaction.channel_id
+
+            try:
+                # Get or create session for this channel
+                session = await self.sessions.get_or_create_session(
+                    guild_id=interaction.guild_id,
+                    channel_id=channel_id,
+                    user_id=interaction.user.id,
+                )
+                session_id = session.session_id
+
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.delete(
+                        f"http://localhost:8787/sessions/{session_id}/documents",
+                        timeout=10,
+                    )
+                    response.raise_for_status()
+
+                await interaction.followup.send(
+                    "✓ Unloaded all documents from this conversation",
+                    ephemeral=True,
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to unload documents: {e}")
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+        @self.tree.command(name="docs-status", description="Show loaded documents")
+        async def docs_status_command(interaction: discord.Interaction):
+            """Show which documents are loaded in the current conversation"""
+            await interaction.response.defer(ephemeral=True)
+            channel_id = interaction.channel_id
+
+            try:
+                # Get or create session for this channel
+                session = await self.sessions.get_or_create_session(
+                    guild_id=interaction.guild_id,
+                    channel_id=channel_id,
+                    user_id=interaction.user.id,
+                )
+                session_id = session.session_id
+
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"http://localhost:8787/sessions/{session_id}/documents",
+                        timeout=10,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                active_docs = data.get("active_documents", [])
+
+                if not active_docs:
+                    await interaction.followup.send(
+                        "No documents loaded in this conversation",
+                        ephemeral=True,
+                    )
+                    return
+
+                doc_list = ", ".join(str(d) for d in active_docs)
+                await interaction.followup.send(
+                    f"**Loaded documents:** {len(active_docs)}\n**IDs:** {doc_list}",
+                    ephemeral=True,
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to get document status: {e}")
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+        @self.tree.command(name="docs-tag", description="Add or remove tags from a document")
+        @app_commands.describe(
+            document_id="Document ID",
+            add_tags="Tags to add (comma-separated)",
+            remove_tags="Tags to remove (comma-separated)",
+        )
+        async def docs_tag_command(
+            interaction: discord.Interaction,
+            document_id: int,
+            add_tags: str = "",
+            remove_tags: str = "",
+        ):
+            """Add or remove tags from a document"""
+            await interaction.response.defer(ephemeral=True)
+            user_id = str(interaction.user.id)
+
+            if not add_tags and not remove_tags:
+                await interaction.followup.send(
+                    "Error: Must specify add_tags or remove_tags",
+                    ephemeral=True,
+                )
+                return
+
+            try:
+                import httpx
+
+                messages = []
+
+                async with httpx.AsyncClient() as client:
+                    if add_tags:
+                        tags = [t.strip() for t in add_tags.split(",") if t.strip()]
+                        response = await client.post(
+                            f"http://localhost:8787/documents/{document_id}/tags",
+                            params={"user_id": user_id},
+                            json={"tags": tags, "action": "add"},
+                            timeout=10,
+                        )
+                        response.raise_for_status()
+                        messages.append(f"✓ Added tags: {', '.join(tags)}")
+
+                    if remove_tags:
+                        tags = [t.strip() for t in remove_tags.split(",") if t.strip()]
+                        response = await client.post(
+                            f"http://localhost:8787/documents/{document_id}/tags",
+                            params={"user_id": user_id},
+                            json={"tags": tags, "action": "remove"},
+                            timeout=10,
+                        )
+                        response.raise_for_status()
+                        messages.append(f"✓ Removed tags: {', '.join(tags)}")
+
+                await interaction.followup.send("\n".join(messages), ephemeral=True)
+
+            except Exception as e:
+                logger.error(f"Failed to manage tags: {e}")
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
         await self.tree.sync()
 
     async def on_ready(self) -> None:

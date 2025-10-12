@@ -375,7 +375,8 @@ class Database:
                 mime_type TEXT,
                 file_size BIGINT,
                 uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                metadata JSONB
+                metadata JSONB,
+                tags TEXT[]
             )
         """)
 
@@ -438,6 +439,7 @@ class Database:
             "CREATE INDEX IF NOT EXISTS pattern_evolution_created_idx ON pattern_evolution(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS documents_user_idx ON documents(user_id)",
             "CREATE INDEX IF NOT EXISTS documents_uploaded_idx ON documents(uploaded_at DESC)",
+            "CREATE INDEX IF NOT EXISTS documents_tags_idx ON documents USING GIN (tags)",
             "CREATE INDEX IF NOT EXISTS document_chunks_document_idx ON document_chunks(document_id)",
         ]
 
@@ -798,6 +800,63 @@ class Database:
         )
         row = result.fetchone()
         return self._row_to_dict(result, row) if row else None
+
+    def set_active_documents(self, session_id: int, doc_ids: list[int]) -> None:
+        """Set active documents for a session.
+
+        Args:
+            session_id: Session ID
+            doc_ids: List of document IDs to load
+        """
+        import json
+
+        self._execute_and_commit(
+            """
+            INSERT INTO session_flags (session_id, flag_name, flag_value)
+            VALUES (%s, 'active_documents', %s)
+            ON CONFLICT (session_id, flag_name)
+            DO UPDATE SET flag_value = EXCLUDED.flag_value
+            """,
+            [session_id, json.dumps(doc_ids)],
+        )
+
+    def get_active_documents(self, session_id: int) -> list[int]:
+        """Get active documents for a session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            List of document IDs
+        """
+        import json
+
+        result = self.conn.execute(
+            """
+            SELECT flag_value
+            FROM session_flags
+            WHERE session_id = %s AND flag_name = 'active_documents'
+            """,
+            [session_id],
+        )
+        row = result.fetchone()
+        if row and row[0]:
+            return json.loads(row[0])
+        return []
+
+    def clear_active_documents(self, session_id: int) -> None:
+        """Clear active documents for a session.
+
+        Args:
+            session_id: Session ID
+        """
+        self._execute_and_commit(
+            """
+            DELETE FROM session_flags
+            WHERE session_id = %s AND flag_name = 'active_documents'
+            """,
+            [session_id],
+        )
 
     def get_latest_session_for_channel(
         self, working_dir: str, max_age_hours: int | None = None
@@ -1960,9 +2019,7 @@ class Database:
         )
         return self._rows_to_dicts(result, result.fetchall())
 
-    def store_pattern_snapshot(
-        self, pattern_id: int, snapshot_data: dict, frequency: int
-    ) -> int:
+    def store_pattern_snapshot(self, pattern_id: int, snapshot_data: dict, frequency: int) -> int:
         """Store a snapshot of pattern state for evolution tracking.
 
         Args:
@@ -2009,9 +2066,7 @@ class Database:
         )
         return self._rows_to_dicts(result, result.fetchall())
 
-    def detect_pattern_shifts(
-        self, pattern_id: int, threshold: float = 0.3
-    ) -> dict | None:
+    def detect_pattern_shifts(self, pattern_id: int, threshold: float = 0.3) -> dict | None:
         """Detect significant shifts in a pattern's frequency.
 
         Args:
@@ -2227,7 +2282,7 @@ class Database:
         """
         result = self.conn.execute(
             """
-            SELECT id, filename, content, mime_type, file_size, uploaded_at, metadata
+            SELECT id, filename, content, mime_type, file_size, uploaded_at, metadata, tags
             FROM documents
             WHERE id = %s AND user_id = %s
             """,
@@ -2235,6 +2290,98 @@ class Database:
         )
         rows = self._rows_to_dicts(result, result.fetchall())
         return rows[0] if rows else None
+
+    def add_tags_to_document(self, document_id: int, tags: list[str], user_id: str) -> bool:
+        """Add tags to a document.
+
+        Args:
+            document_id: Document ID
+            tags: List of tags to add
+            user_id: User identifier (for authorization)
+
+        Returns:
+            True if successful, False if document not found or unauthorized
+        """
+        if not tags:
+            return False
+
+        result = self._execute_and_commit(
+            """
+            UPDATE documents
+            SET tags = ARRAY(SELECT DISTINCT unnest(COALESCE(tags, ARRAY[]::TEXT[]) || %s::TEXT[]))
+            WHERE id = %s AND user_id = %s
+            """,
+            [tags, document_id, user_id],
+        )
+        return result.rowcount > 0
+
+    def remove_tags_from_document(self, document_id: int, tags: list[str], user_id: str) -> bool:
+        """Remove tags from a document.
+
+        Args:
+            document_id: Document ID
+            tags: List of tags to remove
+            user_id: User identifier (for authorization)
+
+        Returns:
+            True if successful, False if document not found or unauthorized
+        """
+        if not tags:
+            return False
+
+        result = self._execute_and_commit(
+            """
+            UPDATE documents
+            SET tags = ARRAY(SELECT unnest(tags) EXCEPT SELECT unnest(%s::TEXT[]))
+            WHERE id = %s AND user_id = %s
+            """,
+            [tags, document_id, user_id],
+        )
+        return result.rowcount > 0
+
+    def get_documents_by_tags(
+        self, user_id: str, tags: list[str], match_all: bool = False, limit: int = 50
+    ) -> list[dict]:
+        """Get documents by tags.
+
+        Args:
+            user_id: User identifier
+            tags: List of tags to search for
+            match_all: If True, document must have ALL tags; if False, ANY tag matches
+            limit: Maximum number of documents to return
+
+        Returns:
+            List of document dicts
+        """
+        if not tags:
+            return []
+
+        if match_all:
+            # Document must contain all specified tags
+            result = self.conn.execute(
+                """
+                SELECT id, user_id, filename, mime_type, file_size, uploaded_at, tags
+                FROM documents
+                WHERE user_id = %s AND tags @> %s::TEXT[]
+                ORDER BY uploaded_at DESC
+                LIMIT %s
+                """,
+                [user_id, tags, limit],
+            )
+        else:
+            # Document must contain at least one of the specified tags
+            result = self.conn.execute(
+                """
+                SELECT id, user_id, filename, mime_type, file_size, uploaded_at, tags
+                FROM documents
+                WHERE user_id = %s AND tags && %s::TEXT[]
+                ORDER BY uploaded_at DESC
+                LIMIT %s
+                """,
+                [user_id, tags, limit],
+            )
+
+        return self._rows_to_dicts(result, result.fetchall())
 
     def close(self) -> None:
         """Close database connection"""

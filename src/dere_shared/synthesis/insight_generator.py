@@ -181,9 +181,7 @@ class InsightGenerator:
 
         return insights
 
-    def _find_emotion_entity_correlation(
-        self, patterns: dict[str, Any]
-    ) -> list[dict[str, Any]]:
+    def _find_emotion_entity_correlation(self, patterns: dict[str, Any]) -> list[dict[str, Any]]:
         """
         Find correlation between entities and emotions.
 
@@ -258,8 +256,7 @@ class InsightGenerator:
 
             # Calculate distribution percentages
             medium_percentages = {
-                medium: round((count / total) * 100, 1)
-                for medium, count in medium_counts.items()
+                medium: round((count / total) * 100, 1) for medium, count in medium_counts.items()
             }
 
             # Find dominant medium (>70% mentions)
