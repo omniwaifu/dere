@@ -22,6 +22,8 @@ class ConversationCapturePayload(TypedDict, total=False):
     command_args: str | None
     exit_code: int
     is_command: bool
+    medium: str
+    user_id: str | None
 
 
 class SessionEndPayload(TypedDict, total=False):
@@ -49,6 +51,74 @@ class DaemonClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def register_presence(
+        self, user_id: str, available_channels: list[dict[str, Any]]
+    ) -> None:
+        """Register Discord presence with daemon.
+
+        Args:
+            user_id: Discord user ID
+            available_channels: List of channel dicts with id, name, type
+        """
+        payload = {
+            "medium": "discord",
+            "user_id": user_id,
+            "available_channels": available_channels,
+        }
+        resp = await self._client.post("/presence/register", json=payload)
+        resp.raise_for_status()
+
+    async def heartbeat_presence(self, user_id: str) -> None:
+        """Send heartbeat to keep presence alive.
+
+        Args:
+            user_id: Discord user ID
+        """
+        payload = {"medium": "discord", "user_id": user_id}
+        resp = await self._client.post("/presence/heartbeat", json=payload)
+        resp.raise_for_status()
+
+    async def unregister_presence(self, user_id: str) -> None:
+        """Unregister Discord presence on shutdown.
+
+        Args:
+            user_id: Discord user ID
+        """
+        payload = {"medium": "discord", "user_id": user_id}
+        resp = await self._client.post("/presence/unregister", json=payload)
+        resp.raise_for_status()
+
+    async def get_pending_notifications(self) -> list[dict[str, Any]]:
+        """Get pending notifications for Discord medium.
+
+        Returns:
+            List of notification dicts
+        """
+        resp = await self._client.get("/notifications/pending", params={"medium": "discord"})
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("notifications", [])
+
+    async def mark_notification_delivered(self, notification_id: int) -> None:
+        """Mark notification as delivered.
+
+        Args:
+            notification_id: Notification ID
+        """
+        resp = await self._client.post(f"/notifications/{notification_id}/delivered")
+        resp.raise_for_status()
+
+    async def mark_notification_failed(self, notification_id: int, error: str) -> None:
+        """Mark notification as failed.
+
+        Args:
+            notification_id: Notification ID
+            error: Error message
+        """
+        payload = {"notification_id": notification_id, "error_message": error}
+        resp = await self._client.post(f"/notifications/{notification_id}/failed", json=payload)
+        resp.raise_for_status()
+
     async def create_session(self, working_dir: str, personality: str) -> int:
         payload = {
             "working_dir": working_dir,
@@ -64,9 +134,19 @@ class DaemonClient:
             raise DaemonError(f"Invalid session response: {data!r}") from exc
 
     async def find_or_create_session(
-        self, working_dir: str, personality: str, max_age_hours: int | None = None
+        self,
+        working_dir: str,
+        personality: str,
+        max_age_hours: int | None = None,
+        user_id: str | None = None,
     ) -> tuple[int, bool, str | None]:
         """Find existing session or create new one.
+
+        Args:
+            working_dir: Working directory path
+            personality: Personality label
+            max_age_hours: Maximum age in hours to consider existing session active
+            user_id: Discord user ID (optional, for cross-medium continuity)
 
         Returns:
             Tuple of (session_id, resumed, claude_session_id) where:
@@ -79,6 +159,7 @@ class DaemonClient:
             "personality": personality,
             "medium": "discord",
             "max_age_hours": max_age_hours,
+            "user_id": user_id,
         }
         resp = await self._client.post("/sessions/find_or_create", json=payload)
         resp.raise_for_status()

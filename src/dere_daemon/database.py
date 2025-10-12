@@ -67,6 +67,26 @@ class Database:
         except Exception:
             pass
 
+        # User sessions - cross-medium continuity
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                default_personality TEXT,
+                started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_active TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id)
+            )
+        """)
+
+        # Migration: Add user_session_id to sessions if it doesn't exist
+        try:
+            self.conn.execute("""
+                ALTER TABLE sessions ADD COLUMN user_session_id BIGINT REFERENCES user_sessions(id)
+            """)
+        except Exception:
+            pass
+
         # Session personalities
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS session_personalities (
@@ -109,6 +129,21 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Migration: Add medium and user_id columns to conversations
+        try:
+            self.conn.execute("""
+                ALTER TABLE conversations ADD COLUMN medium TEXT
+            """)
+        except Exception:
+            pass
+
+        try:
+            self.conn.execute("""
+                ALTER TABLE conversations ADD COLUMN user_id TEXT
+            """)
+        except Exception:
+            pass
 
         # Task queue
         self.conn.execute("""
@@ -264,6 +299,36 @@ class Database:
             )
         """)
 
+        # Medium presence - track online mediums for routing
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS medium_presence (
+                medium TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'online' CHECK(status IN ('online', 'offline')),
+                last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                available_channels JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (medium, user_id)
+            )
+        """)
+
+        # Ambient notifications - queue for LLM-routed messages
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS ambient_notifications (
+                id BIGSERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                target_medium TEXT NOT NULL,
+                target_location TEXT NOT NULL,
+                message TEXT NOT NULL,
+                priority TEXT NOT NULL CHECK(priority IN ('alert', 'conversation')),
+                routing_reasoning TEXT,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'delivered', 'failed')),
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                delivered_at TIMESTAMP
+            )
+        """)
+
         # Create indexes
         self._create_indexes()
 
@@ -279,8 +344,12 @@ class Database:
         indexes = [
             "CREATE INDEX IF NOT EXISTS sessions_working_dir_idx ON sessions(working_dir)",
             "CREATE INDEX IF NOT EXISTS sessions_start_time_idx ON sessions(start_time DESC)",
+            "CREATE INDEX IF NOT EXISTS sessions_user_session_idx ON sessions(user_session_id) WHERE user_session_id IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS conversations_session_idx ON conversations(session_id)",
             "CREATE INDEX IF NOT EXISTS conversations_timestamp_idx ON conversations(timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS conversations_medium_idx ON conversations(medium) WHERE medium IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS conversations_user_id_idx ON conversations(user_id) WHERE user_id IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS conversations_medium_timestamp_idx ON conversations(medium, timestamp DESC) WHERE medium IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS task_queue_pending_model_idx ON task_queue(status, model_name) WHERE status = 'pending'",
             "CREATE INDEX IF NOT EXISTS task_queue_claim_idx ON task_queue(status, model_name, priority, created_at) WHERE status = 'pending'",
             "CREATE INDEX IF NOT EXISTS task_queue_id_status_idx ON task_queue(id, status)",
@@ -302,8 +371,8 @@ class Database:
         """Create a new session and return its ID"""
         result = self._execute_and_commit(
             """
-            INSERT INTO sessions (working_dir, start_time, end_time, continued_from, project_type, claude_session_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO sessions (working_dir, start_time, end_time, continued_from, project_type, claude_session_id, user_session_id, medium, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             [
@@ -313,6 +382,9 @@ class Database:
                 session.continued_from,
                 session.project_type,
                 session.claude_session_id,
+                session.user_session_id,
+                session.medium,
+                session.user_id,
             ],
         )
         return result.fetchone()[0]
@@ -326,8 +398,8 @@ class Database:
             result = self._execute_and_commit(
                 """
                 INSERT INTO conversations
-                (session_id, prompt, message_type, embedding_text, processing_mode, prompt_embedding, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s::vector, %s)
+                (session_id, prompt, message_type, embedding_text, processing_mode, prompt_embedding, timestamp, medium, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, %s)
                 RETURNING id
                 """,
                 [
@@ -338,14 +410,16 @@ class Database:
                     conv.processing_mode,
                     embedding_json,
                     conv.timestamp,
+                    conv.medium,
+                    conv.user_id,
                 ],
             )
         else:
             result = self._execute_and_commit(
                 """
                 INSERT INTO conversations
-                (session_id, prompt, message_type, embedding_text, processing_mode, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                (session_id, prompt, message_type, embedding_text, processing_mode, timestamp, medium, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 [
@@ -355,6 +429,8 @@ class Database:
                     conv.embedding_text,
                     conv.processing_mode,
                     conv.timestamp,
+                    conv.medium,
+                    conv.user_id,
                 ],
             )
         return result.fetchone()[0]
@@ -379,7 +455,7 @@ class Database:
             [embedding_json, embedding_json, threshold, embedding_json, limit],
         )
 
-        return [dict(row) for row in result.fetchall()]
+        return self._rows_to_dicts(result, result.fetchall())
 
     def queue_task(self, task: TaskQueue) -> int:
         """Add a task to the background processing queue"""
@@ -505,6 +581,33 @@ class Database:
         if row:
             return self._row_to_dict(result, row)["personality_name"]
         return None
+
+    def resolve_personality_hierarchy(
+        self, session_id: int, default_personality: str | None = None
+    ) -> str | None:
+        """Resolve personality with hierarchy: session > user_session > default.
+
+        Args:
+            session_id: Session ID to resolve personality for
+            default_personality: System default personality (fallback)
+
+        Returns:
+            Resolved personality name or None
+        """
+        # 1. Check session-specific personality (highest priority)
+        session_personality = self.get_session_personality(session_id)
+        if session_personality:
+            return session_personality
+
+        # 2. Check user_session default personality
+        user_session_id = self.get_user_session_id_for_session(session_id)
+        if user_session_id:
+            user_session = self.get_user_session_by_id(user_session_id)
+            if user_session and user_session.get("default_personality"):
+                return user_session["default_personality"]
+
+        # 3. Fall back to system default
+        return default_personality
 
     def get_cached_context(self, session_id: int, max_age_seconds: int) -> tuple[str | None, bool]:
         """Get cached context if it exists and is fresh"""
@@ -648,6 +751,59 @@ class Database:
             [claude_session_id, session_id],
         )
         logger.info("UPDATE affected {} rows", result.rowcount)
+
+    def get_latest_active_session(
+        self, medium: str | None = None, max_age_hours: int = 24
+    ) -> dict[str, Any] | None:
+        """Find the most recent active session, optionally filtered by medium.
+
+        Args:
+            medium: Optional medium filter ("cli", "discord", or None for any)
+            max_age_hours: Maximum age in hours to consider session active
+
+        Returns:
+            Session dict with id, working_dir, start_time, personality, or None
+        """
+        import time
+
+        cutoff = int(time.time()) - (max_age_hours * 3600)
+
+        # Medium prefix mapping for future extensibility
+        medium_prefixes = {
+            "discord": "discord://",
+            # TODO: Telegram integration - add "telegram": "telegram://" when implementing
+            # TODO: Slack integration - add "slack": "slack://" if needed
+        }
+
+        if medium and medium in medium_prefixes:
+            # Specific medium: match prefix
+            medium_filter = "working_dir LIKE %s"
+            params = [cutoff, f"{medium_prefixes[medium]}%"]
+        elif medium == "cli":
+            # CLI: exclude all known protocol prefixes
+            prefixes = list(medium_prefixes.values())
+            conditions = " AND ".join(["working_dir NOT LIKE %s"] * len(prefixes))
+            medium_filter = f"({conditions})" if prefixes else "1=1"
+            params = [cutoff] + [f"{p}%" for p in prefixes]
+        else:
+            # No filter: any medium
+            medium_filter = "1=1"
+            params = [cutoff]
+
+        query = f"""
+            SELECT s.id, s.working_dir, s.start_time, sp.personality_name
+            FROM sessions s
+            LEFT JOIN session_personalities sp ON s.id = sp.session_id
+            WHERE s.end_time IS NULL
+              AND s.start_time >= %s
+              AND {medium_filter}
+            ORDER BY s.start_time DESC
+            LIMIT 1
+        """
+
+        result = self.conn.execute(query, params)
+        row = result.fetchone()
+        return self._row_to_dict(result, row) if row else None
 
     def get_previous_mode_session(self, mode: str, working_dir: str) -> dict[str, Any] | None:
         """Find the most recent completed session for a given mode"""
@@ -992,6 +1148,95 @@ class Database:
         )
         return self._rows_to_dicts(result, result.fetchall())
 
+    def search_user_session_context(
+        self,
+        user_session_id: int,
+        entity_values: list[str],
+        embedding: list[float],
+        limit: int = 10,
+        entity_weight: float = 0.6,
+        recency_weight: float = 0.3,
+    ) -> list[dict[str, Any]]:
+        """Search conversations across all sessions in a user_session using hybrid search.
+
+        Args:
+            user_session_id: User session ID to search within
+            entity_values: List of normalized entity values to match
+            embedding: Query embedding vector
+            limit: Maximum results to return
+            entity_weight: Weight for entity matching score (0-1)
+            recency_weight: Weight for recency score (0-1)
+
+        Returns:
+            List of conversations with scores, including session medium
+        """
+        import time
+
+        embedding_json = json.dumps(embedding)
+        semantic_weight = 1.0 - entity_weight
+        current_time = int(time.time())
+
+        result = self.conn.execute(
+            """
+            WITH entity_matches AS (
+                SELECT c.id, COUNT(DISTINCT e.id)::float as entity_score
+                FROM conversations c
+                JOIN sessions s ON s.id = c.session_id
+                JOIN entities e ON e.conversation_id = c.id
+                WHERE s.user_session_id = %s
+                  AND e.normalized_value = ANY(%s)
+                GROUP BY c.id
+            ),
+            semantic_matches AS (
+                SELECT c.id, (1 - (c.prompt_embedding <=> %s::vector)) as semantic_score
+                FROM conversations c
+                JOIN sessions s ON s.id = c.session_id
+                WHERE s.user_session_id = %s
+                  AND c.prompt_embedding IS NOT NULL
+            )
+            SELECT
+                c.id, c.session_id, c.prompt, c.message_type, c.timestamp,
+                s.working_dir, s.medium,
+                COALESCE(em.entity_score, 0) as entity_score,
+                COALESCE(sm.semantic_score, 0) as semantic_score,
+                EXP(-(%s - c.timestamp)::float / 604800.0) as recency_score,
+                (
+                    (COALESCE(em.entity_score, 0) / %s * %s +
+                     COALESCE(sm.semantic_score, 0) * %s) * (1 - %s) +
+                    EXP(-(%s - c.timestamp)::float / 604800.0) * %s
+                ) as combined_score,
+                ARRAY(
+                    SELECT e.normalized_value
+                    FROM entities e
+                    WHERE e.conversation_id = c.id
+                ) as matched_entities
+            FROM conversations c
+            JOIN sessions s ON s.id = c.session_id
+            LEFT JOIN entity_matches em ON em.id = c.id
+            LEFT JOIN semantic_matches sm ON sm.id = c.id
+            WHERE s.user_session_id = %s
+              AND (COALESCE(em.entity_score, 0) > 0 OR COALESCE(sm.semantic_score, 0) >= 0.65)
+            ORDER BY combined_score DESC
+            LIMIT %s
+            """,
+            [
+                user_session_id,
+                entity_values,
+                embedding_json,
+                user_session_id,
+                current_time,
+                float(len(entity_values)),
+                entity_weight,
+                semantic_weight,
+                recency_weight,
+                current_time,
+                recency_weight,
+                user_session_id,
+                limit,
+            ],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
     # Emotion system methods
 
     def store_emotion_state(self, session_id: int, active_emotions: dict, last_decay_time: int) -> None:
@@ -1093,6 +1338,327 @@ class Database:
                 stimulus_record.timestamp,
                 json.dumps(stimulus_record.context)
             ]
+        )
+
+    # User session methods
+
+    def find_or_create_user_session(
+        self, user_id: str, default_personality: str | None = None
+    ) -> int:
+        """Find existing user_session or create new one.
+
+        Args:
+            user_id: User identifier (Discord user ID, etc.)
+            default_personality: Default personality to use (optional)
+
+        Returns:
+            user_session ID
+        """
+        result = self.conn.execute(
+            """
+            SELECT id FROM user_sessions WHERE user_id = %s
+            """,
+            [user_id],
+        )
+        row = result.fetchone()
+        if row:
+            user_session_id = row[0]
+            # Update last_active timestamp
+            self._execute_and_commit(
+                """
+                UPDATE user_sessions
+                SET last_active = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """,
+                [user_session_id],
+            )
+            return user_session_id
+
+        # Create new user_session
+        result = self._execute_and_commit(
+            """
+            INSERT INTO user_sessions (user_id, default_personality, started_at, last_active)
+            VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id
+            """,
+            [user_id, default_personality],
+        )
+        return result.fetchone()[0]
+
+    def get_user_session_by_id(self, user_session_id: int) -> dict[str, Any] | None:
+        """Get user session by ID.
+
+        Args:
+            user_session_id: User session ID
+
+        Returns:
+            User session dict or None
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, user_id, default_personality, started_at, last_active
+            FROM user_sessions
+            WHERE id = %s
+            """,
+            [user_session_id],
+        )
+        row = result.fetchone()
+        return self._row_to_dict(result, row) if row else None
+
+    def get_session_ids_for_user_session(
+        self, user_session_id: int, limit: int = 50
+    ) -> list[int]:
+        """Get all session IDs linked to a user_session.
+
+        Args:
+            user_session_id: User session ID
+            limit: Maximum number of sessions to return (default 50)
+
+        Returns:
+            List of session IDs, ordered by most recent first
+        """
+        result = self.conn.execute(
+            """
+            SELECT id
+            FROM sessions
+            WHERE user_session_id = %s
+            ORDER BY start_time DESC
+            LIMIT %s
+            """,
+            [user_session_id, limit],
+        )
+        rows = result.fetchall()
+        return [row[0] for row in rows]
+
+    def get_user_session_id_for_session(self, session_id: int) -> int | None:
+        """Get user_session_id for a given session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            User session ID or None if not linked
+        """
+        result = self.conn.execute(
+            """
+            SELECT user_session_id
+            FROM sessions
+            WHERE id = %s
+            """,
+            [session_id],
+        )
+        row = result.fetchone()
+        return row[0] if row and row[0] else None
+
+    def update_session_user_session_id(self, session_id: int, user_session_id: int) -> None:
+        """Update user_session_id for an existing session.
+
+        Args:
+            session_id: Session ID to update
+            user_session_id: User session ID to link
+        """
+        self._execute_and_commit(
+            """
+            UPDATE sessions
+            SET user_session_id = %s
+            WHERE id = %s
+            """,
+            [user_session_id, session_id],
+        )
+
+    # Presence management methods
+
+    def register_presence(
+        self, medium: str, user_id: str, available_channels: list[dict[str, Any]]
+    ) -> None:
+        """Register a medium as online with available channels.
+
+        Args:
+            medium: Medium identifier (e.g., 'discord', 'telegram')
+            user_id: User identifier
+            available_channels: List of channel dicts with structure specific to medium
+        """
+        self.conn.execute(
+            """
+            INSERT INTO medium_presence (medium, user_id, status, last_heartbeat, available_channels)
+            VALUES (%s, %s, 'online', CURRENT_TIMESTAMP, %s)
+            ON CONFLICT (medium, user_id)
+            DO UPDATE SET
+                status = 'online',
+                last_heartbeat = CURRENT_TIMESTAMP,
+                available_channels = EXCLUDED.available_channels
+            """,
+            [medium, user_id, json.dumps(available_channels)],
+        )
+
+    def heartbeat_presence(self, medium: str, user_id: str) -> None:
+        """Update heartbeat for a medium to keep it alive.
+
+        Args:
+            medium: Medium identifier
+            user_id: User identifier
+        """
+        self.conn.execute(
+            """
+            UPDATE medium_presence
+            SET last_heartbeat = CURRENT_TIMESTAMP
+            WHERE medium = %s AND user_id = %s
+            """,
+            [medium, user_id],
+        )
+
+    def unregister_presence(self, medium: str, user_id: str) -> None:
+        """Mark a medium as offline.
+
+        Args:
+            medium: Medium identifier
+            user_id: User identifier
+        """
+        self.conn.execute(
+            """
+            UPDATE medium_presence
+            SET status = 'offline'
+            WHERE medium = %s AND user_id = %s
+            """,
+            [medium, user_id],
+        )
+
+    def get_available_mediums(self, user_id: str) -> list[dict[str, Any]]:
+        """Get all online mediums for a user.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            List of dicts with medium, available_channels, last_heartbeat
+        """
+        result = self.conn.execute(
+            """
+            SELECT medium, available_channels, last_heartbeat
+            FROM medium_presence
+            WHERE user_id = %s AND status = 'online'
+            ORDER BY last_heartbeat DESC
+            """,
+            [user_id],
+        )
+        rows = result.fetchall()
+        mediums = []
+        for row in rows:
+            row_dict = self._row_to_dict(result, row)
+            # Parse JSON channels
+            if row_dict.get("available_channels"):
+                try:
+                    row_dict["available_channels"] = json.loads(row_dict["available_channels"])
+                except json.JSONDecodeError:
+                    row_dict["available_channels"] = []
+            mediums.append(row_dict)
+        return mediums
+
+    def cleanup_stale_presence(self, stale_seconds: int = 60) -> int:
+        """Mark presence as offline if no heartbeat received.
+
+        Args:
+            stale_seconds: Seconds without heartbeat to consider stale
+
+        Returns:
+            Number of records marked offline
+        """
+        result = self.conn.execute(
+            """
+            UPDATE medium_presence
+            SET status = 'offline'
+            WHERE status = 'online'
+              AND last_heartbeat < CURRENT_TIMESTAMP - INTERVAL '%s seconds'
+            """,
+            [stale_seconds],
+        )
+        return result.rowcount
+
+    # Notification queue methods
+
+    def create_notification(
+        self,
+        user_id: str,
+        target_medium: str,
+        target_location: str,
+        message: str,
+        priority: str,
+        routing_reasoning: str,
+    ) -> int:
+        """Create a pending notification in the queue.
+
+        Args:
+            user_id: User identifier
+            target_medium: Medium to deliver to (discord, telegram, etc)
+            target_location: Channel/DM ID within medium
+            message: Message content
+            priority: Message priority ('alert' or 'conversation')
+            routing_reasoning: LLM explanation for routing decision
+
+        Returns:
+            Notification ID
+        """
+        result = self.conn.execute(
+            """
+            INSERT INTO ambient_notifications
+                (user_id, target_medium, target_location, message, priority, routing_reasoning, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+            RETURNING id
+            """,
+            [user_id, target_medium, target_location, message, priority, routing_reasoning],
+        )
+        row = result.fetchone()
+        return row[0] if row else -1
+
+    def get_pending_notifications(self, medium: str) -> list[dict[str, Any]]:
+        """Get pending notifications for a specific medium.
+
+        Args:
+            medium: Medium identifier (e.g., 'discord')
+
+        Returns:
+            List of pending notification dicts
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, user_id, target_location, message, priority, routing_reasoning, created_at
+            FROM ambient_notifications
+            WHERE target_medium = %s AND status = 'pending'
+            ORDER BY created_at ASC
+            """,
+            [medium],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def mark_notification_delivered(self, notification_id: int) -> None:
+        """Mark notification as successfully delivered.
+
+        Args:
+            notification_id: Notification ID
+        """
+        self.conn.execute(
+            """
+            UPDATE ambient_notifications
+            SET status = 'delivered', delivered_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            [notification_id],
+        )
+
+    def mark_notification_failed(self, notification_id: int, error_message: str) -> None:
+        """Mark notification as failed with error.
+
+        Args:
+            notification_id: Notification ID
+            error_message: Error description
+        """
+        self.conn.execute(
+            """
+            UPDATE ambient_notifications
+            SET status = 'failed', error_message = %s, delivered_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            """,
+            [error_message, notification_id],
         )
 
     def close(self) -> None:

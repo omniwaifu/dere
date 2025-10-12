@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import platform
@@ -36,6 +37,8 @@ class ConversationCaptureRequest(BaseModel):
     command_args: str | None = None
     exit_code: int = 0
     is_command: bool = False
+    medium: str | None = None
+    user_id: str | None = None
 
 
 class SessionEndRequest(BaseModel):
@@ -104,6 +107,7 @@ class FindOrCreateSessionRequest(BaseModel):
     personality: str | None = None
     medium: str = "cli"
     max_age_hours: int | None = None
+    user_id: str | None = None
 
 
 class FindOrCreateSessionResponse(BaseModel):
@@ -132,6 +136,8 @@ class HybridSearchRequest(BaseModel):
     entity_values: list[str] = []
     limit: int = 10
     entity_weight: float = 0.6
+    session_id: int | None = None
+    user_session_id: int | None = None
 
 
 class EntityTimelineResponse(BaseModel):
@@ -148,12 +154,68 @@ class HookCaptureRequest(BaseModel):
     data: dict[str, Any]
 
 
+class AmbientNotifyRequest(BaseModel):
+    message: str
+    priority: str = "alert"
+
+
+class LLMGenerateRequest(BaseModel):
+    prompt: str
+    model: str = "claude-3-5-haiku-20241022"
+    session_id: int | None = None
+    include_context: bool = False
+    medium: str | None = None  # "cli", "discord", or None for any
+
+
+class PresenceRegisterRequest(BaseModel):
+    medium: str
+    user_id: str
+    available_channels: list[dict[str, Any]]
+
+
+class PresenceHeartbeatRequest(BaseModel):
+    medium: str
+    user_id: str
+
+
+class PresenceUnregisterRequest(BaseModel):
+    medium: str
+    user_id: str
+
+
+class RoutingDecideRequest(BaseModel):
+    user_id: str
+    message: str
+    priority: str
+    user_activity: dict[str, Any] | None = None
+
+
+class NotificationDeliveredRequest(BaseModel):
+    notification_id: int
+
+
+class NotificationFailedRequest(BaseModel):
+    notification_id: int
+    error_message: str
+
+
+class NotificationCreateRequest(BaseModel):
+    user_id: str
+    target_medium: str
+    target_location: str
+    message: str
+    priority: str
+    routing_reasoning: str
+
+
 # Global state
 class AppState:
     db: Database
     ollama: OllamaClient
     processor: TaskProcessor
     emotion_managers: dict[int, Any]  # session_id -> OCCEmotionManager
+    ambient_monitor: Any  # AmbientMonitor
+    personality_loader: Any  # PersonalityLoader
 
 
 @asynccontextmanager
@@ -180,7 +242,19 @@ async def lifespan(app: FastAPI):
     db_url = config.get("database", {}).get("url", "postgresql://postgres:dere@localhost/dere")
 
     app.state = AppState()
-    app.state.db = Database(db_url)
+
+    # Initialize database with error handling
+    try:
+        app.state.db = Database(db_url)
+        print(f"✓ Database connected: {db_url}")
+    except Exception as e:
+        print("❌ FATAL: Failed to connect to database")
+        print(f"   URL: {db_url}")
+        print(f"   Error: {e}")
+        print("\n   Make sure PostgreSQL is running:")
+        print("   docker ps | grep postgres")
+        raise
+
     app.state.ollama = OllamaClient(
         base_url=ollama_config["url"],
         embedding_model=ollama_config["embedding_model"],
@@ -189,10 +263,29 @@ async def lifespan(app: FastAPI):
     app.state.processor = TaskProcessor(app.state.db, app.state.ollama)
     app.state.emotion_managers = {}
 
+    # Initialize personality loader
+    from dere_shared.personalities import PersonalityLoader
+
+    config_dir = data_dir  # Use same dir as database for user personalities
+    app.state.personality_loader = PersonalityLoader(config_dir)
+
+    # Initialize ambient monitor
+    try:
+        from dere_ambient import AmbientMonitor, load_ambient_config
+
+        ambient_config = load_ambient_config()
+        app.state.ambient_monitor = AmbientMonitor(ambient_config)
+    except Exception as e:
+        print(f"Warning: Failed to initialize ambient monitor: {e}")
+        app.state.ambient_monitor = None
+
     # Reset any stuck tasks from previous runs
-    stuck_count = app.state.db.reset_stuck_tasks()
-    if stuck_count > 0:
-        print(f"Reset {stuck_count} stuck tasks to pending")
+    try:
+        stuck_count = app.state.db.reset_stuck_tasks()
+        if stuck_count > 0:
+            print(f"Reset {stuck_count} stuck tasks to pending")
+    except Exception as e:
+        print(f"Warning: Failed to reset stuck tasks: {e}")
 
     # Start Ollama health checks
     await app.state.ollama.start()
@@ -200,12 +293,48 @@ async def lifespan(app: FastAPI):
     # Start task processor
     await app.state.processor.start()
 
+    # Start ambient monitor
+    if app.state.ambient_monitor:
+        await app.state.ambient_monitor.start()
+
+    # Start presence cleanup background task
+    async def cleanup_presence_loop():
+        """Background task to cleanup stale presence records."""
+        while True:
+            try:
+                await asyncio.sleep(30)  # Every 30s
+                cleaned = app.state.db.cleanup_stale_presence(stale_seconds=60)
+                if cleaned > 0:
+                    from loguru import logger
+
+                    logger.debug("Cleaned up {} stale presence records", cleaned)
+            except Exception as e:
+                from loguru import logger
+
+                logger.error("Presence cleanup failed: {}", e)
+
+    cleanup_task = asyncio.create_task(cleanup_presence_loop())
+
     print(f"🚀 Dere daemon started - database: {db_path}")
 
     yield
 
     # Shutdown - collect all exceptions
     errors = []
+
+    # Cancel presence cleanup task
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+
+    # Shutdown ambient monitor
+    if app.state.ambient_monitor:
+        try:
+            await app.state.ambient_monitor.shutdown()
+        except Exception as e:
+            errors.append(e)
 
     try:
         await app.state.processor.shutdown()
@@ -388,11 +517,21 @@ async def find_or_create_session(req: FindOrCreateSessionRequest):
     If an old session exists but is outside max_age_hours, a new session will
     be created with continued_from linkage for historical continuity.
     """
+    # Create/find user_session if user_id provided
+    user_session_id = None
+    if req.user_id:
+        user_session_id = app.state.db.find_or_create_user_session(
+            user_id=req.user_id, default_personality=req.personality
+        )
+
     existing = app.state.db.get_latest_session_for_channel(
         req.working_dir, max_age_hours=req.max_age_hours
     )
 
     if existing and req.max_age_hours is not None:
+        # Update existing session with user_session_id if provided
+        if user_session_id:
+            app.state.db.update_session_user_session_id(existing["id"], user_session_id)
         return FindOrCreateSessionResponse(
             session_id=existing["id"],
             resumed=True,
@@ -400,6 +539,9 @@ async def find_or_create_session(req: FindOrCreateSessionRequest):
         )
 
     if existing and req.max_age_hours is None:
+        # Update existing session with user_session_id if provided
+        if user_session_id:
+            app.state.db.update_session_user_session_id(existing["id"], user_session_id)
         return FindOrCreateSessionResponse(
             session_id=existing["id"],
             resumed=True,
@@ -410,6 +552,9 @@ async def find_or_create_session(req: FindOrCreateSessionRequest):
         working_dir=req.working_dir,
         start_time=int(time.time()),
         continued_from=existing["id"] if existing else None,
+        user_session_id=user_session_id,
+        medium=req.medium,
+        user_id=req.user_id,
     )
 
     session_id = app.state.db.create_session(session)
@@ -465,13 +610,17 @@ async def get_history(session_id: int, limit: int = 50):
 @app.post("/search/similar")
 async def search_similar(req: SearchRequest):
     """Search for similar conversations using vector similarity"""
-    # Generate embedding for query
-    embedding = await app.state.ollama.get_embedding(req.query)
+    try:
+        # Generate embedding for query
+        embedding = await app.state.ollama.get_embedding(req.query)
 
-    # Search database
-    results = app.state.db.search_similar(embedding, limit=req.limit, threshold=req.threshold)
+        # Search database
+        results = app.state.db.search_similar(embedding, limit=req.limit, threshold=req.threshold)
 
-    return {"results": results}
+        return {"results": results}
+    except RuntimeError:
+        # Ollama unavailable, return empty results
+        return {"results": []}
 
 
 @app.post("/embeddings/generate")
@@ -483,14 +632,32 @@ async def generate_embedding(text: str):
 
 @app.post("/search/hybrid")
 async def search_hybrid(req: HybridSearchRequest):
-    """Hybrid search using entities and embeddings"""
+    """Hybrid search using entities and embeddings.
+
+    Supports cross-medium search:
+    - If user_session_id provided: search across all sessions in user_session
+    - If session_id provided: resolve user_session_id and search across all sessions
+    - Otherwise: search all conversations
+    """
     # Generate embedding for query
     embedding = await app.state.ollama.get_embedding(req.query)
 
+    # Determine user_session_id
+    user_session_id = req.user_session_id
+    if not user_session_id and req.session_id:
+        user_session_id = app.state.db.get_user_session_id_for_session(req.session_id)
+
     # Perform hybrid search
-    results = app.state.db.search_with_entities_and_embeddings(
-        req.entity_values, embedding, limit=req.limit, entity_weight=req.entity_weight
-    )
+    if user_session_id:
+        # Cross-medium search across user_session
+        results = app.state.db.search_user_session_context(
+            user_session_id, req.entity_values, embedding, limit=req.limit, entity_weight=req.entity_weight
+        )
+    else:
+        # Regular search across all conversations
+        results = app.state.db.search_with_entities_and_embeddings(
+            req.entity_values, embedding, limit=req.limit, entity_weight=req.entity_weight
+        )
 
     return {"results": results, "entity_values": req.entity_values}
 
@@ -530,6 +697,8 @@ async def conversation_capture(req: ConversationCaptureRequest):
         embedding_text="",
         processing_mode="raw",
         timestamp=int(time.time()),
+        medium=req.medium,
+        user_id=req.user_id,
     )
     conversation_id = app.state.db.store_conversation(conv)
 
@@ -945,6 +1114,246 @@ async def hook_capture(req: HookCaptureRequest):
     """Hook endpoint for capturing conversation data"""
     # Store the hook data
     return {"status": "received"}
+
+
+@app.post("/ambient/notify")
+async def ambient_notify(req: AmbientNotifyRequest):
+    """Receive ambient notifications for routing to Discord or other channels.
+
+    This endpoint receives notifications from the ambient monitor and can route them
+    to connected Discord bots or store them for later retrieval.
+    """
+    from loguru import logger
+
+    logger.info(
+        "Received ambient notification (priority: {}): {}", req.priority, req.message[:100]
+    )
+
+    # TODO: Route to Discord bot when implemented
+    # For now, just log and acknowledge
+
+    return {"status": "received", "message": "Notification logged"}
+
+
+@app.post("/llm/generate")
+async def llm_generate(req: LLMGenerateRequest):
+    """Generate LLM response with optional personality/emotion context using Claude CLI."""
+    import asyncio
+
+    from loguru import logger
+
+    from dere_daemon.context import compose_session_context
+
+    try:
+        prompt = req.prompt
+
+        # Optionally inject personality + emotion context
+        if req.include_context:
+            context, resolved_session_id = await compose_session_context(
+                session_id=req.session_id,
+                db=app.state.db,
+                personality_loader=app.state.personality_loader,
+                medium=req.medium,
+                include_emotion=True,
+            )
+            if context:
+                prompt = f"{context}\n\n{prompt}"
+                logger.debug(
+                    "Injected context for session {} (medium: {})",
+                    resolved_session_id,
+                    req.medium or "any",
+                )
+
+        process = await asyncio.create_subprocess_exec(
+            "claude",
+            "--print",
+            "--output-format",
+            "json",
+            "-p",
+            prompt,
+            "--model",
+            req.model,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            logger.error("Claude CLI failed: {}", stderr.decode())
+            return {"error": stderr.decode()}, 500
+
+        response_text = stdout.decode()
+        return {"response": response_text}
+    except Exception as e:
+        logger.error("LLM generation failed: {}", e)
+        return {"error": str(e)}, 500
+
+
+@app.post("/presence/register")
+async def presence_register(req: PresenceRegisterRequest):
+    """Register a medium as online with available channels.
+
+    Used by Discord/Telegram/etc bots to announce they are online and ready to receive messages.
+
+    TODO: Telegram integration
+    When implementing Telegram bot (dere_telegram package):
+    1. Create TelegramBotClient similar to Discord's DereDiscordClient
+    2. Call this endpoint on startup with medium="telegram"
+    3. Provide available_channels with chat IDs and metadata
+    4. Send heartbeats every 30s via /presence/heartbeat
+    5. Poll /notifications/pending with medium="telegram" query param
+    6. Deliver notifications via Telegram Bot API send_message
+    7. Link sessions with user_id (Telegram user ID) for cross-medium continuity
+    """
+    from loguru import logger
+
+    logger.info(
+        "Presence registered: {} for user {} with {} channels",
+        req.medium,
+        req.user_id,
+        len(req.available_channels),
+    )
+    app.state.db.register_presence(req.medium, req.user_id, req.available_channels)
+    return {"status": "registered"}
+
+
+@app.post("/presence/heartbeat")
+async def presence_heartbeat(req: PresenceHeartbeatRequest):
+    """Heartbeat to keep medium alive.
+
+    Bots should call this every 30s to maintain presence.
+    """
+    app.state.db.heartbeat_presence(req.medium, req.user_id)
+    return {"status": "ok"}
+
+
+@app.post("/presence/unregister")
+async def presence_unregister(req: PresenceUnregisterRequest):
+    """Cleanly unregister a medium on shutdown."""
+    from loguru import logger
+
+    logger.info("Presence unregistered: {} for user {}", req.medium, req.user_id)
+    app.state.db.unregister_presence(req.medium, req.user_id)
+    return {"status": "unregistered"}
+
+
+@app.get("/presence/available")
+async def presence_available(user_id: str):
+    """Get all online mediums for a user.
+
+    Returns mediums that can currently receive messages.
+    """
+    mediums = app.state.db.get_available_mediums(user_id)
+    return {"mediums": mediums}
+
+
+@app.post("/routing/decide")
+async def routing_decide(req: RoutingDecideRequest):
+    """Use LLM to decide where to route a message based on context.
+
+    This is the core of omnipresent routing - NO hardcoded rules.
+    LLM analyzes available mediums, user activity, recent conversations,
+    and makes an intelligent decision about where to deliver the message.
+    """
+    from dere_daemon.routing import decide_routing
+
+    # Get available mediums
+    available_mediums = app.state.db.get_available_mediums(req.user_id)
+
+    # Get recent conversations to understand where user has been active
+    # Query last 10 conversations across all mediums
+    result = app.state.db.conn.execute(
+        """
+        SELECT medium, timestamp, prompt
+        FROM conversations
+        WHERE user_id = %s AND medium IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 10
+        """,
+        [req.user_id],
+    )
+    recent_conversations = app.state.db._rows_to_dicts(result, result.fetchall())
+
+    # Make routing decision
+    decision = await decide_routing(
+        user_id=req.user_id,
+        message=req.message,
+        priority=req.priority,
+        available_mediums=available_mediums,
+        user_activity=req.user_activity,
+        recent_conversations=recent_conversations,
+        db=app.state.db,
+    )
+
+    return {
+        "medium": decision.medium,
+        "location": decision.location,
+        "reasoning": decision.reasoning,
+        "fallback": decision.fallback,
+    }
+
+
+@app.post("/notifications/create")
+async def notifications_create(req: NotificationCreateRequest):
+    """Create a notification in the queue for delivery.
+
+    Called by ambient monitor when it decides to engage.
+    """
+    from loguru import logger
+
+    notification_id = app.state.db.create_notification(
+        user_id=req.user_id,
+        target_medium=req.target_medium,
+        target_location=req.target_location,
+        message=req.message,
+        priority=req.priority,
+        routing_reasoning=req.routing_reasoning,
+    )
+    logger.info(
+        "Notification {} created: {} -> {} ({})",
+        notification_id,
+        req.target_medium,
+        req.target_location,
+        req.priority,
+    )
+    return {"notification_id": notification_id, "status": "queued"}
+
+
+@app.get("/notifications/pending")
+async def notifications_pending(medium: str):
+    """Get pending notifications for a specific medium.
+
+    Bots poll this endpoint to retrieve messages that need to be delivered.
+    """
+    notifications = app.state.db.get_pending_notifications(medium)
+    return {"notifications": notifications}
+
+
+@app.post("/notifications/{notification_id}/delivered")
+async def notification_delivered(notification_id: int):
+    """Mark a notification as successfully delivered.
+
+    Called by bots after successfully sending a message.
+    """
+    from loguru import logger
+
+    app.state.db.mark_notification_delivered(notification_id)
+    logger.info("Notification {} marked as delivered", notification_id)
+    return {"status": "delivered"}
+
+
+@app.post("/notifications/{notification_id}/failed")
+async def notification_failed(notification_id: int, req: NotificationFailedRequest):
+    """Mark a notification as failed with error message.
+
+    Called by bots when message delivery fails.
+    """
+    from loguru import logger
+
+    app.state.db.mark_notification_failed(notification_id, req.error_message)
+    logger.warning("Notification {} failed: {}", notification_id, req.error_message)
+    return {"status": "failed"}
 
 
 async def generate_embedding_task(message_id: int, text: str) -> None:

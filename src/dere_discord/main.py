@@ -123,7 +123,8 @@ def _configure_logging() -> None:
     logger.add(
         sys.stderr,
         level="INFO",
-        format="[{time:YYYY-MM-DD HH:mm:ss}] {level}:{name}: {message}",
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>"
+        " | {message}",
     )
     logger.disable("httpx")
 

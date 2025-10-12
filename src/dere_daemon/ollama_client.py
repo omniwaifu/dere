@@ -60,8 +60,11 @@ class OllamaClient:
             resp = await self.client.get(f"{self.base_url}/api/tags", timeout=5.0)
             self._is_healthy = resp.status_code == 200
             self._last_health_check = datetime.now()
+            if not self._is_healthy:
+                logger.warning(f"Ollama health check failed: status {resp.status_code}")
             return self._is_healthy
-        except Exception:
+        except Exception as e:
+            logger.error(f"Ollama health check exception: {type(e).__name__}: {e}")
             self._is_healthy = False
             self._last_health_check = datetime.now()
             return False
@@ -93,7 +96,7 @@ class OllamaClient:
             try:
                 resp = await self.client.post(
                     f"{self.base_url}/api/embeddings",
-                    json={"model": self.embedding_model, "prompt": text},
+                    json={"model": self.embedding_model, "prompt": text, "keep_alive": "5m"},
                 )
 
                 if resp.status_code != 200:
@@ -137,7 +140,12 @@ class OllamaClient:
 
         for attempt in range(max_retries):
             try:
-                payload: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False}
+                payload: dict[str, Any] = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "keep_alive": "5m",  # Unload after 5min of inactivity
+                }
                 if schema:
                     payload["format"] = schema
 
@@ -212,7 +220,7 @@ class OllamaClient:
         try:
             resp = await self.client.post(
                 f"{self.base_url}/api/generate",
-                json={"model": model_name, "prompt": "test", "stream": False},
+                json={"model": model_name, "prompt": "test", "stream": False, "keep_alive": "5m"},
             )
             if resp.status_code != 200:
                 raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
@@ -230,9 +238,10 @@ class OllamaClient:
             model_info = data.get("model_info", {})
 
             # Look for context_length in model_info
-            for key, value in model_info.items():
-                if key.endswith(".context_length"):
-                    return int(value)
+            if isinstance(model_info, dict):
+                for key, value in model_info.items():
+                    if key.endswith(".context_length"):
+                        return int(value)
 
             # Fallback to reasonable default
             return 2048

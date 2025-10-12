@@ -79,6 +79,7 @@ class ChannelSession:
     summary_task: asyncio.Task | None = None
     needs_session_id_capture: bool = False
     settings_file: str | None = None
+    user_id: str | None = None
 
     def touch(self) -> None:
         self.last_activity = _now()
@@ -179,8 +180,10 @@ class SessionManager:
                 user_id=user_id,
             )
             persona_label = ",".join(profile.names)
+            # Pass Discord user_id for cross-medium continuity
+            user_id_str = str(user_id) if user_id else None
             session_id, resumed, claude_session_id = await self._daemon.find_or_create_session(
-                project_path, persona_label, max_age_hours=self._config.session_expiry_hours
+                project_path, persona_label, max_age_hours=self._config.session_expiry_hours, user_id=user_id_str
             )
 
             if resumed and claude_session_id:
@@ -244,6 +247,7 @@ class SessionManager:
                 exit_stack=exit_stack,
                 needs_session_id_capture=(claude_session_id is None),
                 settings_file=settings_path,
+                user_id=user_id_str,
             )
             self._sessions[key] = session
             return session
@@ -276,6 +280,8 @@ class SessionManager:
             "message_type": role,
             "is_command": False,
             "exit_code": 0,
+            "medium": "discord",
+            "user_id": session.user_id,
         }
         await self._daemon.capture_message(payload)
         await self.cancel_summary(session)

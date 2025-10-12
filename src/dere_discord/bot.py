@@ -100,12 +100,121 @@ class DereDiscordClient(discord.Client):
             logger.info("Logged in as {} (id={})", self.user, self.user.id)
             self.sessions.set_bot_identity(self.user.display_name or self.user.name)
 
+            # Register presence with daemon
+            await self._register_presence()
+
+            # Start background tasks
+            self.loop.create_task(self._heartbeat_loop())
+            self.loop.create_task(self._notification_poll_loop())
+
     async def close(self) -> None:
         try:
+            # Unregister presence
+            if self.user:
+                try:
+                    await self.daemon.unregister_presence(str(self.user.id))
+                except Exception as e:
+                    logger.warning("Failed to unregister presence: {}", e)
+
             await self.sessions.close_all()
             await self.daemon.close()
         finally:
             await super().close()
+
+    async def _register_presence(self) -> None:
+        """Register bot presence with daemon on startup."""
+        if not self.user:
+            return
+
+        # TODO: Get actual user_id - for now use bot's owner or config
+        # Using bot's own ID as placeholder for user identification
+        user_id = str(self.user.id)
+
+        # Get available channels
+        channels = []
+        for guild in self.guilds:
+            for channel in guild.text_channels:
+                if channel.permissions_for(guild.me).send_messages:
+                    channels.append({
+                        "id": str(channel.id),
+                        "name": channel.name,
+                        "type": "guild_text",
+                        "guild_id": str(guild.id),
+                        "guild_name": guild.name,
+                    })
+
+        # Add DM channels (can't enumerate easily, will be added dynamically)
+        logger.info("Registering presence with {} channels", len(channels))
+        try:
+            await self.daemon.register_presence(user_id, channels)
+            logger.info("Presence registered successfully")
+        except Exception as e:
+            logger.error("Failed to register presence: {}", e)
+
+    async def _heartbeat_loop(self) -> None:
+        """Send heartbeat every 30s to keep presence alive."""
+        if not self.user:
+            return
+
+        import asyncio
+
+        user_id = str(self.user.id)
+        while not self.is_closed():
+            try:
+                await asyncio.sleep(30)
+                await self.daemon.heartbeat_presence(user_id)
+            except Exception as e:
+                logger.debug("Heartbeat failed: {}", e)
+
+    async def _notification_poll_loop(self) -> None:
+        """Poll for pending notifications every 10s."""
+        if not self.user:
+            return
+
+        import asyncio
+
+        while not self.is_closed():
+            try:
+                await asyncio.sleep(10)
+                notifications = await self.daemon.get_pending_notifications()
+
+                for notif in notifications:
+                    asyncio.create_task(self._deliver_notification(notif))
+            except Exception as e:
+                logger.debug("Notification poll failed: {}", e)
+
+    async def _deliver_notification(self, notif: dict) -> None:
+        """Deliver a notification to Discord."""
+        notification_id = notif["id"]
+        target_location = notif["target_location"]
+        message = notif["message"]
+
+        try:
+            # Parse target: could be channel ID or user ID for DM
+            target_id = int(target_location)
+
+            # Try as channel first
+            channel = self.get_channel(target_id)
+
+            if channel and isinstance(channel, discord.TextChannel):
+                # Guild channel delivery
+                await channel.send(message)
+                await self.daemon.mark_notification_delivered(notification_id)
+                logger.info("Notification {} delivered to channel {}", notification_id, channel.name)
+            else:
+                # Try as DM to user
+                try:
+                    user = await self.fetch_user(target_id)
+                    await user.send(message)
+                    await self.daemon.mark_notification_delivered(notification_id)
+                    logger.info("Notification {} delivered to DM with user {}", notification_id, user.name)
+                except discord.Forbidden:
+                    raise ValueError(f"Cannot send DM to user {target_id} - DMs disabled or blocked")
+                except discord.NotFound:
+                    raise ValueError(f"User {target_id} not found")
+        except Exception as e:
+            logger.error("Failed to deliver notification {}: {}", notification_id, e)
+            await self.daemon.mark_notification_failed(notification_id, str(e))
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:

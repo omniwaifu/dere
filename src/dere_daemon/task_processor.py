@@ -97,7 +97,6 @@ class TaskProcessor:
         tasks_by_model = self.db.get_tasks_by_model()
 
         if not tasks_by_model:
-            logger.debug("No tasks found in queue")
             return
 
         logger.debug("Found tasks: {}", tasks_by_model)

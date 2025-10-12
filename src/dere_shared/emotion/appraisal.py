@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 
 from loguru import logger
 
@@ -51,8 +52,8 @@ class AppraisalEngine:
                 prompt,
                 "--model",
                 "claude-3-5-haiku-20241022",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
 
             stdout, stderr = await process.communicate()

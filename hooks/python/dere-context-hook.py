@@ -15,7 +15,7 @@ hook_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(Path.home() / ".local/share/dere/src"))
 sys.path.insert(0, str(hook_dir / "src"))
 
-from dere_shared.context import get_full_context
+from dere_shared.context import get_full_context  # noqa: E402
 
 
 def log_error(message):

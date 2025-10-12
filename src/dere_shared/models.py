@@ -69,6 +69,9 @@ class Session(BaseModel):
     project_type: str | None = None
     claude_session_id: str | None = None
     created_at: datetime | None = None
+    user_session_id: int | None = None
+    medium: str | None = None
+    user_id: str | None = None
 
 
 class SessionPersonality(BaseModel):
@@ -97,6 +100,8 @@ class Conversation(BaseModel):
     prompt_embedding: Embedding | None = None
     timestamp: Timestamp
     created_at: datetime | None = None
+    medium: str | None = None
+    user_id: str | None = None
 
 
 class TaskQueue(BaseModel):

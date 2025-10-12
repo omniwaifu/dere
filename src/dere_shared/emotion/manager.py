@@ -11,6 +11,7 @@ from dere_shared.emotion.models import (
     EMOTION_CHARACTERISTICS,
     CurrentMoodState,
     EmotionInstance,
+    OCCAppraisal,
     OCCAttitude,
     OCCEmotion,
     OCCEmotionState,
@@ -220,7 +221,7 @@ class OCCEmotionManager:
             primary=primary,
             intensity=primary.intensity,
             last_update=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            appraisal={},
+            appraisal=OCCAppraisal(),
             trigger=stimulus if isinstance(stimulus, dict) else str(stimulus),
         )
 
