@@ -354,6 +354,17 @@ class Database:
             )
         """)
 
+        # Pattern evolution - track how patterns change over time
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS pattern_evolution (
+                id BIGSERIAL PRIMARY KEY,
+                pattern_id BIGINT REFERENCES conversation_patterns(id) ON DELETE CASCADE,
+                snapshot_data JSONB NOT NULL,
+                frequency INT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Documents - uploaded documents for RAG
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
@@ -423,6 +434,8 @@ class Database:
             "CREATE INDEX IF NOT EXISTS stimulus_history_timestamp_idx ON stimulus_history(timestamp DESC)",
             "CREATE INDEX IF NOT EXISTS conversation_insights_personality_idx ON conversation_insights USING GIN (personality_combo)",
             "CREATE INDEX IF NOT EXISTS conversation_patterns_personality_idx ON conversation_patterns USING GIN (personality_combo)",
+            "CREATE INDEX IF NOT EXISTS pattern_evolution_pattern_idx ON pattern_evolution(pattern_id)",
+            "CREATE INDEX IF NOT EXISTS pattern_evolution_created_idx ON pattern_evolution(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS documents_user_idx ON documents(user_id)",
             "CREATE INDEX IF NOT EXISTS documents_uploaded_idx ON documents(uploaded_at DESC)",
             "CREATE INDEX IF NOT EXISTS document_chunks_document_idx ON document_chunks(document_id)",
@@ -1946,6 +1959,102 @@ class Database:
             [list(personality_combo), limit],
         )
         return self._rows_to_dicts(result, result.fetchall())
+
+    def store_pattern_snapshot(
+        self, pattern_id: int, snapshot_data: dict, frequency: int
+    ) -> int:
+        """Store a snapshot of pattern state for evolution tracking.
+
+        Args:
+            pattern_id: ID of the pattern to track
+            snapshot_data: Current state of the pattern (entities, metrics, etc.)
+            frequency: Current frequency of the pattern
+
+        Returns:
+            Snapshot ID
+        """
+        import json
+
+        result = self._execute_and_commit(
+            """
+            INSERT INTO pattern_evolution
+            (pattern_id, snapshot_data, frequency)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            [pattern_id, json.dumps(snapshot_data), frequency],
+        )
+        row = result.fetchone()
+        return row[0] if row else 0
+
+    def get_pattern_evolution(self, pattern_id: int, limit: int = 10) -> list[dict]:
+        """Get evolution history for a pattern.
+
+        Args:
+            pattern_id: ID of the pattern
+            limit: Maximum number of snapshots to return
+
+        Returns:
+            List of snapshot dicts ordered by time
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, snapshot_data, frequency, created_at
+            FROM pattern_evolution
+            WHERE pattern_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            [pattern_id, limit],
+        )
+        return self._rows_to_dicts(result, result.fetchall())
+
+    def detect_pattern_shifts(
+        self, pattern_id: int, threshold: float = 0.3
+    ) -> dict | None:
+        """Detect significant shifts in a pattern's frequency.
+
+        Args:
+            pattern_id: ID of the pattern to analyze
+            threshold: Minimum change percentage to flag (default 0.3 = 30%)
+
+        Returns:
+            Dict with shift details if significant change detected, None otherwise
+        """
+        result = self.conn.execute(
+            """
+            SELECT frequency, created_at
+            FROM pattern_evolution
+            WHERE pattern_id = %s
+            ORDER BY created_at DESC
+            LIMIT 2
+            """,
+            [pattern_id],
+        )
+        rows = result.fetchall()
+
+        if len(rows) < 2:
+            return None
+
+        latest_freq = rows[0][0]
+        previous_freq = rows[1][0]
+
+        if previous_freq == 0:
+            return None
+
+        change_ratio = abs(latest_freq - previous_freq) / previous_freq
+
+        if change_ratio >= threshold:
+            return {
+                "pattern_id": pattern_id,
+                "previous_frequency": previous_freq,
+                "latest_frequency": latest_freq,
+                "change_ratio": change_ratio,
+                "direction": "increasing" if latest_freq > previous_freq else "decreasing",
+                "severity": min(change_ratio, 1.0),
+            }
+
+        return None
 
     # Document methods
 
