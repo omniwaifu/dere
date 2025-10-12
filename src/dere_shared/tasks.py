@@ -17,7 +17,9 @@ def _get_taskwarrior():
         import json
         import subprocess
 
-        def get_next_tasks_wrapper(project: str | None = None, tags: list[str] | None = None, limit: int = 5) -> list[dict[str, Any]]:
+        def get_next_tasks_wrapper(
+            project: str | None = None, tags: list[str] | None = None, limit: int = 5
+        ) -> list[dict[str, Any]]:
             """Get next tasks using task export command."""
             try:
                 cmd = ["task", "export"]
@@ -88,7 +90,9 @@ def get_task_context(
 
         now = time.time()
         today_end = datetime.now().replace(hour=23, minute=59, second=59).timestamp()
-        tomorrow_end = (datetime.now() + timedelta(days=1)).replace(hour=23, minute=59, second=59).timestamp()
+        tomorrow_end = (
+            (datetime.now() + timedelta(days=1)).replace(hour=23, minute=59, second=59).timestamp()
+        )
 
         for task in tasks:
             due = task.get("due")
@@ -126,40 +130,41 @@ def get_task_context(
         parts = []
 
         if overdue_tasks and include_overdue:
-            overdue_str = ", ".join([
-                f"#{t['id']}: {t['description'][:50]}"
-                for t in overdue_tasks[:3]
-            ])
+            overdue_str = ", ".join(
+                [f"#{t['id']}: {t['description'][:50]}" for t in overdue_tasks[:3]]
+            )
             parts.append(f"Overdue: {overdue_str}")
 
         if due_today_tasks:
-            today_str = ", ".join([
-                f"#{t['id']}: {t['description'][:50]}"
-                for t in due_today_tasks[:3]
-            ])
+            today_str = ", ".join(
+                [f"#{t['id']}: {t['description'][:50]}" for t in due_today_tasks[:3]]
+            )
             parts.append(f"Due today: {today_str}")
 
         if due_soon_tasks and include_due_soon:
-            soon_str = ", ".join([
-                f"#{t['id']}: {t['description'][:50]}"
-                for t in due_soon_tasks[:2]
-            ])
+            soon_str = ", ".join(
+                [f"#{t['id']}: {t['description'][:50]}" for t in due_soon_tasks[:2]]
+            )
             parts.append(f"Due soon: {soon_str}")
 
         if high_priority_tasks:
-            high_str = ", ".join([
-                f"#{t['id']}: {t['description'][:50]}"
-                for t in high_priority_tasks[:2]
-            ])
+            high_str = ", ".join(
+                [f"#{t['id']}: {t['description'][:50]}" for t in high_priority_tasks[:2]]
+            )
             parts.append(f"High priority: {high_str}")
 
         # Fill remaining slots with other tasks
-        remaining_slots = limit - len(overdue_tasks[:3]) - len(due_today_tasks[:3]) - len(due_soon_tasks[:2]) - len(high_priority_tasks[:2])
+        remaining_slots = (
+            limit
+            - len(overdue_tasks[:3])
+            - len(due_today_tasks[:3])
+            - len(due_soon_tasks[:2])
+            - len(high_priority_tasks[:2])
+        )
         if remaining_slots > 0 and other_tasks:
-            other_str = ", ".join([
-                f"#{t['id']}: {t['description'][:50]}"
-                for t in other_tasks[:remaining_slots]
-            ])
+            other_str = ", ".join(
+                [f"#{t['id']}: {t['description'][:50]}" for t in other_tasks[:remaining_slots]]
+            )
             parts.append(f"Other: {other_str}")
 
         if parts:

@@ -7,7 +7,6 @@ import json
 import tempfile
 import time
 from collections import defaultdict
-from collections.abc import Iterable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,7 +150,10 @@ class SessionManager:
             # Pass Discord user_id for cross-medium continuity
             user_id_str = str(user_id) if user_id else None
             session_id, resumed, claude_session_id = await self._daemon.find_or_create_session(
-                project_path, persona_label, max_age_hours=self._config.session_expiry_hours, user_id=user_id_str
+                project_path,
+                persona_label,
+                max_age_hours=self._config.session_expiry_hours,
+                user_id=user_id_str,
             )
 
             if resumed and claude_session_id:

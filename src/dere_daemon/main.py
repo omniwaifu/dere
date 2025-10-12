@@ -651,7 +651,11 @@ async def search_hybrid(req: HybridSearchRequest):
     if user_session_id:
         # Cross-medium search across user_session
         results = app.state.db.search_user_session_context(
-            user_session_id, req.entity_values, embedding, limit=req.limit, entity_weight=req.entity_weight
+            user_session_id,
+            req.entity_values,
+            embedding,
+            limit=req.limit,
+            entity_weight=req.entity_weight,
         )
     else:
         # Regular search across all conversations
@@ -1125,9 +1129,7 @@ async def ambient_notify(req: AmbientNotifyRequest):
     """
     from loguru import logger
 
-    logger.info(
-        "Received ambient notification (priority: {}): {}", req.priority, req.message[:100]
-    )
+    logger.info("Received ambient notification (priority: {}): {}", req.priority, req.message[:100])
 
     # TODO: Route to Discord bot when implemented
     # For now, just log and acknowledge

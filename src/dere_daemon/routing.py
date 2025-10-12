@@ -184,7 +184,11 @@ Respond in JSON:
         if channels:
             # Use first available channel (TODO: smarter fallback)
             first_channel = channels[0]
-            location = first_channel.get("id", str(first_channel)) if isinstance(first_channel, dict) else str(first_channel)
+            location = (
+                first_channel.get("id", str(first_channel))
+                if isinstance(first_channel, dict)
+                else str(first_channel)
+            )
             return RoutingDecision(
                 medium=fallback_medium["medium"],
                 location=location,

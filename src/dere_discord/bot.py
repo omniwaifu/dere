@@ -80,13 +80,15 @@ class DereDiscordClient(discord.Client):
         for guild in self.guilds:
             for channel in guild.text_channels:
                 if channel.permissions_for(guild.me).send_messages:
-                    channels.append({
-                        "id": str(channel.id),
-                        "name": channel.name,
-                        "type": "guild_text",
-                        "guild_id": str(guild.id),
-                        "guild_name": guild.name,
-                    })
+                    channels.append(
+                        {
+                            "id": str(channel.id),
+                            "name": channel.name,
+                            "type": "guild_text",
+                            "guild_id": str(guild.id),
+                            "guild_name": guild.name,
+                        }
+                    )
 
         # Add DM channels (can't enumerate easily, will be added dynamically)
         logger.info("Registering presence with {} channels", len(channels))
@@ -145,16 +147,22 @@ class DereDiscordClient(discord.Client):
                 # Guild channel delivery
                 await channel.send(message)
                 await self.daemon.mark_notification_delivered(notification_id)
-                logger.info("Notification {} delivered to channel {}", notification_id, channel.name)
+                logger.info(
+                    "Notification {} delivered to channel {}", notification_id, channel.name
+                )
             else:
                 # Try as DM to user
                 try:
                     user = await self.fetch_user(target_id)
                     await user.send(message)
                     await self.daemon.mark_notification_delivered(notification_id)
-                    logger.info("Notification {} delivered to DM with user {}", notification_id, user.name)
+                    logger.info(
+                        "Notification {} delivered to DM with user {}", notification_id, user.name
+                    )
                 except discord.Forbidden:
-                    raise ValueError(f"Cannot send DM to user {target_id} - DMs disabled or blocked")
+                    raise ValueError(
+                        f"Cannot send DM to user {target_id} - DMs disabled or blocked"
+                    )
                 except discord.NotFound:
                     raise ValueError(f"User {target_id} not found")
         except Exception as e:

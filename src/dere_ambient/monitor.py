@@ -68,9 +68,13 @@ class AmbientMonitor:
     async def _check_and_engage(self) -> None:
         """Check context and engage if appropriate."""
         try:
-            should_engage, message, priority, target_medium, target_location = (
-                await self.analyzer.should_engage()
-            )
+            (
+                should_engage,
+                message,
+                priority,
+                target_medium,
+                target_location,
+            ) = await self.analyzer.should_engage()
 
             if should_engage and message and target_medium and target_location:
                 logger.info(

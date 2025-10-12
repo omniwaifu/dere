@@ -329,6 +329,34 @@ class Database:
             )
         """)
 
+        # Conversation insights - synthesized insights from patterns
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_insights (
+                id BIGSERIAL PRIMARY KEY,
+                insight_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                evidence JSONB,
+                confidence FLOAT,
+                user_session_id BIGINT REFERENCES user_sessions(id),
+                personality_combo TEXT[] NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Conversation patterns - detected patterns across sessions
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_patterns (
+                id BIGSERIAL PRIMARY KEY,
+                pattern_type TEXT NOT NULL,
+                description TEXT NOT NULL,
+                frequency INT,
+                sessions JSONB,
+                user_session_id BIGINT REFERENCES user_sessions(id),
+                personality_combo TEXT[] NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Create indexes
         self._create_indexes()
 
@@ -362,6 +390,8 @@ class Database:
             "CREATE INDEX IF NOT EXISTS emotion_states_last_update_idx ON emotion_states(last_update DESC)",
             "CREATE INDEX IF NOT EXISTS stimulus_history_session_idx ON stimulus_history(session_id)",
             "CREATE INDEX IF NOT EXISTS stimulus_history_timestamp_idx ON stimulus_history(timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS conversation_insights_personality_idx ON conversation_insights USING GIN (personality_combo)",
+            "CREATE INDEX IF NOT EXISTS conversation_patterns_personality_idx ON conversation_patterns USING GIN (personality_combo)",
         ]
 
         for idx in indexes:
@@ -1273,14 +1303,16 @@ class Database:
 
     # Emotion system methods
 
-    def store_emotion_state(self, session_id: int, active_emotions: dict, last_decay_time: int) -> None:
+    def store_emotion_state(
+        self, session_id: int, active_emotions: dict, last_decay_time: int
+    ) -> None:
         """Store current emotional state for a session"""
 
         # Get dominant emotions
         sorted_emotions = sorted(
             [(k, v) for k, v in active_emotions.items() if k != "neutral"],
             key=lambda x: x[1].intensity,
-            reverse=True
+            reverse=True,
         )
 
         primary_emotion = sorted_emotions[0] if sorted_emotions else None
@@ -1293,7 +1325,7 @@ class Database:
                 for k, v in active_emotions.items()
                 if k != "neutral"
             },
-            "last_decay_time": last_decay_time
+            "last_decay_time": last_decay_time,
         }
 
         if primary_emotion:
@@ -1311,8 +1343,8 @@ class Database:
                     str(secondary_emotion[0]) if secondary_emotion else None,
                     secondary_emotion[1].intensity if secondary_emotion else None,
                     primary_emotion[1].intensity,
-                    json.dumps(appraisal_data)
-                ]
+                    json.dumps(appraisal_data),
+                ],
             )
 
     def load_emotion_state(self, session_id: int) -> dict | None:
@@ -1327,7 +1359,7 @@ class Database:
             ORDER BY last_update DESC
             LIMIT 1
             """,
-            [session_id]
+            [session_id],
         )
 
         row = result.fetchone()
@@ -1335,7 +1367,9 @@ class Database:
             return None
 
         # Handle both string JSON and dict (postgres may deserialize JSONB automatically)
-        appraisal_data = row[0] if isinstance(row[0], dict) else (json.loads(row[0]) if row[0] else {})
+        appraisal_data = (
+            row[0] if isinstance(row[0], dict) else (json.loads(row[0]) if row[0] else {})
+        )
 
         # Reconstruct active emotions
         active_emotions = {}
@@ -1345,14 +1379,14 @@ class Database:
                 active_emotions[emotion_type] = EmotionInstance(
                     type=emotion_type,
                     intensity=data["intensity"],
-                    last_updated=data["last_updated"]
+                    last_updated=data["last_updated"],
                 )
             except Exception:
                 continue
 
         return {
             "active_emotions": active_emotions,
-            "last_decay_time": appraisal_data.get("last_decay_time", int(time.time() * 1000))
+            "last_decay_time": appraisal_data.get("last_decay_time", int(time.time() * 1000)),
         }
 
     def store_stimulus(self, session_id: int, stimulus_record) -> None:
@@ -1370,8 +1404,8 @@ class Database:
                 stimulus_record.valence,
                 stimulus_record.intensity,
                 stimulus_record.timestamp,
-                json.dumps(stimulus_record.context)
-            ]
+                json.dumps(stimulus_record.context),
+            ],
         )
 
     # User session methods
@@ -1439,9 +1473,7 @@ class Database:
         row = result.fetchone()
         return self._row_to_dict(result, row) if row else None
 
-    def get_session_ids_for_user_session(
-        self, user_session_id: int, limit: int = 50
-    ) -> list[int]:
+    def get_session_ids_for_user_session(self, user_session_id: int, limit: int = 50) -> list[int]:
         """Get all session IDs linked to a user_session.
 
         Args:
@@ -1694,6 +1726,142 @@ class Database:
             """,
             [error_message, notification_id],
         )
+
+    # Synthesis methods
+
+    def store_insight(
+        self,
+        insight_type: str,
+        content: str,
+        evidence: dict,
+        confidence: float,
+        personality_combo: tuple[str, ...],
+        user_session_id: int | None = None,
+    ) -> int:
+        """Store a synthesized insight.
+
+        Args:
+            insight_type: Type of insight (convergence, temporal, etc.)
+            content: Natural language insight text
+            evidence: Supporting evidence as JSON
+            confidence: Confidence score (0-1)
+            personality_combo: Personality combination this applies to
+            user_session_id: Optional user session ID
+
+        Returns:
+            Insight ID
+        """
+        import json
+
+        result = self._execute_and_commit(
+            """
+            INSERT INTO conversation_insights
+            (insight_type, content, evidence, confidence, personality_combo, user_session_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            [
+                insight_type,
+                content,
+                json.dumps(evidence),
+                confidence,
+                list(personality_combo),
+                user_session_id,
+            ],
+        )
+        row = result.fetchone()
+        return row[0] if row else 0
+
+    def store_pattern(
+        self,
+        pattern_type: str,
+        description: str,
+        frequency: int,
+        sessions: list[int],
+        personality_combo: tuple[str, ...],
+        user_session_id: int | None = None,
+    ) -> int:
+        """Store a detected conversation pattern.
+
+        Args:
+            pattern_type: Type of pattern (convergence, divergence, etc.)
+            description: Pattern description
+            frequency: How often pattern appears
+            sessions: Session IDs where pattern appears
+            personality_combo: Personality combination
+            user_session_id: Optional user session ID
+
+        Returns:
+            Pattern ID
+        """
+        import json
+
+        result = self._execute_and_commit(
+            """
+            INSERT INTO conversation_patterns
+            (pattern_type, description, frequency, sessions, personality_combo, user_session_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            [
+                pattern_type,
+                description,
+                frequency,
+                json.dumps(sessions),
+                list(personality_combo),
+                user_session_id,
+            ],
+        )
+        row = result.fetchone()
+        return row[0] if row else 0
+
+    def get_insights_for_personality(
+        self, personality_combo: tuple[str, ...], limit: int = 10
+    ) -> list[dict]:
+        """Get insights for a specific personality combination.
+
+        Args:
+            personality_combo: Tuple of personality names
+            limit: Maximum number of insights to return
+
+        Returns:
+            List of insight dicts
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, insight_type, content, evidence, confidence, created_at
+            FROM conversation_insights
+            WHERE personality_combo = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            [list(personality_combo), limit],
+        )
+        return self._rows_to_dicts(result)
+
+    def get_patterns_for_personality(
+        self, personality_combo: tuple[str, ...], limit: int = 10
+    ) -> list[dict]:
+        """Get patterns for a specific personality combination.
+
+        Args:
+            personality_combo: Tuple of personality names
+            limit: Maximum number of patterns to return
+
+        Returns:
+            List of pattern dicts
+        """
+        result = self.conn.execute(
+            """
+            SELECT id, pattern_type, description, frequency, sessions, created_at
+            FROM conversation_patterns
+            WHERE personality_combo = %s
+            ORDER BY frequency DESC
+            LIMIT %s
+            """,
+            [list(personality_combo), limit],
+        )
+        return self._rows_to_dicts(result)
 
     def close(self) -> None:
         """Close database connection"""

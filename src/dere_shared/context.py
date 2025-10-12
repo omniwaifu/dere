@@ -144,6 +144,7 @@ def get_full_context(
     try:
         if config["context"].get("tasks", False):
             import os
+
             working_dir = os.getenv("PWD")
             task_ctx = get_task_context(
                 limit=5,
