@@ -60,6 +60,28 @@ summary_grace_seconds = 30
 context_enabled = true
 ```
 
+## アンビエントモニタリング
+
+Dereは[ActivityWatch](https://activitywatch.net/)を使用して、あなたの活動パターンに基づいて積極的に話しかけることができます。
+
+**機能：**
+- あなたの活動とアイドル時間を監視
+- コンテキストに基づいてチェックインのタイミングを決定
+- Discord、デスクトップ、その他のメディアに通知をルーティング
+- 会話履歴を使用してコンテキストに応じたエンゲージメントを提供
+
+**設定：**
+
+```toml
+[ambient]
+enabled = true
+check_interval_minutes = 30      # 活動をチェックする頻度
+idle_threshold_minutes = 60      # エンゲージメント前の最小アイドル時間
+notification_method = "both"     # "notify-send"、"daemon"、または"both"
+```
+
+**注意：** デーモンの実行が必要です（`dere daemon start`）
+
 ## 設定
 
 **設定：** `~/.config/dere/`（Linux）、`~/Library/Application Support/dere/`（macOS）

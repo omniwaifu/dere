@@ -60,6 +60,28 @@ summary_grace_seconds = 30
 context_enabled = true
 ```
 
+## Ambient Monitoring
+
+Dere can proactively reach out based on your activity patterns using [ActivityWatch](https://activitywatch.net/).
+
+**Features:**
+- Monitors your activity and idle time
+- Decides when to check in based on context
+- Routes notifications to Discord, desktop, or other mediums
+- Uses conversation history to provide contextual engagement
+
+**Configuration:**
+
+```toml
+[ambient]
+enabled = true
+check_interval_minutes = 30      # How often to check activity
+idle_threshold_minutes = 60      # Min idle time before engaging
+notification_method = "both"     # "notify-send", "daemon", or "both"
+```
+
+**Note:** Requires daemon to be running (`dere daemon start`)
+
 ## Configuration
 
 **Config:** `~/.config/dere/` (Linux), `~/Library/Application Support/dere/` (macOS)

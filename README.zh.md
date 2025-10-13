@@ -60,6 +60,28 @@ summary_grace_seconds = 30
 context_enabled = true
 ```
 
+## 环境感知监控
+
+Dere 可以使用 [ActivityWatch](https://activitywatch.net/) 根据您的活动模式主动与您互动。
+
+**功能：**
+- 监控您的活动和空闲时间
+- 根据上下文决定何时签到
+- 将通知路由到 Discord、桌面或其他媒介
+- 使用对话历史提供上下文相关的互动
+
+**配置：**
+
+```toml
+[ambient]
+enabled = true
+check_interval_minutes = 30      # 检查活动的频率
+idle_threshold_minutes = 60      # 互动前的最小空闲时间
+notification_method = "both"     # "notify-send"、"daemon" 或 "both"
+```
+
+**注意：** 需要守护进程运行（`dere daemon start`）
+
 ## 配置
 
 **配置：** `~/.config/dere/`（Linux）、`~/Library/Application Support/dere/`（macOS）
