@@ -910,9 +910,7 @@ def synthesis_insights(personality, limit, no_format):
             "format_with_personality": not no_format,
         }
 
-        response = requests.post(
-            f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10
-        )
+        response = requests.post(f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10)
         response.raise_for_status()
         data = response.json()
 
@@ -966,9 +964,7 @@ def synthesis_patterns(personality, limit, no_format):
             "format_with_personality": not no_format,
         }
 
-        response = requests.post(
-            f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10
-        )
+        response = requests.post(f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10)
         response.raise_for_status()
         data = response.json()
 
@@ -1022,9 +1018,7 @@ def synthesis_run(personality, user_session):
 
         click.echo(f"Running synthesis for personality: {', '.join(personality)}...")
 
-        response = requests.post(
-            f"{daemon_url}/api/synthesis/run", json=payload, timeout=60
-        )
+        response = requests.post(f"{daemon_url}/api/synthesis/run", json=payload, timeout=60)
         response.raise_for_status()
         data = response.json()
 

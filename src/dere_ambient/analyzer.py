@@ -42,7 +42,7 @@ class ContextAnalyzer:
             current_activity = await self._get_current_activity()
             if not current_activity:
                 logger.debug("No current activity detected from ActivityWatch")
-                return False, None, "alert"
+                return False, None, "alert", None, None
 
             app = current_activity.get("app", "")
             duration_seconds = current_activity.get("duration", 0)
@@ -70,7 +70,7 @@ class ContextAnalyzer:
                         minutes_idle,
                         self.config.idle_threshold_minutes,
                     )
-                    return False, None, "alert"
+                    return False, None, "alert", None, None
             else:
                 logger.debug("No previous interactions found (cold start)")
 
@@ -273,12 +273,23 @@ Respond in JSON:
                         "prompt": prompt,
                         "include_context": True,
                         "medium": None,  # Use any active session
+                        "isolate_session": True,  # Don't pollute conversation history
                     },
                     timeout=30,
                 )
                 if response.status_code == 200:
                     result = response.json()
+
+                    # Check for error response from daemon
+                    if "error" in result:
+                        logger.warning("LLM generation returned error: {}", result["error"])
+                        return None
+
                     response_text = result.get("response", "")
+                    if not response_text:
+                        logger.warning("Empty response from LLM generation")
+                        return None
+
                     import json
 
                     try:
@@ -289,12 +300,24 @@ Respond in JSON:
                         if content_blocks:
                             text_content = content_blocks[0].get("text", "")
                             decision = json.loads(text_content)
-                            if decision.get("should_engage"):
-                                return decision.get("message"), decision.get(
-                                    "priority", "conversation"
+
+                            # Log the ambient decision for debugging
+                            should_engage = decision.get("should_engage", False)
+                            if should_engage:
+                                message = decision.get("message", "")
+                                priority = decision.get("priority", "conversation")
+                                logger.info(
+                                    "Ambient decision: ENGAGE (priority={}) - {}",
+                                    priority,
+                                    message[:100] + "..." if len(message) > 100 else message,
                                 )
+                                return message, priority
+                            else:
+                                logger.debug("Ambient decision: NO ENGAGEMENT")
                     except (json.JSONDecodeError, KeyError, IndexError) as e:
                         logger.warning("Failed to parse LLM response: {}", e)
+                else:
+                    logger.warning("LLM generation failed with status {}", response.status_code)
         except Exception as e:
             logger.debug("LLM engagement decision failed: {}", e)
 

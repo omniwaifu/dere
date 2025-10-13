@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import discord
 from discord import AllowedMentions, app_commands
 from loguru import logger

@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, Body, FastAPI, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI
 from loguru import logger
 from pydantic import BaseModel
 
@@ -166,6 +166,9 @@ class LLMGenerateRequest(BaseModel):
     session_id: int | None = None
     include_context: bool = False
     medium: str | None = None  # "cli", "discord", or None for any
+    isolate_session: bool = (
+        False  # Use dedicated session ID to avoid polluting conversation history
+    )
 
 
 class PresenceRegisterRequest(BaseModel):
@@ -595,7 +598,6 @@ async def update_claude_session(session_id: int, claude_session_id: str = Body(.
     This is called after creating a ClaudeSDKClient and capturing its session ID
     from the first system init message.
     """
-    from loguru import logger
 
     logger.info(
         "Received claude_session_id update: session_id={}, claude_session_id={}",
@@ -1177,7 +1179,6 @@ async def ambient_notify(req: AmbientNotifyRequest):
     This endpoint receives notifications from the ambient monitor and can route them
     to connected Discord bots or store them for later retrieval.
     """
-    from loguru import logger
 
     logger.info("Received ambient notification (priority: {}): {}", req.priority, req.message[:100])
 
@@ -1191,8 +1192,6 @@ async def ambient_notify(req: AmbientNotifyRequest):
 async def llm_generate(req: LLMGenerateRequest):
     """Generate LLM response with optional personality/emotion context using Claude CLI."""
     import asyncio
-
-    from loguru import logger
 
     from dere_daemon.context import compose_session_context
 
@@ -1216,7 +1215,8 @@ async def llm_generate(req: LLMGenerateRequest):
                     req.medium or "any",
                 )
 
-        process = await asyncio.create_subprocess_exec(
+        # Build claude command
+        cmd = [
             "claude",
             "--print",
             "--output-format",
@@ -1225,6 +1225,41 @@ async def llm_generate(req: LLMGenerateRequest):
             prompt,
             "--model",
             req.model,
+        ]
+
+        # Use dedicated ambient session ID for isolated calls
+        # This prevents internal LLM calls from polluting conversation history
+        # Clean up old ambient session to avoid "already in use" errors
+        if req.isolate_session:
+            ambient_session_id = "10000000-0000-0000-0000-000000000001"
+
+            # Delete ambient session file if it exists
+            try:
+                import shutil
+
+                # Get Claude config directory based on OS
+                match platform.system():
+                    case "Windows":
+                        config_home = Path(os.getenv("APPDATA", "")) / "Claude"
+                    case "Darwin":
+                        config_home = Path.home() / "Library" / "Application Support" / "Claude"
+                    case _:
+                        config_home = Path.home() / ".config" / "claude"
+
+                # Find all project directories
+                if config_home.exists():
+                    for project_dir in config_home.glob("projects/*"):
+                        ambient_session_path = project_dir / ambient_session_id
+                        if ambient_session_path.exists():
+                            shutil.rmtree(ambient_session_path)
+                            logger.debug("Cleaned up old ambient session: {}", ambient_session_path)
+            except Exception as e:
+                logger.debug("Failed to clean ambient session (non-fatal): {}", e)
+
+            cmd.extend(["--session-id", ambient_session_id])
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1232,14 +1267,15 @@ async def llm_generate(req: LLMGenerateRequest):
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            logger.error("Claude CLI failed: {}", stderr.decode())
-            return {"error": stderr.decode()}, 500
+            error_msg = stderr.decode()
+            logger.error("Claude CLI failed: {}", error_msg)
+            return {"error": error_msg}
 
         response_text = stdout.decode()
         return {"response": response_text}
     except Exception as e:
         logger.error("LLM generation failed: {}", e)
-        return {"error": str(e)}, 500
+        return {"error": str(e)}
 
 
 @app.post("/presence/register")
@@ -1258,7 +1294,6 @@ async def presence_register(req: PresenceRegisterRequest):
     6. Deliver notifications via Telegram Bot API send_message
     7. Link sessions with user_id (Telegram user ID) for cross-medium continuity
     """
-    from loguru import logger
 
     logger.info(
         "Presence registered: {} for user {} with {} channels",
@@ -1283,7 +1318,6 @@ async def presence_heartbeat(req: PresenceHeartbeatRequest):
 @app.post("/presence/unregister")
 async def presence_unregister(req: PresenceUnregisterRequest):
     """Cleanly unregister a medium on shutdown."""
-    from loguru import logger
 
     logger.info("Presence unregistered: {} for user {}", req.medium, req.user_id)
     app.state.db.unregister_presence(req.medium, req.user_id)
@@ -1352,7 +1386,6 @@ async def notifications_create(req: NotificationCreateRequest):
 
     Called by ambient monitor when it decides to engage.
     """
-    from loguru import logger
 
     notification_id = app.state.db.create_notification(
         user_id=req.user_id,
@@ -1388,7 +1421,6 @@ async def notification_delivered(notification_id: int):
 
     Called by bots after successfully sending a message.
     """
-    from loguru import logger
 
     app.state.db.mark_notification_delivered(notification_id)
     logger.info("Notification {} marked as delivered", notification_id)
@@ -1401,7 +1433,6 @@ async def notification_failed(notification_id: int, req: NotificationFailedReque
 
     Called by bots when message delivery fails.
     """
-    from loguru import logger
 
     app.state.db.mark_notification_failed(notification_id, req.error_message)
     logger.warning("Notification {} failed: {}", notification_id, req.error_message)

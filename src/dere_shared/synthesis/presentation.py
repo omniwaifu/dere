@@ -91,7 +91,10 @@ def _build_personality_context(personality_config: dict[str, Any]) -> str:
     attitudes = personality_config.get("occ_attitudes", [])
     if attitudes:
         attitude_desc = ", ".join(
-            [f"{a.get('description', '')} toward {a.get('target_object', '')}" for a in attitudes[:2]]
+            [
+                f"{a.get('description', '')} toward {a.get('target_object', '')}"
+                for a in attitudes[:2]
+            ]
         )
         parts.append(f"Attitudes: {attitude_desc}")
 
@@ -120,7 +123,7 @@ def _build_insights_summary(insights: list[dict[str, Any]]) -> str:
         if evidence:
             evidence_parts = []
             for key, value in evidence.items():
-                if isinstance(value, (int, float)):
+                if isinstance(value, int | float):
                     evidence_parts.append(f"{key}={value}")
                 elif isinstance(value, dict) and len(value) <= 3:
                     evidence_parts.append(f"{key}={value}")
