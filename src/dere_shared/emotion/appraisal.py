@@ -45,7 +45,14 @@ class AppraisalEngine:
 
             logger.debug("[AppraisalEngine] Calling Claude CLI")
 
-            # Call claude CLI - use simple mode, parse JSON from response
+            # Call claude CLI from temp dir to avoid polluting conversation history
+            # This ensures emotion appraisal sessions don't interfere with user's -c
+            import tempfile
+            from pathlib import Path
+
+            temp_dir = Path(tempfile.gettempdir()) / "dere_emotion"
+            temp_dir.mkdir(exist_ok=True)
+
             process = await asyncio.create_subprocess_exec(
                 "claude",
                 "-p",
@@ -54,6 +61,7 @@ class AppraisalEngine:
                 "claude-3-5-haiku-20241022",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                cwd=str(temp_dir),
             )
 
             stdout, stderr = await process.communicate()
@@ -80,11 +88,15 @@ class AppraisalEngine:
                 logger.debug(f"[AppraisalEngine] Response: {response_text[:500]}")
                 return None
 
-            # Normalize emotion types to lowercase
+            # Normalize emotion types - strip enum prefix and lowercase
             if "resulting_emotions" in response_data:
                 for emotion in response_data["resulting_emotions"]:
                     if "type" in emotion:
-                        emotion["type"] = emotion["type"].lower()
+                        emotion_type = emotion["type"].lower()
+                        # Strip 'occemotiontype.' prefix if present
+                        if emotion_type.startswith("occemotiontype."):
+                            emotion_type = emotion_type.replace("occemotiontype.", "")
+                        emotion["type"] = emotion_type
 
             # Validate with Pydantic
             try:

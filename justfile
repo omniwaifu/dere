@@ -67,6 +67,10 @@ dev: build
 dev-cli: build
     uv run dere
 
+# Run development Obsidian server
+dev-obsidian: build
+    uv run dere-obsidian serve --vault /mnt/data/Notes/Vault --port 8770
+
 # Quick test of personality modes
 test-personalities: build
     @echo "Testing personalities..."

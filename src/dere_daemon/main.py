@@ -1227,41 +1227,20 @@ async def llm_generate(req: LLMGenerateRequest):
             req.model,
         ]
 
-        # Use dedicated ambient session ID for isolated calls
-        # This prevents internal LLM calls from polluting conversation history
-        # Clean up old ambient session to avoid "already in use" errors
+        # For isolated calls (ambient, emotion), run from temp dir to avoid polluting history
+        # This ensures internal LLM calls don't interfere with user's -c
+        temp_dir = None
         if req.isolate_session:
-            ambient_session_id = "10000000-0000-0000-0000-000000000001"
+            import tempfile
 
-            # Delete ambient session file if it exists
-            try:
-                import shutil
-
-                # Get Claude config directory based on OS
-                match platform.system():
-                    case "Windows":
-                        config_home = Path(os.getenv("APPDATA", "")) / "Claude"
-                    case "Darwin":
-                        config_home = Path.home() / "Library" / "Application Support" / "Claude"
-                    case _:
-                        config_home = Path.home() / ".config" / "claude"
-
-                # Find all project directories
-                if config_home.exists():
-                    for project_dir in config_home.glob("projects/*"):
-                        ambient_session_path = project_dir / ambient_session_id
-                        if ambient_session_path.exists():
-                            shutil.rmtree(ambient_session_path)
-                            logger.debug("Cleaned up old ambient session: {}", ambient_session_path)
-            except Exception as e:
-                logger.debug("Failed to clean ambient session (non-fatal): {}", e)
-
-            cmd.extend(["--session-id", ambient_session_id])
+            temp_dir = Path(tempfile.gettempdir()) / "dere_internal"
+            temp_dir.mkdir(exist_ok=True)
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=str(temp_dir) if temp_dir else None,
         )
 
         stdout, stderr = await process.communicate()
