@@ -38,9 +38,57 @@ def get_data_dir() -> Path:
             return Path.home() / ".local" / "share" / "dere"
 
 
+def get_dere_plugin_dir() -> Path:
+    """Get dere plugin directory for skills loading"""
+    import dere_plugin
+
+    # dere_plugin module is in src/dere_plugin/
+    plugin_path = Path(dere_plugin.__file__).parent
+    return plugin_path
+
+
 def generate_session_id() -> int:
     """Generate unique session ID"""
     return int(time.time_ns() % (1 << 31))
+
+
+def get_session_tracking_file() -> Path:
+    """Get session tracking JSON file."""
+    data_dir = get_data_dir()
+    return data_dir / "sessions.json"
+
+
+def load_session_map() -> dict:
+    """Load session tracking map."""
+    file = get_session_tracking_file()
+    if not file.exists():
+        return {}
+    with open(file) as f:
+        return json.load(f)
+
+
+def save_session_map(sessions: dict):
+    """Save session tracking map."""
+    file = get_session_tracking_file()
+    file.parent.mkdir(parents=True, exist_ok=True)
+    with open(file, 'w') as f:
+        json.dump(sessions, f, indent=2)
+
+
+def get_last_session_for_dir(cwd: str) -> str | None:
+    """Get last session ID for directory."""
+    sessions = load_session_map()
+    return sessions.get(cwd, {}).get("last_session_id")
+
+
+def save_session_for_dir(cwd: str, session_id: str):
+    """Save session ID for directory."""
+    sessions = load_session_map()
+    sessions[cwd] = {
+        "last_session_id": session_id,
+        "timestamp": int(time.time())
+    }
+    save_session_map(sessions)
 
 
 class SettingsBuilder:
@@ -71,6 +119,14 @@ class SettingsBuilder:
 
         if self.output_style:
             settings["outputStyle"] = self.output_style
+
+        # Enable dere plugin for skills
+        try:
+            settings["enabledPlugins"] = {
+                "dere@dere-local": True
+            }
+        except Exception:
+            pass
 
         # Add hooks if they exist
         self._add_conversation_hooks(settings)
@@ -344,11 +400,27 @@ def cli(
         # Build claude command
         cmd = ["claude"]
 
-        # Add continue/resume flags
+        # Handle session tracking for continue/resume
+        cwd = os.getcwd()
+
         if continue_conv:
-            cmd.append("-c")
+            # Continue: resume specific dere session for this directory
+            last_session = get_last_session_for_dir(cwd)
+            if last_session:
+                cmd.extend(["--resume", last_session])
+            else:
+                print("Error: No previous dere session in this directory", file=sys.stderr)
+                print(f"Start a new session with: dere", file=sys.stderr)
+                sys.exit(1)
         elif resume:
+            # Explicit resume: use provided session ID
             cmd.extend(["-r", resume])
+        else:
+            # New session: generate UUID and track it
+            import uuid
+            session_uuid = str(uuid.uuid4())
+            cmd.extend(["--session-id", session_uuid])
+            save_session_for_dir(cwd, session_uuid)
 
         # Add model configuration
         if model:
