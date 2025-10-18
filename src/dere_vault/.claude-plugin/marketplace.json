@@ -1,0 +1,13 @@
+{
+  "name": "dere-vault-local",
+  "owner": {
+    "name": "Local"
+  },
+  "plugins": [
+    {
+      "name": "dere-vault",
+      "source": "./",
+      "description": "Zettelkasten knowledge vault skills for working with Obsidian-style markdown vaults following atomic note principles"
+    }
+  ]
+}

@@ -128,12 +128,46 @@ class SettingsBuilder:
         except Exception:
             pass
 
+        # Enable dere-vault plugin if in a vault
+        self._add_vault_plugin(settings)
+
         # Add hooks if they exist
         self._add_conversation_hooks(settings)
         self._add_status_line(settings)
         self._add_hook_environment(settings)
 
         return settings
+
+    def _add_vault_plugin(self, settings: dict) -> None:
+        """Add dere-vault plugin if in a vault directory"""
+        try:
+            import dere_vault
+            from dere_vault.scripts.detect_vault import is_vault
+
+            if is_vault():
+                # Get path to dere-vault plugin
+                vault_plugin_path = Path(dere_vault.__file__).parent
+
+                # Add marketplace
+                if "extraKnownMarketplaces" not in settings:
+                    settings["extraKnownMarketplaces"] = {}
+
+                settings["extraKnownMarketplaces"]["dere-vault-local"] = {
+                    "source": {
+                        "source": "directory",
+                        "path": str(vault_plugin_path)
+                    }
+                }
+
+                # Enable plugin
+                if "enabledPlugins" not in settings:
+                    settings["enabledPlugins"] = {}
+
+                settings["enabledPlugins"]["dere-vault@dere-vault-local"] = True
+
+        except Exception:
+            # Silently fail if vault plugin not available or not in vault
+            pass
 
     def _add_conversation_hooks(self, settings: dict) -> None:
         """Add conversation capture hooks"""
