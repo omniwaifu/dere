@@ -5,7 +5,7 @@ default: build
 
 # Build/sync Python environment
 build:
-    uv sync
+    uv sync --extra dev
 
 # Install binaries and Python hooks to user PATH
 install: build
