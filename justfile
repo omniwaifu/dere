@@ -53,6 +53,10 @@ fmt:
 dev: build
     uv run python -m dere_daemon.main
 
+# Run all services (daemon + discord)
+dev-all: build
+    uv run honcho start
+
 # Check for dependency updates
 deps-check:
     uv pip list --outdated
