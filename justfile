@@ -1,5 +1,4 @@
 # dere - personality-layered wrapper for Claude CLI
-# Use `just --list` to see all available recipes
 
 # Default recipe
 default: build
@@ -8,11 +7,8 @@ default: build
 build:
     uv sync
 
-# Build all (same as build for Python)
-build-all: build
-
 # Install binaries and Python hooks to user PATH
-install: build-all
+install: build
     mkdir -p ~/.local/bin
     mkdir -p ~/.local/share/dere
     mkdir -p ~/.config/dere/hooks
@@ -36,14 +32,8 @@ install: build-all
     chmod +x ~/.config/dere/hooks/dere-stop-hook.py
     chmod +x ~/.config/dere/hooks/dere-wellness-hook.py
 
-# Install to system-wide location (requires sudo)
-install-system: build-all
-    @echo "System-wide installation not yet implemented for Python version"
-    @echo "Use 'just install' for user installation via uv tool install"
-
 # Clean build artifacts
 clean:
-    rm -rf bin/
     find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
     find . -name "*.pyc" -delete 2>/dev/null || true
 
@@ -63,34 +53,9 @@ fmt:
 dev: build
     uv run python -m dere_daemon.main
 
-# Run development CLI
-dev-cli: build
-    uv run dere
-
-# Run development Obsidian server
-dev-obsidian: build
-    uv run dere-obsidian serve --vault /mnt/data/Notes/Vault --port 8770
-
-# Quick test of personality modes
-test-personalities: build
-    @echo "Testing personalities..."
-    @echo "Tsun:" && echo "test" | uv run dere -P tsun -p "Hello"
-    @echo "Kuu:" && echo "test" | uv run dere -P kuu -p "Hello"
-
-# Update dependencies
-deps:
-    uv sync
-
 # Check for dependency updates
 deps-check:
     uv pip list --outdated
-
-# Generate documentation
-docs:
-    @echo "Documentation available in README files:"
-    @echo "- README.md (English)"
-    @echo "- README.zh.md (Chinese)"
-    @echo "- README.ja.md (Japanese)"
 
 # Show project info
 info:
@@ -99,16 +64,3 @@ info:
     @echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
     @echo "Python version: $(uv run python --version 2>/dev/null || echo 'not found')"
     @echo "UV version: $(uv --version 2>/dev/null || echo 'not found')"
-
-# Create release build
-release: clean build
-    @echo "Release build complete"
-
-# Package for distribution
-package: release
-    mkdir -p dist
-    tar -czf dist/dere-$(shell git describe --tags --always).tar.gz src/ pyproject.toml uv.lock README.md LICENSE
-
-# Show help
-help:
-    @just --list
