@@ -120,16 +120,8 @@ class SettingsBuilder:
         if self.output_style:
             settings["outputStyle"] = self.output_style
 
-        # Enable dere plugin for skills
-        try:
-            settings["enabledPlugins"] = {
-                "dere@dere-local": True
-            }
-        except Exception:
-            pass
-
-        # Enable dere-vault plugin if in a vault
-        self._add_vault_plugin(settings)
+        # Add dere plugins marketplace and enable plugins
+        self._add_dere_plugins(settings)
 
         # Add hooks if they exist
         self._add_conversation_hooks(settings)
@@ -138,35 +130,63 @@ class SettingsBuilder:
 
         return settings
 
-    def _add_vault_plugin(self, settings: dict) -> None:
-        """Add dere-vault plugin if in a vault directory"""
+    def _add_dere_plugins(self, settings: dict) -> None:
+        """Add dere plugins marketplace and enable plugins conditionally"""
         try:
-            import dere_vault
-            from dere_vault.scripts.detect_vault import is_vault
+            # Import to get the plugins directory path
+            import dere_plugin
 
-            if is_vault():
-                # Get path to dere-vault plugin
-                vault_plugin_path = Path(dere_vault.__file__).parent
+            # Get path to dere-plugins directory
+            # In development (editable install), __file__ is in site-packages
+            # We need to find the actual source directory
+            plugin_file = Path(dere_plugin.__file__).resolve()
 
-                # Add marketplace
-                if "extraKnownMarketplaces" not in settings:
-                    settings["extraKnownMarketplaces"] = {}
+            # Check if we're in an editable install (site-packages)
+            if "site-packages" in str(plugin_file):
+                # Find the source directory by looking for src/dere-plugins
+                # Start from current working directory and walk up
+                cwd = Path.cwd()
+                plugins_path = None
+                for parent in [cwd, *cwd.parents]:
+                    candidate = parent / "src" / "dere-plugins"
+                    if candidate.exists() and (candidate / ".claude-plugin").exists():
+                        plugins_path = candidate
+                        break
+                if not plugins_path:
+                    # Fallback to installed location
+                    plugins_path = plugin_file.parent.parent
+            else:
+                # Running from source directly
+                plugins_path = plugin_file.parent.parent
 
-                settings["extraKnownMarketplaces"]["dere-vault-local"] = {
-                    "source": {
-                        "source": "directory",
-                        "path": str(vault_plugin_path)
-                    }
+            # Add marketplace
+            if "extraKnownMarketplaces" not in settings:
+                settings["extraKnownMarketplaces"] = {}
+
+            settings["extraKnownMarketplaces"]["dere-plugins"] = {
+                "source": {
+                    "source": "directory",
+                    "path": str(plugins_path)
                 }
+            }
 
-                # Enable plugin
-                if "enabledPlugins" not in settings:
-                    settings["enabledPlugins"] = {}
+            # Enable base dere plugin
+            if "enabledPlugins" not in settings:
+                settings["enabledPlugins"] = {}
 
-                settings["enabledPlugins"]["dere-vault@dere-vault-local"] = True
+            settings["enabledPlugins"]["dere@dere-plugins"] = True
+
+            # Enable dere-vault plugin if in a vault
+            try:
+                from dere_vault.scripts.detect_vault import is_vault
+                if is_vault():
+                    settings["enabledPlugins"]["dere-vault@dere-plugins"] = True
+            except Exception:
+                # Vault plugin not available or not in vault
+                pass
 
         except Exception:
-            # Silently fail if vault plugin not available or not in vault
+            # Silently fail if plugins not available
             pass
 
     def _add_conversation_hooks(self, settings: dict) -> None:
