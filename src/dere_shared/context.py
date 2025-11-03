@@ -154,6 +154,7 @@ def get_full_context(
             )
             if task_ctx:
                 environmental_parts.append(task_ctx)
+                environmental_parts.append("Tool: taskwarrior available via bash")
     except Exception:
         pass
 
