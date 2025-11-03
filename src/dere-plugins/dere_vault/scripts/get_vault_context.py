@@ -44,7 +44,9 @@ def get_vault_context(vault_root: Path | None = None) -> str:
 
             if folder_claude.is_file():
                 content = folder_claude.read_text(encoding="utf-8")
-                context_parts.append(f"# Folder Context: {current.relative_to(vault_root)}\n\n{content}")
+                context_parts.append(
+                    f"# Folder Context: {current.relative_to(vault_root)}\n\n{content}"
+                )
 
     except ValueError:
         # cwd not relative to vault_root

@@ -22,9 +22,7 @@ def get_current_activity() -> dict | None:
 
     try:
         response = requests.get(
-            f"{aw_url}/api/0/buckets/{bucket}/events",
-            params={"limit": 1},
-            timeout=2
+            f"{aw_url}/api/0/buckets/{bucket}/events", params={"limit": 1}, timeout=2
         )
         response.raise_for_status()
         events = response.json()

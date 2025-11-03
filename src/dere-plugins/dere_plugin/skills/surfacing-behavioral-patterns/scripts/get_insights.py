@@ -17,18 +17,14 @@ def get_insights(personality: list[str], limit: int = 10) -> dict | None:
     """Get insights for personality combo."""
     daemon_url = get_daemon_url()
 
-    payload = {
-        "personality_combo": personality,
-        "limit": limit,
-        "format_with_personality": False
-    }
+    payload = {"personality_combo": personality, "limit": limit, "format_with_personality": False}
 
     try:
         response = requests.post(
             f"{daemon_url}/api/synthesis/insights",
             json=payload,
             headers={"Content-Type": "application/json"},
-            timeout=10
+            timeout=10,
         )
         response.raise_for_status()
         return response.json()

@@ -22,7 +22,7 @@ def wellness_check() -> dict:
         "hour": datetime.now().hour,
         "is_late_night": datetime.now().hour >= 23 or datetime.now().hour < 6,
         "emotion": None,
-        "risk_level": "low"
+        "risk_level": "low",
     }
 
     # Get emotion state

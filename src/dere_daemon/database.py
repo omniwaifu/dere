@@ -500,7 +500,7 @@ class Database:
 
     def queue_task(self, task: TaskQueue) -> int:
         """Add a task to the background processing queue"""
-        metadata_json = json.dumps(task.metadata) if task.metadata else None
+        metadata_json = json.dumps(task.task_metadata) if task.task_metadata else None
 
         result = self._execute_and_commit(
             """

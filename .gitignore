@@ -51,3 +51,7 @@ __pycache__/
 TODO.md
 .serena/*
 .claude/
+
+# Workforce Assistant
+.agent-notes/
+.workspace/

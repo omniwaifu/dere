@@ -83,10 +83,55 @@ class OllamaClient:
         await asyncio.sleep(2)
         return await self._check_health()
 
+    # Conservative context limits
+    MAX_TOKENS = 6000  # Conservative limit that works across models
+    CHARS_PER_TOKEN = 4  # Rough average for estimating token count
+    MAX_CHARS = MAX_TOKENS * CHARS_PER_TOKEN  # ~24000 characters
+
+    def _truncate_content(self, content: str, content_type: str = "text") -> str:
+        """Truncate content to fit within conservative context limits
+
+        Args:
+            content: The text content to potentially truncate
+            content_type: Description of content type for logging (e.g., "prompt", "text")
+
+        Returns:
+            Truncated content if needed, otherwise original content
+        """
+        if len(content) <= self.MAX_CHARS:
+            return content
+
+        # Truncate, keeping the end since that's usually most relevant for context
+        truncated = content[-self.MAX_CHARS :]
+        chars_removed = len(content) - len(truncated)
+
+        logger.warning(
+            "Truncated {} from {} to {} chars ({} removed, ~{} tokens) to fit context limit",
+            content_type,
+            len(content),
+            len(truncated),
+            chars_removed,
+            chars_removed // self.CHARS_PER_TOKEN,
+        )
+
+        return truncated
+
     async def get_embedding(self, text: str) -> list[float]:
         """Get embedding vector for text with retry logic"""
         if not await self._ensure_healthy():
             raise RuntimeError("Ollama server is not healthy")
+
+        # Truncate if needed to prevent context overflow
+        original_length = len(text)
+        text = self._truncate_content(text, "embedding text")
+
+        if original_length != len(text):
+            logger.info(
+                "Embedding input truncated: {} chars -> {} chars (~{} tokens)",
+                original_length,
+                len(text),
+                len(text) // self.CHARS_PER_TOKEN,
+            )
 
         max_retries = 3
         base_delay = 1.0
@@ -94,6 +139,12 @@ class OllamaClient:
 
         for attempt in range(max_retries):
             try:
+                logger.debug(
+                    "Ollama embedding attempt {}: {} chars (~{} tokens)",
+                    attempt + 1,
+                    len(text),
+                    len(text) // self.CHARS_PER_TOKEN,
+                )
                 resp = await self.client.post(
                     f"{self.base_url}/api/embeddings",
                     json={"model": self.embedding_model, "prompt": text, "keep_alive": "5m"},
@@ -134,6 +185,19 @@ class OllamaClient:
             raise RuntimeError("Ollama server is not healthy")
 
         model = model or self.summarization_model
+
+        # Truncate if needed to prevent context overflow
+        original_length = len(prompt)
+        prompt = self._truncate_content(prompt, "prompt")
+
+        if original_length != len(prompt):
+            logger.info(
+                "Generate prompt truncated: {} chars -> {} chars (~{} tokens)",
+                original_length,
+                len(prompt),
+                len(prompt) // self.CHARS_PER_TOKEN,
+            )
+
         max_retries = 3
         base_delay = 1.0
         last_error = None
@@ -150,7 +214,11 @@ class OllamaClient:
                     payload["format"] = schema
 
                 logger.debug(
-                    "Ollama generate attempt {}: POST {}/api/generate", attempt + 1, self.base_url
+                    "Ollama generate attempt {}: {} chars (~{} tokens) to {}/api/generate",
+                    attempt + 1,
+                    len(prompt),
+                    len(prompt) // self.CHARS_PER_TOKEN,
+                    self.base_url,
                 )
                 resp = await self.client.post(f"{self.base_url}/api/generate", json=payload)
 

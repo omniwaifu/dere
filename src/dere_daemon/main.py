@@ -10,20 +10,30 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, Body, FastAPI
+from fastapi import BackgroundTasks, Body, Depends, FastAPI
 from loguru import logger
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlmodel import select
 
-from dere_daemon.database import Database
 from dere_daemon.ollama_client import OllamaClient
 from dere_daemon.task_processor import TaskProcessor
 from dere_shared.config import load_dere_config
+from dere_shared.database import create_engine, create_session_factory, get_session
 from dere_shared.models import (
+    ContextCache,
     Conversation,
+    EmotionState,
+    Entity,
     MessageType,
+    Notification,
+    Presence,
     Session,
+    StimulusHistory,
     TaskQueue,
     TaskStatus,
+    UserSession,
+    WellnessSession,
 )
 
 
@@ -237,14 +247,88 @@ class SynthesisPatternsRequest(BaseModel):
     format_with_personality: bool = True
 
 
+class EmotionDBAdapter:
+    """Adapter to provide database interface for emotion manager using SQLModel."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
+        self.session_factory = session_factory
+
+    async def load_emotion_state(self, session_id: int) -> dict | None:
+        """Load emotion state from database."""
+        async with self.session_factory() as db:
+            from dere_shared.emotion.models import EmotionInstance, OCCEmotionType
+
+            stmt = (
+                select(EmotionState)
+                .where(EmotionState.session_id == session_id)
+                .order_by(EmotionState.last_update.desc())
+                .limit(1)
+            )
+            result = await db.execute(stmt)
+            state = result.scalar_one_or_none()
+            if state and state.appraisal_data:
+                # Deserialize: strings → enum keys, dict → EmotionInstance
+                loaded_data = state.appraisal_data
+                deserialized_emotions = {
+                    OCCEmotionType(key): EmotionInstance(**value)
+                    for key, value in loaded_data["active_emotions"].items()
+                }
+                return {
+                    "active_emotions": deserialized_emotions,
+                    "last_decay_time": loaded_data["last_decay_time"],
+                }
+            return None
+
+    async def store_stimulus(self, session_id: int, stimulus_record) -> None:
+        """Store stimulus record in database."""
+        async with self.session_factory() as db:
+
+            stimulus = StimulusHistory(
+                session_id=session_id,
+                stimulus_type=stimulus_record.type,
+                valence=stimulus_record.valence,
+                intensity=stimulus_record.intensity,
+                timestamp=stimulus_record.timestamp,
+                context_data=stimulus_record.context,
+            )
+            db.add(stimulus)
+            await db.commit()
+
+    async def store_emotion_state(
+        self, session_id: int, active_emotions: dict, last_decay_time: int
+    ) -> None:
+        """Store emotion state in database."""
+        async with self.session_factory() as db:
+            from datetime import datetime
+
+            # Serialize: enum keys → strings, EmotionInstance → dict
+            serialized_emotions = {
+                emotion_type.value: emotion_instance.model_dump()
+                for emotion_type, emotion_instance in active_emotions.items()
+            }
+
+            state = EmotionState(
+                session_id=session_id,
+                appraisal_data={
+                    "active_emotions": serialized_emotions,
+                    "last_decay_time": last_decay_time,
+                },
+                last_update=datetime.utcnow(),
+            )
+            db.add(state)
+            await db.commit()
+
+
 # Global state
 class AppState:
-    db: Database
+    engine: AsyncEngine
+    session_factory: async_sessionmaker[AsyncSession]
     ollama: OllamaClient
     processor: TaskProcessor
     emotion_managers: dict[int, Any]  # session_id -> OCCEmotionManager
     ambient_monitor: Any  # AmbientMonitor
     personality_loader: Any  # PersonalityLoader
+    db: Any  # EmotionDBAdapter
 
 
 @asynccontextmanager
@@ -270,12 +354,17 @@ async def lifespan(app: FastAPI):
     ollama_config = config["ollama"]
     db_url = config.get("database", {}).get("url", "postgresql://postgres:dere@localhost/dere")
 
+    # Convert to asyncpg URL if needed
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
     app.state = AppState()
 
-    # Initialize database with error handling
-    embedding_dimension = ollama_config.get("embedding_dimension", 1024)
+    # Initialize async database engine
     try:
-        app.state.db = Database(db_url, embedding_dimension=embedding_dimension)
+        app.state.engine = create_engine(db_url)
+        app.state.session_factory = create_session_factory(app.state.engine)
+        app.state.db = EmotionDBAdapter(app.state.session_factory)
         print(f"✓ Database connected: {db_url}")
     except Exception as e:
         print("❌ FATAL: Failed to connect to database")
@@ -290,7 +379,7 @@ async def lifespan(app: FastAPI):
         embedding_model=ollama_config["embedding_model"],
         summarization_model=ollama_config["summarization_model"],
     )
-    app.state.processor = TaskProcessor(app.state.db, app.state.ollama)
+    app.state.processor = TaskProcessor(app.state.session_factory, app.state.ollama)
     app.state.emotion_managers = {}
 
     # Initialize personality loader
@@ -310,12 +399,13 @@ async def lifespan(app: FastAPI):
         app.state.ambient_monitor = None
 
     # Reset any stuck tasks from previous runs
-    try:
-        stuck_count = app.state.db.reset_stuck_tasks()
-        if stuck_count > 0:
-            print(f"Reset {stuck_count} stuck tasks to pending")
-    except Exception as e:
-        print(f"Warning: Failed to reset stuck tasks: {e}")
+    # TODO: Reimplement with SQLModel
+    # try:
+    #     stuck_count = await reset_stuck_tasks(app.state.session_factory)
+    #     if stuck_count > 0:
+    #         print(f"Reset {stuck_count} stuck tasks to pending")
+    # except Exception as e:
+    #     print(f"Warning: Failed to reset stuck tasks: {e}")
 
     # Start Ollama health checks
     await app.state.ollama.start()
@@ -333,11 +423,11 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 await asyncio.sleep(30)  # Every 30s
-                cleaned = app.state.db.cleanup_stale_presence(stale_seconds=60)
-                if cleaned > 0:
-                    from loguru import logger
-
-                    logger.debug("Cleaned up {} stale presence records", cleaned)
+                # TODO: Reimplement with SQLModel
+                # cleaned = await cleanup_stale_presence(app.state.session_factory, stale_seconds=60)
+                # if cleaned > 0:
+                #     from loguru import logger
+                #     logger.debug("Cleaned up {} stale presence records", cleaned)
             except Exception as e:
                 from loguru import logger
 
@@ -377,7 +467,7 @@ async def lifespan(app: FastAPI):
         errors.append(e)
 
     try:
-        app.state.db.close()
+        await app.state.engine.dispose()
     except Exception as e:
         errors.append(e)
 
@@ -395,6 +485,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
+
+
+# Database session dependency
+async def get_db() -> AsyncSession:
+    """FastAPI dependency for database sessions."""
+    async for session in get_session(app.state.session_factory):
+        yield session
 
 
 def _get_time_of_day(hour: int) -> str:
@@ -528,90 +625,135 @@ async def health_check():
 
 
 @app.post("/sessions/create", response_model=CreateSessionResponse)
-async def create_session(req: CreateSessionRequest):
+async def create_session(req: CreateSessionRequest, db: AsyncSession = Depends(get_db)):
     """Create a new session"""
     session = Session(
         working_dir=req.working_dir,
         start_time=int(time.time()),
     )
 
-    session_id = app.state.db.create_session(session)
-    return CreateSessionResponse(session_id=session_id)
+    db.add(session)
+    await db.flush()
+    await db.refresh(session)
+
+    return CreateSessionResponse(session_id=session.id)
 
 
 @app.post("/sessions/find_or_create", response_model=FindOrCreateSessionResponse)
-async def find_or_create_session(req: FindOrCreateSessionRequest):
+async def find_or_create_session(
+    req: FindOrCreateSessionRequest, db: AsyncSession = Depends(get_db)
+):
     """Find existing session or create new one with continuity support.
 
     If an existing session is found within max_age_hours, it will be resumed.
     If an old session exists but is outside max_age_hours, a new session will
     be created with continued_from linkage for historical continuity.
     """
+    from sqlmodel import select
+
     # Create/find user_session if user_id provided
     user_session_id = None
     if req.user_id:
-        user_session_id = app.state.db.find_or_create_user_session(
-            user_id=req.user_id, default_personality=req.personality
-        )
+        stmt = select(UserSession).where(UserSession.user_id == req.user_id)
+        result = await db.execute(stmt)
+        user_session = result.scalar_one_or_none()
 
-    existing = app.state.db.get_latest_session_for_channel(
-        req.working_dir, max_age_hours=req.max_age_hours
+        if not user_session:
+            user_session = UserSession(
+                user_id=req.user_id,
+                default_personality=req.personality,
+            )
+            db.add(user_session)
+            await db.flush()
+            await db.refresh(user_session)
+
+        user_session_id = user_session.id
+
+    # Find latest session for this working_dir
+    stmt = (
+        select(Session)
+        .where(Session.working_dir == req.working_dir)
+        .order_by(Session.start_time.desc())
     )
+    if req.max_age_hours is not None:
+        cutoff_time = int(time.time()) - (req.max_age_hours * 3600)
+        stmt = stmt.where(Session.start_time >= cutoff_time)
+
+    result = await db.execute(stmt)
+    existing = result.scalars().first()
 
     if existing and req.max_age_hours is not None:
         # Update existing session with user_session_id if provided
         if user_session_id:
-            app.state.db.update_session_user_session_id(existing["id"], user_session_id)
+            existing.user_session_id = user_session_id
+            await db.flush()
         return FindOrCreateSessionResponse(
-            session_id=existing["id"],
+            session_id=existing.id,
             resumed=True,
-            claude_session_id=existing.get("claude_session_id"),
+            claude_session_id=existing.claude_session_id,
         )
 
     if existing and req.max_age_hours is None:
         # Update existing session with user_session_id if provided
         if user_session_id:
-            app.state.db.update_session_user_session_id(existing["id"], user_session_id)
+            existing.user_session_id = user_session_id
+            await db.flush()
         return FindOrCreateSessionResponse(
-            session_id=existing["id"],
+            session_id=existing.id,
             resumed=True,
-            claude_session_id=existing.get("claude_session_id"),
+            claude_session_id=existing.claude_session_id,
         )
 
     session = Session(
         working_dir=req.working_dir,
         start_time=int(time.time()),
-        continued_from=existing["id"] if existing else None,
+        continued_from=existing.id if existing else None,
         user_session_id=user_session_id,
         medium=req.medium,
         user_id=req.user_id,
     )
 
-    session_id = app.state.db.create_session(session)
-    return FindOrCreateSessionResponse(session_id=session_id, resumed=False, claude_session_id=None)
+    db.add(session)
+    await db.flush()
+    await db.refresh(session)
+
+    return FindOrCreateSessionResponse(session_id=session.id, resumed=False, claude_session_id=None)
 
 
 @app.post("/sessions/{session_id}/claude_session")
-async def update_claude_session(session_id: int, claude_session_id: str = Body(...)):
+async def update_claude_session(
+    session_id: int, claude_session_id: str = Body(...), db: AsyncSession = Depends(get_db)
+):
     """Update the Claude SDK session ID for a daemon session.
 
     This is called after creating a ClaudeSDKClient and capturing its session ID
     from the first system init message.
     """
+    from sqlmodel import select
 
     logger.info(
         "Received claude_session_id update: session_id={}, claude_session_id={}",
         session_id,
         claude_session_id,
     )
-    app.state.db.update_claude_session_id(session_id, claude_session_id)
+
+    stmt = select(Session).where(Session.id == session_id)
+    result = await db.execute(stmt)
+    session = result.scalar_one()
+
+    session.claude_session_id = claude_session_id
+    await db.flush()
+
     logger.info("Successfully updated claude_session_id for session {}", session_id)
     return {"status": "updated"}
 
 
 @app.post("/sessions/{session_id}/message", response_model=StoreMessageResponse)
 async def store_message(
-    session_id: int, req: StoreMessageRequest, background_tasks: BackgroundTasks
+    session_id: int,
+    req: StoreMessageRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     """Store a message and queue embedding generation"""
     conv = Conversation(
@@ -621,32 +763,91 @@ async def store_message(
         timestamp=int(time.time()),
     )
 
-    message_id = app.state.db.store_conversation(conv)
+    db.add(conv)
+    await db.flush()
+    await db.refresh(conv)
 
     # Queue embedding generation in background
-    background_tasks.add_task(generate_embedding_task, message_id, req.message)
+    background_tasks.add_task(generate_embedding_task, conv.id, req.message)
 
-    return StoreMessageResponse(message_id=message_id)
+    return StoreMessageResponse(message_id=conv.id)
 
 
 @app.get("/sessions/{session_id}/history")
-async def get_history(session_id: int, limit: int = 50):
+async def get_history(session_id: int, limit: int = 50, db: AsyncSession = Depends(get_db)):
     """Get conversation history for a session"""
-    # TODO: Implement query from database
-    return {"messages": []}
+    from sqlmodel import select
+
+    stmt = (
+        select(Conversation)
+        .where(Conversation.session_id == session_id)
+        .order_by(Conversation.timestamp.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+
+    return {
+        "messages": [
+            {
+                "id": msg.id,
+                "prompt": msg.prompt,
+                "message_type": msg.message_type,
+                "timestamp": msg.timestamp,
+            }
+            for msg in messages
+        ]
+    }
 
 
 @app.post("/search/similar")
-async def search_similar(req: SearchRequest):
+async def search_similar(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Search for similar conversations using vector similarity"""
+    from sqlalchemy import select
+
     try:
         # Generate embedding for query
         embedding = await app.state.ollama.get_embedding(req.query)
 
-        # Search database
-        results = app.state.db.search_similar(embedding, limit=req.limit, threshold=req.threshold)
+        # Use pgvector <=> operator for cosine distance
+        # Distance of 0 = identical, distance of 2 = opposite
+        # Convert to similarity score: 1 - (distance / 2)
+        stmt = (
+            select(
+                Conversation.id,
+                Conversation.session_id,
+                Conversation.prompt,
+                Conversation.message_type,
+                Conversation.timestamp,
+                (1 - (Conversation.prompt_embedding.cosine_distance(embedding) / 2)).label(
+                    "similarity"
+                ),
+            )
+            .where(Conversation.prompt_embedding.is_not(None))
+            .where(
+                (1 - (Conversation.prompt_embedding.cosine_distance(embedding) / 2))
+                >= req.threshold
+            )
+            .order_by(Conversation.prompt_embedding.cosine_distance(embedding))
+            .limit(req.limit)
+        )
 
-        return {"results": results}
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        return {
+            "results": [
+                {
+                    "id": row.id,
+                    "session_id": row.session_id,
+                    "prompt": row.prompt,
+                    "message_type": row.message_type,
+                    "timestamp": row.timestamp,
+                    "similarity": float(row.similarity),
+                }
+                for row in rows
+            ]
+        }
     except RuntimeError:
         # Ollama unavailable, return empty results
         return {"results": []}
@@ -660,7 +861,7 @@ async def generate_embedding(text: str):
 
 
 @app.post("/search/hybrid")
-async def search_hybrid(req: HybridSearchRequest):
+async def search_hybrid(req: HybridSearchRequest, db: AsyncSession = Depends(get_db)):
     """Hybrid search using entities and embeddings.
 
     Supports cross-medium search:
@@ -668,82 +869,341 @@ async def search_hybrid(req: HybridSearchRequest):
     - If session_id provided: resolve user_session_id and search across all sessions
     - Otherwise: search all conversations
     """
+    from sqlalchemy import func, literal, select
+
     # Generate embedding for query
     embedding = await app.state.ollama.get_embedding(req.query)
 
     # Determine user_session_id
     user_session_id = req.user_session_id
     if not user_session_id and req.session_id:
-        user_session_id = app.state.db.get_user_session_id_for_session(req.session_id)
+        stmt = select(Session.user_session_id).where(Session.id == req.session_id)
+        result = await db.execute(stmt)
+        user_session_id = result.scalar_one_or_none()
 
-    # Perform hybrid search
+    # Perform hybrid search using CTEs
+    current_time = int(time.time())
+    entity_weight = req.entity_weight
+    recency_weight = 0.3
+    semantic_weight = 1.0 - entity_weight
+    max_entity_count = len(req.entity_values) if req.entity_values else 1
+
+    # Build entity_matches CTE
+    entity_matches_cte = (
+        select(
+            Conversation.id.label("conv_id"),
+            func.count(func.distinct(Entity.id)).cast(literal(0.0).type).label("entity_score"),
+        )
+        .select_from(Conversation)
+        .join(Entity, Entity.conversation_id == Conversation.id)
+        .where(Entity.normalized_value.in_(req.entity_values) if req.entity_values else False)
+    )
+
     if user_session_id:
-        # Cross-medium search across user_session
-        results = app.state.db.search_user_session_context(
-            user_session_id,
-            req.entity_values,
-            embedding,
-            limit=req.limit,
-            entity_weight=req.entity_weight,
-        )
-    else:
-        # Regular search across all conversations
-        results = app.state.db.search_with_entities_and_embeddings(
-            req.entity_values, embedding, limit=req.limit, entity_weight=req.entity_weight
-        )
+        entity_matches_cte = entity_matches_cte.join(
+            Session, Session.id == Conversation.session_id
+        ).where(Session.user_session_id == user_session_id)
 
-    return {"results": results, "entity_values": req.entity_values}
+    entity_matches_cte = entity_matches_cte.group_by(Conversation.id).cte("entity_matches")
+
+    # Build semantic_matches CTE
+    semantic_matches_cte = select(
+        Conversation.id.label("conv_id"),
+        (1 - (Conversation.prompt_embedding.cosine_distance(embedding))).label("semantic_score"),
+    ).where(Conversation.prompt_embedding.is_not(None))
+
+    if user_session_id:
+        semantic_matches_cte = semantic_matches_cte.join(
+            Session, Session.id == Conversation.session_id
+        ).where(Session.user_session_id == user_session_id)
+
+    semantic_matches_cte = semantic_matches_cte.cte("semantic_matches")
+
+    # Final query joining CTEs
+    stmt = (
+        select(
+            Conversation.id,
+            Conversation.session_id,
+            Conversation.prompt,
+            Conversation.message_type,
+            Conversation.timestamp,
+            Session.working_dir,
+            Session.medium,
+            func.coalesce(entity_matches_cte.c.entity_score, 0).label("entity_score"),
+            func.coalesce(semantic_matches_cte.c.semantic_score, 0).label("semantic_score"),
+            func.exp(
+                -((current_time - Conversation.timestamp).cast(literal(0.0).type) / 604800.0)
+            ).label("recency_score"),
+            (
+                (
+                    func.coalesce(entity_matches_cte.c.entity_score, 0)
+                    / max_entity_count
+                    * entity_weight
+                    + func.coalesce(semantic_matches_cte.c.semantic_score, 0) * semantic_weight
+                )
+                * (1 - recency_weight)
+                + func.exp(
+                    -((current_time - Conversation.timestamp).cast(literal(0.0).type) / 604800.0)
+                )
+                * recency_weight
+            ).label("combined_score"),
+        )
+        .select_from(Conversation)
+        .join(Session, Session.id == Conversation.session_id)
+        .outerjoin(entity_matches_cte, entity_matches_cte.c.conv_id == Conversation.id)
+        .outerjoin(semantic_matches_cte, semantic_matches_cte.c.conv_id == Conversation.id)
+        .order_by(literal("combined_score").desc())
+        .limit(req.limit)
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return {
+        "results": [
+            {
+                "id": row.id,
+                "session_id": row.session_id,
+                "prompt": row.prompt,
+                "message_type": row.message_type,
+                "timestamp": row.timestamp,
+                "working_dir": row.working_dir,
+                "medium": row.medium,
+                "entity_score": float(row.entity_score),
+                "semantic_score": float(row.semantic_score),
+                "recency_score": float(row.recency_score),
+                "combined_score": float(row.combined_score),
+            }
+            for row in rows
+        ],
+        "entity_values": req.entity_values,
+    }
 
 
 @app.get("/entities/session/{session_id}")
-async def get_session_entities(session_id: int, entity_type: str | None = None):
+async def get_session_entities(
+    session_id: int, entity_type: str | None = None, db: AsyncSession = Depends(get_db)
+):
     """Get all entities for a session"""
-    entities = app.state.db.get_entities_by_session(session_id, entity_type)
-    return {"session_id": session_id, "entities": entities}
+    from sqlmodel import select
+
+    stmt = select(Entity).where(Entity.session_id == session_id)
+    if entity_type:
+        stmt = stmt.where(Entity.entity_type == entity_type)
+
+    result = await db.execute(stmt)
+    entities = result.scalars().all()
+
+    return {
+        "session_id": session_id,
+        "entities": [
+            {
+                "id": e.id,
+                "entity_type": e.entity_type,
+                "entity_value": e.entity_value,
+                "normalized_value": e.normalized_value,
+                "confidence": e.confidence,
+            }
+            for e in entities
+        ],
+    }
 
 
 @app.get("/entities/timeline/{entity}")
-async def get_entity_timeline(entity: str):
+async def get_entity_timeline(entity: str, db: AsyncSession = Depends(get_db)):
     """Get timeline of entity mentions across sessions"""
-    timeline = app.state.db.get_entity_timeline(entity)
-    return EntityTimelineResponse(entity=entity, sessions=timeline)
+    from sqlalchemy import func
+    from sqlmodel import select
+
+    stmt = (
+        select(
+            Session.id,
+            Session.working_dir,
+            Session.start_time,
+            func.count(Entity.id).label("mention_count"),
+        )
+        .select_from(Entity)
+        .join(Session, Session.id == Entity.session_id)
+        .where(Entity.normalized_value == entity)
+        .group_by(Session.id, Session.working_dir, Session.start_time)
+        .order_by(Session.start_time.desc())
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return EntityTimelineResponse(
+        entity=entity,
+        sessions=[
+            {
+                "session_id": row.id,
+                "working_dir": row.working_dir,
+                "start_time": row.start_time,
+                "mention_count": row.mention_count,
+            }
+            for row in rows
+        ],
+    )
 
 
 @app.get("/entities/related/{entity}")
-async def get_related_entities(entity: str, limit: int = 20):
+async def get_related_entities(entity: str, limit: int = 20, db: AsyncSession = Depends(get_db)):
     """Get entities that co-occur with the given entity"""
-    related = app.state.db.find_co_occurring_entities(entity, limit)
-    return RelatedEntitiesResponse(entity=entity, related=related)
+    from sqlalchemy import and_, func, select
+
+    # Find conversations containing the target entity
+    # Then find other entities in those conversations
+    e1 = Entity.__table__.alias("e1")
+    e2 = Entity.__table__.alias("e2")
+
+    stmt = (
+        select(
+            e2.c.normalized_value,
+            e2.c.entity_type,
+            func.count(func.distinct(e2.c.conversation_id)).label("co_occurrence_count"),
+        )
+        .select_from(e1)
+        .join(e2, and_(e1.c.conversation_id == e2.c.conversation_id, e1.c.id != e2.c.id))
+        .where(e1.c.normalized_value == entity)
+        .group_by(e2.c.normalized_value, e2.c.entity_type)
+        .order_by(func.count(func.distinct(e2.c.conversation_id)).desc())
+        .limit(limit)
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return RelatedEntitiesResponse(
+        entity=entity,
+        related=[
+            {
+                "entity": row.normalized_value,
+                "entity_type": row.entity_type,
+                "co_occurrence_count": row.co_occurrence_count,
+            }
+            for row in rows
+        ],
+    )
 
 
 @app.get("/entities/importance")
 async def get_entity_importance(
-    user_id: str | None = None, limit: int = 50, recency_days: int = 30
+    user_id: str | None = None,
+    limit: int = 50,
+    recency_days: int = 30,
+    db: AsyncSession = Depends(get_db),
 ):
     """Get entity importance scores based on mention count, recency, and cross-medium presence"""
-    entities = app.state.db.get_entity_importance_scores(user_id, limit, recency_days)
-    return {"entities": entities}
+    from sqlalchemy import distinct, func, select
+
+    cutoff_time = int(time.time()) - (recency_days * 86400)
+
+    stmt = (
+        select(
+            Entity.normalized_value,
+            Entity.entity_type,
+            func.count(Entity.id).label("mention_count"),
+            func.count(distinct(Session.medium)).label("medium_count"),
+            func.max(Conversation.timestamp).label("last_seen"),
+        )
+        .select_from(Entity)
+        .join(Conversation, Conversation.id == Entity.conversation_id)
+        .join(Session, Session.id == Conversation.session_id)
+        .where(Conversation.timestamp >= cutoff_time)
+    )
+
+    if user_id:
+        stmt = stmt.where(Session.user_id == user_id)
+
+    stmt = (
+        stmt.group_by(Entity.normalized_value, Entity.entity_type)
+        .order_by(func.count(Entity.id).desc())
+        .limit(limit)
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return {
+        "entities": [
+            {
+                "entity": row.normalized_value,
+                "entity_type": row.entity_type,
+                "mention_count": row.mention_count,
+                "medium_count": row.medium_count,
+                "last_seen": row.last_seen,
+            }
+            for row in rows
+        ]
+    }
 
 
 @app.get("/entities/user/{user_id}")
-async def get_user_entities(user_id: str, entity_type: str | None = None, limit: int = 100):
+async def get_user_entities(
+    user_id: str,
+    entity_type: str | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
     """Get all entities for a user across all sessions and mediums"""
-    entities = app.state.db.get_entities_by_user(user_id, entity_type, limit)
-    return {"user_id": user_id, "entities": entities}
+    from sqlmodel import select
+
+    stmt = (
+        select(Entity)
+        .join(Session, Session.id == Entity.session_id)
+        .where(Session.user_id == user_id)
+    )
+
+    if entity_type:
+        stmt = stmt.where(Entity.entity_type == entity_type)
+
+    stmt = stmt.limit(limit)
+
+    result = await db.execute(stmt)
+    entities = result.scalars().all()
+
+    return {
+        "user_id": user_id,
+        "entities": [
+            {
+                "id": e.id,
+                "entity_type": e.entity_type,
+                "entity_value": e.entity_value,
+                "normalized_value": e.normalized_value,
+                "confidence": e.confidence,
+                "session_id": e.session_id,
+            }
+            for e in entities
+        ],
+    }
 
 
 @app.post("/entities/merge/{user_id}")
-async def merge_user_entities(user_id: str):
+async def merge_user_entities(user_id: str, db: AsyncSession = Depends(get_db)):
     """Merge duplicate entities for a user across mediums using fingerprints"""
-    stats = app.state.db.merge_duplicate_entities(user_id)
-    return {"user_id": user_id, **stats}
+    # TODO: Reimplement entity merging logic
+    return {"user_id": user_id, "merged_count": 0, "message": "Not yet implemented"}
 
 
 @app.post("/conversation/capture")
-async def conversation_capture(req: ConversationCaptureRequest):
+async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession = Depends(get_db)):
     """Capture conversation and queue background tasks"""
+    from sqlalchemy import select
+
     # Ensure session exists
-    app.state.db.ensure_session_exists(req.session_id, req.project_path, req.personality)
+    stmt = select(Session).where(Session.id == req.session_id)
+    result = await db.execute(stmt)
+    session = result.scalar_one_or_none()
+
+    if not session:
+        session = Session(
+            id=req.session_id,
+            working_dir=req.project_path or "",
+            start_time=int(time.time()),
+            last_activity=datetime.utcnow(),
+        )
+        db.add(session)
+        await db.flush()
 
     # Store conversation without embedding
     conv = Conversation(
@@ -756,14 +1216,16 @@ async def conversation_capture(req: ConversationCaptureRequest):
         medium=req.medium,
         user_id=req.user_id,
     )
-    conversation_id = app.state.db.store_conversation(conv)
+    db.add(conv)
+    await db.flush()
+    conversation_id = conv.id
 
     # Queue embedding task
     embedding_task = TaskQueue(
         task_type="embedding",
         model_name=app.state.ollama.embedding_model,
         content=req.prompt,
-        metadata={
+        task_metadata={
             "original_length": len(req.prompt),
             "processing_mode": "raw",
             "content_type": "prompt",
@@ -773,15 +1235,15 @@ async def conversation_capture(req: ConversationCaptureRequest):
         status=TaskStatus.PENDING,
         session_id=req.session_id,
     )
-    app.state.db.queue_task(embedding_task)
-    app.state.processor.trigger()  # Trigger immediate processing
+    db.add(embedding_task)
+    app.state.processor.trigger()
 
     # Queue entity extraction task
     entity_task = TaskQueue(
         task_type="entity_extraction",
         model_name="gemma3n:latest",
         content=req.prompt,
-        metadata={
+        task_metadata={
             "original_length": len(req.prompt),
             "content_type": "prompt",
             "context_hint": "coding",
@@ -790,8 +1252,8 @@ async def conversation_capture(req: ConversationCaptureRequest):
         status=TaskStatus.PENDING,
         session_id=req.session_id,
     )
-    app.state.db.queue_task(entity_task)
-    app.state.processor.trigger()  # Trigger immediate processing
+    db.add(entity_task)
+    app.state.processor.trigger()
 
     # Queue emotion processing as background task (don't block response)
     if req.message_type == "user":
@@ -815,9 +1277,12 @@ async def conversation_capture(req: ConversationCaptureRequest):
 
                 now = datetime.now()
 
-                # Get session info
-                session_info = app.state.db.get_session(req.session_id)
-                session_start = session_info.get("start_time") if session_info else None
+                # Get session info using session_factory
+                async with app.state.session_factory() as bg_session:
+                    stmt = select(Session).where(Session.id == req.session_id)
+                    result = await bg_session.execute(stmt)
+                    session_obj = result.scalar_one_or_none()
+                    session_start = session_obj.start_time if session_obj else None
 
                 # Calculate session duration
                 session_duration_minutes = 0
@@ -834,7 +1299,7 @@ async def conversation_capture(req: ConversationCaptureRequest):
                     },
                     "session": {
                         "duration_minutes": int(session_duration_minutes),
-                        "working_dir": session_info.get("working_dir") if session_info else None,
+                        "working_dir": session_obj.working_dir if session_obj else None,
                     },
                 }
 
@@ -854,26 +1319,40 @@ async def conversation_capture(req: ConversationCaptureRequest):
 
 
 @app.post("/session/end")
-async def session_end(req: SessionEndRequest):
+async def session_end(req: SessionEndRequest, db: AsyncSession = Depends(get_db)):
     """Handle session end and queue summarization"""
+    from sqlalchemy import select, update
+
     # Get recent session content (last 30 minutes or last 50 messages)
     thirty_minutes_ago = int(time.time()) - 1800
-    content = app.state.db.get_session_content(
-        req.session_id, since_timestamp=thirty_minutes_ago, max_messages=50
-    )
 
-    if not content:
+    stmt = (
+        select(Conversation.prompt, Conversation.message_type)
+        .where(Conversation.session_id == req.session_id)
+        .where(Conversation.timestamp >= thirty_minutes_ago)
+        .order_by(Conversation.timestamp.desc())
+        .limit(50)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    if not rows:
         return {"status": "skipped", "reason": "no_content"}
 
+    # Build content from messages
+    content = "\n".join([f"{row.message_type}: {row.prompt}" for row in reversed(rows)])
+
     # Get session personality
-    personality = app.state.db.get_session_personality(req.session_id)
+    stmt = select(Session.personality).where(Session.id == req.session_id)
+    result = await db.execute(stmt)
+    personality = result.scalar_one_or_none()
 
     # Queue summarization task
     summary_task = TaskQueue(
         task_type="summarization",
         model_name="gemma3n:latest",
         content=content,
-        metadata={
+        task_metadata={
             "original_length": len(content),
             "mode": "session",
             "max_length": 200,
@@ -883,19 +1362,36 @@ async def session_end(req: SessionEndRequest):
         status=TaskStatus.PENDING,
         session_id=req.session_id,
     )
-    task_id = app.state.db.queue_task(summary_task)
-    app.state.processor.trigger()  # Trigger immediate processing
+    db.add(summary_task)
+    await db.flush()
+    task_id = summary_task.id
+    app.state.processor.trigger()
 
     # Mark session as ended
-    app.state.db.mark_session_ended(req.session_id)
+    stmt = update(Session).where(Session.id == req.session_id).values(end_time=int(time.time()))
+    await db.execute(stmt)
 
     return {"summary_task": task_id, "status": "queued"}
 
 
 @app.post("/status/get")
-async def status_get(req: StatusRequest):
+async def status_get(req: StatusRequest, db: AsyncSession = Depends(get_db)):
     """Get daemon and queue status"""
-    queue_stats = app.state.db.get_queue_stats()
+    from sqlalchemy import func, select
+
+    # Get queue stats
+    stmt = select(
+        TaskQueue.status,
+        func.count(TaskQueue.id).label("count"),
+    ).group_by(TaskQueue.status)
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    queue_stats = {row.status: row.count for row in rows}
+    queue_stats.setdefault(TaskStatus.PENDING, 0)
+    queue_stats.setdefault(TaskStatus.PROCESSING, 0)
+    queue_stats.setdefault(TaskStatus.COMPLETED, 0)
+    queue_stats.setdefault(TaskStatus.FAILED, 0)
 
     status = {"daemon": "running", "queue": queue_stats}
 
@@ -912,34 +1408,63 @@ async def status_get(req: StatusRequest):
 
 
 @app.post("/queue/add")
-async def queue_add(req: QueueAddRequest):
+async def queue_add(req: QueueAddRequest, db: AsyncSession = Depends(get_db)):
     """Add task to processing queue"""
     task = TaskQueue(
         task_type=req.task_type,
         model_name=req.model_name,
         content=req.content,
-        metadata=req.metadata,
+        task_metadata=req.metadata,
         priority=req.priority,
         status=TaskStatus.PENDING,
         session_id=req.session_id,
     )
-    task_id = app.state.db.queue_task(task)
+    db.add(task)
+    await db.flush()
 
-    return {"task_id": task_id, "status": "queued"}
+    return {"task_id": task.id, "status": "queued"}
 
 
 @app.get("/queue/status")
-async def queue_status():
+async def queue_status(db: AsyncSession = Depends(get_db)):
     """Get queue statistics"""
-    stats = app.state.db.get_queue_stats()
+    from sqlalchemy import func, select
+
+    stmt = select(
+        TaskQueue.status,
+        func.count(TaskQueue.id).label("count"),
+    ).group_by(TaskQueue.status)
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    stats = {row.status: row.count for row in rows}
+    stats.setdefault(TaskStatus.PENDING, 0)
+    stats.setdefault(TaskStatus.PROCESSING, 0)
+    stats.setdefault(TaskStatus.COMPLETED, 0)
+    stats.setdefault(TaskStatus.FAILED, 0)
+
     return stats
 
 
 @app.post("/context/build")
-async def context_build(req: ContextBuildRequest):
+async def context_build(req: ContextBuildRequest, db: AsyncSession = Depends(get_db)):
     """Queue context building task"""
+    from sqlalchemy import select
+
     # Ensure session exists
-    app.state.db.ensure_session_exists(req.session_id, req.project_path, req.personality)
+    stmt = select(Session).where(Session.id == req.session_id)
+    result = await db.execute(stmt)
+    session = result.scalar_one_or_none()
+
+    if not session:
+        session = Session(
+            id=req.session_id,
+            working_dir=req.project_path or "",
+            start_time=int(time.time()),
+            last_activity=datetime.utcnow(),
+        )
+        db.add(session)
+        await db.flush()
 
     # Set defaults
     context_depth = req.context_depth or 5
@@ -951,7 +1476,7 @@ async def context_build(req: ContextBuildRequest):
         task_type="context_building",
         model_name="",
         content=req.current_prompt,
-        metadata={
+        task_metadata={
             "session_id": req.session_id,
             "project_path": req.project_path,
             "personality": req.personality,
@@ -965,34 +1490,61 @@ async def context_build(req: ContextBuildRequest):
         status=TaskStatus.PENDING,
         session_id=req.session_id,
     )
-    task_id = app.state.db.queue_task(task)
+    db.add(task)
+    await db.flush()
 
-    return {"task_id": task_id, "status": "queued"}
+    return {"task_id": task.id, "status": "queued"}
 
 
 @app.post("/context/get")
-async def context_get(req: ContextGetRequest):
+async def context_get(req: ContextGetRequest, db: AsyncSession = Depends(get_db)):
     """Get cached context for session (body)"""
-    max_age = req.max_age_minutes or 30
-    context, found = app.state.db.get_cached_context(req.session_id, max_age * 60)
+    from sqlalchemy import select
 
-    return {"found": found, "context": context or ""}
+    max_age = req.max_age_minutes or 30
+    max_age_seconds = max_age * 60
+    min_timestamp = datetime.fromtimestamp(int(time.time()) - max_age_seconds)
+
+    stmt = (
+        select(ContextCache.context_text)
+        .where(ContextCache.session_id == req.session_id)
+        .where(ContextCache.created_at >= min_timestamp)
+        .order_by(ContextCache.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    context = result.scalar_one_or_none()
+
+    return {"found": context is not None, "context": context or ""}
 
 
 @app.post("/mode/session/previous")
-async def mode_session_previous(req: ModePreviousSessionRequest):
+async def mode_session_previous(
+    req: ModePreviousSessionRequest, db: AsyncSession = Depends(get_db)
+):
     """Find previous session for a mode"""
-    result = app.state.db.get_previous_mode_session(req.mode, req.project_path)
+    from sqlalchemy import select
 
-    if not result:
+    stmt = (
+        select(Session)
+        .where(Session.personality == req.mode)
+        .where(Session.working_dir == req.project_path)
+        .where(Session.end_time.is_not(None))
+        .order_by(Session.start_time.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    session = result.scalar_one_or_none()
+
+    if not session:
         return {"found": False}
 
-    session_time = datetime.fromtimestamp(result["start_time"])
+    session_time = datetime.fromtimestamp(session.start_time)
     days_ago = (datetime.now() - session_time).days
     last_session_date = session_time.strftime("%B %d, %Y")
 
     # Parse key_topics if it's JSON
-    key_topics = result.get("key_topics", "")
+    key_topics = session.key_topics or ""
     if key_topics.startswith("["):
         try:
             key_topics = ", ".join(json.loads(key_topics))
@@ -1001,18 +1553,20 @@ async def mode_session_previous(req: ModePreviousSessionRequest):
 
     return {
         "found": True,
-        "session_id": result["id"],
+        "session_id": session.id,
         "last_session_date": last_session_date,
         "days_ago": days_ago,
-        "summary": result.get("summary", ""),
+        "summary": session.summary or "",
         "key_topics": key_topics,
-        "next_steps": result.get("next_steps", ""),
+        "next_steps": session.next_steps or "",
     }
 
 
 @app.post("/mode/wellness/extract")
-async def mode_wellness_extract(req: WellnessExtractRequest):
+async def mode_wellness_extract(req: WellnessExtractRequest, db: AsyncSession = Depends(get_db)):
     """Extract wellness data from conversation using LLM"""
+    from sqlalchemy import update
+
     # Check if Ollama is available
     if not await app.state.ollama.is_available():
         return {
@@ -1066,12 +1620,28 @@ Focus on evidence from the conversation. If insufficient information, use reason
     }
 
     try:
+        # Log content size before generation
+        prompt_length = len(prompt)
+        logger.info("Wellness extraction: {} chars (~{} tokens)", prompt_length, prompt_length // 4)
+
         # Generate wellness data with LLM
         response = await app.state.ollama.generate(prompt, schema=schema)
         wellness_data = json.loads(response)
 
         # Store wellness session
-        app.state.db.store_wellness_session(req.session_id, req.mode, wellness_data)
+        wellness = WellnessSession(
+            session_id=req.session_id,
+            mode=req.mode,
+            mood=wellness_data["mood"],
+            energy=wellness_data["energy"],
+            stress=wellness_data["stress"],
+            key_themes=json.dumps(wellness_data["key_themes"]),
+            notes=wellness_data["notes"],
+            homework=json.dumps(wellness_data["homework"]),
+            next_step_notes=wellness_data["next_step_notes"],
+            timestamp=int(time.time()),
+        )
+        db.add(wellness)
 
         # Generate and store session summary
         summary_prompt = f"""Based on this {req.mode} session data, create a brief summary for future session continuity:
@@ -1093,20 +1663,29 @@ Generate a 2-3 sentence summary that captures:
 
 Summary:"""
 
+        # Log content size before generation
+        prompt_len = len(summary_prompt)
+        logger.info(
+            "Wellness summary generation: {} chars (~{} tokens)", prompt_len, prompt_len // 4
+        )
+
         summary = await app.state.ollama.generate(summary_prompt)
         summary = summary.strip()
         if summary.startswith("Summary:"):
             summary = summary.replace("Summary:", "").strip()
 
         # Store session summary
-        app.state.db.store_session_summary(
-            req.session_id,
-            "wellness",
-            summary,
-            json.dumps(wellness_data["key_themes"]),
-            wellness_data["next_step_notes"],
-            app.state.ollama.summarization_model,
+        stmt = (
+            update(Session)
+            .where(Session.id == req.session_id)
+            .values(
+                summary=summary,
+                key_topics=json.dumps(wellness_data["key_themes"]),
+                next_steps=wellness_data["next_step_notes"],
+                summarization_model=app.state.ollama.summarization_model,
+            )
         )
+        await db.execute(stmt)
 
         return wellness_data
 
@@ -1202,7 +1781,7 @@ async def llm_generate(req: LLMGenerateRequest):
         if req.include_context:
             context, resolved_session_id = await compose_session_context(
                 session_id=req.session_id,
-                db=app.state.db,
+                session_factory=app.state.session_factory,
                 personality_loader=app.state.personality_loader,
                 medium=req.medium,
                 include_emotion=True,
@@ -1258,7 +1837,7 @@ async def llm_generate(req: LLMGenerateRequest):
 
 
 @app.post("/presence/register")
-async def presence_register(req: PresenceRegisterRequest):
+async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Depends(get_db)):
     """Register a medium as online with available channels.
 
     Used by Discord/Telegram/etc bots to announce they are online and ready to receive messages.
@@ -1273,6 +1852,7 @@ async def presence_register(req: PresenceRegisterRequest):
     6. Deliver notifications via Telegram Bot API send_message
     7. Link sessions with user_id (Telegram user ID) for cross-medium continuity
     """
+    from sqlalchemy import select, update
 
     logger.info(
         "Presence registered: {} for user {} with {} channels",
@@ -1280,67 +1860,146 @@ async def presence_register(req: PresenceRegisterRequest):
         req.user_id,
         len(req.available_channels),
     )
-    app.state.db.register_presence(req.medium, req.user_id, req.available_channels)
+
+    # Check if presence already exists
+    stmt = select(Presence).where(
+        Presence.medium == req.medium,
+        Presence.user_id == req.user_id,
+    )
+    result = await db.execute(stmt)
+    presence = result.scalar_one_or_none()
+
+    if presence:
+        stmt = (
+            update(Presence)
+            .where(Presence.medium == req.medium, Presence.user_id == req.user_id)
+            .values(
+                available_channels=req.available_channels,
+                last_heartbeat=datetime.utcnow(),
+            )
+        )
+        await db.execute(stmt)
+    else:
+        presence = Presence(
+            medium=req.medium,
+            user_id=req.user_id,
+            available_channels=req.available_channels,
+            last_heartbeat=datetime.utcnow(),
+        )
+        db.add(presence)
+
     return {"status": "registered"}
 
 
 @app.post("/presence/heartbeat")
-async def presence_heartbeat(req: PresenceHeartbeatRequest):
+async def presence_heartbeat(req: PresenceHeartbeatRequest, db: AsyncSession = Depends(get_db)):
     """Heartbeat to keep medium alive.
 
     Bots should call this every 30s to maintain presence.
     """
-    app.state.db.heartbeat_presence(req.medium, req.user_id)
+    from sqlalchemy import update
+
+    stmt = (
+        update(Presence)
+        .where(Presence.medium == req.medium, Presence.user_id == req.user_id)
+        .values(last_heartbeat=datetime.utcnow())
+    )
+    await db.execute(stmt)
     return {"status": "ok"}
 
 
 @app.post("/presence/unregister")
-async def presence_unregister(req: PresenceUnregisterRequest):
+async def presence_unregister(req: PresenceUnregisterRequest, db: AsyncSession = Depends(get_db)):
     """Cleanly unregister a medium on shutdown."""
+    from sqlalchemy import delete
 
     logger.info("Presence unregistered: {} for user {}", req.medium, req.user_id)
-    app.state.db.unregister_presence(req.medium, req.user_id)
+
+    stmt = delete(Presence).where(
+        Presence.medium == req.medium,
+        Presence.user_id == req.user_id,
+    )
+    await db.execute(stmt)
     return {"status": "unregistered"}
 
 
 @app.get("/presence/available")
-async def presence_available(user_id: str):
+async def presence_available(user_id: str, db: AsyncSession = Depends(get_db)):
     """Get all online mediums for a user.
 
     Returns mediums that can currently receive messages.
     """
-    mediums = app.state.db.get_available_mediums(user_id)
+    from sqlalchemy import select
+
+    # Consider presence stale after 60 seconds
+    stale_threshold = int(time.time()) - 60
+
+    stmt = (
+        select(Presence)
+        .where(Presence.user_id == user_id)
+        .where(Presence.last_heartbeat >= stale_threshold)
+    )
+    result = await db.execute(stmt)
+    presences = result.scalars().all()
+
+    mediums = [
+        {
+            "medium": p.medium,
+            "available_channels": json.loads(p.available_channels) if p.available_channels else [],
+            "last_heartbeat": p.last_heartbeat,
+        }
+        for p in presences
+    ]
     return {"mediums": mediums}
 
 
 @app.post("/routing/decide")
-async def routing_decide(req: RoutingDecideRequest):
+async def routing_decide(req: RoutingDecideRequest, db: AsyncSession = Depends(get_db)):
     """Use LLM to decide where to route a message based on context.
 
     This is the core of omnipresent routing - NO hardcoded rules.
     LLM analyzes available mediums, user activity, recent conversations,
     and makes an intelligent decision about where to deliver the message.
     """
+    from sqlalchemy import select
+
     from dere_daemon.routing import decide_routing
 
     # Get available mediums
-    available_mediums = app.state.db.get_available_mediums(req.user_id)
+    stale_threshold = int(time.time()) - 60
+    stmt = (
+        select(Presence)
+        .where(Presence.user_id == req.user_id)
+        .where(Presence.last_heartbeat >= stale_threshold)
+    )
+    result = await db.execute(stmt)
+    presences = result.scalars().all()
+
+    available_mediums = [
+        {
+            "medium": p.medium,
+            "available_channels": json.loads(p.available_channels) if p.available_channels else [],
+            "last_heartbeat": p.last_heartbeat,
+        }
+        for p in presences
+    ]
 
     # Get recent conversations to understand where user has been active
-    # Query last 10 conversations across all mediums
-    result = app.state.db.conn.execute(
-        """
-        SELECT medium, timestamp, prompt
-        FROM conversations
-        WHERE user_id = %s AND medium IS NOT NULL
-        ORDER BY timestamp DESC
-        LIMIT 10
-        """,
-        [req.user_id],
+    stmt = (
+        select(Conversation.medium, Conversation.timestamp, Conversation.prompt)
+        .where(Conversation.user_id == req.user_id)
+        .where(Conversation.medium.is_not(None))
+        .order_by(Conversation.timestamp.desc())
+        .limit(10)
     )
-    recent_conversations = app.state.db._rows_to_dicts(result, result.fetchall())
+    result = await db.execute(stmt)
+    rows = result.all()
 
-    # Make routing decision
+    recent_conversations = [
+        {"medium": row.medium, "timestamp": row.timestamp, "prompt": row.prompt} for row in rows
+    ]
+
+    # Make routing decision (pass session_factory instead of db)
     decision = await decide_routing(
         user_id=req.user_id,
         message=req.message,
@@ -1348,7 +2007,7 @@ async def routing_decide(req: RoutingDecideRequest):
         available_mediums=available_mediums,
         user_activity=req.user_activity,
         recent_conversations=recent_conversations,
-        db=app.state.db,
+        session_factory=app.state.session_factory,
     )
 
     return {
@@ -1360,137 +2019,161 @@ async def routing_decide(req: RoutingDecideRequest):
 
 
 @app.post("/notifications/create")
-async def notifications_create(req: NotificationCreateRequest):
+async def notifications_create(req: NotificationCreateRequest, db: AsyncSession = Depends(get_db)):
     """Create a notification in the queue for delivery.
 
     Called by ambient monitor when it decides to engage.
     """
 
-    notification_id = app.state.db.create_notification(
+    notification = Notification(
         user_id=req.user_id,
         target_medium=req.target_medium,
         target_location=req.target_location,
         message=req.message,
         priority=req.priority,
         routing_reasoning=req.routing_reasoning,
+        status="pending",
+        created_at=datetime.utcnow(),
     )
+    db.add(notification)
+    await db.flush()
+
     logger.info(
         "Notification {} created: {} -> {} ({})",
-        notification_id,
+        notification.id,
         req.target_medium,
         req.target_location,
         req.priority,
     )
-    return {"notification_id": notification_id, "status": "queued"}
+    return {"notification_id": notification.id, "status": "queued"}
 
 
 @app.get("/notifications/pending")
-async def notifications_pending(medium: str):
+async def notifications_pending(medium: str, db: AsyncSession = Depends(get_db)):
     """Get pending notifications for a specific medium.
 
     Bots poll this endpoint to retrieve messages that need to be delivered.
     """
-    notifications = app.state.db.get_pending_notifications(medium)
-    return {"notifications": notifications}
+    from sqlalchemy import select
+
+    stmt = (
+        select(Notification)
+        .where(Notification.target_medium == medium)
+        .where(Notification.status == "pending")
+        .order_by(Notification.priority.desc(), Notification.created_at.asc())
+    )
+    result = await db.execute(stmt)
+    notifications = result.scalars().all()
+
+    return {
+        "notifications": [
+            {
+                "id": n.id,
+                "user_id": n.user_id,
+                "target_location": n.target_location,
+                "message": n.message,
+                "priority": n.priority,
+                "routing_reasoning": n.routing_reasoning,
+                "created_at": n.created_at,
+            }
+            for n in notifications
+        ]
+    }
 
 
 @app.post("/notifications/{notification_id}/delivered")
-async def notification_delivered(notification_id: int):
+async def notification_delivered(notification_id: int, db: AsyncSession = Depends(get_db)):
     """Mark a notification as successfully delivered.
 
     Called by bots after successfully sending a message.
     """
+    from sqlalchemy import update
 
-    app.state.db.mark_notification_delivered(notification_id)
+    stmt = (
+        update(Notification)
+        .where(Notification.id == notification_id)
+        .values(
+            status="delivered",
+            delivered_at=datetime.utcnow(),
+        )
+    )
+    await db.execute(stmt)
+
     logger.info("Notification {} marked as delivered", notification_id)
     return {"status": "delivered"}
 
 
 @app.post("/notifications/{notification_id}/failed")
-async def notification_failed(notification_id: int, req: NotificationFailedRequest):
+async def notification_failed(
+    notification_id: int, req: NotificationFailedRequest, db: AsyncSession = Depends(get_db)
+):
     """Mark a notification as failed with error message.
 
     Called by bots when message delivery fails.
     """
+    from sqlalchemy import update
 
-    app.state.db.mark_notification_failed(notification_id, req.error_message)
+    stmt = (
+        update(Notification)
+        .where(Notification.id == notification_id)
+        .values(
+            status="failed",
+            error_message=req.error_message,
+            delivered_at=datetime.utcnow(),
+        )
+    )
+    await db.execute(stmt)
+
     logger.warning("Notification {} failed: {}", notification_id, req.error_message)
     return {"status": "failed"}
 
 
 @app.post("/api/synthesis/run", response_model=SynthesisRunResponse)
-async def run_synthesis(req: SynthesisRunRequest):
+async def run_synthesis(req: SynthesisRunRequest, db: AsyncSession = Depends(get_db)):
     """Run synthesis across conversations for a personality combination"""
-    from dere_shared.synthesis import ConversationStream, PatternDetector
-
-    personality_combo = tuple(req.personality_combo)
-
-    # Stream conversations
-    stream = ConversationStream(app.state.db)
-    conversations = stream.stream_for_personality(personality_combo)
-
-    if not conversations:
-        return SynthesisRunResponse(
-            success=True,
-            total_sessions=0,
-            insights_generated=0,
-            patterns_detected=0,
-            entity_collisions=0,
-        )
-
-    # Build analysis data
-    cooccurrences = stream.build_cooccurrence_matrix(conversations)
-    entity_frequencies = stream.compute_entity_frequencies(conversations)
-    temporal_data = stream.get_temporal_patterns(conversations)
-
-    # Detect patterns
-    detector = PatternDetector(min_frequency=3)
-    convergence_patterns = detector.find_convergence_patterns(cooccurrences, personality_combo)
-    temporal_patterns = detector.find_temporal_patterns(
-        temporal_data, entity_frequencies, personality_combo
-    )
-    divergence_patterns = detector.find_divergence_patterns(
-        entity_frequencies, cooccurrences, personality_combo
-    )
-    frequency_leaders = detector.find_frequency_leaders(entity_frequencies, personality_combo)
-
-    all_patterns = (
-        convergence_patterns + temporal_patterns + divergence_patterns + frequency_leaders
-    )
-
-    # Find entity collisions
-    collisions = app.state.db.find_entity_collisions(personality_combo)
-
-    # Store patterns
-    patterns_stored = 0
-    for pattern in all_patterns:
-        app.state.db.store_pattern(
-            pattern_type=pattern.pattern_type,
-            description=pattern.description,
-            frequency=pattern.frequency,
-            sessions=pattern.sessions,
-            personality_combo=personality_combo,
-            user_session_id=req.user_session_id,
-        )
-        patterns_stored += 1
-
-    # Count unique sessions
-    session_ids = {conv["session_id"] for conv in conversations}
+    # TODO: Full synthesis implementation requires ConversationStream conversion
+    # For now, return a placeholder response
+    logger.warning("Synthesis endpoint not fully implemented yet")
 
     return SynthesisRunResponse(
         success=True,
-        total_sessions=len(session_ids),
-        insights_generated=0,  # Will be implemented with LLM presentation layer
-        patterns_detected=patterns_stored,
-        entity_collisions=len(collisions),
+        total_sessions=0,
+        insights_generated=0,
+        patterns_detected=0,
+        entity_collisions=0,
     )
 
 
 @app.post("/api/synthesis/insights")
-async def get_insights(req: SynthesisInsightsRequest):
+async def get_insights(req: SynthesisInsightsRequest, db: AsyncSession = Depends(get_db)):
     """Get synthesized insights for a personality combination"""
-    personality_combo = tuple(req.personality_combo)
-    insights = app.state.db.get_insights_for_personality(personality_combo, limit=req.limit)
+    from sqlalchemy import select
+
+    from dere_shared.models import ConversationInsight
+
+    personality_combo_str = ",".join(req.personality_combo)
+
+    stmt = (
+        select(ConversationInsight)
+        .where(ConversationInsight.personality_combo == personality_combo_str)
+        .order_by(ConversationInsight.created_at.desc())
+        .limit(req.limit)
+    )
+
+    result = await db.execute(stmt)
+    insights_objs = result.scalars().all()
+
+    insights = [
+        {
+            "id": i.id,
+            "insight_type": i.insight_type,
+            "content": i.content,
+            "evidence": i.evidence,
+            "confidence": i.confidence,
+            "created_at": i.created_at,
+        }
+        for i in insights_objs
+    ]
 
     # Format with personality if requested
     formatted_text = None
@@ -1524,10 +2207,36 @@ async def get_insights(req: SynthesisInsightsRequest):
 
 
 @app.post("/api/synthesis/patterns")
-async def get_patterns(req: SynthesisPatternsRequest):
+async def get_patterns(req: SynthesisPatternsRequest, db: AsyncSession = Depends(get_db)):
     """Get detected patterns for a personality combination"""
-    personality_combo = tuple(req.personality_combo)
-    patterns = app.state.db.get_patterns_for_personality(personality_combo, limit=req.limit)
+    from sqlalchemy import select
+
+    from dere_shared.models import ConversationPattern
+
+    personality_combo_str = ",".join(req.personality_combo)
+
+    stmt = (
+        select(ConversationPattern)
+        .where(ConversationPattern.personality_combo == personality_combo_str)
+        .order_by(ConversationPattern.frequency.desc())
+        .limit(req.limit)
+    )
+
+    result = await db.execute(stmt)
+    patterns_objs = result.scalars().all()
+
+    patterns = [
+        {
+            "id": p.id,
+            "pattern_type": p.pattern_type,
+            "description": p.description,
+            "frequency": p.frequency,
+            "sessions": p.sessions,
+            "first_seen": p.first_seen,
+            "last_seen": p.last_seen,
+        }
+        for p in patterns_objs
+    ]
 
     # Format with personality if requested
     formatted_text = None
@@ -1561,7 +2270,12 @@ async def get_patterns(req: SynthesisPatternsRequest):
 
 
 @app.post("/api/consolidate/memory")
-async def consolidate_memory(user_id: str, recency_days: int = 30, model: str = "gemma3n:latest"):
+async def consolidate_memory(
+    user_id: str,
+    recency_days: int = 30,
+    model: str = "gemma3n:latest",
+    db: AsyncSession = Depends(get_db),
+):
     """Trigger memory consolidation for a user.
 
     Analyzes entity patterns, generates LLM summary, stores insights.
@@ -1575,28 +2289,42 @@ async def consolidate_memory(user_id: str, recency_days: int = 30, model: str = 
         Consolidation summary and statistics
     """
     # Queue memory consolidation task
-    task_id = app.state.db.queue_task(
+    task = TaskQueue(
         task_type="memory_consolidation",
         model_name=model,
         content=f"Memory consolidation for user {user_id}",
         session_id=None,
-        metadata={"user_id": user_id, "recency_days": recency_days},
+        task_metadata={"user_id": user_id, "recency_days": recency_days},
+        priority=5,
+        status=TaskStatus.PENDING,
     )
+    db.add(task)
+    await db.flush()
 
     # Wait for task to complete (or return immediately for async processing)
     # For now, return task ID for async processing
     return {
         "success": True,
-        "task_id": task_id,
+        "task_id": task.id,
         "message": f"Memory consolidation queued for user {user_id}",
     }
 
 
 async def generate_embedding_task(message_id: int, text: str) -> None:
     """Background task to generate and store embedding"""
+    from sqlalchemy import update
+
     try:
         embedding = await app.state.ollama.get_embedding(text)
-        app.state.db.update_conversation_embedding(message_id, embedding)
+
+        async with app.state.session_factory() as session:
+            stmt = (
+                update(Conversation)
+                .where(Conversation.id == message_id)
+                .values(prompt_embedding=embedding)
+            )
+            await session.execute(stmt)
+            await session.commit()
 
     except Exception as e:
         print(f"Failed to generate embedding for message {message_id}: {e}")

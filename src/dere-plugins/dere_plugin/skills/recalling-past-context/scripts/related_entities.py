@@ -19,9 +19,7 @@ def get_related_entities(entity_name: str, limit: int = 10) -> dict | None:
 
     try:
         response = requests.get(
-            f"{daemon_url}/entities/related/{entity_name}",
-            params={"limit": limit},
-            timeout=5
+            f"{daemon_url}/entities/related/{entity_name}", params={"limit": limit}, timeout=5
         )
         response.raise_for_status()
         return response.json()

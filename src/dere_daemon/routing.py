@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from dere_daemon.database import Database
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class RoutingDecision:
@@ -31,7 +31,7 @@ async def decide_routing(
     available_mediums: list[dict[str, Any]],
     user_activity: dict[str, Any] | None,
     recent_conversations: list[dict[str, Any]],
-    db: Database,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> RoutingDecision:
     """Use LLM to intelligently decide where to route a message.
 
@@ -42,7 +42,7 @@ async def decide_routing(
         available_mediums: List of online mediums with channels
         user_activity: Current user activity from ActivityWatch
         recent_conversations: Recent conversation history with mediums
-        db: Database instance
+        session_factory: SQLModel async session factory (for future database lookups)
 
     Returns:
         RoutingDecision with medium, location, and reasoning

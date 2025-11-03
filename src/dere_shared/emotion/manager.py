@@ -55,7 +55,7 @@ class OCCEmotionManager:
         logger.info(f"[OCCEmotionManager] Initializing for session {self.session_id}")
 
         try:
-            state = self.db.load_emotion_state(self.session_id)
+            state = await self.db.load_emotion_state(self.session_id)
             if state:
                 self.active_emotions = state["active_emotions"]
                 self.last_decay_time = state["last_decay_time"]
@@ -131,7 +131,7 @@ class OCCEmotionManager:
                 logger.debug(f"[OCCEmotionManager] Removed {emotion_type} (below threshold)")
 
         # 4. RECORD STIMULUS IN HISTORY
-        self._record_stimulus_in_history(stimulus, appraisal_output, context or {})
+        await self._record_stimulus_in_history(stimulus, appraisal_output, context or {})
 
         # 5. PERSIST STATE IF CHANGED
         if physics_results:
@@ -225,7 +225,7 @@ class OCCEmotionManager:
             trigger=stimulus if isinstance(stimulus, dict) else str(stimulus),
         )
 
-    def _record_stimulus_in_history(
+    async def _record_stimulus_in_history(
         self, stimulus: dict | str, appraisal_output, context: dict
     ) -> None:
         """Record stimulus in history buffer"""
@@ -265,7 +265,7 @@ class OCCEmotionManager:
 
         # Also persist to database
         try:
-            self.db.store_stimulus(self.session_id, stimulus_record)
+            await self.db.store_stimulus(self.session_id, stimulus_record)
         except Exception as e:
             logger.error(f"[OCCEmotionManager] Failed to persist stimulus: {e}")
 
@@ -297,7 +297,7 @@ class OCCEmotionManager:
     async def _persist_state(self) -> None:
         """Persist current emotional state to database"""
         try:
-            self.db.store_emotion_state(self.session_id, self.active_emotions, self.last_decay_time)
+            await self.db.store_emotion_state(self.session_id, self.active_emotions, self.last_decay_time)
             logger.debug(
                 f"[OCCEmotionManager] Persisted state: {len(self.active_emotions)} emotions"
             )

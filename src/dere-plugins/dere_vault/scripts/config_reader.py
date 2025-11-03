@@ -37,7 +37,7 @@ def load_config() -> dict:
     try:
         with open(config_path) as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
@@ -123,5 +123,8 @@ if __name__ == "__main__":
             sys.exit(0 if enabled else 1)
 
     else:
-        print("Usage: config_reader.py [personality|daemon-url|daemon-enabled] [vault_path]", file=sys.stderr)
+        print(
+            "Usage: config_reader.py [personality|daemon-url|daemon-enabled] [vault_path]",
+            file=sys.stderr,
+        )
         sys.exit(1)

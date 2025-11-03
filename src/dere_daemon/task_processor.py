@@ -6,13 +6,17 @@ import time
 from typing import Any, cast
 
 from loguru import logger
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from dere_daemon.database import Database
 from dere_daemon.ollama_client import OllamaClient, get_entity_extraction_schema
 from dere_shared.models import (
     ContextBuildingMetadata,
+    Conversation,
     EmbeddingMetadata,
+    Entity,
     EntityExtractionMetadata,
+    Session,
     SummarizationMetadata,
     TaskQueue,
     TaskStatus,
@@ -47,8 +51,8 @@ def format_relative_time(timestamp: int) -> str:
 class TaskProcessor:
     """Background task processor for embeddings, summarization, entity extraction"""
 
-    def __init__(self, db: Database, ollama: OllamaClient):
-        self.db = db
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession], ollama: OllamaClient):
+        self.session_factory = session_factory
         self.ollama = ollama
         self.max_retries = 3
         self.current_model: str | None = None
@@ -94,12 +98,31 @@ class TaskProcessor:
 
     async def process_tasks(self) -> None:
         """Process pending tasks grouped by model"""
-        tasks_by_model = self.db.get_tasks_by_model()
+        async with self.session_factory() as session:
+            # Get pending tasks grouped by model
+            stmt = (
+                select(TaskQueue)
+                .where(TaskQueue.status == TaskStatus.PENDING)
+                .order_by(TaskQueue.priority.desc(), TaskQueue.created_at.asc())
+            )
+            result = await session.execute(stmt)
+            all_tasks = result.scalars().all()
+
+            if not all_tasks:
+                return
+
+            # Group tasks by model
+            tasks_by_model: dict[str, list[TaskQueue]] = {}
+            for task in all_tasks:
+                model = task.model_name or "default"
+                if model not in tasks_by_model:
+                    tasks_by_model[model] = []
+                tasks_by_model[model].append(task)
 
         if not tasks_by_model:
             return
 
-        logger.debug("Found tasks: {}", tasks_by_model)
+        logger.debug("Found tasks: {}", {k: len(v) for k, v in tasks_by_model.items()})
 
         for model_name, tasks in tasks_by_model.items():
             if not tasks:
@@ -120,7 +143,14 @@ class TaskProcessor:
     async def _process_task(self, task: TaskQueue) -> None:
         """Process a single task"""
         # Mark as processing
-        self.db.update_task_status(task.id, TaskStatus.PROCESSING)
+        async with self.session_factory() as session:
+            stmt = (
+                update(TaskQueue)
+                .where(TaskQueue.id == task.id)
+                .values(status=TaskStatus.PROCESSING)
+            )
+            await session.execute(stmt)
+            await session.commit()
 
         logger.info("Task {} starting: {}", task.id, task.task_type)
 
@@ -138,39 +168,81 @@ class TaskProcessor:
                     result = await self.process_memory_consolidation_task(task)
                 case _:
                     logger.error("Unknown task type: {}", task.task_type)
-                    self.db.update_task_status(
-                        task.id, TaskStatus.FAILED, f"Unknown task type: {task.task_type}"
-                    )
+                    async with self.session_factory() as session:
+                        stmt = (
+                            update(TaskQueue)
+                            .where(TaskQueue.id == task.id)
+                            .values(
+                                status=TaskStatus.FAILED,
+                                error_message=f"Unknown task type: {task.task_type}",
+                            )
+                        )
+                        await session.execute(stmt)
+                        await session.commit()
                     return
 
             if result and result.get("success"):
                 logger.info("✓ Task {} completed: {}", task.id, task.task_type)
-                self.db.update_task_status(task.id, TaskStatus.COMPLETED)
+                async with self.session_factory() as session:
+                    stmt = (
+                        update(TaskQueue)
+                        .where(TaskQueue.id == task.id)
+                        .values(status=TaskStatus.COMPLETED)
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
             else:
                 error = result.get("error", "Unknown error") if result else "No result"
                 logger.error("Task {} failed: {}", task.id, error)
-                self._handle_task_error(task, error)
+                await self._handle_task_error(task, error)
 
         except Exception as e:
             logger.error("Task {} failed with exception: {}", task.id, e)
-            self._handle_task_error(task, str(e))
+            await self._handle_task_error(task, str(e))
 
-    def _handle_task_error(self, task: TaskQueue, error: str) -> None:
+    async def _handle_task_error(self, task: TaskQueue, error: str) -> None:
         """Handle task error with retry logic"""
         retry_count = task.retry_count or 0
 
         if retry_count < self.max_retries:
             logger.info("Task {} retry {}/{}", task.id, retry_count + 1, self.max_retries)
-            self.db.increment_task_retry(task.id)
-            self.db.update_task_status(task.id, TaskStatus.PENDING)
+            async with self.session_factory() as session:
+                stmt = (
+                    update(TaskQueue)
+                    .where(TaskQueue.id == task.id)
+                    .values(
+                        retry_count=retry_count + 1,
+                        status=TaskStatus.PENDING,
+                    )
+                )
+                await session.execute(stmt)
+                await session.commit()
         else:
             logger.error("✗ Task {} failed after {} retries: {}", task.id, self.max_retries, error)
-            self.db.update_task_status(task.id, TaskStatus.FAILED, error)
+            async with self.session_factory() as session:
+                stmt = (
+                    update(TaskQueue)
+                    .where(TaskQueue.id == task.id)
+                    .values(
+                        status=TaskStatus.FAILED,
+                        error_message=error,
+                    )
+                )
+                await session.execute(stmt)
+                await session.commit()
 
     async def process_embedding_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an embedding generation task"""
         try:
-            metadata = cast(EmbeddingMetadata, task.metadata or {})
+            metadata = cast(EmbeddingMetadata, task.task_metadata or {})
+
+            # Log content size before embedding
+            content_length = len(task.content)
+            logger.info(
+                "Processing embedding task: {} chars (~{} tokens)",
+                content_length,
+                content_length // 4,  # Rough token estimate
+            )
 
             # Generate embedding
             embedding = await self.ollama.get_embedding(task.content)
@@ -178,7 +250,14 @@ class TaskProcessor:
             # Store embedding if for a conversation
             conversation_id = metadata.get("conversation_id")
             if conversation_id:
-                self.db.update_conversation_embedding(conversation_id, embedding)
+                async with self.session_factory() as session:
+                    stmt = (
+                        update(Conversation)
+                        .where(Conversation.id == conversation_id)
+                        .values(prompt_embedding=embedding)
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
                 logger.info("Stored embedding for conversation {}", conversation_id)
 
             return {
@@ -194,7 +273,7 @@ class TaskProcessor:
     async def process_summarization_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process a summarization task"""
         try:
-            metadata = cast(SummarizationMetadata, task.metadata or {})
+            metadata = cast(SummarizationMetadata, task.task_metadata or {})
             personality = metadata.get("personality", "")
             max_length = metadata.get("max_length", 200)
 
@@ -211,18 +290,31 @@ Summary:"""
             if personality:
                 prompt = f"{personality}\n\n{prompt}"
 
+            # Log content size before generation
+            prompt_length = len(prompt)
+            logger.info(
+                "Processing summarization task: {} chars (~{} tokens)",
+                prompt_length,
+                prompt_length // 4,  # Rough token estimate
+            )
+
             # Generate summary
             summary = await self.ollama.generate(prompt, model=task.model_name)
 
             # Store summary
             session_id = task.session_id
             if session_id:
-                self.db.store_session_summary(
-                    session_id,
-                    "exit",
-                    summary.strip(),
-                    model_used=task.model_name,
-                )
+                async with self.session_factory() as session:
+                    stmt = (
+                        update(Session)
+                        .where(Session.id == session_id)
+                        .values(
+                            summary=summary.strip(),
+                            summarization_model=task.model_name,
+                        )
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
                 logger.info("Stored summary for session {}", session_id)
 
             return {"success": True, "summary": summary.strip()}
@@ -233,7 +325,7 @@ Summary:"""
     async def process_entity_extraction_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process an entity extraction task"""
         try:
-            metadata = cast(EntityExtractionMetadata, task.metadata or {})
+            metadata = cast(EntityExtractionMetadata, task.task_metadata or {})
             context_hint = metadata.get("context_hint", "coding")
 
             # Build entity extraction prompt
@@ -254,6 +346,14 @@ Text: {task.content}
 
 JSON:"""
 
+            # Log content size before generation
+            prompt_length = len(prompt)
+            logger.info(
+                "Processing entity extraction task: {} chars (~{} tokens)",
+                prompt_length,
+                prompt_length // 4,  # Rough token estimate
+            )
+
             # Generate with schema
             schema = get_entity_extraction_schema()
             result = await self.ollama.generate(prompt, model=task.model_name, schema=schema)
@@ -265,15 +365,21 @@ JSON:"""
             # Store entities
             if task.session_id:
                 conversation_id = metadata.get("conversation_id")
-                for entity in entities:
-                    self.db.store_entity(
-                        task.session_id,
-                        conversation_id,
-                        entity.get("type", "unknown"),
-                        entity.get("value", ""),
-                        entity.get("normalized_value", entity.get("value", "").lower()),
-                        entity.get("confidence", 0.5),
-                    )
+                async with self.session_factory() as session:
+                    for entity in entities:
+                        entity_obj = Entity(
+                            session_id=task.session_id,
+                            conversation_id=conversation_id,
+                            entity_type=entity.get("type", "unknown"),
+                            value=entity.get("value", ""),
+                            normalized_value=entity.get(
+                                "normalized_value", entity.get("value", "").lower()
+                            ),
+                            confidence=entity.get("confidence", 0.5),
+                            timestamp=int(time.time()),
+                        )
+                        session.add(entity_obj)
+                    await session.commit()
                 logger.info("Stored {} entities for session {}", len(entities), task.session_id)
 
             return {"success": True, "entities": entities}
@@ -284,7 +390,7 @@ JSON:"""
     async def process_context_building_task(self, task: TaskQueue) -> dict[str, Any]:
         """Process a context building task with hybrid entity+embedding search"""
         try:
-            metadata = cast(ContextBuildingMetadata, task.metadata or {})
+            metadata = cast(ContextBuildingMetadata, task.task_metadata or {})
             session_id = metadata.get("session_id")
             context_depth = metadata.get("context_depth", 5)
             max_tokens = metadata.get("max_tokens", 2000)
@@ -303,6 +409,12 @@ JSON:"""
 Text: {task.content}
 
 JSON:"""
+                    prompt_length = len(entity_prompt)
+                    logger.debug(
+                        "Pattern entity extraction: {} chars (~{} tokens)",
+                        prompt_length,
+                        prompt_length // 4,
+                    )
                     result = await self.ollama.generate(
                         entity_prompt, model="gemma3n:latest", schema=schema
                     )
@@ -317,12 +429,128 @@ JSON:"""
                     logger.warning("Entity extraction failed for context building: {}", e)
 
             # Perform hybrid search if entities found, otherwise use pure embedding search
-            if entity_values:
-                results = self.db.search_with_entities_and_embeddings(
-                    entity_values, embedding, limit=context_depth * 2, entity_weight=0.6
-                )
-            else:
-                results = self.db.search_similar(embedding, limit=context_depth, threshold=0.7)
+            async with self.session_factory() as db:
+                from sqlalchemy import func, literal
+
+                if entity_values:
+                    # Hybrid search with entities + embeddings
+                    # Build entity_matches CTE
+                    entity_matches_cte = (
+                        select(
+                            Conversation.id.label("conv_id"),
+                            func.count(func.distinct(Entity.id))
+                            .cast(literal(0.0).type)
+                            .label("entity_score"),
+                        )
+                        .select_from(Conversation)
+                        .join(Entity, Entity.conversation_id == Conversation.id)
+                        .where(Entity.normalized_value.in_(entity_values))
+                        .group_by(Conversation.id)
+                        .cte("entity_matches")
+                    )
+
+                    # Build semantic_matches CTE
+                    semantic_matches_cte = (
+                        select(
+                            Conversation.id.label("conv_id"),
+                            (1 - (Conversation.prompt_embedding.cosine_distance(embedding))).label(
+                                "semantic_score"
+                            ),
+                        )
+                        .where(Conversation.prompt_embedding.is_not(None))
+                        .cte("semantic_matches")
+                    )
+
+                    # Calculate max entity count for normalization
+                    max_entity_count = (
+                        select(func.max(entity_matches_cte.c.entity_score))
+                        .select_from(entity_matches_cte)
+                        .scalar_subquery()
+                    )
+
+                    entity_weight = 0.6
+                    semantic_weight = 0.4
+
+                    # Final query
+                    stmt = (
+                        select(
+                            Conversation.id,
+                            Conversation.prompt,
+                            Conversation.timestamp,
+                            Session.working_dir,
+                            func.coalesce(entity_matches_cte.c.entity_score, 0).label(
+                                "entity_score"
+                            ),
+                            func.coalesce(semantic_matches_cte.c.semantic_score, 0).label(
+                                "semantic_score"
+                            ),
+                            (
+                                func.coalesce(entity_matches_cte.c.entity_score, 0)
+                                / func.coalesce(max_entity_count, 1)
+                                * entity_weight
+                                + func.coalesce(semantic_matches_cte.c.semantic_score, 0)
+                                * semantic_weight
+                            ).label("combined_score"),
+                        )
+                        .select_from(Conversation)
+                        .join(Session, Session.id == Conversation.session_id)
+                        .outerjoin(
+                            entity_matches_cte,
+                            entity_matches_cte.c.conv_id == Conversation.id,
+                        )
+                        .outerjoin(
+                            semantic_matches_cte,
+                            semantic_matches_cte.c.conv_id == Conversation.id,
+                        )
+                        .order_by(literal("combined_score").desc())
+                        .limit(context_depth * 2)
+                    )
+
+                    result = await db.execute(stmt)
+                    rows = result.all()
+                    results = [
+                        {
+                            "id": row.id,
+                            "prompt": row.prompt,
+                            "timestamp": row.timestamp,
+                            "working_dir": row.working_dir,
+                            "matched_entities": [],  # TODO: extract matched entities
+                        }
+                        for row in rows
+                    ]
+                else:
+                    # Pure vector similarity search
+                    stmt = (
+                        select(
+                            Conversation.id,
+                            Conversation.prompt,
+                            Conversation.timestamp,
+                            Session.working_dir,
+                            (1 - (Conversation.prompt_embedding.cosine_distance(embedding))).label(
+                                "similarity"
+                            ),
+                        )
+                        .join(Session, Session.id == Conversation.session_id)
+                        .where(Conversation.prompt_embedding.is_not(None))
+                        .where(
+                            (1 - (Conversation.prompt_embedding.cosine_distance(embedding))) >= 0.7
+                        )
+                        .order_by(Conversation.prompt_embedding.cosine_distance(embedding))
+                        .limit(context_depth)
+                    )
+
+                    result = await db.execute(stmt)
+                    rows = result.all()
+                    results = [
+                        {
+                            "id": row.id,
+                            "prompt": row.prompt,
+                            "timestamp": row.timestamp,
+                            "working_dir": row.working_dir,
+                            "matched_entities": [],
+                        }
+                        for row in rows
+                    ]
 
             # Group results by recency tiers
             recent = []  # < 24h
@@ -385,6 +613,8 @@ JSON:"""
 
             # Cache context with metadata
             if session_id:
+                from dere_shared.models import ContextCache
+
                 cache_meta = {
                     "sources": len(context_parts),
                     "tokens": total_tokens,
@@ -392,7 +622,15 @@ JSON:"""
                     "entity_count": len(entity_values),
                     "cross_session_count": len(seen_sessions),
                 }
-                self.db.store_context_cache(session_id, context, cache_meta)
+                async with self.session_factory() as db:
+                    cache = ContextCache(
+                        session_id=session_id,
+                        context_data=context,
+                        context_metadata=cache_meta,
+                        created_at=int(time.time()),
+                    )
+                    db.add(cache)
+                    await db.commit()
                 logger.info(
                     "Cached context for session {} ({} sources)", session_id, len(context_parts)
                 )
@@ -417,7 +655,7 @@ JSON:"""
         4. Uses LLM to generate natural language summary from statistics
         """
         try:
-            metadata = cast(dict, task.metadata or {})
+            metadata = cast(dict, task.task_metadata or {})
             user_id = metadata.get("user_id")
             recency_days = metadata.get("recency_days", 30)
 
@@ -425,12 +663,69 @@ JSON:"""
                 return {"success": False, "error": "user_id required for memory consolidation"}
 
             # 1. Get entity importance scores
-            important_entities = self.db.get_entity_importance_scores(
-                user_id, limit=20, recency_days=recency_days
-            )
+            async with self.session_factory() as db:
+                from sqlalchemy import distinct, func
 
-            # 2. Get entity collision candidates
-            collisions = self.db.find_entity_collisions(tuple())
+                cutoff_time = int(time.time()) - (recency_days * 86400)
+
+                stmt = (
+                    select(
+                        Entity.normalized_value,
+                        Entity.entity_type,
+                        func.count(Entity.id).label("mention_count"),
+                        func.count(distinct(Conversation.medium)).label("medium_count"),
+                        func.max(Entity.timestamp).label("last_seen"),
+                    )
+                    .join(Session, Session.id == Entity.session_id)
+                    .join(Conversation, Conversation.id == Entity.conversation_id)
+                    .where(Session.user_id == user_id)
+                    .where(Entity.timestamp >= cutoff_time)
+                    .group_by(Entity.normalized_value, Entity.entity_type)
+                    .order_by(
+                        func.count(Entity.id).desc(),
+                        func.max(Entity.timestamp).desc(),
+                    )
+                    .limit(20)
+                )
+
+                result = await db.execute(stmt)
+                rows = result.all()
+
+                important_entities = [
+                    {
+                        "normalized_value": row.normalized_value,
+                        "entity_type": row.entity_type,
+                        "mention_count": row.mention_count,
+                        "medium_count": row.medium_count,
+                        "last_seen": row.last_seen,
+                    }
+                    for row in rows
+                ]
+
+            # 2. Get entity collision candidates (entities with very similar normalized values)
+            async with self.session_factory() as db:
+                # Find entities that might be duplicates based on normalized value similarity
+                # For now, just count entities with same normalized_value but different values
+                stmt = (
+                    select(
+                        Entity.normalized_value,
+                        func.count(distinct(Entity.value)).label("variant_count"),
+                    )
+                    .join(Session, Session.id == Entity.session_id)
+                    .where(Session.user_id == user_id)
+                    .group_by(Entity.normalized_value)
+                    .having(func.count(distinct(Entity.value)) > 1)
+                )
+
+                result = await db.execute(stmt)
+                collision_rows = result.all()
+                collisions = [
+                    {
+                        "normalized_value": row.normalized_value,
+                        "variant_count": row.variant_count,
+                    }
+                    for row in collision_rows
+                ]
 
             # 3. Build statistical summary
             stats = {
@@ -441,8 +736,7 @@ JSON:"""
 
             # 4. Use LLM to generate natural language summary
             entities_summary = [
-                e["normalized_value"] + " (" + e["entity_type"] + ")"
-                for e in important_entities[:10]
+                f"{e['normalized_value']} ({e['entity_type']})" for e in important_entities[:10]
             ]
             prompt = f"""Analyze this user's conversation patterns and generate a concise memory consolidation summary.
 
@@ -458,17 +752,31 @@ Generate a brief summary (2-3 sentences) highlighting:
 
 Summary:"""
 
+            # Log content size before generation
+            prompt_length = len(prompt)
+            logger.info(
+                "Processing insight generation task: {} chars (~{} tokens)",
+                prompt_length,
+                prompt_length // 4,
+            )
+
             summary = await self.ollama.generate(prompt, model=task.model_name)
 
             # 5. Store insight in database
-            self.db.store_insight(
-                insight_type="memory_consolidation",
-                content=summary,
-                evidence=stats,
-                confidence=0.8,
-                personality_combo=tuple(),
-                user_session_id=None,
-            )
+            async with self.session_factory() as db:
+                from dere_shared.models import ConversationInsight
+
+                insight = ConversationInsight(
+                    insight_type="memory_consolidation",
+                    content=summary,
+                    evidence=stats,
+                    confidence=0.8,
+                    personality_combo="",  # Empty for user-level insights
+                    user_session_id=None,
+                    created_at=int(time.time()),
+                )
+                db.add(insight)
+                await db.commit()
 
             logger.info(
                 "Memory consolidation completed for user {} with {} entities",

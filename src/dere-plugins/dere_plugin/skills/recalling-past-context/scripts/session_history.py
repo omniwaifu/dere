@@ -18,10 +18,7 @@ def get_session_history(session_id: int) -> dict | None:
     daemon_url = get_daemon_url()
 
     try:
-        response = requests.get(
-            f"{daemon_url}/sessions/{session_id}/history",
-            timeout=5
-        )
+        response = requests.get(f"{daemon_url}/sessions/{session_id}/history", timeout=5)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

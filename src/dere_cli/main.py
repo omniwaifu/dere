@@ -71,7 +71,7 @@ def save_session_map(sessions: dict):
     """Save session tracking map."""
     file = get_session_tracking_file()
     file.parent.mkdir(parents=True, exist_ok=True)
-    with open(file, 'w') as f:
+    with open(file, "w") as f:
         json.dump(sessions, f, indent=2)
 
 
@@ -84,10 +84,7 @@ def get_last_session_for_dir(cwd: str) -> str | None:
 def save_session_for_dir(cwd: str, session_id: str):
     """Save session ID for directory."""
     sessions = load_session_map()
-    sessions[cwd] = {
-        "last_session_id": session_id,
-        "timestamp": int(time.time())
-    }
+    sessions[cwd] = {"last_session_id": session_id, "timestamp": int(time.time())}
     save_session_map(sessions)
 
 
@@ -164,10 +161,7 @@ class SettingsBuilder:
                 settings["extraKnownMarketplaces"] = {}
 
             settings["extraKnownMarketplaces"]["dere-plugins"] = {
-                "source": {
-                    "source": "directory",
-                    "path": str(plugins_path)
-                }
+                "source": {"source": "directory", "path": str(plugins_path)}
             }
 
             # Enable base dere plugin
@@ -179,6 +173,7 @@ class SettingsBuilder:
             # Enable dere-vault plugin if in a vault
             try:
                 from dere_vault.scripts.detect_vault import is_vault
+
                 if is_vault():
                     settings["enabledPlugins"]["dere-vault@dere-plugins"] = True
             except Exception:
@@ -464,7 +459,7 @@ def cli(
                 cmd.extend(["--resume", last_session])
             else:
                 print("Error: No previous dere session in this directory", file=sys.stderr)
-                print(f"Start a new session with: dere", file=sys.stderr)
+                print("Start a new session with: dere", file=sys.stderr)
                 sys.exit(1)
         elif resume:
             # Explicit resume: use provided session ID
@@ -472,6 +467,7 @@ def cli(
         else:
             # New session: generate UUID and track it
             import uuid
+
             session_uuid = str(uuid.uuid4())
             cmd.extend(["--session-id", session_uuid])
             save_session_for_dir(cwd, session_uuid)
