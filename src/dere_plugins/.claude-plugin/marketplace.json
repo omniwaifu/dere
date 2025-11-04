@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "dere",
+      "name": "dere-personality",
       "source": "./dere_personality",
       "description": "Dere AI companion skills for emotion awareness, wellness monitoring, memory integration, CBT techniques, and pattern insights"
     },

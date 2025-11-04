@@ -168,7 +168,7 @@ class SettingsBuilder:
             if "enabledPlugins" not in settings:
                 settings["enabledPlugins"] = {}
 
-            settings["enabledPlugins"]["dere@dere_plugins"] = True
+            settings["enabledPlugins"]["dere-personality@dere_plugins"] = True
 
             # Enable dere-vault plugin if in a vault
             try:
