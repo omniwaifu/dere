@@ -11,8 +11,7 @@ def is_vault(path: Path | None = None) -> bool:
     """Check if path is inside a knowledge vault.
 
     A directory is considered a vault if it or any parent contains:
-    - .obsidian directory (Obsidian vault)
-    - CLAUDE.md file (vault instructions)
+    - .obsidian directory (Obsidian vault marker)
     """
     if path is None:
         path = Path.cwd()
@@ -21,12 +20,7 @@ def is_vault(path: Path | None = None) -> bool:
 
     # Check current and all parents up to root
     while current != current.parent:
-        # Check for Obsidian vault markers
         if (current / ".obsidian").is_dir():
-            return True
-
-        # Check for CLAUDE.md (vault instructions)
-        if (current / "CLAUDE.md").is_file():
             return True
 
         current = current.parent
@@ -45,7 +39,7 @@ def find_vault_root(path: Path | None = None) -> Path | None:
     current = path.resolve()
 
     while current != current.parent:
-        if (current / ".obsidian").is_dir() or (current / "CLAUDE.md").is_file():
+        if (current / ".obsidian").is_dir():
             return current
 
         current = current.parent
