@@ -40,10 +40,10 @@ def get_data_dir() -> Path:
 
 def get_dere_plugin_dir() -> Path:
     """Get dere plugin directory for skills loading"""
-    import dere_plugin
+    import dere_personality
 
-    # dere_plugin module is in src/dere_plugin/
-    plugin_path = Path(dere_plugin.__file__).parent
+    # dere_personality module is in src/dere_personality/
+    plugin_path = Path(dere_personality.__file__).parent
     return plugin_path
 
 
@@ -131,21 +131,21 @@ class SettingsBuilder:
         """Add dere plugins marketplace and enable plugins conditionally"""
         try:
             # Import to get the plugins directory path
-            import dere_plugin
+            import dere_personality
 
-            # Get path to dere-plugins directory
+            # Get path to dere_plugins directory
             # In development (editable install), __file__ is in site-packages
             # We need to find the actual source directory
-            plugin_file = Path(dere_plugin.__file__).resolve()
+            plugin_file = Path(dere_personality.__file__).resolve()
 
             # Check if we're in an editable install (site-packages)
             if "site-packages" in str(plugin_file):
-                # Find the source directory by looking for src/dere-plugins
+                # Find the source directory by looking for src/dere_plugins
                 # Start from current working directory and walk up
                 cwd = Path.cwd()
                 plugins_path = None
                 for parent in [cwd, *cwd.parents]:
-                    candidate = parent / "src" / "dere-plugins"
+                    candidate = parent / "src" / "dere_plugins"
                     if candidate.exists() and (candidate / ".claude-plugin").exists():
                         plugins_path = candidate
                         break
@@ -160,7 +160,7 @@ class SettingsBuilder:
             if "extraKnownMarketplaces" not in settings:
                 settings["extraKnownMarketplaces"] = {}
 
-            settings["extraKnownMarketplaces"]["dere-plugins"] = {
+            settings["extraKnownMarketplaces"]["dere_plugins"] = {
                 "source": {"source": "directory", "path": str(plugins_path)}
             }
 
@@ -168,14 +168,14 @@ class SettingsBuilder:
             if "enabledPlugins" not in settings:
                 settings["enabledPlugins"] = {}
 
-            settings["enabledPlugins"]["dere@dere-plugins"] = True
+            settings["enabledPlugins"]["dere@dere_plugins"] = True
 
             # Enable dere-vault plugin if in a vault
             try:
                 from dere_vault.scripts.detect_vault import is_vault
 
                 if is_vault():
-                    settings["enabledPlugins"]["dere-vault@dere-plugins"] = True
+                    settings["enabledPlugins"]["dere-vault@dere_plugins"] = True
             except Exception:
                 # Vault plugin not available or not in vault
                 pass

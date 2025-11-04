@@ -48,8 +48,8 @@ build-backend = "hatchling.build"
 packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord", "src/dere_ambient", "src/dere_obsidian"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/dere-plugins/dere_plugin" = "dere_plugin"
-"src/dere-plugins/dere_vault" = "dere_vault"
+"src/dere_plugins/dere_personality" = "dere_personality"
+"src/dere_plugins/dere_vault" = "dere_vault"
 
 [tool.ruff]
 line-length = 100

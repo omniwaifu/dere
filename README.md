@@ -12,8 +12,8 @@ src/
 ├── dere_obsidian/     # Obsidian integration
 ├── dere_ambient/      # Proactive monitoring
 ├── dere_shared/       # Shared utilities
-└── dere-plugins/      # Claude Code plugins
-    ├── dere_plugin/   # Core skills (emotion, memory, wellness)
+└── dere_plugins/      # Claude Code plugins
+    ├── dere_personality/   # Core skills (emotion, memory, wellness)
     └── dere_vault/    # Zettelkasten skills
 ```
 
