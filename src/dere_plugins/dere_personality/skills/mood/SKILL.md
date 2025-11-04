@@ -1,5 +1,5 @@
 ---
-name: Detecting User Emotions
+name: mood
 description: Queries OCC emotion state from daemon API and adapts response tone. Use when user expresses strong feelings, discusses personal matters, or seems distressed.
 ---
 

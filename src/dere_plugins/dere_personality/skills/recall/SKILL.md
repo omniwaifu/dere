@@ -1,5 +1,5 @@
 ---
-name: Recalling Past Context
+name: recall
 description: Queries entity timeline and conversation history. Use when user references past discussions, mentions known entities, or asks 'remember when'.
 ---
 

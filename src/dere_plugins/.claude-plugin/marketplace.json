@@ -7,7 +7,7 @@
     {
       "name": "dere-personality",
       "source": "./dere_personality",
-      "description": "Dere AI companion skills for emotion awareness, wellness monitoring, memory integration, CBT techniques, and pattern insights"
+      "description": "Dere AI companion personality skills for emotion awareness, memory integration, and behavioral pattern recognition"
     },
     {
       "name": "dere-vault",
@@ -18,6 +18,11 @@
       "name": "dere-tasks",
       "source": "./dere_tasks",
       "description": "GTD task management with Taskwarrior integration for inbox processing, focus sessions, and habit tracking"
+    },
+    {
+      "name": "dere-wellness",
+      "source": "./dere_wellness",
+      "description": "Mental health and wellness support skills for CBT techniques, burnout monitoring, and cognitive reframing"
     }
   ]
 }

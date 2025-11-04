@@ -187,6 +187,13 @@ class SettingsBuilder:
                 # Tasks plugin not available
                 pass
 
+            # Enable dere-wellness plugin (always enabled for mental health support)
+            try:
+                settings["enabledPlugins"]["dere-wellness@dere_plugins"] = True
+            except Exception:
+                # Wellness plugin not available
+                pass
+
         except Exception:
             # Silently fail if plugins not available
             pass

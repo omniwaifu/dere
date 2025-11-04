@@ -1,5 +1,5 @@
 ---
-name: Monitoring Wellness Signals
+name: burnout
 description: Tracks work duration, stress indicators, and suggests breaks. Use during extended sessions, late-night work, or when detecting frustration patterns.
 ---
 

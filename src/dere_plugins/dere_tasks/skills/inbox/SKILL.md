@@ -1,5 +1,5 @@
 ---
-name: gtd-inbox-processing
+name: inbox
 description: Process taskwarrior inbox using GTD clarification workflow. Use when user asks to process inbox, clear +inbox tasks, or feels overwhelmed by tasks.
 ---
 

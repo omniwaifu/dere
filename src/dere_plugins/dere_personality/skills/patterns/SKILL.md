@@ -1,5 +1,5 @@
 ---
-name: Surfacing Behavioral Patterns
+name: patterns
 description: Queries synthesis API for cross-session patterns. Use when user encounters recurring problems, discusses productivity, or patterns would provide helpful context.
 ---
 

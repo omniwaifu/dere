@@ -1,5 +1,5 @@
 ---
-name: gtd-weekly-review
+name: review
 description: Guide through GTD weekly review process with project health checks, habit tracking, and stalled work identification. Use when user wants to do weekly review or feels stuck/overwhelmed.
 ---
 

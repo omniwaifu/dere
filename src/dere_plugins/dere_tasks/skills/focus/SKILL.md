@@ -1,5 +1,5 @@
 ---
-name: task-focus-session
+name: focus
 description: Find best task for current context, energy, and time available, then start focus session. Use when user asks "what should I work on" or wants to start working.
 ---
 

@@ -51,6 +51,7 @@ packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_disc
 "src/dere_plugins/dere_personality" = "dere_personality"
 "src/dere_plugins/dere_vault" = "dere_vault"
 "src/dere_plugins/dere_tasks" = "dere_tasks"
+"src/dere_plugins/dere_wellness" = "dere_wellness"
 
 [tool.ruff]
 line-length = 100

@@ -1,5 +1,5 @@
 ---
-name: task-quick-add
+name: capture
 description: Capture tasks from natural language with smart parsing for context, projects, and priorities. Use when user casually mentions something they need to do.
 ---
 

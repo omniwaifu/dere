@@ -1,5 +1,5 @@
 ---
-name: gtd-project-planning
+name: plan
 description: Plan and troubleshoot projects using GTD methodology with next action verification and breakdown guidance. Use when defining new project or existing project is stalled.
 ---
 

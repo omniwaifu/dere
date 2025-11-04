@@ -1,5 +1,5 @@
 ---
-name: Identifying Thought Distortions
+name: reframe
 description: Detects cognitive distortions in language and provides gentle challenges. Use when user makes absolutist statements, catastrophizes, or shows negative thought patterns.
 ---
 
