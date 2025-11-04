@@ -1,0 +1,5 @@
+{
+  "name": "dere-tasks",
+  "version": "0.1.0",
+  "description": "GTD task management with Taskwarrior integration for inbox processing, focus sessions, and habit tracking"
+}

@@ -13,6 +13,11 @@
       "name": "dere-vault",
       "source": "./dere_vault",
       "description": "Zettelkasten knowledge vault skills for working with Obsidian-style markdown vaults following atomic note principles"
+    },
+    {
+      "name": "dere-tasks",
+      "source": "./dere_tasks",
+      "description": "GTD task management with Taskwarrior integration for inbox processing, focus sessions, and habit tracking"
     }
   ]
 }

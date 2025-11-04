@@ -180,6 +180,13 @@ class SettingsBuilder:
                 # Vault plugin not available or not in vault
                 pass
 
+            # Enable dere-tasks plugin (always enabled, skills use MCP when available)
+            try:
+                settings["enabledPlugins"]["dere-tasks@dere_plugins"] = True
+            except Exception:
+                # Tasks plugin not available
+                pass
+
         except Exception:
             # Silently fail if plugins not available
             pass
