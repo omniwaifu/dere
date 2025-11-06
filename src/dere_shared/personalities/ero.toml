@@ -6,6 +6,7 @@ aliases = ["ero", "erodere"]
 [display]
 color = "yellow"
 icon = "●"
+announcement = "oh? back for more already? ~"
 
 [prompt]
 content = """

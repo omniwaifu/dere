@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 
 from dere_cli.mcp import build_mcp_config
+from dere_shared.config import load_dere_config
 from dere_shared.personalities import PersonalityLoader
 
 
@@ -97,11 +98,13 @@ class SettingsBuilder:
         output_style: str | None = None,
         context: bool = False,
         session_id: int | None = None,
+        company_announcements: list[str] | None = None,
     ):
         self.personality = personality
         self.output_style = output_style
         self.context = context
         self.session_id = session_id
+        self.company_announcements = company_announcements
         self.config_dir = get_config_dir()
         self.hooks_dir = self.config_dir / "hooks"
         self.temp_files: list[str] = []
@@ -116,6 +119,9 @@ class SettingsBuilder:
 
         if self.output_style:
             settings["outputStyle"] = self.output_style
+
+        if self.company_announcements:
+            settings["companyAnnouncements"] = self.company_announcements
 
         # Add dere plugins marketplace and enable plugins
         self._add_dere_plugins(settings)
@@ -435,6 +441,24 @@ def cli(
         except ValueError:
             pass
 
+    # Load config
+    config = load_dere_config()
+
+    # Get announcement from personality or config
+    announcement = None
+    if personalities_list:
+        try:
+            first_pers = loader.load(personalities_list[0])
+            announcement = first_pers.announcement
+        except ValueError:
+            pass
+
+    # Fallback to config if no personality announcement
+    if not announcement:
+        config_announcements = config.get("announcements", {}).get("messages")
+        if config_announcements:
+            announcement = config_announcements[0] if isinstance(config_announcements, list) else config_announcements
+
     # Build settings
     personality_str = ",".join(personalities_list) if personalities_list else None
     effective_output_style = output_style or (mode if mode else None)
@@ -443,6 +467,7 @@ def cli(
         output_style=effective_output_style,
         context=context,
         session_id=session_id,
+        company_announcements=[announcement] if announcement else None,
     )
     settings = builder.build()
 

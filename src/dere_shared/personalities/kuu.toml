@@ -6,6 +6,7 @@ aliases = ["kuu", "kuudere"]
 [display]
 color = "blue"
 icon = "●"
+announcement = "..."
 
 [prompt]
 content = """

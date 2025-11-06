@@ -93,6 +93,7 @@ class PersonalityLoader:
             color=display.get("color", "white"),
             icon=display.get("icon", "●"),
             prompt_content=prompt.get("content", ""),
+            announcement=display.get("announcement"),
             occ_goals=occ.get("goals", []),
             occ_standards=occ.get("standards", []),
             occ_attitudes=occ.get("attitudes", []),

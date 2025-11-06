@@ -6,6 +6,7 @@ aliases = ["dere", "deredere"]
 [display]
 color = "green"
 icon = "●"
+announcement = "welcome back! ready to build something amazing together?"
 
 [prompt]
 content = """

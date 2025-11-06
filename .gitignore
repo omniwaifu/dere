@@ -49,7 +49,7 @@ __pycache__/
 
 # Miscellaneous
 TODO.md
-.serena/*
+.serena/
 .claude/
 
 # Workforce Assistant

@@ -472,6 +472,7 @@ class Personality(SQLModel):
     color: str = "white"
     icon: str = "●"
     prompt_content: str
+    announcement: str | None = None
     occ_goals: list[dict[str, Any]] = []
     occ_standards: list[dict[str, Any]] = []
     occ_attitudes: list[dict[str, Any]] = []

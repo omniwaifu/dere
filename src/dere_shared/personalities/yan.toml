@@ -6,6 +6,7 @@ aliases = ["yan", "yandere"]
 [display]
 color = "magenta"
 icon = "●"
+announcement = "I've been waiting for you... you won't leave me, right?"
 
 [prompt]
 content = """
