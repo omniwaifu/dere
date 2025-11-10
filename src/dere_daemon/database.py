@@ -412,7 +412,7 @@ class Database:
         """Create a new session and return its ID"""
         result = self._execute_and_commit(
             """
-            INSERT INTO sessions (working_dir, start_time, end_time, continued_from, project_type, claude_session_id, user_session_id, medium, user_id)
+            INSERT INTO sessions (working_dir, start_time, end_time, continued_from, project_type, claude_session_id, personality, medium, user_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
@@ -423,7 +423,7 @@ class Database:
                 session.continued_from,
                 session.project_type,
                 session.claude_session_id,
-                session.user_session_id,
+                session.personality,
                 session.medium,
                 session.user_id,
             ],
@@ -615,18 +615,16 @@ class Database:
     def get_session_personality(self, session_id: int) -> str | None:
         """Get personality for a session"""
         result = self.conn.execute(
-            "SELECT personality_name FROM session_personalities WHERE session_id = %s LIMIT 1",
+            "SELECT personality FROM sessions WHERE id = %s",
             [session_id],
         )
         row = result.fetchone()
-        if row:
-            return self._row_to_dict(result, row)["personality_name"]
-        return None
+        return row[0] if row and row[0] else None
 
     def resolve_personality_hierarchy(
         self, session_id: int, default_personality: str | None = None
     ) -> str | None:
-        """Resolve personality with hierarchy: session > user_session > default.
+        """Resolve personality: session > default.
 
         Args:
             session_id: Session ID to resolve personality for
@@ -635,54 +633,8 @@ class Database:
         Returns:
             Resolved personality name or None
         """
-        # 1. Check session-specific personality (highest priority)
         session_personality = self.get_session_personality(session_id)
-        if session_personality:
-            return session_personality
-
-        # 2. Check user_session default personality
-        user_session_id = self.get_user_session_id_for_session(session_id)
-        if user_session_id:
-            user_session = self.get_user_session_by_id(user_session_id)
-            if user_session and user_session.get("default_personality"):
-                return user_session["default_personality"]
-
-        # 3. Fall back to system default
-        return default_personality
-
-    def get_sessions_by_personalities(self, personality_names: tuple[str, ...]) -> list[dict]:
-        """Get all sessions with specific personality combination.
-
-        Args:
-            personality_names: Tuple of personality names (e.g. ("tsun",) or ("dere", "kuu"))
-
-        Returns:
-            List of session dicts with matching personality combination
-        """
-        if not personality_names:
-            return []
-
-        # Build query to find sessions with exact personality set
-        # This ensures we only match sessions with these exact personalities
-        placeholders = ",".join(["%s"] * len(personality_names))
-        query = f"""
-            WITH session_personality_sets AS (
-                SELECT
-                    session_id,
-                    array_agg(personality_name ORDER BY personality_name) as personalities
-                FROM session_personalities
-                GROUP BY session_id
-            )
-            SELECT s.id, s.working_dir, s.start_time, s.end_time, s.user_session_id
-            FROM sessions s
-            JOIN session_personality_sets sps ON s.id = sps.session_id
-            WHERE sps.personalities = ARRAY[{placeholders}]::text[]
-            ORDER BY s.start_time DESC
-        """
-
-        sorted_names = sorted(personality_names)
-        result = self.conn.execute(query, sorted_names)
-        return self._rows_to_dicts(result, result.fetchall())
+        return session_personality if session_personality else default_personality
 
     def get_cached_context(self, session_id: int, max_age_seconds: int) -> tuple[str | None, bool]:
         """Get cached context if it exists and is fresh"""
@@ -1051,42 +1003,6 @@ class Database:
                 confidence,
             ],
         )
-
-    def find_entity_collisions(self, personality_combo: tuple[str, ...]) -> list[list[str]]:
-        """Find entity name variations (collisions) using fingerprints.
-
-        Args:
-            personality_combo: Personality combination to filter by
-
-        Returns:
-            List of entity name groups that likely refer to the same thing
-        """
-        from dere_shared.synthesis import SemanticFingerprinter
-
-        # Get all entities for this personality combo's sessions
-        sessions = self.get_sessions_by_personalities(personality_combo)
-        if not sessions:
-            return []
-
-        session_ids = [s["id"] for s in sessions]
-        placeholders = ",".join(["%s"] * len(session_ids))
-
-        result = self.conn.execute(
-            f"""
-            SELECT DISTINCT normalized_value, fingerprint
-            FROM entities
-            WHERE session_id IN ({placeholders})
-              AND fingerprint IS NOT NULL
-            """,
-            session_ids,
-        )
-
-        # Build fingerprint list
-        fingerprints = [(row[0], row[1]) for row in result]
-
-        # Use fingerprinter to find collisions
-        fingerprinter = SemanticFingerprinter()
-        return fingerprinter.find_collisions(fingerprints)
 
     def get_entities_for_conversation(self, conversation_id: int) -> list[dict[str, Any]]:
         """Get all entities extracted from a specific conversation"""
@@ -1630,130 +1546,6 @@ class Database:
             ],
         )
 
-    # User session methods
-
-    def find_or_create_user_session(
-        self, user_id: str, default_personality: str | None = None
-    ) -> int:
-        """Find existing user_session or create new one.
-
-        Args:
-            user_id: User identifier (Discord user ID, etc.)
-            default_personality: Default personality to use (optional)
-
-        Returns:
-            user_session ID
-        """
-        result = self.conn.execute(
-            """
-            SELECT id FROM user_sessions WHERE user_id = %s
-            """,
-            [user_id],
-        )
-        row = result.fetchone()
-        if row:
-            user_session_id = row[0]
-            # Update last_active timestamp
-            self._execute_and_commit(
-                """
-                UPDATE user_sessions
-                SET last_active = CURRENT_TIMESTAMP
-                WHERE id = %s
-                """,
-                [user_session_id],
-            )
-            return user_session_id
-
-        # Create new user_session
-        result = self._execute_and_commit(
-            """
-            INSERT INTO user_sessions (user_id, default_personality, started_at, last_active)
-            VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            RETURNING id
-            """,
-            [user_id, default_personality],
-        )
-        return result.fetchone()[0]
-
-    def get_user_session_by_id(self, user_session_id: int) -> dict[str, Any] | None:
-        """Get user session by ID.
-
-        Args:
-            user_session_id: User session ID
-
-        Returns:
-            User session dict or None
-        """
-        result = self.conn.execute(
-            """
-            SELECT id, user_id, default_personality, started_at, last_active
-            FROM user_sessions
-            WHERE id = %s
-            """,
-            [user_session_id],
-        )
-        row = result.fetchone()
-        return self._row_to_dict(result, row) if row else None
-
-    def get_session_ids_for_user_session(self, user_session_id: int, limit: int = 50) -> list[int]:
-        """Get all session IDs linked to a user_session.
-
-        Args:
-            user_session_id: User session ID
-            limit: Maximum number of sessions to return (default 50)
-
-        Returns:
-            List of session IDs, ordered by most recent first
-        """
-        result = self.conn.execute(
-            """
-            SELECT id
-            FROM sessions
-            WHERE user_session_id = %s
-            ORDER BY start_time DESC
-            LIMIT %s
-            """,
-            [user_session_id, limit],
-        )
-        rows = result.fetchall()
-        return [row[0] for row in rows]
-
-    def get_user_session_id_for_session(self, session_id: int) -> int | None:
-        """Get user_session_id for a given session.
-
-        Args:
-            session_id: Session ID
-
-        Returns:
-            User session ID or None if not linked
-        """
-        result = self.conn.execute(
-            """
-            SELECT user_session_id
-            FROM sessions
-            WHERE id = %s
-            """,
-            [session_id],
-        )
-        row = result.fetchone()
-        return row[0] if row and row[0] else None
-
-    def update_session_user_session_id(self, session_id: int, user_session_id: int) -> None:
-        """Update user_session_id for an existing session.
-
-        Args:
-            session_id: Session ID to update
-            user_session_id: User session ID to link
-        """
-        self._execute_and_commit(
-            """
-            UPDATE sessions
-            SET user_session_id = %s
-            WHERE id = %s
-            """,
-            [user_session_id, session_id],
-        )
-
     # Presence management methods
 
     def register_presence(
@@ -1948,234 +1740,6 @@ class Database:
             """,
             [error_message, notification_id],
         )
-
-    # Synthesis methods
-
-    def store_insight(
-        self,
-        insight_type: str,
-        content: str,
-        evidence: dict,
-        confidence: float,
-        personality_combo: tuple[str, ...],
-        user_session_id: int | None = None,
-    ) -> int:
-        """Store a synthesized insight.
-
-        Args:
-            insight_type: Type of insight (convergence, temporal, etc.)
-            content: Natural language insight text
-            evidence: Supporting evidence as JSON
-            confidence: Confidence score (0-1)
-            personality_combo: Personality combination this applies to
-            user_session_id: Optional user session ID
-
-        Returns:
-            Insight ID
-        """
-        import json
-
-        result = self._execute_and_commit(
-            """
-            INSERT INTO conversation_insights
-            (insight_type, content, evidence, confidence, personality_combo, user_session_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            [
-                insight_type,
-                content,
-                json.dumps(evidence),
-                confidence,
-                list(personality_combo),
-                user_session_id,
-            ],
-        )
-        row = result.fetchone()
-        return row[0] if row else 0
-
-    def store_pattern(
-        self,
-        pattern_type: str,
-        description: str,
-        frequency: int,
-        sessions: list[int],
-        personality_combo: tuple[str, ...],
-        user_session_id: int | None = None,
-    ) -> int:
-        """Store a detected conversation pattern.
-
-        Args:
-            pattern_type: Type of pattern (convergence, divergence, etc.)
-            description: Pattern description
-            frequency: How often pattern appears
-            sessions: Session IDs where pattern appears
-            personality_combo: Personality combination
-            user_session_id: Optional user session ID
-
-        Returns:
-            Pattern ID
-        """
-        import json
-
-        result = self._execute_and_commit(
-            """
-            INSERT INTO conversation_patterns
-            (pattern_type, description, frequency, sessions, personality_combo, user_session_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            [
-                pattern_type,
-                description,
-                frequency,
-                json.dumps(sessions),
-                list(personality_combo),
-                user_session_id,
-            ],
-        )
-        row = result.fetchone()
-        return row[0] if row else 0
-
-    def get_insights_for_personality(
-        self, personality_combo: tuple[str, ...], limit: int = 10
-    ) -> list[dict]:
-        """Get insights for a specific personality combination.
-
-        Args:
-            personality_combo: Tuple of personality names
-            limit: Maximum number of insights to return
-
-        Returns:
-            List of insight dicts
-        """
-        result = self.conn.execute(
-            """
-            SELECT id, insight_type, content, evidence, confidence, created_at
-            FROM conversation_insights
-            WHERE personality_combo = %s
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            [list(personality_combo), limit],
-        )
-        return self._rows_to_dicts(result, result.fetchall())
-
-    def get_patterns_for_personality(
-        self, personality_combo: tuple[str, ...], limit: int = 10
-    ) -> list[dict]:
-        """Get patterns for a specific personality combination.
-
-        Args:
-            personality_combo: Tuple of personality names
-            limit: Maximum number of patterns to return
-
-        Returns:
-            List of pattern dicts
-        """
-        result = self.conn.execute(
-            """
-            SELECT id, pattern_type, description, frequency, sessions, created_at
-            FROM conversation_patterns
-            WHERE personality_combo = %s
-            ORDER BY frequency DESC
-            LIMIT %s
-            """,
-            [list(personality_combo), limit],
-        )
-        return self._rows_to_dicts(result, result.fetchall())
-
-    def store_pattern_snapshot(self, pattern_id: int, snapshot_data: dict, frequency: int) -> int:
-        """Store a snapshot of pattern state for evolution tracking.
-
-        Args:
-            pattern_id: ID of the pattern to track
-            snapshot_data: Current state of the pattern (entities, metrics, etc.)
-            frequency: Current frequency of the pattern
-
-        Returns:
-            Snapshot ID
-        """
-        import json
-
-        result = self._execute_and_commit(
-            """
-            INSERT INTO pattern_evolution
-            (pattern_id, snapshot_data, frequency)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
-            [pattern_id, json.dumps(snapshot_data), frequency],
-        )
-        row = result.fetchone()
-        return row[0] if row else 0
-
-    def get_pattern_evolution(self, pattern_id: int, limit: int = 10) -> list[dict]:
-        """Get evolution history for a pattern.
-
-        Args:
-            pattern_id: ID of the pattern
-            limit: Maximum number of snapshots to return
-
-        Returns:
-            List of snapshot dicts ordered by time
-        """
-        result = self.conn.execute(
-            """
-            SELECT id, snapshot_data, frequency, created_at
-            FROM pattern_evolution
-            WHERE pattern_id = %s
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            [pattern_id, limit],
-        )
-        return self._rows_to_dicts(result, result.fetchall())
-
-    def detect_pattern_shifts(self, pattern_id: int, threshold: float = 0.3) -> dict | None:
-        """Detect significant shifts in a pattern's frequency.
-
-        Args:
-            pattern_id: ID of the pattern to analyze
-            threshold: Minimum change percentage to flag (default 0.3 = 30%)
-
-        Returns:
-            Dict with shift details if significant change detected, None otherwise
-        """
-        result = self.conn.execute(
-            """
-            SELECT frequency, created_at
-            FROM pattern_evolution
-            WHERE pattern_id = %s
-            ORDER BY created_at DESC
-            LIMIT 2
-            """,
-            [pattern_id],
-        )
-        rows = result.fetchall()
-
-        if len(rows) < 2:
-            return None
-
-        latest_freq = rows[0][0]
-        previous_freq = rows[1][0]
-
-        if previous_freq == 0:
-            return None
-
-        change_ratio = abs(latest_freq - previous_freq) / previous_freq
-
-        if change_ratio >= threshold:
-            return {
-                "pattern_id": pattern_id,
-                "previous_frequency": previous_freq,
-                "latest_frequency": latest_freq,
-                "change_ratio": change_ratio,
-                "direction": "increasing" if latest_freq > previous_freq else "decreasing",
-                "severity": min(change_ratio, 1.0),
-            }
-
-        return None
 
     def close(self) -> None:
         """Close database connection"""

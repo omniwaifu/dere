@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, NotRequired, Optional, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, Index, Integer, String, text
@@ -41,31 +41,11 @@ class RelationshipType(str, Enum):
 
 
 # SQLModel Table Models
-class UserSession(SQLModel, table=True):
-    __tablename__ = "user_sessions"
-
-    id: int | None = Field(default=None, primary_key=True)
-    user_id: str = Field(index=False, unique=True)
-    default_personality: str | None = None
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-    last_active: datetime = Field(default_factory=datetime.utcnow)
-
-    # Relationships
-    sessions: list["Session"] = Relationship(back_populates="user_session")
-    conversation_insights: list["ConversationInsight"] = Relationship(back_populates="user_session")
-    conversation_patterns: list["ConversationPattern"] = Relationship(back_populates="user_session")
-
-
 class Session(SQLModel, table=True):
     __tablename__ = "sessions"
     __table_args__ = (
         Index("sessions_working_dir_idx", "working_dir"),
         Index("sessions_start_time_idx", "start_time", postgresql_ops={"start_time": "DESC"}),
-        Index(
-            "sessions_user_session_idx",
-            "user_session_id",
-            postgresql_where=text("user_session_id IS NOT NULL"),
-        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -76,15 +56,13 @@ class Session(SQLModel, table=True):
     continued_from: int | None = Field(default=None, foreign_key="sessions.id")
     project_type: str | None = None
     claude_session_id: str | None = None
-    user_session_id: int | None = Field(default=None, foreign_key="user_sessions.id")
+    personality: str | None = None
     medium: str | None = None
     user_id: str | None = None
     created_at: datetime | None = Field(default_factory=datetime.utcnow)
 
     # Relationships
-    user_session: Optional["UserSession"] = Relationship(back_populates="sessions")
     conversations: list["Conversation"] = Relationship(back_populates="session")
-    personalities: list["SessionPersonality"] = Relationship(back_populates="session")
     mcps: list["SessionMCP"] = Relationship(back_populates="session")
     flags: list["SessionFlag"] = Relationship(back_populates="session")
     entities: list["Entity"] = Relationship(back_populates="session")
@@ -94,16 +72,6 @@ class Session(SQLModel, table=True):
     wellness_sessions: list["WellnessSession"] = Relationship(back_populates="session")
     emotion_states: list["EmotionState"] = Relationship(back_populates="session")
     stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session")
-
-
-class SessionPersonality(SQLModel, table=True):
-    __tablename__ = "session_personalities"
-
-    session_id: int = Field(foreign_key="sessions.id", primary_key=True)
-    personality_name: str = Field(primary_key=True)
-
-    # Relationships
-    session: "Session" = Relationship(back_populates="personalities")
 
 
 class SessionMCP(SQLModel, table=True):
@@ -405,62 +373,6 @@ class Presence(SQLModel, table=True):
         default=None, sa_column=Column("available_channels", JSONB)
     )
     created_at: datetime | None = Field(default_factory=datetime.utcnow)
-
-
-class ConversationInsight(SQLModel, table=True):
-    __tablename__ = "conversation_insights"
-    __table_args__ = (
-        Index("conversation_insights_personality_idx", "personality_combo", postgresql_using="gin"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    insight_type: str
-    content: str
-    evidence: dict[str, Any] | None = Field(default=None, sa_column=Column("evidence", JSONB))
-    confidence: float | None = None
-    user_session_id: int | None = Field(default=None, foreign_key="user_sessions.id")
-    personality_combo: list[str] = Field(sa_column=Column("personality_combo", ARRAY(String())))
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
-
-    # Relationships
-    user_session: Optional["UserSession"] = Relationship(back_populates="conversation_insights")
-
-
-class ConversationPattern(SQLModel, table=True):
-    __tablename__ = "conversation_patterns"
-    __table_args__ = (
-        Index("conversation_patterns_personality_idx", "personality_combo", postgresql_using="gin"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    pattern_type: str
-    description: str
-    frequency: int | None = None
-    sessions: dict[str, Any] | None = Field(default=None, sa_column=Column("sessions", JSONB))
-    user_session_id: int | None = Field(default=None, foreign_key="user_sessions.id")
-    personality_combo: list[str] = Field(sa_column=Column("personality_combo", ARRAY(String())))
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
-
-    # Relationships
-    user_session: Optional["UserSession"] = Relationship(back_populates="conversation_patterns")
-    evolutions: list["PatternEvolution"] = Relationship(back_populates="pattern")
-
-
-class PatternEvolution(SQLModel, table=True):
-    __tablename__ = "pattern_evolution"
-    __table_args__ = (
-        Index("pattern_evolution_pattern_idx", "pattern_id"),
-        Index("pattern_evolution_created_idx", "created_at", postgresql_ops={"created_at": "DESC"}),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    pattern_id: int = Field(foreign_key="conversation_patterns.id")
-    snapshot_data: dict[str, Any] = Field(sa_column=Column("snapshot_data", JSONB))
-    frequency: int | None = None
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
-
-    # Relationships
-    pattern: "ConversationPattern" = Relationship(back_populates="evolutions")
 
 
 class Personality(SQLModel):

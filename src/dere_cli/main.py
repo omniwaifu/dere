@@ -212,15 +212,15 @@ class SettingsBuilder:
         try:
             config = load_dere_config()
             plugins_config = config.get("plugins", {})
-            
+
             # Get workforce assistant config
             workforce_config = plugins_config.get("workforce_assistant", {})
             workforce_mode = workforce_config.get("mode", "auto")
             workforce_directories = workforce_config.get("directories", [])
-            
+
             # Determine if workforce should be enabled
             enable_workforce = False
-            
+
             if workforce_mode == "always":
                 enable_workforce = True
             elif workforce_mode == "auto":
@@ -235,11 +235,11 @@ class SettingsBuilder:
                     except ValueError:
                         continue
             # else: workforce_mode == "never", leave as False
-            
+
             # Set plugin state
             if "enabledPlugins" not in settings:
                 settings["enabledPlugins"] = {}
-            
+
             settings["enabledPlugins"]["workforce-assistant@omniwaifu-claude-plugins-local"] = enable_workforce
         except Exception:
             # Silently fail if config loading fails
