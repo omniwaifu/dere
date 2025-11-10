@@ -126,6 +126,9 @@ class SettingsBuilder:
         # Add dere plugins marketplace and enable plugins
         self._add_dere_plugins(settings)
 
+        # Control third-party plugins
+        self._control_third_party_plugins(settings)
+
         # Add hooks if they exist
         self._add_conversation_hooks(settings)
         self._add_status_line(settings)
@@ -202,6 +205,44 @@ class SettingsBuilder:
 
         except Exception:
             # Silently fail if plugins not available
+            pass
+
+    def _control_third_party_plugins(self, settings: dict) -> None:
+        """Control third-party plugins based on config"""
+        try:
+            config = load_dere_config()
+            plugins_config = config.get("plugins", {})
+            
+            # Get workforce assistant config
+            workforce_config = plugins_config.get("workforce_assistant", {})
+            workforce_mode = workforce_config.get("mode", "auto")
+            workforce_directories = workforce_config.get("directories", [])
+            
+            # Determine if workforce should be enabled
+            enable_workforce = False
+            
+            if workforce_mode == "always":
+                enable_workforce = True
+            elif workforce_mode == "auto":
+                # Check if cwd is under any configured directory
+                cwd = Path.cwd()
+                for directory in workforce_directories:
+                    dir_path = Path(directory).expanduser().resolve()
+                    try:
+                        cwd.relative_to(dir_path)
+                        enable_workforce = True
+                        break
+                    except ValueError:
+                        continue
+            # else: workforce_mode == "never", leave as False
+            
+            # Set plugin state
+            if "enabledPlugins" not in settings:
+                settings["enabledPlugins"] = {}
+            
+            settings["enabledPlugins"]["workforce-assistant@omniwaifu-claude-plugins-local"] = enable_workforce
+        except Exception:
+            # Silently fail if config loading fails
             pass
 
     def _add_conversation_hooks(self, settings: dict) -> None:
