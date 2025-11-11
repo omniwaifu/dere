@@ -83,7 +83,7 @@ class DiscordAgent:
                 except Exception:
                     pass  # Silent failure - differential lookback is optional
 
-                context_text = get_full_context(
+                context_text = await get_full_context(
                     session_id=session.session_id, last_message_time=last_message_time
                 )
                 if context_text:

@@ -70,7 +70,7 @@ def get_recent_files_context(config: dict[str, Any]) -> list[str] | None:
         return None
 
 
-def get_full_context(
+async def get_full_context(
     config: dict[str, Any] | None = None,
     session_id: int | None = None,
     daemon_url: str = "http://localhost:8787",
@@ -166,13 +166,14 @@ def get_full_context(
     # Emotion context
     if session_id:
         try:
-            import requests
+            import httpx
 
-            resp = requests.get(f"{daemon_url}/emotion/summary/{session_id}", timeout=1)
-            if resp.status_code == 200:
-                emotion_summary = resp.json().get("summary", "")
-                if emotion_summary and emotion_summary != "Currently in a neutral emotional state.":
-                    environmental_parts.append(f"Emotional state: {emotion_summary}")
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{daemon_url}/emotion/summary/{session_id}", timeout=1.0)
+                if resp.status_code == 200:
+                    emotion_summary = resp.json().get("summary", "")
+                    if emotion_summary and emotion_summary != "Currently in a neutral emotional state.":
+                        environmental_parts.append(f"Emotional state: {emotion_summary}")
         except Exception:
             pass
 
@@ -180,25 +181,26 @@ def get_full_context(
     knowledge_graph_context = None
     try:
         if config["context"].get("knowledge_graph", False) and session_id and current_prompt:
-            import requests
+            import httpx
 
-            response = requests.post(
-                f"{daemon_url}/context/build",
-                json={
-                    "session_id": session_id,
-                    "project_path": "",
-                    "personality": personality or "assistant",
-                    "user_id": user_id,
-                    "context_depth": 5,
-                    "current_prompt": current_prompt,
-                },
-                timeout=2,
-            )
-            if response.ok:
-                data = response.json()
-                kg_context = data.get("context")
-                if kg_context and kg_context.strip():
-                    knowledge_graph_context = kg_context
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{daemon_url}/context/build",
+                    json={
+                        "session_id": session_id,
+                        "project_path": "",
+                        "personality": personality or "assistant",
+                        "user_id": user_id,
+                        "context_depth": 5,
+                        "current_prompt": current_prompt,
+                    },
+                    timeout=2.0,
+                )
+                if response.is_success:
+                    data = response.json()
+                    kg_context = data.get("context")
+                    if kg_context and kg_context.strip():
+                        knowledge_graph_context = kg_context
     except Exception:
         pass
 
@@ -215,18 +217,19 @@ def get_full_context(
     # Fetch conversation context from daemon
     if session_id:
         try:
-            import requests
+            import httpx
 
-            response = requests.post(
-                f"{daemon_url}/context/get",
-                json={"session_id": session_id, "max_age_minutes": 30},
-                timeout=2,
-            )
-            if response.ok:
-                data = response.json()
-                conv_context = data.get("context")
-                if conv_context and conv_context.strip():
-                    sections.append(f"[Conversation Context]\n{conv_context}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{daemon_url}/context/get",
+                    json={"session_id": session_id, "max_age_minutes": 30},
+                    timeout=2.0,
+                )
+                if response.is_success:
+                    data = response.json()
+                    conv_context = data.get("context")
+                    if conv_context and conv_context.strip():
+                        sections.append(f"[Conversation Context]\n{conv_context}")
         except Exception:
             pass  # Silent failure - conversation context is supplementary
 

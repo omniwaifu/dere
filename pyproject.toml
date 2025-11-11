@@ -7,7 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.118.0",
     "uvicorn>=0.37.0",
-    "libsql>=0.1.11",
     "claude-agent-sdk>=0.1.0",
     "httpx>=0.28.1",
     "pydantic>=2.11.10",

@@ -450,7 +450,10 @@ async def lifespan(app: FastAPI):
 
     # Start emotion decay background task
     async def periodic_emotion_decay_loop():
-        """Background task to apply decay to emotions during idle time."""
+        """Background task to apply decay to emotions during idle time and cleanup stale managers."""
+        from datetime import timedelta
+        from sqlalchemy import select
+
         while True:
             try:
                 await asyncio.sleep(60)  # Every 60 seconds
@@ -459,8 +462,30 @@ async def lifespan(app: FastAPI):
                     continue
 
                 current_time = int(time.time() * 1000)
+                ttl_threshold = datetime.utcnow() - timedelta(days=7)  # 7 day TTL
+
+                # Fetch last_activity times for all managed sessions in one query
+                async with app.state.session_factory() as db:
+                    stmt = select(Session.id, Session.last_activity).where(
+                        Session.id.in_(list(app.state.emotion_managers.keys()))
+                    )
+                    result = await db.execute(stmt)
+                    session_activities = {row[0]: row[1] for row in result}
 
                 for session_id, manager in list(app.state.emotion_managers.items()):
+                    # TTL cleanup: remove managers for inactive sessions
+                    last_activity = session_activities.get(session_id)
+                    if last_activity and last_activity < ttl_threshold:
+                        from loguru import logger
+
+                        logger.info(
+                            "Removing emotion manager for inactive session {} (last active: {})",
+                            session_id,
+                            last_activity,
+                        )
+                        del app.state.emotion_managers[session_id]
+                        continue
+
                     # Only apply decay if there are active emotions
                     if not manager.active_emotions:
                         continue

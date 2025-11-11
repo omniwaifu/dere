@@ -651,19 +651,20 @@ def daemon(ctx):
 @daemon.command()
 def status():
     """Check daemon status"""
-    import requests
+    import httpx
 
     try:
-        response = requests.get("http://localhost:8787/health", timeout=2)
-        if response.status_code == 200:
-            data = response.json()
-            click.echo("Daemon is running")
-            click.echo(f"  Database: {data.get('database', 'unknown')}")
-            click.echo(f"  DereGraph: {data.get('dere_graph', 'unknown')}")
-        else:
-            click.echo("Daemon is not responding correctly")
-            sys.exit(1)
-    except requests.exceptions.ConnectionError:
+        with httpx.Client() as client:
+            response = client.get("http://localhost:8787/health", timeout=2.0)
+            if response.status_code == 200:
+                data = response.json()
+                click.echo("Daemon is running")
+                click.echo(f"  Database: {data.get('database', 'unknown')}")
+                click.echo(f"  DereGraph: {data.get('dere_graph', 'unknown')}")
+            else:
+                click.echo("Daemon is not responding correctly")
+                sys.exit(1)
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Daemon is not running")
         sys.exit(1)
     except Exception as e:
@@ -765,26 +766,27 @@ def queue(ctx):
 @queue.command("list")
 def queue_list():
     """List queue items"""
-    import requests
+    import httpx
 
     try:
-        response = requests.get("http://localhost:8787/queue/status", timeout=5)
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.get("http://localhost:8787/queue/status", timeout=5.0)
+            response.raise_for_status()
+            data = response.json()
 
-        items = data.get("tasks", [])
-        if not items:
-            click.echo("Queue is empty")
-            return
+            items = data.get("tasks", [])
+            if not items:
+                click.echo("Queue is empty")
+                return
 
-        click.echo(f"\nQueue ({len(items)} items):\n")
-        for item in items:
-            task_id = item.get("id")
-            status = item.get("status", "unknown")
-            model = item.get("model_name", "unknown")
-            click.echo(f"  [{task_id}] {status} - {model}")
+            click.echo(f"\nQueue ({len(items)} items):\n")
+            for item in items:
+                task_id = item.get("id")
+                status = item.get("status", "unknown")
+                model = item.get("model_name", "unknown")
+                click.echo(f"  [{task_id}] {status} - {model}")
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon", err=True)
         sys.exit(1)
     except Exception as e:
@@ -804,25 +806,26 @@ def history(ctx):
 @click.argument("session_id", type=int)
 def history_show(session_id):
     """Show conversation history for a session"""
-    import requests
+    import httpx
 
     try:
-        response = requests.get(f"http://localhost:8787/sessions/{session_id}/history", timeout=5)
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.get(f"http://localhost:8787/sessions/{session_id}/history", timeout=5.0)
+            response.raise_for_status()
+            data = response.json()
 
-        messages = data.get("messages", [])
-        if not messages:
-            click.echo(f"No history found for session {session_id}")
-            return
+            messages = data.get("messages", [])
+            if not messages:
+                click.echo(f"No history found for session {session_id}")
+                return
 
-        click.echo(f"\nSession {session_id} history ({len(messages)} messages):\n")
-        for msg in messages:
-            role = msg.get("message_type", "unknown")
-            content = msg.get("prompt", "")[:100]
-            click.echo(f"  [{role}] {content}...")
+            click.echo(f"\nSession {session_id} history ({len(messages)} messages):\n")
+            for msg in messages:
+                role = msg.get("message_type", "unknown")
+                content = msg.get("prompt", "")[:100]
+                click.echo(f"  [{role}] {content}...")
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon", err=True)
         sys.exit(1)
     except Exception as e:
@@ -843,7 +846,7 @@ def entities(ctx):
 @click.option("--user-id", help="User ID to filter by")
 def entities_info(entity, user_id):
     """Show information about an entity from the knowledge graph"""
-    import requests
+    import httpx
 
     daemon_url = "http://localhost:8787"
 
@@ -852,43 +855,44 @@ def entities_info(entity, user_id):
         if user_id:
             params["user_id"] = user_id
 
-        response = requests.get(
-            f"{daemon_url}/kg/entity/{entity}", params=params, timeout=5
-        )
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.get(
+                f"{daemon_url}/kg/entity/{entity}", params=params, timeout=5.0
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        if not data.get("found"):
-            click.echo(f"Entity not found: {entity}")
-            return
+            if not data.get("found"):
+                click.echo(f"Entity not found: {entity}")
+                return
 
-        click.echo(f"\nEntity: {entity}")
-        click.echo("-" * 80)
+            click.echo(f"\nEntity: {entity}")
+            click.echo("-" * 80)
 
-        # Show primary node
-        primary = data.get("primary_node", {})
-        click.echo(f"Name: {primary.get('name')}")
-        click.echo(f"Labels: {', '.join(primary.get('labels', []))}")
-        click.echo(f"Created: {primary.get('created_at', 'unknown')}")
+            # Show primary node
+            primary = data.get("primary_node", {})
+            click.echo(f"Name: {primary.get('name')}")
+            click.echo(f"Labels: {', '.join(primary.get('labels', []))}")
+            click.echo(f"Created: {primary.get('created_at', 'unknown')}")
 
-        # Show related nodes
-        related = data.get("related_nodes", [])
-        if related:
-            click.echo(f"\nRelated entities ({len(related)}):")
-            for rel in related[:10]:  # Show first 10
-                click.echo(f"  - {rel.get('name')} ({', '.join(rel.get('labels', []))})")
+            # Show related nodes
+            related = data.get("related_nodes", [])
+            if related:
+                click.echo(f"\nRelated entities ({len(related)}):")
+                for rel in related[:10]:  # Show first 10
+                    click.echo(f"  - {rel.get('name')} ({', '.join(rel.get('labels', []))})")
 
-        # Show relationships
-        relationships = data.get("relationships", [])
-        if relationships:
-            click.echo(f"\nRelationships ({len(relationships)}):")
-            for rel in relationships[:10]:  # Show first 10
-                click.echo(f"  - {rel.get('fact')}")
+            # Show relationships
+            relationships = data.get("relationships", [])
+            if relationships:
+                click.echo(f"\nRelationships ({len(relationships)}):")
+                for rel in relationships[:10]:  # Show first 10
+                    click.echo(f"  - {rel.get('fact')}")
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
         sys.exit(1)
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -899,7 +903,7 @@ def entities_info(entity, user_id):
 @click.option("--user-id", help="User ID to filter by")
 def entities_related(entity, limit, user_id):
     """Show entities related to given entity via knowledge graph"""
-    import requests
+    import httpx
 
     daemon_url = "http://localhost:8787"
 
@@ -908,35 +912,36 @@ def entities_related(entity, limit, user_id):
         if user_id:
             params["user_id"] = user_id
 
-        response = requests.get(
-            f"{daemon_url}/kg/entity/{entity}/related", params=params, timeout=5
-        )
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.get(
+                f"{daemon_url}/kg/entity/{entity}/related", params=params, timeout=5.0
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        if not data.get("found"):
-            click.echo(f"Entity not found: {entity}")
-            return
+            if not data.get("found"):
+                click.echo(f"Entity not found: {entity}")
+                return
 
-        related = data.get("related", [])
-        if not related:
-            click.echo(f"No related entities found for: {entity}")
-            return
+            related = data.get("related", [])
+            if not related:
+                click.echo(f"No related entities found for: {entity}")
+                return
 
-        click.echo(f"\nEntities related to: {entity}")
-        click.echo("-" * 80)
+            click.echo(f"\nEntities related to: {entity}")
+            click.echo("-" * 80)
 
-        for rel in related:
-            name = rel.get("name")
-            labels = ', '.join(rel.get("labels", []))
-            click.echo(f"  - {name} ({labels})")
+            for rel in related:
+                name = rel.get("name")
+                labels = ', '.join(rel.get("labels", []))
+                click.echo(f"  - {name} ({labels})")
 
-        click.echo(f"\nTotal: {len(related)} related entities")
+            click.echo(f"\nTotal: {len(related)} related entities")
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
         sys.exit(1)
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -1025,7 +1030,7 @@ def synthesis(ctx):
 @click.option("--no-format", is_flag=True, help="Disable personality formatting")
 def synthesis_insights(personality, limit, no_format):
     """Show synthesized insights"""
-    import requests
+    import httpx
 
     daemon_url = "http://localhost:8787"
 
@@ -1040,35 +1045,36 @@ def synthesis_insights(personality, limit, no_format):
             "format_with_personality": not no_format,
         }
 
-        response = requests.post(f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.post(f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
 
-        insights = data.get("insights", [])
-        if not insights:
-            click.echo(f"No insights found for personality: {', '.join(personality)}")
-            return
+            insights = data.get("insights", [])
+            if not insights:
+                click.echo(f"No insights found for personality: {', '.join(personality)}")
+                return
 
-        click.echo(f"\nInsights for personality: {', '.join(personality)}")
-        click.echo("=" * 80)
+            click.echo(f"\nInsights for personality: {', '.join(personality)}")
+            click.echo("=" * 80)
 
-        for idx, insight in enumerate(insights, 1):
-            insight_type = insight.get("insight_type", "unknown")
-            content = insight.get("content", "")
-            confidence = insight.get("confidence", 0)
-            created_at = insight.get("created_at", "")
+            for idx, insight in enumerate(insights, 1):
+                insight_type = insight.get("insight_type", "unknown")
+                content = insight.get("content", "")
+                confidence = insight.get("confidence", 0)
+                created_at = insight.get("created_at", "")
 
-            click.echo(f"\n[{idx}] {insight_type.upper()} (confidence: {confidence:.2f})")
-            click.echo(f"    {content}")
-            if created_at:
-                click.echo(f"    Generated: {created_at}")
+                click.echo(f"\n[{idx}] {insight_type.upper()} (confidence: {confidence:.2f})")
+                click.echo(f"    {content}")
+                if created_at:
+                    click.echo(f"    Generated: {created_at}")
 
-        click.echo(f"\nTotal: {len(insights)} insights")
+            click.echo(f"\nTotal: {len(insights)} insights")
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
         sys.exit(1)
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -1079,7 +1085,7 @@ def synthesis_insights(personality, limit, no_format):
 @click.option("--no-format", is_flag=True, help="Disable personality formatting")
 def synthesis_patterns(personality, limit, no_format):
     """Show detected patterns"""
-    import requests
+    import httpx
 
     daemon_url = "http://localhost:8787"
 
@@ -1094,35 +1100,36 @@ def synthesis_patterns(personality, limit, no_format):
             "format_with_personality": not no_format,
         }
 
-        response = requests.post(f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.post(f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
 
-        patterns = data.get("patterns", [])
-        if not patterns:
-            click.echo(f"No patterns found for personality: {', '.join(personality)}")
-            return
+            patterns = data.get("patterns", [])
+            if not patterns:
+                click.echo(f"No patterns found for personality: {', '.join(personality)}")
+                return
 
-        click.echo(f"\nPatterns for personality: {', '.join(personality)}")
-        click.echo("=" * 80)
+            click.echo(f"\nPatterns for personality: {', '.join(personality)}")
+            click.echo("=" * 80)
 
-        for idx, pattern in enumerate(patterns, 1):
-            pattern_type = pattern.get("pattern_type", "unknown")
-            description = pattern.get("description", "")
-            frequency = pattern.get("frequency", 0)
-            created_at = pattern.get("created_at", "")
+            for idx, pattern in enumerate(patterns, 1):
+                pattern_type = pattern.get("pattern_type", "unknown")
+                description = pattern.get("description", "")
+                frequency = pattern.get("frequency", 0)
+                created_at = pattern.get("created_at", "")
 
-            click.echo(f"\n[{idx}] {pattern_type.upper()} (frequency: {frequency})")
-            click.echo(f"    {description}")
-            if created_at:
-                click.echo(f"    Detected: {created_at}")
+                click.echo(f"\n[{idx}] {pattern_type.upper()} (frequency: {frequency})")
+                click.echo(f"    {description}")
+                if created_at:
+                    click.echo(f"    Detected: {created_at}")
 
-        click.echo(f"\nTotal: {len(patterns)} patterns")
+            click.echo(f"\nTotal: {len(patterns)} patterns")
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
         sys.exit(1)
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -1132,7 +1139,7 @@ def synthesis_patterns(personality, limit, no_format):
 @click.option("--user-session", type=int, help="User session ID to synthesize")
 def synthesis_run(personality, user_session):
     """Manually trigger synthesis"""
-    import requests
+    import httpx
 
     daemon_url = "http://localhost:8787"
 
@@ -1148,27 +1155,28 @@ def synthesis_run(personality, user_session):
 
         click.echo(f"Running synthesis for personality: {', '.join(personality)}...")
 
-        response = requests.post(f"{daemon_url}/api/synthesis/run", json=payload, timeout=60)
-        response.raise_for_status()
-        data = response.json()
+        with httpx.Client() as client:
+            response = client.post(f"{daemon_url}/api/synthesis/run", json=payload, timeout=60.0)
+            response.raise_for_status()
+            data = response.json()
 
-        if data.get("success"):
-            click.echo("\nSynthesis completed successfully!")
-            click.echo(f"  Sessions analyzed: {data.get('total_sessions', 0)}")
-            click.echo(f"  Insights generated: {data.get('insights_generated', 0)}")
-            click.echo(f"  Patterns detected: {data.get('patterns_detected', 0)}")
-            click.echo(f"  Entity collisions resolved: {data.get('entity_collisions', 0)}")
-        else:
-            click.echo("Synthesis failed", err=True)
-            sys.exit(1)
+            if data.get("success"):
+                click.echo("\nSynthesis completed successfully!")
+                click.echo(f"  Sessions analyzed: {data.get('total_sessions', 0)}")
+                click.echo(f"  Insights generated: {data.get('insights_generated', 0)}")
+                click.echo(f"  Patterns detected: {data.get('patterns_detected', 0)}")
+                click.echo(f"  Entity collisions resolved: {data.get('entity_collisions', 0)}")
+            else:
+                click.echo("Synthesis failed", err=True)
+                sys.exit(1)
 
-    except requests.exceptions.ConnectionError:
+    except (httpx.ConnectError, httpx.TimeoutException):
         click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
         sys.exit(1)
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         click.echo("Error: Synthesis request timed out (taking longer than 60s)", err=True)
         sys.exit(1)
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
