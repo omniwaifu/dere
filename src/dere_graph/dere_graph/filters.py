@@ -65,9 +65,7 @@ class SearchFilters(BaseModel):
     """Temporal and attribute filters for search queries."""
 
     # Temporal filters
-    valid_at: DateFilter | None = Field(
-        None, description="Filter by when relationship became true"
-    )
+    valid_at: DateFilter | None = Field(None, description="Filter by when relationship became true")
     invalid_at: DateFilter | None = Field(
         None, description="Filter by when relationship stopped being true"
     )
@@ -80,9 +78,7 @@ class SearchFilters(BaseModel):
     node_labels: list[str] | None = Field(
         None, description="Filter nodes by labels (e.g., ['Person', 'User'])"
     )
-    edge_types: list[str] | None = Field(
-        None, description="Filter edges by relationship type"
-    )
+    edge_types: list[str] | None = Field(None, description="Filter edges by relationship type")
 
     # Attribute filters (simple key-value matching)
     node_attributes: dict[str, str | int | float | bool] | None = Field(
@@ -109,9 +105,7 @@ class SearchFilters(BaseModel):
 
         # Temporal filters (work for both nodes and edges)
         if self.valid_at:
-            cond, p = self.valid_at.to_cypher_condition(
-                f"{edge_alias}.valid_at", "filter_valid_at"
-            )
+            cond, p = self.valid_at.to_cypher_condition(f"{edge_alias}.valid_at", "filter_valid_at")
             conditions.append(cond)
             params.update(p)
 

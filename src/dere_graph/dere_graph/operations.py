@@ -130,10 +130,9 @@ async def extract_nodes(
 
         # Convert nodes to dict format for prompt
         entity_dicts = [
-            {"name": node.name, "summary": node.summary or "No summary"}
-            for node in extracted_nodes
+            {"name": node.name, "summary": node.summary or "No summary"} for node in extracted_nodes
         ]
-        
+
         # Get previous episode content strings
         prev_episode_strings = [ep.content for ep in previous_episodes]
 
@@ -149,7 +148,8 @@ async def extract_nodes(
         # 1. Remove hallucinated entities
         if validation.hallucinated_entities:
             extracted_nodes = [
-                node for node in extracted_nodes 
+                node
+                for node in extracted_nodes
                 if node.name not in validation.hallucinated_entities
             ]
             logger.debug(f"Removed {len(validation.hallucinated_entities)} hallucinated entities")

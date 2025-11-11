@@ -90,7 +90,7 @@ class ObsidianClaudeClient:
 
         options = ClaudeAgentOptions(
             cwd=str(temp_dir),
-            system_prompt={"type": "preset", "append": combined_prompt},
+            system_prompt={"type": "preset", "preset": "default", "append": combined_prompt},  # type: ignore[typeddict-item]
             allowed_tools=["Read", "Write", "Bash", "WebFetch", "WebSearch"],
             permission_mode="acceptEdits",
             resume=resume_session_id,

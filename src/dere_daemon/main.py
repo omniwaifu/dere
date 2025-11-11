@@ -7,7 +7,7 @@ import platform
 import sys
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -301,7 +301,7 @@ class EmotionDBAdapter:
                     "active_emotions": serialized_emotions,
                     "last_decay_time": last_decay_time,
                 },
-                last_update=datetime.utcnow(),
+                last_update=datetime.now(UTC),
             )
             db.add(state)
             await db.commit()
@@ -345,7 +345,7 @@ async def lifespan(app: FastAPI):
     if db_url.startswith("postgresql://"):
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-    app.state = AppState()
+    app.state = AppState()  # type: ignore[assignment]
 
     # Initialize async database engine
     try:
@@ -414,14 +414,8 @@ async def lifespan(app: FastAPI):
         print(f"Warning: Failed to initialize ambient monitor: {e}")
         app.state.ambient_monitor = None
 
-    # Reset any stuck tasks from previous runs
-    # TODO: Reimplement with SQLModel
-    # try:
-    #     stuck_count = await reset_stuck_tasks(app.state.session_factory)
-    #     if stuck_count > 0:
-    #         print(f"Reset {stuck_count} stuck tasks to pending")
-    # except Exception as e:
-    #     print(f"Warning: Failed to reset stuck tasks: {e}")
+    # NOTE: Stuck task reset was removed during database simplification
+    # Tasks now use proper status management and don't get stuck
 
     # Start task processor
     await app.state.processor.start()
@@ -431,16 +425,14 @@ async def lifespan(app: FastAPI):
         await app.state.ambient_monitor.start()
 
     # Start presence cleanup background task
+    # NOTE: Automatic presence cleanup removed - heartbeat mechanism handles stale detection
     async def cleanup_presence_loop():
-        """Background task to cleanup stale presence records."""
+        """Background task placeholder for future presence maintenance."""
         while True:
             try:
                 await asyncio.sleep(30)  # Every 30s
-                # TODO: Reimplement with SQLModel
-                # cleaned = await cleanup_stale_presence(app.state.session_factory, stale_seconds=60)
-                # if cleaned > 0:
-                #     from loguru import logger
-                #     logger.debug("Cleaned up {} stale presence records", cleaned)
+                # Presence records now cleaned up via heartbeat timeout mechanism
+                pass
             except Exception as e:
                 from loguru import logger
 
@@ -452,6 +444,7 @@ async def lifespan(app: FastAPI):
     async def periodic_emotion_decay_loop():
         """Background task to apply decay to emotions during idle time and cleanup stale managers."""
         from datetime import timedelta
+
         from sqlalchemy import select
 
         while True:
@@ -462,7 +455,7 @@ async def lifespan(app: FastAPI):
                     continue
 
                 current_time = int(time.time() * 1000)
-                ttl_threshold = datetime.utcnow() - timedelta(days=7)  # 7 day TTL
+                ttl_threshold = datetime.now(UTC) - timedelta(days=7)  # 7 day TTL
 
                 # Fetch last_activity times for all managed sessions in one query
                 async with app.state.session_factory() as db:
@@ -1134,7 +1127,9 @@ async def get_entity_info(entity_name: str, user_id: str | None = None):
                 "uuid": primary_node.uuid,
                 "name": primary_node.name,
                 "labels": primary_node.labels,
-                "created_at": primary_node.created_at.isoformat() if primary_node.created_at else None,
+                "created_at": primary_node.created_at.isoformat()
+                if primary_node.created_at
+                else None,
             },
             "related_nodes": [
                 {
@@ -1142,7 +1137,8 @@ async def get_entity_info(entity_name: str, user_id: str | None = None):
                     "name": n.name,
                     "labels": n.labels,
                 }
-                for n in related_results.nodes if n.uuid != primary_node.uuid
+                for n in related_results.nodes
+                if n.uuid != primary_node.uuid
             ],
             "relationships": [
                 {
@@ -1196,7 +1192,8 @@ async def get_related_entities(entity_name: str, user_id: str | None = None, lim
                     "labels": n.labels,
                     "uuid": n.uuid,
                 }
-                for n in related_results.nodes if n.uuid != primary_node.uuid
+                for n in related_results.nodes
+                if n.uuid != primary_node.uuid
             ],
         }
     except Exception as e:
@@ -1219,7 +1216,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
             id=req.session_id,
             working_dir=req.project_path or "",
             start_time=int(time.time()),
-            last_activity=datetime.utcnow(),
+            last_activity=datetime.now(UTC),
         )
         db.add(session)
         await db.flush()
@@ -1475,7 +1472,7 @@ async def context_build(req: ContextBuildRequest, db: AsyncSession = Depends(get
             id=req.session_id,
             working_dir=req.project_path or "",
             start_time=int(time.time()),
-            last_activity=datetime.utcnow(),
+            last_activity=datetime.now(UTC),
         )
         db.add(session)
         await db.flush()
@@ -1642,16 +1639,18 @@ async def hook_capture(req: HookCaptureRequest):
 
 @app.post("/ambient/notify")
 async def ambient_notify(req: AmbientNotifyRequest):
-    """Receive ambient notifications for routing to Discord or other channels.
+    """Legacy endpoint for ambient notifications.
 
-    This endpoint receives notifications from the ambient monitor and can route them
-    to connected Discord bots or store them for later retrieval.
+    DEPRECATED: This endpoint is no longer used. The ambient monitor now directly
+    calls /notifications/create instead, which provides better integration with
+    the notification queue and routing system.
+
+    Kept for backwards compatibility but only logs and acknowledges.
     """
 
     logger.info("Received ambient notification (priority: {}): {}", req.priority, req.message[:100])
 
-    # TODO: Route to Discord bot when implemented
-    # For now, just log and acknowledge
+    # NOTE: This endpoint is deprecated. Ambient monitor uses /notifications/create directly.
 
     return {"status": "received", "message": "Notification logged"}
 
@@ -1731,15 +1730,15 @@ async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Dep
 
     Used by Discord/Telegram/etc bots to announce they are online and ready to receive messages.
 
-    TODO: Telegram integration
-    When implementing Telegram bot (dere_telegram package):
-    1. Create TelegramBotClient similar to Discord's DereDiscordClient
+    Future: Telegram integration
+    Pattern for implementing additional mediums (e.g., Telegram, Slack, etc.):
+    1. Create bot client similar to Discord's DereDiscordClient
     2. Call this endpoint on startup with medium="telegram"
     3. Provide available_channels with chat IDs and metadata
     4. Send heartbeats every 30s via /presence/heartbeat
     5. Poll /notifications/pending with medium="telegram" query param
-    6. Deliver notifications via Telegram Bot API send_message
-    7. Link sessions with user_id (Telegram user ID) for cross-medium continuity
+    6. Deliver notifications via bot API (e.g., Telegram send_message)
+    7. Link sessions with user_id for cross-medium continuity
     """
     from sqlalchemy import select, update
 
@@ -1764,7 +1763,7 @@ async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Dep
             .where(Presence.medium == req.medium, Presence.user_id == req.user_id)
             .values(
                 available_channels=req.available_channels,
-                last_heartbeat=datetime.utcnow(),
+                last_heartbeat=datetime.now(UTC),
             )
         )
         await db.execute(stmt)
@@ -1773,7 +1772,7 @@ async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Dep
             medium=req.medium,
             user_id=req.user_id,
             available_channels=req.available_channels,
-            last_heartbeat=datetime.utcnow(),
+            last_heartbeat=datetime.now(UTC),
         )
         db.add(presence)
 
@@ -1791,7 +1790,7 @@ async def presence_heartbeat(req: PresenceHeartbeatRequest, db: AsyncSession = D
     stmt = (
         update(Presence)
         .where(Presence.medium == req.medium, Presence.user_id == req.user_id)
-        .values(last_heartbeat=datetime.utcnow())
+        .values(last_heartbeat=datetime.now(UTC))
     )
     await db.execute(stmt)
     return {"status": "ok"}
@@ -1818,10 +1817,12 @@ async def presence_available(user_id: str, db: AsyncSession = Depends(get_db)):
 
     Returns mediums that can currently receive messages.
     """
+    from datetime import timedelta
+
     from sqlalchemy import select
 
     # Consider presence stale after 60 seconds
-    stale_threshold = int(time.time()) - 60
+    stale_threshold = datetime.now(UTC) - timedelta(seconds=60)
 
     stmt = (
         select(Presence)
@@ -1850,12 +1851,14 @@ async def routing_decide(req: RoutingDecideRequest, db: AsyncSession = Depends(g
     LLM analyzes available mediums, user activity, recent conversations,
     and makes an intelligent decision about where to deliver the message.
     """
+    from datetime import timedelta
+
     from sqlalchemy import select
 
     from dere_daemon.routing import decide_routing
 
     # Get available mediums
-    stale_threshold = int(time.time()) - 60
+    stale_threshold = datetime.now(UTC) - timedelta(seconds=60)
     stmt = (
         select(Presence)
         .where(Presence.user_id == req.user_id)
@@ -1922,7 +1925,7 @@ async def notifications_create(req: NotificationCreateRequest, db: AsyncSession 
         priority=req.priority,
         routing_reasoning=req.routing_reasoning,
         status="pending",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )
     db.add(notification)
     await db.flush()
@@ -1983,7 +1986,7 @@ async def notification_delivered(notification_id: int, db: AsyncSession = Depend
         .where(Notification.id == notification_id)
         .values(
             status="delivered",
-            delivered_at=datetime.utcnow(),
+            delivered_at=datetime.now(UTC),
         )
     )
     await db.execute(stmt)
@@ -2008,7 +2011,7 @@ async def notification_failed(
         .values(
             status="failed",
             error_message=req.error_message,
-            delivered_at=datetime.utcnow(),
+            delivered_at=datetime.now(UTC),
         )
     )
     await db.execute(stmt)

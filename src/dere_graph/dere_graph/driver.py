@@ -54,7 +54,10 @@ class FalkorDriver:
                 return []
 
             # Filter out embedding vectors from logs
-            log_params = {k: v if k != "search_vector" else f"<vector dim={len(v)}>" for k, v in params.items()}
+            log_params = {
+                k: v if k != "search_vector" else f"<vector dim={len(v)}>"
+                for k, v in params.items()
+            }
             logger.error(f"Error executing FalkorDB query: {e}\n{cypher_query}\n{log_params}")
             raise
 
@@ -111,8 +114,7 @@ class FalkorDriver:
     async def save_entity_node(self, node: EntityNode) -> None:
         # Sanitize labels: replace spaces with underscores, remove invalid chars
         sanitized_labels = [
-            label.replace(" ", "_").replace("-", "_").replace("/", "_")
-            for label in node.labels
+            label.replace(" ", "_").replace("-", "_").replace("/", "_") for label in node.labels
         ]
         labels = ":".join(sanitized_labels + ["Entity"])
         entity_data = {
@@ -346,7 +348,15 @@ class FalkorDriver:
         record = records[0]
         node_obj = record["attributes"]
         attributes = dict(node_obj.properties)
-        for key in ["uuid", "name", "group_id", "name_embedding", "summary", "created_at", "mention_count"]:
+        for key in [
+            "uuid",
+            "name",
+            "group_id",
+            "name_embedding",
+            "summary",
+            "created_at",
+            "mention_count",
+        ]:
             attributes.pop(key, None)
 
         return EntityNode(
@@ -735,9 +745,7 @@ class FalkorDriver:
 
         return edges
 
-    async def delete_by_uuids(
-        self, uuids: list[str], node_type: str = "Entity"
-    ) -> int:
+    async def delete_by_uuids(self, uuids: list[str], node_type: str = "Entity") -> int:
         """Delete multiple nodes by UUID.
 
         Args:
@@ -780,7 +788,6 @@ class FalkorDriver:
         result = await self.execute_query(query, group_id=group_id)
         return result.result_set[0][0] if result.result_set else 0
 
-
     def _dict_to_entity_node(self, node_data: Any) -> EntityNode:
         """Convert FalkorDB node data to EntityNode."""
         props = dict(node_data.properties)
@@ -800,9 +807,7 @@ class FalkorDriver:
         # Remaining props are attributes
         attributes = props
 
-        created_at = (
-            datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
-        )
+        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
 
         # Get labels (excluding 'Entity')
         labels = [label for label in node_data.labels if label != "Entity"]

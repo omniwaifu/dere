@@ -194,7 +194,11 @@ class SessionManager:
             options = ClaudeAgentOptions(
                 settings=settings_path,
                 setting_sources=["user", "project", "local"],  # Required for settings to work
-                system_prompt={"type": "preset", "append": prompt_with_emotion},
+                system_prompt={
+                    "type": "preset",
+                    "preset": "default",
+                    "append": prompt_with_emotion,
+                },  # type: ignore[typeddict-item]
                 allowed_tools=["Read", "Write", "Bash"],
                 permission_mode="acceptEdits",
                 resume=claude_session_id,  # Resume Claude SDK session if available

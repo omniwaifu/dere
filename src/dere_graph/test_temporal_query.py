@@ -1,4 +1,5 @@
 """Test temporal-only queries without vector search."""
+
 import asyncio
 from datetime import datetime, timedelta
 
@@ -18,8 +19,7 @@ async def test_empty_query():
     # Build temporal filter (last 24 hours)
     filters = SearchFilters(
         created_at=DateFilter(
-            operator=ComparisonOperator.GREATER_THAN,
-            value=datetime.now() - timedelta(hours=24)
+            operator=ComparisonOperator.GREATER_THAN, value=datetime.now() - timedelta(hours=24)
         )
     )
 
@@ -37,6 +37,7 @@ async def test_empty_query():
         print(f"✓ Empty edge query returned {len(edges)} edges (no errors)")
     except Exception as e:
         print(f"✗ Error: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(test_empty_query())

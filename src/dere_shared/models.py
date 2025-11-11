@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, NotRequired, TypedDict
 
@@ -6,6 +6,12 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import BigInteger, Column, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, Relationship, SQLModel
+
+
+def _utc_now() -> datetime:
+    """Helper for timezone-aware UTC datetime defaults."""
+    return datetime.now(UTC)
+
 
 # Python 3.13 type aliases
 type SessionID = int
@@ -52,14 +58,14 @@ class Session(SQLModel, table=True):
     working_dir: str
     start_time: int
     end_time: int | None = None
-    last_activity: datetime = Field(default_factory=datetime.utcnow)
+    last_activity: datetime = Field(default_factory=_utc_now)
     continued_from: int | None = Field(default=None, foreign_key="sessions.id")
     project_type: str | None = None
     claude_session_id: str | None = None
     personality: str | None = None
     medium: str | None = None
     user_id: str | None = None
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     conversations: list["Conversation"] = Relationship(back_populates="session")
@@ -119,7 +125,7 @@ class Conversation(SQLModel, table=True):
     timestamp: int
     medium: str | None = None
     user_id: str | None = None
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="conversations")
@@ -158,7 +164,7 @@ class TaskQueue(SQLModel, table=True):
     priority: int = Field(default=5)
     status: str = Field(default="pending")
     session_id: int | None = None
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
     processed_at: datetime | None = None
     retry_count: int = Field(default=0)
     error_message: str | None = None
@@ -188,7 +194,7 @@ class Entity(SQLModel, table=True):
     context_start: int | None = None
     context_end: int | None = None
     entity_metadata: str | None = Field(default=None, sa_column=Column("metadata", String))
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="entities")
@@ -206,7 +212,7 @@ class EntityRelationship(SQLModel, table=True):
     relationship_metadata: dict[str, Any] | None = Field(
         default=None, sa_column=Column("metadata", JSONB)
     )
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
 
 class SessionSummary(SQLModel, table=True):
@@ -226,7 +232,7 @@ class SessionSummary(SQLModel, table=True):
     next_steps: str | None = None
     model_used: str | None = None
     processing_time_ms: int | None = None
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="session_summaries")
@@ -244,7 +250,7 @@ class ConversationSegment(SQLModel, table=True):
     start_conversation_id: int
     end_conversation_id: int
     model_used: str
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="conversation_segments")
@@ -258,8 +264,8 @@ class ContextCache(SQLModel, table=True):
     context_metadata: dict[str, Any] | None = Field(
         default=None, sa_column=Column("metadata", JSONB)
     )
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
-    updated_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
+    updated_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="context_caches")
@@ -272,7 +278,7 @@ class SessionRelationship(SQLModel, table=True):
     related_session_id: int = Field(primary_key=True)
     relationship_type: str = Field(primary_key=True)
     strength: float = Field(default=1.0)
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
 
 class EmotionState(SQLModel, table=True):
@@ -297,8 +303,8 @@ class EmotionState(SQLModel, table=True):
     trigger_data: dict[str, Any] | None = Field(
         default=None, sa_column=Column("trigger_data", JSONB)
     )
-    last_update: datetime = Field(default_factory=datetime.utcnow)
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    last_update: datetime = Field(default_factory=_utc_now)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="emotion_states")
@@ -318,7 +324,7 @@ class StimulusHistory(SQLModel, table=True):
     intensity: float
     timestamp: int = Field(sa_column=Column("timestamp", BigInteger))
     context: dict[str, Any] | None = Field(default=None, sa_column=Column("context", JSONB))
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
     # Relationships
     session: "Session" = Relationship(back_populates="stimulus_histories")
@@ -336,7 +342,7 @@ class Notification(SQLModel, table=True):
     routing_reasoning: str | None = None
     status: str = Field(default="pending")
     error_message: str | None = None
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
     delivered_at: datetime | None = None
 
 
@@ -346,11 +352,11 @@ class Presence(SQLModel, table=True):
     medium: str = Field(primary_key=True)
     user_id: str = Field(primary_key=True)
     status: str = Field(default="online")
-    last_heartbeat: datetime = Field(default_factory=datetime.utcnow)
+    last_heartbeat: datetime = Field(default_factory=_utc_now)
     available_channels: dict[str, Any] | None = Field(
         default=None, sa_column=Column("available_channels", JSONB)
     )
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=_utc_now)
 
 
 class Personality(SQLModel):

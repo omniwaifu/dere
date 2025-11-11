@@ -120,7 +120,9 @@ async def hybrid_node_search(
     fulltext_uuids = [node.uuid for node in fulltext_results]
 
     # Vector similarity search
-    similarity_results = await vector_node_search(driver, query_vector, group_id, limit * 2, filters=filters)
+    similarity_results = await vector_node_search(
+        driver, query_vector, group_id, limit * 2, filters=filters
+    )
     similarity_uuids = [node.uuid for node in similarity_results]
 
     # Combine with RRF
@@ -158,16 +160,19 @@ def _apply_reranking(
 
     if rerank_method == "episode_mentions":
         from dere_graph.reranking import score_by_episode_mentions
+
         scored = score_by_episode_mentions(nodes, alpha=rerank_alpha)
         return [node for node, _score in scored[:limit]]
 
     elif rerank_method == "recency":
         from dere_graph.reranking import score_by_recency
+
         scored = score_by_recency(nodes, decay_factor=rerank_alpha)
         return [node for node, _score in scored[:limit]]
 
     elif rerank_method == "retrospective":
         from dere_graph.reranking import score_by_retrospective_quality
+
         scored = score_by_retrospective_quality(nodes, alpha=rerank_alpha)
         return [node for node, _score in scored[:limit]]
 
@@ -385,7 +390,9 @@ async def hybrid_edge_search(
     fulltext_uuids = [edge.uuid for edge in fulltext_results]
 
     # Vector similarity search on fact embeddings
-    similarity_results = await vector_edge_search(driver, query_vector, group_id, limit * 2, filters=filters)
+    similarity_results = await vector_edge_search(
+        driver, query_vector, group_id, limit * 2, filters=filters
+    )
     similarity_uuids = [edge.uuid for edge in similarity_results]
 
     # Combine with RRF
@@ -418,7 +425,9 @@ async def fulltext_edge_search(
 ) -> list[EntityEdge]:
     """BM25 fulltext search on edge facts."""
     # Build filter clause
-    filter_clause, filter_params = build_temporal_query_clause(filters, "relationship", "relationship")
+    filter_clause, filter_params = build_temporal_query_clause(
+        filters, "relationship", "relationship"
+    )
 
     # Build WHERE conditions
     where_parts = [

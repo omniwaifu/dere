@@ -172,7 +172,10 @@ async def get_full_context(
                 resp = await client.get(f"{daemon_url}/emotion/summary/{session_id}", timeout=1.0)
                 if resp.status_code == 200:
                     emotion_summary = resp.json().get("summary", "")
-                    if emotion_summary and emotion_summary != "Currently in a neutral emotional state.":
+                    if (
+                        emotion_summary
+                        and emotion_summary != "Currently in a neutral emotional state."
+                    ):
                         environmental_parts.append(f"Emotional state: {emotion_summary}")
         except Exception:
             pass

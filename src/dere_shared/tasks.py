@@ -48,6 +48,62 @@ def _get_taskwarrior():
 _get_next_tasks, _tw_available = _get_taskwarrior()
 
 
+def _detect_project_from_dir(working_dir: str) -> str | None:
+    """Detect project name from working directory.
+
+    Tries to extract project name from:
+    1. Git remote URL (e.g., github.com/user/repo-name -> repo-name)
+    2. Directory name as fallback
+
+    Args:
+        working_dir: Path to working directory
+
+    Returns:
+        Project name or None if not detected
+    """
+    import subprocess
+    from pathlib import Path
+
+    try:
+        path = Path(working_dir)
+        if not path.exists():
+            return None
+
+        # Try to get git remote URL
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(path), "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0:
+                remote_url = result.stdout.strip()
+                # Extract repo name from URL
+                # Examples:
+                # - https://github.com/user/repo-name.git -> repo-name
+                # - git@github.com:user/repo-name.git -> repo-name
+                if remote_url:
+                    # Remove .git suffix
+                    if remote_url.endswith(".git"):
+                        remote_url = remote_url[:-4]
+                    # Get last path component
+                    repo_name = remote_url.rstrip("/").split("/")[-1]
+                    # Also handle git@host:user/repo format
+                    if ":" in repo_name and "/" in repo_name:
+                        repo_name = repo_name.split("/")[-1]
+                    if repo_name:
+                        return repo_name
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        # Fallback: use directory name
+        return path.name
+
+    except Exception:
+        return None
+
+
 def get_task_context(
     limit: int = 5,
     working_dir: str | None = None,
@@ -69,9 +125,16 @@ def get_task_context(
         return None
 
     try:
-        # Don't filter by project for now - just get all tasks
-        # TODO: smarter project detection from git repo or explicit config
-        tasks = _get_next_tasks(project=None, limit=limit * 2)  # Get more to filter
+        # Detect project from working_dir if provided
+        project = None
+        if working_dir:
+            project = _detect_project_from_dir(working_dir)
+            if project:
+                from loguru import logger
+
+                logger.debug(f"Detected project '{project}' from {working_dir}")
+
+        tasks = _get_next_tasks(project=project, limit=limit * 2)  # Get more to filter
 
         if not tasks:
             return None

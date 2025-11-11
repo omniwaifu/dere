@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from dere_graph.search import calculate_cosine_similarity, rrf, sanitize_lucene_query
 
 

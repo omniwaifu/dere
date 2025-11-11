@@ -85,7 +85,6 @@ class NodeResolutions(BaseModel):
     entity_resolutions: list[NodeDuplicate]
 
 
-
 # Response Models for Entity Validation (Reflection)
 class MissedEntity(BaseModel):
     name: str = Field(..., description="Name of the missed entity")
@@ -550,10 +549,9 @@ def validate_extracted_entities(
 
 Be thorough but conservative - only suggest changes when clearly justified."""
 
-    entities_str = "\n".join([
-        f"- {e['name']}: {e.get('summary', 'No summary')}"
-        for e in extracted_entities
-    ])
+    entities_str = "\n".join(
+        [f"- {e['name']}: {e.get('summary', 'No summary')}" for e in extracted_entities]
+    )
 
     user_prompt = f"""
 <PREVIOUS MESSAGES>

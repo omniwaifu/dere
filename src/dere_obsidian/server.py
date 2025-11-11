@@ -223,8 +223,8 @@ class ObsidianServer:
         # Query Claude
         response_text = await claude_client.query_and_receive(
             prompt=user_prompt,
-            note_path=None,  # TODO: extract from request
-            note_content=None,  # TODO: extract from request
+            note_path=request.note_path,
+            note_content=request.note_content,
         )
 
         # Capture to daemon if session enabled

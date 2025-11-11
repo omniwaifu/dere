@@ -71,6 +71,22 @@ warn_unused_configs = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[[tool.ty.overrides]]
+include = ["hooks/**/*.py"]
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+
+[[tool.ty.overrides]]
+include = ["src/**/*.py"]
+[tool.ty.overrides.rules]
+unresolved-attribute = "warn"
+
+[[tool.ty.overrides]]
+include = ["src/dere_plugins/**/scripts/**/*.py"]
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+unresolved-reference = "warn"
+
 [tool.uv.workspace]
 members = [
     "src/dere_graph",

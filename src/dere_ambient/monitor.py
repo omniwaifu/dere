@@ -88,7 +88,7 @@ class AmbientMonitor:
                 # Create notification in queue for delivery
                 import httpx
 
-                user_id = "default_user"  # TODO: Get from config
+                user_id = self.config.user_id
                 try:
                     async with httpx.AsyncClient() as client:
                         # Create notification via daemon API

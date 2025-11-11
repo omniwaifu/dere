@@ -35,6 +35,7 @@ class DereDiscordClient(discord.Client):
         self.persona_service = persona_service
         self.daemon = daemon_client
         self.tree = app_commands.CommandTree(self)
+        self._resolved_user_id: str | None = None  # Cached resolved user ID
 
     async def setup_hook(self) -> None:
         """Register slash commands when the bot starts."""
@@ -55,9 +56,9 @@ class DereDiscordClient(discord.Client):
     async def close(self) -> None:
         try:
             # Unregister presence
-            if self.user:
+            if self._resolved_user_id:
                 try:
-                    await self.daemon.unregister_presence(str(self.user.id))
+                    await self.daemon.unregister_presence(self._resolved_user_id)
                 except Exception as e:
                     logger.warning("Failed to unregister presence: {}", e)
 
@@ -73,9 +74,27 @@ class DereDiscordClient(discord.Client):
         if not self.user:
             return
 
-        # TODO: Get actual user_id - for now use bot's owner or config
-        # Using bot's own ID as placeholder for user identification
-        user_id = str(self.user.id)
+        # Get user_id from config, bot owner, or use bot's own ID as fallback
+        user_id = self.config.user_id
+        if user_id is None:
+            # Try to fetch bot owner from application info
+            try:
+                app_info = await self.application_info()
+                if app_info.owner:
+                    user_id = str(app_info.owner.id)
+                    logger.info("Using bot owner ID {} for presence", user_id)
+            except Exception as e:
+                logger.warning("Could not fetch bot owner: {}", e)
+
+        # Final fallback: use bot's own ID (suboptimal but functional)
+        if user_id is None:
+            user_id = str(self.user.id)
+            logger.warning(
+                "Using bot's own ID {} for presence (consider setting user_id in config)", user_id
+            )
+
+        # Cache the resolved user_id for use in other methods
+        self._resolved_user_id = user_id
 
         # Get available channels
         channels = []
@@ -120,16 +139,15 @@ class DereDiscordClient(discord.Client):
 
     async def _heartbeat_loop(self) -> None:
         """Send heartbeat every 30s to keep presence alive."""
-        if not self.user:
+        if not self._resolved_user_id:
             return
 
         import asyncio
 
-        user_id = str(self.user.id)
         while not self.is_closed():
             try:
                 await asyncio.sleep(30)
-                await self.daemon.heartbeat_presence(user_id)
+                await self.daemon.heartbeat_presence(self._resolved_user_id)
             except Exception as e:
                 logger.debug("Heartbeat failed: {}", e)
 

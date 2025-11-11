@@ -164,6 +164,7 @@ class CommunityEdge(Edge):
 
 # Entity and Edge Type Schema System
 
+
 def validate_entity_types(entity_types: dict[str, type[BaseModel]]) -> None:
     """Validate that entity type schemas don't conflict with EntityNode fields.
 
@@ -173,7 +174,15 @@ def validate_entity_types(entity_types: dict[str, type[BaseModel]]) -> None:
     Raises:
         ValueError: If schema has conflicting field names
     """
-    reserved_fields = {"uuid", "name", "group_id", "labels", "created_at", "name_embedding", "summary"}
+    reserved_fields = {
+        "uuid",
+        "name",
+        "group_id",
+        "labels",
+        "created_at",
+        "name_embedding",
+        "summary",
+    }
 
     for type_name, schema in entity_types.items():
         schema_fields = set(schema.model_fields.keys())
@@ -194,9 +203,18 @@ def validate_edge_types(edge_types: dict[str, type[BaseModel]]) -> None:
         ValueError: If schema has conflicting field names
     """
     reserved_fields = {
-        "uuid", "group_id", "source_node_uuid", "target_node_uuid",
-        "created_at", "name", "fact", "fact_embedding", "episodes",
-        "expired_at", "valid_at", "invalid_at"
+        "uuid",
+        "group_id",
+        "source_node_uuid",
+        "target_node_uuid",
+        "created_at",
+        "name",
+        "fact",
+        "fact_embedding",
+        "episodes",
+        "expired_at",
+        "valid_at",
+        "invalid_at",
     }
 
     for type_name, schema in edge_types.items():

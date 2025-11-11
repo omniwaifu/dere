@@ -24,6 +24,48 @@ class RoutingDecision:
         self.fallback = fallback  # True if no mediums available, using desktop notification
 
 
+def _select_best_fallback_channel(channels: list[dict[str, Any] | Any]) -> dict[str, Any] | Any:
+    """Select best channel for fallback routing.
+
+    Prefers:
+    1. DM channels (type='dm' or type='private')
+    2. General/main channels (name contains 'general' or 'main')
+    3. First available channel
+
+    Args:
+        channels: List of channel dicts or raw channel identifiers
+
+    Returns:
+        Selected channel (dict or raw value)
+    """
+    if not channels:
+        return channels[0] if channels else None
+
+    # Convert to list of dicts if needed
+    dict_channels = [ch for ch in channels if isinstance(ch, dict)]
+
+    # Prefer DM channels
+    dm_channels = [
+        ch
+        for ch in dict_channels
+        if ch.get("type", "").lower() in ("dm", "private", "direct_message")
+    ]
+    if dm_channels:
+        return dm_channels[0]
+
+    # Prefer general/main channels
+    general_channels = [
+        ch
+        for ch in dict_channels
+        if any(keyword in ch.get("name", "").lower() for keyword in ("general", "main", "chat"))
+    ]
+    if general_channels:
+        return general_channels[0]
+
+    # Fallback to first available
+    return channels[0]
+
+
 async def decide_routing(
     user_id: str,
     message: str,
@@ -72,8 +114,7 @@ async def decide_routing(
         medium = medium_info["medium"]
         channels = medium_info.get("available_channels", [])
 
-        # TODO: Telegram integration
-        # When adding Telegram support, add similar channel formatting:
+        # NOTE: When adding additional mediums (e.g., Telegram), add similar formatting:
         # elif medium == "telegram":
         #     channel_list = [
         #         f"  - {ch.get('type', 'chat')}: {ch.get('title', 'unnamed')} (id: {ch.get('id', 'unknown')})"
@@ -182,12 +223,12 @@ Respond in JSON:
         fallback_medium = available_mediums[0]  # Already sorted by last_heartbeat DESC
         channels = fallback_medium.get("available_channels", [])
         if channels:
-            # Use first available channel (TODO: smarter fallback)
-            first_channel = channels[0]
+            # Smart channel selection: prefer DMs, then general/main channels, then first available
+            selected_channel = _select_best_fallback_channel(channels)
             location = (
-                first_channel.get("id", str(first_channel))
-                if isinstance(first_channel, dict)
-                else str(first_channel)
+                selected_channel.get("id", str(selected_channel))
+                if isinstance(selected_channel, dict)
+                else str(selected_channel)
             )
             return RoutingDecision(
                 medium=fallback_medium["medium"],

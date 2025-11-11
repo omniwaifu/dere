@@ -35,6 +35,8 @@ class ChatCompletionRequest(BaseModel):
     personality: str | None = None  # dere personality name
     vault_path: str | None = None  # specific vault path override
     enable_session: bool = False  # create daemon session for continuity
+    note_path: str | None = None  # path to the note being edited (for context)
+    note_content: str | None = None  # full content of the note (for context)
 
 
 class ChatCompletionChoice(BaseModel):

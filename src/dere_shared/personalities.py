@@ -67,7 +67,7 @@ class PersonalityLoader:
         try:
             personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
             for file_path in personalities_path.iterdir():
-                if file_path.suffix == ".toml":
+                if file_path.is_file() and file_path.name.endswith(".toml"):
                     data = file_path.read_text()
                     personality = self._parse_toml(data)
                     if self._matches(personality, name):
@@ -118,8 +118,8 @@ class PersonalityLoader:
         try:
             personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
             for file_path in personalities_path.iterdir():
-                if file_path.suffix == ".toml":
-                    personalities.append(file_path.stem)
+                if file_path.is_file() and file_path.name.endswith(".toml"):
+                    personalities.append(file_path.name.removesuffix(".toml"))
         except (FileNotFoundError, AttributeError):
             pass
 

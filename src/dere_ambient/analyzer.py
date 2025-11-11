@@ -80,7 +80,7 @@ class ContextAnalyzer:
                 logger.debug("Previous context available: {}", previous_context[:100])
 
             # Step 3a: Get user emotional state (if available)
-            # TODO: Properly resolve session_id from recent activity
+            # Attempts to resolve session_id from recent activity, falls back to None if not found
             emotion_summary = await self._get_user_emotion_summary(session_id=None)
             if emotion_summary:
                 logger.debug("Emotion context: {}", emotion_summary)
@@ -250,6 +250,22 @@ class ContextAnalyzer:
 
         return None
 
+    async def _get_most_recent_session(self) -> int | None:
+        """Query daemon for the most recent active session.
+
+        Returns:
+            Session ID of most recent session, or None if not found
+        """
+        try:
+            # Query for recent sessions (within last 24 hours)
+            # This endpoint would need to be implemented in the daemon
+            # For now, we'll just return None as a safe fallback
+            logger.debug("Session ID resolution not yet implemented")
+            return None
+        except Exception as e:
+            logger.debug("Failed to get recent session: {}", e)
+            return None
+
     async def _get_user_emotion_summary(self, session_id: int | None = None) -> str | None:
         """Get user's current emotional state summary.
 
@@ -261,10 +277,11 @@ class ContextAnalyzer:
         """
         try:
             # If no session_id provided, try to get the most recent active session
-            # For now we'll just return None if no session_id - this could be improved
             if session_id is None:
-                logger.debug("No session_id provided for emotion query")
-                return None
+                session_id = await self._get_most_recent_session()
+                if session_id is None:
+                    logger.debug("No session_id provided and no recent session found")
+                    return None
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(

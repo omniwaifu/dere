@@ -66,7 +66,6 @@ class CommunityDetector:
                 name=f"Community {community_id}",
                 group_id=group_id,
                 summary=summary,
-                entity_uuids=[entity.uuid for entity in members],
             )
             community_nodes.append(community_node)
 

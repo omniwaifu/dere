@@ -76,6 +76,7 @@ class DiscordBotConfig:
     summary_grace_seconds: int
     context_enabled: bool
     session_expiry_hours: int
+    user_id: str | None  # Discord user ID of bot owner (if personal bot)
 
 
 def load_discord_config(
@@ -161,6 +162,14 @@ def load_discord_config(
         default=24,
     )
 
+    user_id = (
+        os.getenv("DERE_DISCORD_USER_ID")
+        or discord_section.get("user_id")
+        or discord_section.get("owner_id")
+    )
+    if user_id is not None:
+        user_id = str(user_id)
+
     return DiscordBotConfig(
         token=token,
         default_personas=default_personas,
@@ -170,4 +179,5 @@ def load_discord_config(
         summary_grace_seconds=summary_grace_seconds,
         context_enabled=context_enabled,
         session_expiry_hours=session_expiry_hours,
+        user_id=user_id,
     )

@@ -810,7 +810,9 @@ def history_show(session_id):
 
     try:
         with httpx.Client() as client:
-            response = client.get(f"http://localhost:8787/sessions/{session_id}/history", timeout=5.0)
+            response = client.get(
+                f"http://localhost:8787/sessions/{session_id}/history", timeout=5.0
+            )
             response.raise_for_status()
             data = response.json()
 
@@ -856,9 +858,7 @@ def entities_info(entity, user_id):
             params["user_id"] = user_id
 
         with httpx.Client() as client:
-            response = client.get(
-                f"{daemon_url}/kg/entity/{entity}", params=params, timeout=5.0
-            )
+            response = client.get(f"{daemon_url}/kg/entity/{entity}", params=params, timeout=5.0)
             response.raise_for_status()
             data = response.json()
 
@@ -933,7 +933,7 @@ def entities_related(entity, limit, user_id):
 
             for rel in related:
                 name = rel.get("name")
-                labels = ', '.join(rel.get("labels", []))
+                labels = ", ".join(rel.get("labels", []))
                 click.echo(f"  - {name} ({labels})")
 
             click.echo(f"\nTotal: {len(related)} related entities")
@@ -1046,7 +1046,9 @@ def synthesis_insights(personality, limit, no_format):
         }
 
         with httpx.Client() as client:
-            response = client.post(f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10.0)
+            response = client.post(
+                f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10.0
+            )
             response.raise_for_status()
             data = response.json()
 
@@ -1101,7 +1103,9 @@ def synthesis_patterns(personality, limit, no_format):
         }
 
         with httpx.Client() as client:
-            response = client.post(f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10.0)
+            response = client.post(
+                f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10.0
+            )
             response.raise_for_status()
             data = response.json()
 
