@@ -27,6 +27,7 @@ async def add_episode(
     episode: EpisodicNode,
     previous_episodes: list[EpisodicNode] | None = None,
     postgres_driver=None,
+    enable_reflection: bool = True,
 ) -> None:
     """Main ingestion pipeline for adding an episode to the graph."""
     if previous_episodes is None:
@@ -38,7 +39,7 @@ async def add_episode(
     logger.info(f"Saved episode: {episode.uuid}")
 
     # 2. Extract entities
-    extracted_nodes = await extract_nodes(llm_client, episode)
+    extracted_nodes = await extract_nodes(llm_client, episode, previous_episodes, enable_reflection)
     if not extracted_nodes:
         logger.info("No entities extracted")
         return
@@ -92,8 +93,11 @@ async def add_episode(
 async def extract_nodes(
     llm_client: ClaudeClient,
     episode: EpisodicNode,
+    previous_episodes: list[EpisodicNode] | None = None,
+    enable_reflection: bool = True,
 ) -> list[EntityNode]:
-    """Extract entity nodes from episode content."""
+    """Extract entity nodes from episode content with optional reflection validation."""
+    # Initial extraction
     messages = extract_entities_text(
         episode.content,
         speaker_id=episode.speaker_id,
@@ -118,7 +122,65 @@ async def extract_nodes(
         )
         extracted_nodes.append(node)
 
-    logger.debug(f"Extracted {len(extracted_nodes)} entities")
+    logger.debug(f"Extracted {len(extracted_nodes)} entities (initial pass)")
+
+    # Reflection validation pass
+    if enable_reflection and extracted_nodes and previous_episodes:
+        from dere_graph.prompts import EntityValidation, validate_extracted_entities
+
+        # Convert nodes to dict format for prompt
+        entity_dicts = [
+            {"name": node.name, "summary": node.summary or "No summary"}
+            for node in extracted_nodes
+        ]
+        
+        # Get previous episode content strings
+        prev_episode_strings = [ep.content for ep in previous_episodes]
+
+        reflection_messages = validate_extracted_entities(
+            entity_dicts,
+            episode.content,
+            prev_episode_strings,
+        )
+
+        validation = await llm_client.generate_response(reflection_messages, EntityValidation)
+
+        # Process validation results
+        # 1. Remove hallucinated entities
+        if validation.hallucinated_entities:
+            extracted_nodes = [
+                node for node in extracted_nodes 
+                if node.name not in validation.hallucinated_entities
+            ]
+            logger.debug(f"Removed {len(validation.hallucinated_entities)} hallucinated entities")
+
+        # 2. Add missed entities
+        if validation.missed_entities:
+            for missed in validation.missed_entities:
+                node = EntityNode(
+                    name=missed.name,
+                    group_id=episode.group_id,
+                    labels=["Entity"],
+                    summary=missed.summary,
+                    attributes={},
+                    aliases=[],
+                )
+                extracted_nodes.append(node)
+            logger.debug(f"Added {len(validation.missed_entities)} missed entities")
+
+        # 3. Apply refinements
+        if validation.refinements:
+            for refinement in validation.refinements:
+                for node in extracted_nodes:
+                    if node.name == refinement.original_name:
+                        if refinement.refined_name:
+                            node.name = refinement.refined_name
+                        if refinement.refined_summary:
+                            node.summary = refinement.refined_summary
+                        break
+            logger.debug(f"Applied {len(validation.refinements)} entity refinements")
+
+    logger.debug(f"Final: {len(extracted_nodes)} entities after reflection")
     return extracted_nodes
 
 
@@ -180,12 +242,14 @@ async def deduplicate_nodes(
         extracted_node = extracted_nodes[resolution.id]
 
         if resolution.duplicate_idx >= 0 and resolution.duplicate_idx < len(existing_candidates):
-            # It's a duplicate - use existing node
+            # It's a duplicate - use existing node and increment mention_count
             resolved_node = existing_candidates[resolution.duplicate_idx]
+            resolved_node.mention_count = (resolved_node.mention_count or 1) + 1
             uuid_map[extracted_node.uuid] = resolved_node.uuid
         else:
-            # It's new
+            # It's new - initialize with mention_count=1
             resolved_node = extracted_node
+            resolved_node.mention_count = 1
             uuid_map[extracted_node.uuid] = extracted_node.uuid
 
         resolved_nodes.append(resolved_node)

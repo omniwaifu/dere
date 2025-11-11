@@ -62,6 +62,10 @@ class EntityNode(Node):
         default=None,
         description="Timestamp of most recent MENTIONS edge (updated automatically)",
     )
+    mention_count: int = Field(
+        default=1,
+        description="Number of times this entity has been mentioned (for episode-mentions reranking)",
+    )
 
 
 class EpisodicNode(Node):

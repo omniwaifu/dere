@@ -124,6 +124,7 @@ class FalkorDriver:
             "name_embedding": node.name_embedding,
             "aliases": node.aliases,
             "last_mentioned": node.last_mentioned,
+            "mention_count": node.mention_count,
             **node.attributes,
         }
 
@@ -326,6 +327,7 @@ class FalkorDriver:
                    n.name_embedding AS name_embedding,
                    n.summary AS summary,
                    n.created_at AS created_at,
+                   n.mention_count AS mention_count,
                    n AS attributes,
                    labels(n) AS labels
             """,
@@ -338,7 +340,7 @@ class FalkorDriver:
         record = records[0]
         node_obj = record["attributes"]
         attributes = dict(node_obj.properties)
-        for key in ["uuid", "name", "group_id", "name_embedding", "summary", "created_at"]:
+        for key in ["uuid", "name", "group_id", "name_embedding", "summary", "created_at", "mention_count"]:
             attributes.pop(key, None)
 
         return EntityNode(
@@ -350,6 +352,7 @@ class FalkorDriver:
             created_at=datetime.fromisoformat(record["created_at"])
             if record["created_at"]
             else None,
+            mention_count=record.get("mention_count", 1),
             labels=[label for label in record["labels"] if label != "Entity"],
             attributes=attributes,
         )
@@ -783,6 +786,7 @@ class FalkorDriver:
         name_embedding = props.pop("name_embedding", None)
         summary = props.pop("summary", "")
         created_at_str = props.pop("created_at", None)
+        mention_count = props.pop("mention_count", 1)
 
         # Remaining props are attributes
         attributes = props
@@ -801,6 +805,7 @@ class FalkorDriver:
             name_embedding=name_embedding,
             summary=summary,
             created_at=created_at,
+            mention_count=mention_count,
             labels=labels,
             attributes=attributes,
         )

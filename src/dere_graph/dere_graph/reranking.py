@@ -163,6 +163,53 @@ def score_by_recency(
     return scored
 
 
+def score_by_episode_mentions(
+    items: list[EntityNode],
+    alpha: float = 0.5,
+) -> list[tuple[EntityNode, float]]:
+    """Score entities by how frequently they've been mentioned across episodes.
+
+    Frequency-based reranking that prioritizes entities mentioned more often,
+    making frequently referenced entities more accessible during retrieval.
+
+    Args:
+        items: List of entity nodes to score
+        alpha: Scaling factor for mention_count (higher = stronger boost for frequent entities)
+
+    Returns:
+        List of (item, score) tuples sorted by score descending
+    """
+    if not items:
+        return []
+
+    # Find max mention count for normalization
+    mention_counts = [item.mention_count for item in items]
+    max_mentions = max(mention_counts)
+
+    if max_mentions == 0:
+        # No mentions tracked, return uniform scores
+        return [(item, 1.0) for item in items]
+
+    scored = []
+    for item in items:
+        # Normalize mention count to 0-1 range
+        normalized_mentions = item.mention_count / max_mentions
+
+        # Apply scaling factor
+        episode_mention_score = alpha * normalized_mentions + (1 - alpha)
+
+        scored.append((item, float(episode_mention_score)))
+
+    # Sort by score descending
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    logger.debug(
+        f"Scored {len(items)} entities by episode mentions "
+        f"(alpha={alpha}, max_mentions={max_mentions})"
+    )
+    return scored
+
+
 def combine_scores(
     items: list[EntityNode] | list[EntityEdge],
     score_dict_list: list[dict[str, float]],

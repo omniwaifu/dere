@@ -387,6 +387,7 @@ async def lifespan(app: FastAPI):
                     claude_model=graph_config.get("claude_model", "claude-haiku-4-5"),
                     embedding_dim=graph_config.get("embedding_dim", 1536),
                     postgres_db_url=postgres_url,
+                    enable_reflection=graph_config.get("enable_reflection", True),
                 )
                 await app.state.dere_graph.build_indices()
                 print("✓ DereGraph initialized")
@@ -1471,14 +1472,15 @@ async def context_build(req: ContextBuildRequest, db: AsyncSession = Depends(get
                 )
             )
 
-            # Step 1: Get relevant recent facts with diversity
+            # Step 1: Get relevant recent facts with episode-mentions reranking
+            # This prioritizes frequently mentioned entities for better context
             search_results = await app.state.dere_graph.search(
                 query=req.current_prompt,
                 group_id=req.user_id or "default",
                 limit=context_depth * 2,  # Get more for BFS expansion
                 filters=filters,
-                rerank_method="mmr",  # Diverse results
-                lambda_param=0.6,  # Balanced relevance/diversity
+                rerank_method="episode_mentions",  # Boost frequently mentioned entities
+                rerank_alpha=0.5,  # Balance between frequency and base relevance
                 recency_weight=0.3,  # Slight recency boost
             )
 

@@ -88,12 +88,29 @@ async def hybrid_node_search(
     group_id: str,
     limit: int = 10,
     filters: SearchFilters | None = None,
+    rerank_method: str | None = None,
+    rerank_alpha: float = 0.5,
 ) -> list[EntityNode]:
-    """Hybrid search combining BM25 fulltext and vector similarity with RRF fusion."""
+    """Hybrid search combining BM25 fulltext and vector similarity with RRF fusion.
+
+    Args:
+        driver: FalkorDB driver
+        embedder: Embedding model
+        query: Search query
+        group_id: Graph partition
+        limit: Number of results to return
+        filters: Temporal/attribute filters
+        rerank_method: Optional reranking strategy ('episode_mentions', 'mmr', 'recency')
+        rerank_alpha: Alpha parameter for reranking (0-1)
+
+    Returns:
+        List of entity nodes
+    """
     # Skip vector search if query is empty (temporal-only queries)
     if not query or not query.strip():
         # Just use fulltext search (which handles empty queries)
-        return await fulltext_node_search(driver, query, group_id, limit, filters)
+        results = await fulltext_node_search(driver, query, group_id, limit, filters)
+        return _apply_reranking(results, rerank_method, rerank_alpha, limit)
 
     # Generate query embedding
     query_vector = await embedder.create(query.replace("\n", " "))
@@ -109,8 +126,9 @@ async def hybrid_node_search(
     # Combine with RRF
     combined_uuids, scores = rrf([fulltext_uuids, similarity_uuids])
 
-    # Fetch nodes for top results
-    result_uuids = combined_uuids[:limit]
+    # Fetch nodes for top results (fetch more than limit if reranking)
+    fetch_limit = limit * 2 if rerank_method else limit
+    result_uuids = combined_uuids[:fetch_limit]
     result_nodes = []
 
     for uuid in result_uuids:
@@ -118,8 +136,44 @@ async def hybrid_node_search(
         if node:
             result_nodes.append(node)
 
-    logger.debug(f"Hybrid search returned {len(result_nodes)} nodes for query: {query}")
+    # Apply reranking if requested
+    result_nodes = _apply_reranking(result_nodes, rerank_method, rerank_alpha, limit)
+
+    logger.debug(
+        f"Hybrid search returned {len(result_nodes)} nodes for query: {query} "
+        f"(rerank={rerank_method})"
+    )
     return result_nodes
+
+
+def _apply_reranking(
+    nodes: list[EntityNode],
+    rerank_method: str | None,
+    rerank_alpha: float,
+    limit: int,
+) -> list[EntityNode]:
+    """Apply reranking strategy to search results."""
+    if not rerank_method or not nodes:
+        return nodes[:limit]
+
+    if rerank_method == "episode_mentions":
+        from dere_graph.reranking import score_by_episode_mentions
+        scored = score_by_episode_mentions(nodes, alpha=rerank_alpha)
+        return [node for node, _score in scored[:limit]]
+
+    elif rerank_method == "recency":
+        from dere_graph.reranking import score_by_recency
+        scored = score_by_recency(nodes, decay_factor=rerank_alpha)
+        return [node for node, _score in scored[:limit]]
+
+    elif rerank_method == "mmr":
+        # MMR requires query embedding - not implemented in this helper
+        logger.warning("MMR reranking not supported in _apply_reranking helper")
+        return nodes[:limit]
+
+    else:
+        logger.warning(f"Unknown rerank method: {rerank_method}")
+        return nodes[:limit]
 
 
 async def fulltext_node_search(

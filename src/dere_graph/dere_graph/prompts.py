@@ -537,8 +537,8 @@ def validate_extracted_entities(
     previous_episodes: list[str],
 ) -> list[Message]:
     """Reflection prompt to validate and refine extracted entities.
-    
-    This implements the reflection technique from the Graphiti paper to:
+
+    Multi-pass validation technique to:
     - Catch missed entities
     - Reduce hallucinations
     - Improve extraction coverage

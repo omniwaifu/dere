@@ -48,6 +48,7 @@ class DereGraph:
         claude_model: str = "claude-sonnet-4-5",
         embedding_dim: int = 1536,
         postgres_db_url: str | None = None,
+        enable_reflection: bool = True,
     ):
         """Initialize DereGraph with database and AI clients.
 
@@ -61,6 +62,7 @@ class DereGraph:
             claude_model: Claude model name
             embedding_dim: Embedding dimensionality
             postgres_db_url: Optional Postgres connection URL for entity meta-context
+            enable_reflection: Enable reflection-based entity extraction validation
         """
         self.driver = FalkorDriver(
             host=falkor_host,
@@ -74,6 +76,7 @@ class DereGraph:
             api_key=openai_api_key,
             embedding_dim=embedding_dim,
         )
+        self.enable_reflection = enable_reflection
 
         # Optional Postgres for entity meta-context
         if postgres_db_url:
@@ -197,6 +200,7 @@ class DereGraph:
             episode,
             previous_episodes,
             self.postgres_driver,
+            self.enable_reflection,
         )
 
         logger.info(f"Episode added: {episode.uuid}")
@@ -259,13 +263,13 @@ class DereGraph:
         center_node_uuid: str | None = None,
         rerank_method: str | None = None,
         lambda_param: float = 0.5,
+        rerank_alpha: float = 0.5,
         recency_weight: float = 0.0,
     ) -> SearchResults:
         """Search the knowledge graph using hybrid search with optional reranking.
 
         Combines BM25 fulltext search and vector similarity search
-        using Reciprocal Rank Fusion, with optional MMR diversity reranking,
-        distance-based reranking, or recency boosting.
+        using Reciprocal Rank Fusion, with optional reranking strategies.
 
         Args:
             query: Search query
@@ -273,8 +277,9 @@ class DereGraph:
             limit: Maximum number of results
             filters: Optional temporal/attribute filters
             center_node_uuid: Optional center node for distance-based reranking
-            rerank_method: Optional reranking method ("mmr", "distance", or None)
+            rerank_method: Optional reranking method ("mmr", "distance", "episode_mentions", "recency", or None)
             lambda_param: MMR lambda parameter (1=pure relevance, 0=pure diversity)
+            rerank_alpha: Alpha parameter for episode_mentions/recency reranking (0-1)
             recency_weight: Weight for recency boost (0-1, 0=no boost)
 
         Returns:
@@ -286,14 +291,27 @@ class DereGraph:
         query_embedding = await self.embedder.create(query.replace("\n", " "))
 
         # Search nodes and edges in parallel
-        nodes = await hybrid_node_search(
-            self.driver,
-            self.embedder,
-            query,
-            group_id,
-            limit * 2 if rerank_method else limit,
-            filters,
-        )
+        # For episode_mentions and recency, reranking is done in hybrid_node_search
+        if rerank_method in ("episode_mentions", "recency"):
+            nodes = await hybrid_node_search(
+                self.driver,
+                self.embedder,
+                query,
+                group_id,
+                limit,
+                filters,
+                rerank_method=rerank_method,
+                rerank_alpha=rerank_alpha,
+            )
+        else:
+            nodes = await hybrid_node_search(
+                self.driver,
+                self.embedder,
+                query,
+                group_id,
+                limit * 2 if rerank_method else limit,
+                filters,
+            )
 
         edges = await hybrid_edge_search(
             self.driver,
@@ -304,7 +322,7 @@ class DereGraph:
             filters,
         )
 
-        # Apply reranking if requested
+        # Apply reranking if requested (for MMR and distance methods)
         if rerank_method == "mmr" and nodes:
             nodes = mmr_rerank(nodes, query_embedding, lambda_param, limit)
         elif rerank_method == "distance" and center_node_uuid and nodes:
@@ -314,10 +332,10 @@ class DereGraph:
             )
             nodes = node_distance_reranker(nodes, center_node_uuid, distances)
             nodes = nodes[:limit]
-        else:
+        elif rerank_method not in ("episode_mentions", "recency"):
             nodes = nodes[:limit]
 
-        # Apply recency boost if requested
+        # Apply recency boost if requested (separate from rerank_method="recency")
         if recency_weight > 0 and nodes:
             scored_nodes = score_by_recency(nodes)
             nodes = [node for node, score in sorted(scored_nodes, key=lambda x: x[1], reverse=True)]

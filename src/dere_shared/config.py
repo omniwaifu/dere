@@ -67,6 +67,7 @@ def load_dere_config() -> dict[str, Any]:
             "falkor_database": "dere_graph",
             "claude_model": "claude-haiku-4-5",
             "embedding_dim": 1536,
+            "enable_reflection": os.getenv("DERE_ENABLE_REFLECTION", "true").lower() == "true",
         },
     }
 
