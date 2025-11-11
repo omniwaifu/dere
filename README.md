@@ -11,10 +11,13 @@ src/
 ├── dere_discord/      # Discord bot
 ├── dere_obsidian/     # Obsidian integration
 ├── dere_ambient/      # Proactive monitoring
+├── dere_graph/        # Knowledge graph
 ├── dere_shared/       # Shared utilities
 └── dere_plugins/      # Claude Code plugins
-    ├── dere_personality/   # Core skills (emotion, memory, wellness)
-    └── dere_vault/    # Zettelkasten skills
+    ├── dere_personality/  # Personality skills
+    ├── dere_tasks/        # Taskwarrior skills
+    ├── dere_vault/        # Zettelkasten skills
+    └── dere_wellness/     # Wellness skills
 ```
 
 ## Install
