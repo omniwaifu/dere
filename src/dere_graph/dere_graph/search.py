@@ -166,6 +166,11 @@ def _apply_reranking(
         scored = score_by_recency(nodes, decay_factor=rerank_alpha)
         return [node for node, _score in scored[:limit]]
 
+    elif rerank_method == "retrospective":
+        from dere_graph.reranking import score_by_retrospective_quality
+        scored = score_by_retrospective_quality(nodes, alpha=rerank_alpha)
+        return [node for node, _score in scored[:limit]]
+
     elif rerank_method == "mmr":
         # MMR requires query embedding - not implemented in this helper
         logger.warning("MMR reranking not supported in _apply_reranking helper")

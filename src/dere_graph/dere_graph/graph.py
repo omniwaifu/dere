@@ -49,6 +49,7 @@ class DereGraph:
         embedding_dim: int = 1536,
         postgres_db_url: str | None = None,
         enable_reflection: bool = True,
+        idle_threshold_minutes: int = 15,
     ):
         """Initialize DereGraph with database and AI clients.
 
@@ -63,6 +64,7 @@ class DereGraph:
             embedding_dim: Embedding dimensionality
             postgres_db_url: Optional Postgres connection URL for entity meta-context
             enable_reflection: Enable reflection-based entity extraction validation
+            idle_threshold_minutes: Minutes of idle time before creating new conversation_id
         """
         self.driver = FalkorDriver(
             host=falkor_host,
@@ -77,6 +79,7 @@ class DereGraph:
             embedding_dim=embedding_dim,
         )
         self.enable_reflection = enable_reflection
+        self.idle_threshold_minutes = idle_threshold_minutes
 
         # Optional Postgres for entity meta-context
         if postgres_db_url:
@@ -156,11 +159,13 @@ class DereGraph:
         if name is None:
             name = reference_time.strftime("%Y-%m-%d")
 
-        # Auto-generate conversation_id if not provided (per-day + source format)
+        # Auto-generate conversation_id with idle detection if not provided
         if conversation_id is None:
-            # Extract medium from source_description (e.g., "discord conversation" -> "discord")
-            medium = source_description.split()[0] if source_description else "unknown"
-            conversation_id = f"{reference_time.strftime('%Y-%m-%d')}-{medium}"
+            conversation_id = await self._generate_conversation_id(
+                current_timestamp=reference_time,
+                source_description=source_description,
+                group_id=group_id,
+            )
 
         logger.info(f"Adding episode: {name}")
 
@@ -615,3 +620,62 @@ class DereGraph:
             List of EntityEdge objects found via BFS
         """
         return await edge_bfs_search(self.driver, origin_uuids, group_id, max_depth, limit)
+
+    async def _generate_conversation_id(
+        self,
+        current_timestamp: datetime,
+        source_description: str,
+        group_id: str,
+    ) -> str:
+        """Generate conversation ID with idle detection.
+
+        Creates new conversation boundaries when messages are separated by
+        more than idle_threshold_minutes.
+
+        Args:
+            current_timestamp: Timestamp of current episode
+            source_description: Source description to match (e.g., Discord channel ID)
+            group_id: Graph partition
+
+        Returns:
+            Conversation ID to use (either reused or new)
+        """
+        from datetime import timedelta
+
+        # Query for most recent episode with same source
+        query = """
+        MATCH (e:Episode)
+        WHERE e.source_description = $source_description
+          AND e.group_id = $group_id
+        RETURN e.conversation_id AS conversation_id,
+               e.valid_at AS valid_at
+        ORDER BY e.valid_at DESC
+        LIMIT 1
+        """
+
+        result = await self.driver.execute_query(
+            query,
+            source_description=source_description,
+            group_id=group_id,
+        )
+
+        if result.result_set:
+            last_conversation_id = result.result_set[0][0]
+            last_valid_at_str = result.result_set[0][1]
+
+            if last_valid_at_str:
+                last_valid_at = datetime.fromisoformat(last_valid_at_str)
+                time_gap = current_timestamp - last_valid_at
+
+                # Reuse conversation_id if within idle threshold
+                if time_gap <= timedelta(minutes=self.idle_threshold_minutes):
+                    logger.debug(
+                        f"Reusing conversation_id '{last_conversation_id}' "
+                        f"(gap: {time_gap.total_seconds() / 60:.1f}m)"
+                    )
+                    return last_conversation_id
+
+        # Generate new conversation ID (ISO date + source)
+        new_conversation_id = f"{current_timestamp.date().isoformat()}_{source_description}"
+        logger.debug(f"Created new conversation_id: {new_conversation_id}")
+        return new_conversation_id

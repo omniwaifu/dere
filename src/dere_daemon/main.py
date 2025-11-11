@@ -388,6 +388,7 @@ async def lifespan(app: FastAPI):
                     embedding_dim=graph_config.get("embedding_dim", 1536),
                     postgres_db_url=postgres_url,
                     enable_reflection=graph_config.get("enable_reflection", True),
+                    idle_threshold_minutes=graph_config.get("idle_threshold_minutes", 15),
                 )
                 await app.state.dere_graph.build_indices()
                 print("✓ DereGraph initialized")

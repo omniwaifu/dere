@@ -535,3 +535,51 @@ async def save_nodes_and_edges(
     logger.debug(
         f"Saved {len(nodes_with_embeddings)} nodes (with embeddings), {len(edges)} entity edges, {len(all_nodes)} episodic edges"
     )
+
+
+async def track_entity_retrieval(
+    driver: FalkorDriver,
+    entity_uuids: list[str],
+) -> None:
+    """Track that entities were retrieved in a search.
+
+    Increments retrieval_count for retrospective quality tracking.
+
+    Args:
+        driver: FalkorDB driver instance
+        entity_uuids: List of entity UUIDs that were retrieved
+    """
+    for uuid in entity_uuids:
+        entity = await driver.get_entity_by_uuid(uuid)
+        if entity:
+            entity.retrieval_count += 1
+            await driver.save_entity_node(entity)
+
+    logger.debug(f"Tracked retrieval for {len(entity_uuids)} entities")
+
+
+async def track_entity_citation(
+    driver: FalkorDriver,
+    entity_uuids: list[str],
+) -> None:
+    """Track that entities were cited/used in a response.
+
+    Increments citation_count and updates retrieval_quality for
+    retrospective quality tracking.
+
+    Args:
+        driver: FalkorDB driver instance
+        entity_uuids: List of entity UUIDs that were cited in the response
+    """
+    for uuid in entity_uuids:
+        entity = await driver.get_entity_by_uuid(uuid)
+        if entity:
+            entity.citation_count += 1
+
+            # Update retrieval quality (success rate)
+            if entity.retrieval_count > 0:
+                entity.retrieval_quality = entity.citation_count / entity.retrieval_count
+
+            await driver.save_entity_node(entity)
+
+    logger.debug(f"Tracked citation for {len(entity_uuids)} entities")

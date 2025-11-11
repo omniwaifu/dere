@@ -250,3 +250,46 @@ def combine_scores(
 
     logger.debug(f"Combined {len(score_dict_list)} scoring strategies with weights {weights}")
     return sorted_items
+
+
+def score_by_retrospective_quality(
+    items: list[EntityNode],
+    alpha: float = 0.5,
+    min_retrievals: int = 3,
+) -> list[tuple[EntityNode, float]]:
+    """Score entities by their past retrieval quality (attribution success rate).
+
+    Lightweight retrospective reflection that boosts entities with proven
+    usefulness based on citation_count / retrieval_count ratio.
+
+    Args:
+        items: List of entity nodes to score
+        alpha: Scaling factor for retrieval quality (higher = stronger boost for high-quality entities)
+        min_retrievals: Minimum retrieval count before applying quality boost (confidence threshold)
+
+    Returns:
+        List of (item, score) tuples sorted by score descending
+    """
+    if not items:
+        return []
+
+    scored = []
+    for item in items:
+        # Apply quality boost only if entity has sufficient retrieval history
+        if item.retrieval_count >= min_retrievals:
+            # Use tracked retrieval_quality (citation_count / retrieval_count)
+            quality_score = alpha * item.retrieval_quality + (1 - alpha)
+        else:
+            # Neutral score for entities without sufficient history
+            quality_score = 1.0
+
+        scored.append((item, float(quality_score)))
+
+    # Sort by score descending
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    logger.debug(
+        f"Scored {len(items)} entities by retrospective quality "
+        f"(alpha={alpha}, min_retrievals={min_retrievals})"
+    )
+    return scored

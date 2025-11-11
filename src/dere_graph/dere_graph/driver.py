@@ -125,6 +125,9 @@ class FalkorDriver:
             "aliases": node.aliases,
             "last_mentioned": node.last_mentioned,
             "mention_count": node.mention_count,
+            "retrieval_count": node.retrieval_count,
+            "citation_count": node.citation_count,
+            "retrieval_quality": node.retrieval_quality,
             **node.attributes,
         }
 
@@ -328,6 +331,9 @@ class FalkorDriver:
                    n.summary AS summary,
                    n.created_at AS created_at,
                    n.mention_count AS mention_count,
+                   n.retrieval_count AS retrieval_count,
+                   n.citation_count AS citation_count,
+                   n.retrieval_quality AS retrieval_quality,
                    n AS attributes,
                    labels(n) AS labels
             """,
@@ -787,6 +793,9 @@ class FalkorDriver:
         summary = props.pop("summary", "")
         created_at_str = props.pop("created_at", None)
         mention_count = props.pop("mention_count", 1)
+        retrieval_count = props.pop("retrieval_count", 0)
+        citation_count = props.pop("citation_count", 0)
+        retrieval_quality = props.pop("retrieval_quality", 1.0)
 
         # Remaining props are attributes
         attributes = props
@@ -806,6 +815,9 @@ class FalkorDriver:
             summary=summary,
             created_at=created_at,
             mention_count=mention_count,
+            retrieval_count=retrieval_count,
+            citation_count=citation_count,
+            retrieval_quality=retrieval_quality,
             labels=labels,
             attributes=attributes,
         )

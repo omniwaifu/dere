@@ -66,6 +66,18 @@ class EntityNode(Node):
         default=1,
         description="Number of times this entity has been mentioned (for episode-mentions reranking)",
     )
+    retrieval_count: int = Field(
+        default=0,
+        description="Number of times this entity has been retrieved in searches",
+    )
+    citation_count: int = Field(
+        default=0,
+        description="Number of times this entity was cited/used in responses after retrieval",
+    )
+    retrieval_quality: float = Field(
+        default=1.0,
+        description="Success rate of retrieval (citation_count / retrieval_count), used for retrospective reranking",
+    )
 
 
 class EpisodicNode(Node):
