@@ -1,0 +1,26 @@
+[dere_graph.falkordb]
+host = "localhost"
+port = 6379
+graph_name = "dere_graph"
+
+[dere_graph.extraction_model]
+# Model for entity/edge extraction
+# Options: claude-sonnet-4-5, claude-haiku-4-5
+model = "claude-haiku-4-5"
+
+[dere_graph.embedder]
+# OpenAI embeddings
+model = "text-embedding-3-small"
+dimension = 1536
+
+[dere_graph.postgres]
+# Postgres connection for entity meta-context
+# Leave empty to disable Postgres sync
+# db_url = "postgresql://user:pass@localhost/dere"
+
+[dere_graph.processing]
+# How many concurrent episodes to process
+max_concurrent = 5
+
+# How many previous episodes to use for deduplication context
+deduplication_context_limit = 10

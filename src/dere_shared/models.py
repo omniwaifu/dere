@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, NotRequired, TypedDict
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, Index, Integer, String, text
+from sqlalchemy import BigInteger, Column, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -69,7 +69,6 @@ class Session(SQLModel, table=True):
     session_summaries: list["SessionSummary"] = Relationship(back_populates="session")
     conversation_segments: list["ConversationSegment"] = Relationship(back_populates="session")
     context_caches: list["ContextCache"] = Relationship(back_populates="session")
-    wellness_sessions: list["WellnessSession"] = Relationship(back_populates="session")
     emotion_states: list["EmotionState"] = Relationship(back_populates="session")
     stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session")
 
@@ -116,7 +115,6 @@ class Conversation(SQLModel, table=True):
     prompt: str
     message_type: str = Field(default="user")
     embedding_text: str | None = None
-    processing_mode: str | None = None
     prompt_embedding: list[float] | None = Field(default=None, sa_column=Column(Vector(1024)))
     timestamp: int
     medium: str | None = None
@@ -277,26 +275,6 @@ class SessionRelationship(SQLModel, table=True):
     created_at: datetime | None = Field(default_factory=datetime.utcnow)
 
 
-class WellnessSession(SQLModel, table=True):
-    __tablename__ = "wellness_sessions"
-
-    id: int | None = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="sessions.id")
-    mode: str
-    mood: int | None = None
-    energy: int | None = None
-    stress: int | None = None
-    key_themes: str | None = None
-    notes: str | None = None
-    homework: str | None = None
-    next_step_notes: str | None = None
-    created_at: int | None = None
-    updated_at: int | None = None
-
-    # Relationships
-    session: "Session" = Relationship(back_populates="wellness_sessions")
-
-
 class EmotionState(SQLModel, table=True):
     __tablename__ = "emotion_states"
     __table_args__ = (
@@ -308,11 +286,11 @@ class EmotionState(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     session_id: int = Field(foreign_key="sessions.id")
-    primary_emotion: str
-    primary_intensity: float
+    primary_emotion: str | None = None
+    primary_intensity: float | None = None
     secondary_emotion: str | None = None
     secondary_intensity: float | None = None
-    overall_intensity: float
+    overall_intensity: float | None = None
     appraisal_data: dict[str, Any] | None = Field(
         default=None, sa_column=Column("appraisal_data", JSONB)
     )
@@ -338,7 +316,7 @@ class StimulusHistory(SQLModel, table=True):
     stimulus_type: str
     valence: float
     intensity: float
-    timestamp: int
+    timestamp: int = Field(sa_column=Column("timestamp", BigInteger))
     context: dict[str, Any] | None = Field(default=None, sa_column=Column("context", JSONB))
     created_at: datetime | None = Field(default_factory=datetime.utcnow)
 
@@ -393,7 +371,6 @@ class Personality(SQLModel):
 # TypedDict classes for metadata structures
 class EmbeddingMetadata(TypedDict):
     conversation_id: NotRequired[int]
-    processing_mode: NotRequired[str]
 
 
 class SummarizationMetadata(TypedDict):

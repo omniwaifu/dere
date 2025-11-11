@@ -66,7 +66,26 @@ class DiscordAgent:
 
             prompt = content
             if self._context_enabled:
-                context_text = get_full_context(session_id=session.session_id)
+                # Fetch last message time for differential lookback
+                last_message_time = None
+                try:
+                    import httpx
+
+                    daemon_url = "http://localhost:8787"
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"{daemon_url}/sessions/{session.session_id}/last_message_time",
+                            timeout=1.0,
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            last_message_time = data.get("last_message_time")
+                except Exception:
+                    pass  # Silent failure - differential lookback is optional
+
+                context_text = get_full_context(
+                    session_id=session.session_id, last_message_time=last_message_time
+                )
                 if context_text:
                     prompt = f"{context_text}\n\n{content}"
 

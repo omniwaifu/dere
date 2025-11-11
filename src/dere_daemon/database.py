@@ -715,6 +715,30 @@ class Database:
         row = result.fetchone()
         return self._row_to_dict(result, row) if row else None
 
+    def get_last_message_time(self, session_id: int) -> int | None:
+        """Get timestamp of the most recent conversation message in this session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Unix timestamp (seconds) of last message, or None if no messages
+        """
+        result = self.conn.execute(
+            """
+            SELECT created_at
+            FROM conversations
+            WHERE session_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            [session_id],
+        )
+        row = result.fetchone()
+        if row and row[0]:
+            return int(row[0].timestamp())
+        return None
+
     def get_latest_session_for_channel(
         self, working_dir: str, max_age_hours: int | None = None
     ) -> dict[str, Any] | None:

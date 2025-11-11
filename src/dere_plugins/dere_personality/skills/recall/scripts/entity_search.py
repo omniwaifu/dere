@@ -14,11 +14,11 @@ from config_reader import get_daemon_url
 
 
 def search_entity(entity_name: str) -> dict | None:
-    """Search for entity timeline."""
+    """Search for entity information from knowledge graph."""
     daemon_url = get_daemon_url()
 
     try:
-        response = requests.get(f"{daemon_url}/entities/timeline/{entity_name}", timeout=5)
+        response = requests.get(f"{daemon_url}/kg/entity/{entity_name}", timeout=5)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:

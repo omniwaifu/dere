@@ -240,7 +240,9 @@ class SettingsBuilder:
             if "enabledPlugins" not in settings:
                 settings["enabledPlugins"] = {}
 
-            settings["enabledPlugins"]["workforce-assistant@omniwaifu-claude-plugins-local"] = enable_workforce
+            settings["enabledPlugins"]["workforce-assistant@omniwaifu-claude-plugins-local"] = (
+                enable_workforce
+            )
         except Exception:
             # Silently fail if config loading fails
             pass
@@ -290,21 +292,6 @@ class SettingsBuilder:
                         {
                             "type": "command",
                             "command": str(stop_hook),
-                        }
-                    ],
-                }
-            )
-
-        # Wellness hook
-        wellness_hook = self.hooks_dir / "dere-wellness-hook.py"
-        if wellness_hook.exists():
-            hooks.append(
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": str(wellness_hook),
                         }
                     ],
                 }
@@ -498,7 +485,11 @@ def cli(
     if not announcement:
         config_announcements = config.get("announcements", {}).get("messages")
         if config_announcements:
-            announcement = config_announcements[0] if isinstance(config_announcements, list) else config_announcements
+            announcement = (
+                config_announcements[0]
+                if isinstance(config_announcements, list)
+                else config_announcements
+            )
 
     # Build settings
     personality_str = ",".join(personalities_list) if personalities_list else None
@@ -602,13 +593,8 @@ def cli(
                 sys.exit(1)
 
         # Add separator if we have args
-        if args or mode:
+        if args:
             cmd.append("--")
-
-        # Add wellness initiation for modes
-        if mode and not args:
-            cmd.append("/dere-wellness")
-        else:
             cmd.extend(args)
 
         # Dry run mode - print command and exit
@@ -673,7 +659,7 @@ def status():
             data = response.json()
             click.echo("Daemon is running")
             click.echo(f"  Database: {data.get('database', 'unknown')}")
-            click.echo(f"  Ollama: {data.get('ollama', 'unknown')}")
+            click.echo(f"  DereGraph: {data.get('dere_graph', 'unknown')}")
         else:
             click.echo("Daemon is not responding correctly")
             sys.exit(1)
@@ -852,88 +838,52 @@ def entities(ctx):
         click.echo(ctx.get_help())
 
 
-@entities.command("list")
-@click.option("--session", type=int, help="Session ID to filter by")
-@click.option("--type", "entity_type", help="Entity type to filter by")
-def entities_list(session, entity_type):
-    """List entities for a session"""
+@entities.command("info")
+@click.argument("entity")
+@click.option("--user-id", help="User ID to filter by")
+def entities_info(entity, user_id):
+    """Show information about an entity from the knowledge graph"""
     import requests
 
     daemon_url = "http://localhost:8787"
 
-    if not session:
-        click.echo("Error: --session is required", err=True)
-        sys.exit(1)
-
     try:
         params = {}
-        if entity_type:
-            params["entity_type"] = entity_type
+        if user_id:
+            params["user_id"] = user_id
 
         response = requests.get(
-            f"{daemon_url}/entities/session/{session}", params=params, timeout=5
+            f"{daemon_url}/kg/entity/{entity}", params=params, timeout=5
         )
         response.raise_for_status()
         data = response.json()
 
-        entities = data.get("entities", [])
-        if not entities:
-            click.echo(f"No entities found for session {session}")
+        if not data.get("found"):
+            click.echo(f"Entity not found: {entity}")
             return
 
-        click.echo(f"\nEntities for session {session}:")
+        click.echo(f"\nEntity: {entity}")
         click.echo("-" * 80)
 
-        for entity in entities:
-            entity_type = entity.get("entity_type", "unknown")
-            value = entity.get("entity_value", "")
-            confidence = entity.get("confidence", 0)
-            click.echo(f"  [{entity_type}] {value} (confidence: {confidence:.2f})")
+        # Show primary node
+        primary = data.get("primary_node", {})
+        click.echo(f"Name: {primary.get('name')}")
+        click.echo(f"Labels: {', '.join(primary.get('labels', []))}")
+        click.echo(f"Created: {primary.get('created_at', 'unknown')}")
 
-        click.echo(f"\nTotal: {len(entities)} entities")
+        # Show related nodes
+        related = data.get("related_nodes", [])
+        if related:
+            click.echo(f"\nRelated entities ({len(related)}):")
+            for rel in related[:10]:  # Show first 10
+                click.echo(f"  - {rel.get('name')} ({', '.join(rel.get('labels', []))})")
 
-    except requests.exceptions.ConnectionError:
-        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
-        sys.exit(1)
-    except requests.exceptions.RequestException as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@entities.command("timeline")
-@click.argument("entity")
-def entities_timeline(entity):
-    """Show timeline of entity mentions across sessions"""
-    from datetime import datetime
-
-    import requests
-
-    daemon_url = "http://localhost:8787"
-
-    try:
-        response = requests.get(f"{daemon_url}/entities/timeline/{entity}", timeout=5)
-        response.raise_for_status()
-        data = response.json()
-
-        sessions = data.get("sessions", [])
-        if not sessions:
-            click.echo(f"No mentions found for entity: {entity}")
-            return
-
-        click.echo(f"\nTimeline for entity: {entity}")
-        click.echo("-" * 80)
-
-        for session in sessions:
-            session_id = session.get("session_id")
-            working_dir = session.get("working_dir", "unknown")
-            mention_count = session.get("mention_count", 0)
-            start_time = session.get("start_time", 0)
-            timestamp = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M")
-
-            medium = "discord" if "discord://" in working_dir else "cli"
-            click.echo(f"  [{timestamp}] Session {session_id} ({medium}): {mention_count} mentions")
-
-        click.echo(f"\nTotal: {len(sessions)} sessions")
+        # Show relationships
+        relationships = data.get("relationships", [])
+        if relationships:
+            click.echo(f"\nRelationships ({len(relationships)}):")
+            for rel in relationships[:10]:  # Show first 10
+                click.echo(f"  - {rel.get('fact')}")
 
     except requests.exceptions.ConnectionError:
         click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
@@ -946,18 +896,27 @@ def entities_timeline(entity):
 @entities.command("related")
 @click.argument("entity")
 @click.option("--limit", default=20, help="Max number of related entities")
-def entities_related(entity, limit):
-    """Show entities that co-occur with given entity"""
+@click.option("--user-id", help="User ID to filter by")
+def entities_related(entity, limit, user_id):
+    """Show entities related to given entity via knowledge graph"""
     import requests
 
     daemon_url = "http://localhost:8787"
 
     try:
+        params = {"limit": limit}
+        if user_id:
+            params["user_id"] = user_id
+
         response = requests.get(
-            f"{daemon_url}/entities/related/{entity}", params={"limit": limit}, timeout=5
+            f"{daemon_url}/kg/entity/{entity}/related", params=params, timeout=5
         )
         response.raise_for_status()
         data = response.json()
+
+        if not data.get("found"):
+            click.echo(f"Entity not found: {entity}")
+            return
 
         related = data.get("related", [])
         if not related:
@@ -968,13 +927,9 @@ def entities_related(entity, limit):
         click.echo("-" * 80)
 
         for rel in related:
-            value = rel.get("normalized_value", "")
-            entity_type = rel.get("entity_type", "unknown")
-            count = rel.get("co_occurrence_count", 0)
-            confidence = rel.get("avg_confidence", 0)
-            click.echo(
-                f"  [{entity_type}] {value} (co-occurs {count}x, avg conf: {confidence:.2f})"
-            )
+            name = rel.get("name")
+            labels = ', '.join(rel.get("labels", []))
+            click.echo(f"  - {name} ({labels})")
 
         click.echo(f"\nTotal: {len(related)} related entities")
 
@@ -999,33 +954,6 @@ def summaries_list():
     """List recent session summaries"""
     click.echo("Summary listing not yet implemented")
     click.echo("Will show recent session summaries from database")
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
-def wellness(ctx):
-    """Wellness tracking"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@wellness.command("checkin")
-def wellness_checkin():
-    """Start wellness check-in"""
-    import subprocess
-
-    try:
-        subprocess.run(["dere", "--mode", "checkin"], check=True)
-    except Exception as e:
-        click.echo(f"Failed to start wellness check-in: {e}", err=True)
-        sys.exit(1)
-
-
-@wellness.command("history")
-def wellness_history():
-    """View wellness session history"""
-    click.echo("Wellness history not yet implemented")
-    click.echo("Will show wellness check-in sessions from database")
 
 
 @cli.group(invoke_without_command=True)

@@ -68,6 +68,8 @@ class DereDiscordClient(discord.Client):
 
     async def _register_presence(self) -> None:
         """Register bot presence with daemon on startup."""
+        import asyncio
+
         if not self.user:
             return
 
@@ -92,11 +94,29 @@ class DereDiscordClient(discord.Client):
 
         # Add DM channels (can't enumerate easily, will be added dynamically)
         logger.info("Registering presence with {} channels", len(channels))
-        try:
-            await self.daemon.register_presence(user_id, channels)
-            logger.info("Presence registered successfully")
-        except Exception as e:
-            logger.error("Failed to register presence: {}", e)
+
+        # Retry with exponential backoff (daemon may not be ready yet)
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                await self.daemon.register_presence(user_id, channels)
+                logger.info("Presence registered successfully")
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = 2**attempt  # 1s, 2s, 4s, 8s, 16s
+                    logger.warning(
+                        "Failed to register presence (attempt {}/{}): {} - retrying in {}s",
+                        attempt + 1,
+                        max_retries,
+                        e,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "Failed to register presence after {} attempts: {}", max_retries, e
+                    )
 
     async def _heartbeat_loop(self) -> None:
         """Send heartbeat every 30s to keep presence alive."""

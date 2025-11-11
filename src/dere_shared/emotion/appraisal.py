@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import subprocess
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -14,19 +13,24 @@ from dere_shared.emotion.models import (
     OCCStandard,
 )
 
+if TYPE_CHECKING:
+    from dere_graph.llm_client import ClaudeClient
+
 
 class AppraisalEngine:
-    """OCC appraisal engine using Claude Code SDK"""
+    """OCC appraisal engine using dere_graph LLM client"""
 
     def __init__(
         self,
         goals: list[OCCGoal],
         standards: list[OCCStandard],
         attitudes: list[OCCAttitude],
+        llm_client: ClaudeClient | None = None,
     ):
         self.goals = goals
         self.standards = standards
         self.attitudes = attitudes
+        self.llm_client = llm_client
 
     async def appraise_stimulus(
         self,
@@ -35,7 +39,11 @@ class AppraisalEngine:
         context: dict | None = None,
         persona_name: str = "AI",
     ) -> AppraisalOutput | None:
-        """Appraise a stimulus using Claude CLI"""
+        """Appraise a stimulus using dere_graph LLM client"""
+
+        if not self.llm_client:
+            logger.error("[AppraisalEngine] No LLM client provided")
+            return None
 
         try:
             # Build prompt
@@ -43,76 +51,24 @@ class AppraisalEngine:
                 stimulus, current_emotion_state, context or {}, persona_name
             )
 
-            logger.debug("[AppraisalEngine] Calling Claude CLI")
+            logger.debug("[AppraisalEngine] Calling LLM client")
 
-            # Call claude CLI from temp dir to avoid polluting conversation history
-            # This ensures emotion appraisal sessions don't interfere with user's -c
-            import tempfile
-            from pathlib import Path
+            # Import here to avoid circular import at module level
+            from dere_graph.llm_client import Message
 
-            temp_dir = Path(tempfile.gettempdir()) / "dere_emotion"
-            temp_dir.mkdir(exist_ok=True)
-
-            process = await asyncio.create_subprocess_exec(
-                "claude",
-                "-p",
-                prompt,
-                "--model",
-                "claude-3-5-haiku-20241022",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=str(temp_dir),
+            # Call LLM client with structured output
+            messages = [Message(role="user", content=prompt)]
+            appraisal_output = await self.llm_client.generate_response(
+                messages=messages,
+                response_model=AppraisalOutput,
             )
 
-            stdout, stderr = await process.communicate()
+            logger.info(
+                f"[AppraisalEngine] Appraisal completed: "
+                f"{len(appraisal_output.resulting_emotions)} emotions"
+            )
 
-            if process.returncode != 0:
-                logger.error(f"[AppraisalEngine] CLI failed: {stderr.decode()}")
-                return None
-
-            response_text = stdout.decode()
-
-            # Parse JSON from response text
-            try:
-                json_start = response_text.find("{")
-                json_end = response_text.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = response_text[json_start:json_end]
-                    response_data = json.loads(json_str)
-                else:
-                    logger.error("[AppraisalEngine] No JSON found in response")
-                    logger.debug(f"[AppraisalEngine] Response: {response_text[:500]}")
-                    return None
-            except json.JSONDecodeError as e:
-                logger.error(f"[AppraisalEngine] Failed to parse JSON: {e}")
-                logger.debug(f"[AppraisalEngine] Response: {response_text[:500]}")
-                return None
-
-            # Normalize emotion types - strip enum prefix and lowercase
-            if "resulting_emotions" in response_data:
-                for emotion in response_data["resulting_emotions"]:
-                    if "type" in emotion:
-                        emotion_type = emotion["type"].lower()
-                        # Strip 'occemotiontype.' prefix if present
-                        if emotion_type.startswith("occemotiontype."):
-                            emotion_type = emotion_type.replace("occemotiontype.", "")
-                        emotion["type"] = emotion_type
-
-            # Validate with Pydantic
-            try:
-                appraisal_output = AppraisalOutput.model_validate(response_data)
-
-                logger.info(
-                    f"[AppraisalEngine] Appraisal completed: "
-                    f"{len(appraisal_output.resulting_emotions)} emotions"
-                )
-
-                return appraisal_output
-
-            except Exception as e:
-                logger.error(f"[AppraisalEngine] Validation error: {e}")
-                logger.debug(f"[AppraisalEngine] Response data: {response_data}")
-                return None
+            return appraisal_output
 
         except Exception as e:
             logger.error(f"[AppraisalEngine] Appraisal failed: {e}")
@@ -147,7 +103,7 @@ class AppraisalEngine:
 
         # Format current emotion
         current_emotion_str = (
-            f"Current primary emotion: {current_emotion_state.primary.name} "
+            f"User's current primary emotion: {current_emotion_state.primary.name} "
             f"({current_emotion_state.primary.type}) at intensity "
             f"{current_emotion_state.intensity}."
         )
@@ -186,24 +142,28 @@ class AppraisalEngine:
                     if session_info.get("working_dir"):
                         context_lines.append(f"Working on: {session_info['working_dir']}")
 
-                context_lines.append(f"Personality: {context.get('personality', 'default')}")
                 context_str = "\n".join(context_lines) + "\n\n"
 
         # Build the complete prompt following OCC hierarchy
-        prompt = f"""You are implementing the OCC (Ortony, Clore, Collins) cognitive appraisal model.
-Determine the most specific and applicable emotion(s) based on the agent's profile and situation.
+        prompt = f"""You are analyzing the USER's emotional state using the OCC (Ortony, Clore, Collins) cognitive appraisal model.
+You are interpreting their emotions through the lens of a {persona_name} personality.
 
-AGENT'S PROFILE (Personality: {persona_name}):
-Goals (Desirable/Undesirable Events):
+CRITICAL: You are detecting what emotions the USER is experiencing, NOT what emotions you (the bot) should feel.
+
+YOUR PERSPECTIVE AS {persona_name.upper()}:
+Your personality colors how you interpret the user's emotional state. As {persona_name}, you bring your characteristic lens to understanding their emotions - this affects how you read subtle cues, what aspects you emphasize, and how you frame their emotional experience.
+
+USER'S PROFILE:
+Goals (What the user wants to achieve):
 {goals_str}
 
-Standards (Praiseworthy/Blameworthy Actions):
+Standards (What makes the user feel proud/ashamed):
 {standards_str}
 
-Attitudes (Appealing/Unappealing Objects):
+Attitudes (How the user feels about things):
 {attitudes_str}
 
-CURRENT STATE:
+USER'S CURRENT EMOTIONAL STATE:
 {current_emotion_str}
 
 {context_str}SITUATION:
@@ -213,21 +173,26 @@ Stimulus Details:
 
 APPRAISAL TASK:
 
-1. **Identify Relevant Dimension(s):**
-   - Event Consequences: Does it impact goals (desirability)?
-   - Agent Actions: Does it involve praiseworthy/blameworthy actions related to standards?
-   - Object Aspects: Does it concern appealingness of objects/people based on attitudes?
+Analyze what the USER is likely experiencing emotionally based on their profile and the situation.
+Interpret through your {persona_name} personality - your characteristic way of reading emotions.
 
-2. **Evaluate Along Dimension(s):**
-   - Event: Desirable/undesirable/neutral? Prospective or actual? Affected goals? Strength (-10 to 10)?
-   - Action: Praiseworthy/blameworthy/neutral? Self or other? Affected standards? Strength (-10 to 10)?
-   - Object: Appealing/unappealing/neutral? Familiar/unfamiliar? Affected attitudes? Strength (-10 to 10)?
+1. **Identify Relevant Dimension(s) for the USER:**
+   - Event Consequences: Does this impact the user's goals (desirability)?
+   - User Actions: Does this involve the user's praiseworthy/blameworthy actions related to their standards?
+   - Object Aspects: Does this concern appealingness of objects/people based on the user's attitudes?
 
-3. **Map to OCC Emotion(s):** Determine specific emotions and intensity (0-100) based on appraisal.
+2. **Evaluate Along Dimension(s) from USER's Perspective:**
+   - Event: From the user's perspective, is this desirable/undesirable/neutral? Prospective or actual? Which of their goals are affected? Strength (-10 to 10)?
+   - Action: From the user's perspective, is this praiseworthy/blameworthy/neutral? Self or other? Which of their standards are affected? Strength (-10 to 10)?
+   - Object: From the user's perspective, is this appealing/unappealing/neutral? Familiar/unfamiliar? Which of their attitudes are affected? Strength (-10 to 10)?
 
-4. **Trust Delta:** If the stimulus significantly impacts trust, suggest adjustment (-0.1 to 0.1).
+3. **Map to OCC Emotion(s):** Determine what specific emotions the USER is experiencing and their intensity (0-100) based on appraisal.
+   Your {persona_name} perspective may pick up on nuances others might miss or emphasize different emotional aspects.
 
-Use personality profile, goals, standards, attitudes, AND temporal context to interpret the stimulus.
+4. **Trust Delta:** If the stimulus significantly impacts the user's trust, suggest adjustment (-0.1 to 0.1).
+
+Use the user's profile, goals, standards, attitudes, AND temporal context to interpret what the user is experiencing.
+Let your {persona_name} personality guide your interpretation while staying true to the OCC model.
 
 Return ONLY a JSON object. No text before or after. Schema:
 {{

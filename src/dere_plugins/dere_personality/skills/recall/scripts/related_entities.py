@@ -14,12 +14,12 @@ from config_reader import get_daemon_url
 
 
 def get_related_entities(entity_name: str, limit: int = 10) -> dict | None:
-    """Get entities related to given entity."""
+    """Get entities related to given entity via knowledge graph."""
     daemon_url = get_daemon_url()
 
     try:
         response = requests.get(
-            f"{daemon_url}/entities/related/{entity_name}", params={"limit": limit}, timeout=5
+            f"{daemon_url}/kg/entity/{entity_name}/related", params={"limit": limit}, timeout=5
         )
         response.raise_for_status()
         return response.json()

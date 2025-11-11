@@ -87,7 +87,8 @@ def main():
         if not stdin_data:
             sys.exit(0)
 
-        json.loads(stdin_data)  # Validate JSON but don't need the data
+        hook_input = json.loads(stdin_data)
+        current_prompt = hook_input.get("prompt", "")
     except json.JSONDecodeError as e:
         log_error(f"JSON decode error from stdin: {e}")
         sys.exit(0)
@@ -103,7 +104,33 @@ def main():
         # Load documents on first message (if specified)
         _load_initial_documents(session_id)
 
-        context_str = get_full_context(session_id=session_id)
+        # Fetch last message time for differential lookback
+        last_message_time = None
+        if session_id:
+            try:
+                import requests
+
+                daemon_url = "http://localhost:8787"
+                response = requests.get(
+                    f"{daemon_url}/sessions/{session_id}/last_message_time", timeout=1
+                )
+                if response.ok:
+                    data = response.json()
+                    last_message_time = data.get("last_message_time")
+            except Exception:
+                pass  # Silent failure - differential lookback is optional
+
+        # Get parameters for knowledge graph context
+        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
+        personality = os.getenv("DERE_PERSONALITY") or "assistant"
+
+        context_str = get_full_context(
+            session_id=session_id,
+            last_message_time=last_message_time,
+            user_id=user_id,
+            personality=personality,
+            current_prompt=current_prompt,
+        )
         if context_str:
             # Output JSON with additionalContext to inject context silently
             output = {

@@ -4,19 +4,19 @@ import asyncio
 import json
 import os
 import platform
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, Body, Depends, FastAPI
+from fastapi import Body, Depends, FastAPI
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlmodel import select
 
-from dere_daemon.ollama_client import OllamaClient
 from dere_daemon.task_processor import TaskProcessor
 from dere_shared.config import load_dere_config
 from dere_shared.database import create_engine, create_session_factory, get_session
@@ -24,15 +24,14 @@ from dere_shared.models import (
     ContextCache,
     Conversation,
     EmotionState,
-    Entity,
     MessageType,
     Notification,
     Presence,
     Session,
+    SessionSummary,
     StimulusHistory,
     TaskQueue,
     TaskStatus,
-    WellnessSession,
 )
 
 
@@ -49,6 +48,7 @@ class ConversationCaptureRequest(BaseModel):
     is_command: bool = False
     medium: str | None = None
     user_id: str | None = None
+    speaker_name: str | None = None
 
 
 class SessionEndRequest(BaseModel):
@@ -77,6 +77,7 @@ class ContextBuildRequest(BaseModel):
     session_id: int
     project_path: str
     personality: str
+    user_id: str | None = None
     context_depth: int = 5
     include_entities: bool = False
     max_tokens: int = 2000
@@ -87,18 +88,6 @@ class ContextBuildRequest(BaseModel):
 class ContextGetRequest(BaseModel):
     session_id: int
     max_age_minutes: int = 30
-
-
-class ModePreviousSessionRequest(BaseModel):
-    mode: str
-    project_path: str
-    user_id: str | None = None
-
-
-class WellnessExtractRequest(BaseModel):
-    mode: str
-    conversation: str
-    session_id: int
 
 
 # Response models
@@ -139,6 +128,7 @@ class SearchRequest(BaseModel):
     query: str
     limit: int = 10
     threshold: float = 0.7
+    user_id: str | None = None
 
 
 class HybridSearchRequest(BaseModel):
@@ -148,16 +138,16 @@ class HybridSearchRequest(BaseModel):
     entity_weight: float = 0.6
     session_id: int | None = None
     user_session_id: int | None = None
-
-
-class EntityTimelineResponse(BaseModel):
-    entity: str
-    sessions: list[dict[str, Any]]
-
-
-class RelatedEntitiesResponse(BaseModel):
-    entity: str
-    related: list[dict[str, Any]]
+    user_id: str | None = None  # For knowledge graph partitioning
+    # Temporal parameters
+    since: str | None = None  # ISO datetime string
+    before: str | None = None  # ISO datetime string
+    as_of: str | None = None  # ISO datetime string
+    only_valid: bool = False  # Only currently valid facts
+    # Reranking parameters
+    rerank_method: str | None = None  # "mmr" or "distance"
+    center_entity: str | None = None  # For distance reranking
+    diversity: float = 0.5  # MMR lambda parameter  # MMR lambda parameter
 
 
 class HookCaptureRequest(BaseModel):
@@ -281,7 +271,6 @@ class EmotionDBAdapter:
     async def store_stimulus(self, session_id: int, stimulus_record) -> None:
         """Store stimulus record in database."""
         async with self.session_factory() as db:
-
             stimulus = StimulusHistory(
                 session_id=session_id,
                 stimulus_type=stimulus_record.type,
@@ -322,12 +311,12 @@ class EmotionDBAdapter:
 class AppState:
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
-    ollama: OllamaClient
     processor: TaskProcessor
     emotion_managers: dict[int, Any]  # session_id -> OCCEmotionManager
     ambient_monitor: Any  # AmbientMonitor
     personality_loader: Any  # PersonalityLoader
     db: Any  # EmotionDBAdapter
+    dere_graph: Any  # DereGraph - knowledge graph for context
 
 
 @asynccontextmanager
@@ -350,7 +339,6 @@ async def lifespan(app: FastAPI):
 
     # Load config
     config = load_dere_config()
-    ollama_config = config["ollama"]
     db_url = config.get("database", {}).get("url", "postgresql://postgres:dere@localhost/dere")
 
     # Convert to asyncpg URL if needed
@@ -373,13 +361,40 @@ async def lifespan(app: FastAPI):
         print("   docker ps | grep postgres")
         raise
 
-    app.state.ollama = OllamaClient(
-        base_url=ollama_config["url"],
-        embedding_model=ollama_config["embedding_model"],
-        summarization_model=ollama_config["summarization_model"],
-    )
-    app.state.processor = TaskProcessor(app.state.session_factory, app.state.ollama)
+    app.state.processor = TaskProcessor(app.state.session_factory)
     app.state.emotion_managers = {}
+    app.state.config = config
+
+    # Initialize DereGraph for knowledge management
+    graph_config = config.get("dere_graph", {})
+    if graph_config.get("enabled", True):
+        try:
+            from dere_graph import DereGraph
+
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if not openai_key:
+                print("Warning: OPENAI_API_KEY not set, knowledge graph disabled")
+                app.state.dere_graph = None
+            else:
+                # Convert asyncpg URL back to standard postgres URL for dere_graph
+                postgres_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+
+                app.state.dere_graph = DereGraph(
+                    falkor_host=graph_config.get("falkor_host", "localhost"),
+                    falkor_port=graph_config.get("falkor_port", 6379),
+                    falkor_database=graph_config.get("falkor_database", "dere_graph"),
+                    openai_api_key=openai_key,
+                    claude_model=graph_config.get("claude_model", "claude-haiku-4-5"),
+                    embedding_dim=graph_config.get("embedding_dim", 1536),
+                    postgres_db_url=postgres_url,
+                )
+                await app.state.dere_graph.build_indices()
+                print("✓ DereGraph initialized")
+        except Exception as e:
+            print(f"Warning: Failed to initialize DereGraph: {e}")
+            app.state.dere_graph = None
+    else:
+        app.state.dere_graph = None
 
     # Initialize personality loader
     from dere_shared.personalities import PersonalityLoader
@@ -406,9 +421,6 @@ async def lifespan(app: FastAPI):
     # except Exception as e:
     #     print(f"Warning: Failed to reset stuck tasks: {e}")
 
-    # Start Ollama health checks
-    await app.state.ollama.start()
-
     # Start task processor
     await app.state.processor.start()
 
@@ -434,6 +446,38 @@ async def lifespan(app: FastAPI):
 
     cleanup_task = asyncio.create_task(cleanup_presence_loop())
 
+    # Start emotion decay background task
+    async def periodic_emotion_decay_loop():
+        """Background task to apply decay to emotions during idle time."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Every 60 seconds
+
+                if not app.state.emotion_managers:
+                    continue
+
+                current_time = int(time.time() * 1000)
+
+                for session_id, manager in list(app.state.emotion_managers.items()):
+                    # Only apply decay if there are active emotions
+                    if not manager.active_emotions:
+                        continue
+
+                    # Check if enough time has passed (avoid micro-decays)
+                    time_since_last_decay = (current_time - manager.last_decay_time) / (1000 * 60)
+                    if time_since_last_decay < 1.0:  # At least 1 minute
+                        continue
+
+                    # Apply decay
+                    await manager._apply_smart_decay(current_time)
+
+            except Exception as e:
+                from loguru import logger
+
+                logger.error("Periodic emotion decay failed: {}", e)
+
+    emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
+
     print(f"🚀 Dere daemon started - database: {db_path}")
 
     yield
@@ -445,6 +489,13 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
     try:
         await cleanup_task
+    except asyncio.CancelledError:
+        pass
+
+    # Cancel emotion decay task
+    emotion_decay_task.cancel()
+    try:
+        await emotion_decay_task
     except asyncio.CancelledError:
         pass
 
@@ -460,10 +511,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         errors.append(e)
 
-    try:
-        await app.state.ollama.shutdown()
-    except Exception as e:
-        errors.append(e)
+    # Shutdown DereGraph
+    if app.state.dere_graph:
+        try:
+            await app.state.dere_graph.close()
+        except Exception as e:
+            errors.append(e)
 
     try:
         await app.state.engine.dispose()
@@ -508,95 +561,108 @@ def _get_time_of_day(hour: int) -> str:
 # Helper functions for emotion system
 async def get_or_create_emotion_manager(session_id: int, personality: str | None = None):
     """Get or create emotion manager for a session"""
+    import json
+    from pathlib import Path
+
+    from loguru import logger
+
     from dere_shared.emotion.manager import OCCEmotionManager
     from dere_shared.emotion.models import OCCAttitude, OCCGoal, OCCStandard
-    from dere_shared.personalities import PersonalityLoader
 
     if session_id in app.state.emotion_managers:
         return app.state.emotion_managers[session_id]
 
-    # Load personality-specific OCC config if available
+    # Load user OCC profile from config
     goals = []
     standards = []
     attitudes = []
 
-    if personality:
+    user_occ_path = Path.home() / ".config" / "dere" / "user_occ.json"
+    if user_occ_path.exists():
         try:
-            loader = PersonalityLoader()
-            persona = loader.load(personality)
+            with open(user_occ_path) as f:
+                user_occ = json.load(f)
 
-            # Convert personality OCC config to OCC models
-            if persona.occ_goals:
-                goals = [OCCGoal(**goal_dict) for goal_dict in persona.occ_goals]
-            if persona.occ_standards:
-                standards = [OCCStandard(**std_dict) for std_dict in persona.occ_standards]
-            if persona.occ_attitudes:
-                attitudes = [OCCAttitude(**att_dict) for att_dict in persona.occ_attitudes]
+            goals = [OCCGoal(**g) for g in user_occ.get("goals", [])]
+            standards = [OCCStandard(**s) for s in user_occ.get("standards", [])]
+            attitudes = [OCCAttitude(**a) for a in user_occ.get("attitudes", [])]
+
+            logger.info(
+                f"[Emotion] Loaded user OCC profile: {len(goals)} goals, "
+                f"{len(standards)} standards, {len(attitudes)} attitudes"
+            )
         except Exception as e:
-            from loguru import logger
+            logger.warning(f"Failed to load user OCC profile: {e}")
 
-            logger.warning(f"Failed to load personality OCC config for '{personality}': {e}")
-
-    # Fall back to defaults if no personality-specific config
+    # Fall back to generic user-focused defaults if no profile exists
     if not goals:
         goals = [
             OCCGoal(
-                id="help_user",
-                description="Successfully help the user accomplish their task",
-                active=True,
-                importance=9,
-            ),
-            OCCGoal(
-                id="understand_intent",
-                description="Accurately understand user's intent and needs",
+                id="accomplish_tasks",
+                description="Complete tasks and get things done",
                 active=True,
                 importance=8,
             ),
             OCCGoal(
-                id="maintain_rapport",
-                description="Maintain positive relationship with the user",
+                id="learn_and_grow",
+                description="Learn new things and develop skills",
                 active=True,
                 importance=7,
+            ),
+            OCCGoal(
+                id="maintain_balance",
+                description="Balance work, rest, and personal life",
+                active=True,
+                importance=6,
             ),
         ]
 
     if not standards:
         standards = [
             OCCStandard(
-                id="be_helpful",
-                description="Provide useful, accurate assistance",
-                importance=9,
-                praiseworthiness=8,
-            ),
-            OCCStandard(
-                id="be_respectful",
-                description="Treat user with respect and consideration",
+                id="be_productive",
+                description="Use time effectively and accomplish goals",
                 importance=8,
                 praiseworthiness=7,
             ),
             OCCStandard(
-                id="be_honest",
-                description="Be truthful and transparent",
-                importance=9,
-                praiseworthiness=9,
+                id="be_thoughtful",
+                description="Consider consequences and make good decisions",
+                importance=7,
+                praiseworthiness=8,
+            ),
+            OCCStandard(
+                id="be_persistent",
+                description="Keep trying despite difficulties",
+                importance=6,
+                praiseworthiness=7,
             ),
         ]
 
     if not attitudes:
         attitudes = [
             OCCAttitude(
-                id="user_appreciation",
-                target_object="user",
-                description="Positive regard for the user",
-                appealingness=7,
+                id="challenges",
+                target_object="unexpected_challenges",
+                description="Attitude toward unexpected challenges",
+                appealingness=-2,
             ),
             OCCAttitude(
-                id="coding_tasks",
-                target_object="coding",
-                description="Interest in programming and technical work",
-                appealingness=8,
+                id="learning",
+                target_object="learning_opportunities",
+                description="Attitude toward learning new things",
+                appealingness=5,
+            ),
+            OCCAttitude(
+                id="interruptions",
+                target_object="interruptions",
+                description="Attitude toward being interrupted during work",
+                appealingness=-5,
             ),
         ]
+
+    # Get LLM client from dere_graph if available
+    llm_client = app.state.dere_graph.llm_client if app.state.dere_graph else None
 
     manager = OCCEmotionManager(
         goals=goals,
@@ -604,6 +670,7 @@ async def get_or_create_emotion_manager(session_id: int, personality: str | None
         attitudes=attitudes,
         session_id=session_id,
         db=app.state.db,
+        llm_client=llm_client,
     )
 
     await manager.initialize()
@@ -615,11 +682,9 @@ async def get_or_create_emotion_manager(session_id: int, personality: str | None
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    ollama_available = await app.state.ollama.is_available()
     return {
         "status": "healthy",
-        "ollama": "available" if ollama_available else "unavailable",
-        "embedding_model": app.state.ollama.embedding_model,
+        "dere_graph": "available" if app.state.dere_graph else "unavailable",
     }
 
 
@@ -650,24 +715,6 @@ async def find_or_create_session(
     """
     from sqlmodel import select
 
-    # Create/find user_session if user_id provided
-    user_session_id = None
-    if req.user_id:
-        stmt = select(UserSession).where(UserSession.user_id == req.user_id)
-        result = await db.execute(stmt)
-        user_session = result.scalar_one_or_none()
-
-        if not user_session:
-            user_session = UserSession(
-                user_id=req.user_id,
-                default_personality=req.personality,
-            )
-            db.add(user_session)
-            await db.flush()
-            await db.refresh(user_session)
-
-        user_session_id = user_session.id
-
     # Find latest session for this working_dir
     stmt = (
         select(Session)
@@ -682,10 +729,6 @@ async def find_or_create_session(
     existing = result.scalars().first()
 
     if existing and req.max_age_hours is not None:
-        # Update existing session with user_session_id if provided
-        if user_session_id:
-            existing.user_session_id = user_session_id
-            await db.flush()
         return FindOrCreateSessionResponse(
             session_id=existing.id,
             resumed=True,
@@ -693,10 +736,6 @@ async def find_or_create_session(
         )
 
     if existing and req.max_age_hours is None:
-        # Update existing session with user_session_id if provided
-        if user_session_id:
-            existing.user_session_id = user_session_id
-            await db.flush()
         return FindOrCreateSessionResponse(
             session_id=existing.id,
             resumed=True,
@@ -707,7 +746,6 @@ async def find_or_create_session(
         working_dir=req.working_dir,
         start_time=int(time.time()),
         continued_from=existing.id if existing else None,
-        user_session_id=user_session_id,
         medium=req.medium,
         user_id=req.user_id,
     )
@@ -747,14 +785,42 @@ async def update_claude_session(
     return {"status": "updated"}
 
 
+def should_extract_bot_message(message: str) -> tuple[bool, str]:
+    """Check if bot message is worth extracting and return filtered version.
+
+    Returns:
+        (should_extract, filtered_message)
+    """
+    import re
+
+    # Count code blocks
+    code_blocks = len(re.findall(r"```[\s\S]*?```", message))
+
+    # Remove code blocks for analysis
+    filtered = re.sub(r"```[\s\S]*?```", "", message)
+    filtered = re.sub(r"`[^`]+`", "", filtered)
+
+    # Strip whitespace
+    filtered = filtered.strip()
+
+    # Skip if mostly code (little text left after filtering)
+    if len(filtered) < 50 and code_blocks > 0:
+        return (False, "")
+
+    # Skip if just acknowledgment/tool output
+    if filtered.lower() in ["done", "ok", "completed", "fixed"]:
+        return (False, "")
+
+    return (True, filtered)
+
+
 @app.post("/sessions/{session_id}/message", response_model=StoreMessageResponse)
 async def store_message(
     session_id: int,
     req: StoreMessageRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Store a message and queue embedding generation"""
+    """Store a message"""
     conv = Conversation(
         session_id=session_id,
         prompt=req.message,
@@ -766,8 +832,52 @@ async def store_message(
     await db.flush()
     await db.refresh(conv)
 
-    # Queue embedding generation in background
-    background_tasks.add_task(generate_embedding_task, conv.id, req.message)
+    # Add assistant messages to knowledge graph (filtered)
+    if req.role == "assistant" and app.state.dere_graph:
+        should_extract, filtered_msg = should_extract_bot_message(req.message)
+        if should_extract:
+            import asyncio
+
+            async def process_bot_message():
+                from datetime import datetime
+
+                from loguru import logger
+
+                try:
+                    from dere_graph.models import EpisodeType
+
+                    # Extract context from most recent user message
+                    stmt_conv = (
+                        select(Conversation)
+                        .where(
+                            Conversation.session_id == session_id,
+                            Conversation.message_type == MessageType.user,
+                        )
+                        .order_by(Conversation.timestamp.desc())
+                        .limit(1)
+                    )
+                    result_conv = await db.execute(stmt_conv)
+                    last_user_msg = result_conv.scalar_one_or_none()
+
+                    # Determine medium, personality, and user_id
+                    medium = last_user_msg.medium if last_user_msg else "cli"
+                    user_id = last_user_msg.user_id if last_user_msg else "default"
+                    personality = "assistant"  # Default, could extract from context
+
+                    await app.state.dere_graph.add_episode(
+                        episode_body=filtered_msg,
+                        source_description=f"{medium} conversation",
+                        reference_time=datetime.fromtimestamp(conv.timestamp),
+                        source=EpisodeType.message,
+                        group_id=user_id or "default",
+                        speaker_id=personality,
+                        speaker_name=personality,
+                        personality=personality,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to add bot message to knowledge graph: {e}")
+
+            asyncio.create_task(process_bot_message())
 
     return StoreMessageResponse(message_id=conv.id)
 
@@ -799,64 +909,75 @@ async def get_history(session_id: int, limit: int = 50, db: AsyncSession = Depen
     }
 
 
+@app.get("/sessions/{session_id}/last_message_time")
+async def get_last_message_time(session_id: int, db: AsyncSession = Depends(get_db)):
+    """Get timestamp of most recent conversation message in session"""
+    from sqlmodel import select
+
+    stmt = (
+        select(Conversation.created_at)
+        .where(Conversation.session_id == session_id)
+        .order_by(Conversation.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    timestamp = result.scalar_one_or_none()
+
+    if timestamp:
+        return {"session_id": session_id, "last_message_time": int(timestamp.timestamp())}
+    return {"session_id": session_id, "last_message_time": None}
+
+
 @app.post("/search/similar")
 async def search_similar(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Search for similar conversations using vector similarity"""
-    from sqlalchemy import select
+
+    if not app.state.dere_graph:
+        return {"results": []}
 
     try:
-        # Generate embedding for query
-        embedding = await app.state.ollama.get_embedding(req.query)
-
-        # Use pgvector <=> operator for cosine distance
-        # Distance of 0 = identical, distance of 2 = opposite
-        # Convert to similarity score: 1 - (distance / 2)
-        stmt = (
-            select(
-                Conversation.id,
-                Conversation.session_id,
-                Conversation.prompt,
-                Conversation.message_type,
-                Conversation.timestamp,
-                (1 - (Conversation.prompt_embedding.cosine_distance(embedding) / 2)).label(
-                    "similarity"
-                ),
-            )
-            .where(Conversation.prompt_embedding.is_not(None))
-            .where(
-                (1 - (Conversation.prompt_embedding.cosine_distance(embedding) / 2))
-                >= req.threshold
-            )
-            .order_by(Conversation.prompt_embedding.cosine_distance(embedding))
-            .limit(req.limit)
+        search_results = await app.state.dere_graph.search(
+            query=req.query,
+            group_id=req.user_id or "default",
+            limit=req.limit,
         )
 
-        result = await db.execute(stmt)
-        rows = result.all()
-
-        return {
-            "results": [
+        # Format as conversation-like results
+        results = []
+        for edge in search_results.edges:
+            results.append(
                 {
-                    "id": row.id,
-                    "session_id": row.session_id,
-                    "prompt": row.prompt,
-                    "message_type": row.message_type,
-                    "timestamp": row.timestamp,
-                    "similarity": float(row.similarity),
+                    "id": edge.uuid,
+                    "session_id": None,
+                    "prompt": edge.fact,
+                    "message_type": "knowledge",
+                    "timestamp": int(edge.created_at.timestamp()) if edge.created_at else 0,
+                    "similarity": 0.9,
                 }
-                for row in rows
-            ]
-        }
-    except RuntimeError:
-        # Ollama unavailable, return empty results
+            )
+
+        return {"results": results}
+    except Exception as e:
+        from loguru import logger
+
+        logger.error(f"Knowledge graph search failed: {e}")
         return {"results": []}
 
 
 @app.post("/embeddings/generate")
 async def generate_embedding(text: str):
-    """Generate embedding for text"""
-    embedding = await app.state.ollama.get_embedding(text)
-    return {"embedding": embedding, "model": app.state.ollama.embedding_model}
+    """Generate embedding for text using dere_graph"""
+    if not app.state.dere_graph:
+        return {"error": "dere_graph not available"}, 503
+
+    try:
+        embedding = await app.state.dere_graph.embedder.create(text)
+        return {"embedding": embedding, "model": "text-embedding-3-small"}
+    except Exception as e:
+        from loguru import logger
+
+        logger.error(f"Embedding generation failed: {e}")
+        return {"error": str(e)}, 500
 
 
 @app.post("/search/hybrid")
@@ -868,320 +989,192 @@ async def search_hybrid(req: HybridSearchRequest, db: AsyncSession = Depends(get
     - If session_id provided: resolve user_session_id and search across all sessions
     - Otherwise: search all conversations
     """
-    from sqlalchemy import func, literal, select
 
-    # Generate embedding for query
-    embedding = await app.state.ollama.get_embedding(req.query)
+    # Use knowledge graph search instead of embeddings
+    if not app.state.dere_graph:
+        return {"results": []}
 
-    # Determine user_session_id
-    user_session_id = req.user_session_id
-    if not user_session_id and req.session_id:
-        stmt = select(Session.user_session_id).where(Session.id == req.session_id)
-        result = await db.execute(stmt)
-        user_session_id = result.scalar_one_or_none()
+    try:
+        from datetime import datetime
 
-    # Perform hybrid search using CTEs
-    current_time = int(time.time())
-    entity_weight = req.entity_weight
-    recency_weight = 0.3
-    semantic_weight = 1.0 - entity_weight
-    max_entity_count = len(req.entity_values) if req.entity_values else 1
+        from dere_graph.filters import ComparisonOperator, DateFilter, SearchFilters
 
-    # Build entity_matches CTE
-    entity_matches_cte = (
-        select(
-            Conversation.id.label("conv_id"),
-            func.count(func.distinct(Entity.id)).cast(literal(0.0).type).label("entity_score"),
-        )
-        .select_from(Conversation)
-        .join(Entity, Entity.conversation_id == Conversation.id)
-        .where(Entity.normalized_value.in_(req.entity_values) if req.entity_values else False)
-    )
+        # Build temporal filters
+        filters = None
+        if req.since or req.before or req.as_of or req.only_valid:
+            filters = SearchFilters()
 
-    if user_session_id:
-        entity_matches_cte = entity_matches_cte.join(
-            Session, Session.id == Conversation.session_id
-        ).where(Session.user_session_id == user_session_id)
-
-    entity_matches_cte = entity_matches_cte.group_by(Conversation.id).cte("entity_matches")
-
-    # Build semantic_matches CTE
-    semantic_matches_cte = select(
-        Conversation.id.label("conv_id"),
-        (1 - (Conversation.prompt_embedding.cosine_distance(embedding))).label("semantic_score"),
-    ).where(Conversation.prompt_embedding.is_not(None))
-
-    if user_session_id:
-        semantic_matches_cte = semantic_matches_cte.join(
-            Session, Session.id == Conversation.session_id
-        ).where(Session.user_session_id == user_session_id)
-
-    semantic_matches_cte = semantic_matches_cte.cte("semantic_matches")
-
-    # Final query joining CTEs
-    stmt = (
-        select(
-            Conversation.id,
-            Conversation.session_id,
-            Conversation.prompt,
-            Conversation.message_type,
-            Conversation.timestamp,
-            Session.working_dir,
-            Session.medium,
-            func.coalesce(entity_matches_cte.c.entity_score, 0).label("entity_score"),
-            func.coalesce(semantic_matches_cte.c.semantic_score, 0).label("semantic_score"),
-            func.exp(
-                -((current_time - Conversation.timestamp).cast(literal(0.0).type) / 604800.0)
-            ).label("recency_score"),
-            (
-                (
-                    func.coalesce(entity_matches_cte.c.entity_score, 0)
-                    / max_entity_count
-                    * entity_weight
-                    + func.coalesce(semantic_matches_cte.c.semantic_score, 0) * semantic_weight
+            if req.since:
+                filters.created_at = DateFilter(
+                    operator=ComparisonOperator.GREATER_THAN_EQUAL,
+                    value=datetime.fromisoformat(req.since.replace("Z", "+00:00")),
                 )
-                * (1 - recency_weight)
-                + func.exp(
-                    -((current_time - Conversation.timestamp).cast(literal(0.0).type) / 604800.0)
+
+            if req.before:
+                filters.created_at = DateFilter(
+                    operator=ComparisonOperator.LESS_THAN_EQUAL,
+                    value=datetime.fromisoformat(req.before.replace("Z", "+00:00")),
                 )
-                * recency_weight
-            ).label("combined_score"),
+
+            if req.only_valid:
+                filters.invalid_at = DateFilter(operator=ComparisonOperator.IS_NULL)
+
+        # Resolve center entity if provided
+        center_node_uuid = None
+        if req.center_entity and req.rerank_method == "distance":
+            entity_search = await app.state.dere_graph.search(
+                query=req.center_entity,
+                group_id=req.user_id or "default",
+                limit=1,
+            )
+            if entity_search.nodes:
+                center_node_uuid = entity_search.nodes[0].uuid
+
+        # Execute search with filters and reranking
+        search_results = await app.state.dere_graph.search(
+            query=req.query,
+            group_id=req.user_id or "default",
+            limit=req.limit,
+            filters=filters,
+            center_node_uuid=center_node_uuid,
+            rerank_method=req.rerank_method,
+            lambda_param=req.diversity if req.rerank_method == "mmr" else 0.5,
+            recency_weight=0.3,  # Always give slight boost to recent
         )
-        .select_from(Conversation)
-        .join(Session, Session.id == Conversation.session_id)
-        .outerjoin(entity_matches_cte, entity_matches_cte.c.conv_id == Conversation.id)
-        .outerjoin(semantic_matches_cte, semantic_matches_cte.c.conv_id == Conversation.id)
-        .order_by(literal("combined_score").desc())
-        .limit(req.limit)
-    )
 
-    result = await db.execute(stmt)
-    rows = result.all()
+        # Format results
+        results = []
+        for edge in search_results.edges:
+            results.append(
+                {
+                    "id": edge.uuid,
+                    "session_id": None,
+                    "prompt": edge.fact,
+                    "message_type": "knowledge",
+                    "timestamp": int(edge.created_at.timestamp()) if edge.created_at else 0,
+                    "working_dir": None,
+                    "medium": None,
+                    "entity_score": 0.0,
+                    "semantic_score": 0.9,
+                    "recency_score": 0.5,
+                    "combined_score": 0.8,
+                }
+            )
 
-    return {
-        "results": [
-            {
-                "id": row.id,
-                "session_id": row.session_id,
-                "prompt": row.prompt,
-                "message_type": row.message_type,
-                "timestamp": row.timestamp,
-                "working_dir": row.working_dir,
-                "medium": row.medium,
-                "entity_score": float(row.entity_score),
-                "semantic_score": float(row.semantic_score),
-                "recency_score": float(row.recency_score),
-                "combined_score": float(row.combined_score),
-            }
-            for row in rows
-        ],
-        "entity_values": req.entity_values,
-    }
+        return {"results": results, "entity_values": req.entity_values}
+    except Exception as e:
+        from loguru import logger
+
+        logger.error(f"Hybrid search failed: {e}")
+        return {"results": [], "entity_values": req.entity_values}
 
 
-@app.get("/entities/session/{session_id}")
-async def get_session_entities(
-    session_id: int, entity_type: str | None = None, db: AsyncSession = Depends(get_db)
-):
-    """Get all entities for a session"""
-    from sqlmodel import select
+@app.get("/kg/entity/{entity_name}")
+async def get_entity_info(entity_name: str, user_id: str | None = None):
+    """Get information about an entity from the knowledge graph"""
+    if not app.state.dere_graph:
+        return {"error": "Knowledge graph not available"}, 503
 
-    stmt = select(Entity).where(Entity.session_id == session_id)
-    if entity_type:
-        stmt = stmt.where(Entity.entity_type == entity_type)
-
-    result = await db.execute(stmt)
-    entities = result.scalars().all()
-
-    return {
-        "session_id": session_id,
-        "entities": [
-            {
-                "id": e.id,
-                "entity_type": e.entity_type,
-                "entity_value": e.entity_value,
-                "normalized_value": e.normalized_value,
-                "confidence": e.confidence,
-            }
-            for e in entities
-        ],
-    }
-
-
-@app.get("/entities/timeline/{entity}")
-async def get_entity_timeline(entity: str, db: AsyncSession = Depends(get_db)):
-    """Get timeline of entity mentions across sessions"""
-    from sqlalchemy import func
-    from sqlmodel import select
-
-    stmt = (
-        select(
-            Session.id,
-            Session.working_dir,
-            Session.start_time,
-            func.count(Entity.id).label("mention_count"),
+    try:
+        # Search for the entity
+        results = await app.state.dere_graph.search(
+            query=entity_name,
+            group_id=user_id or "default",
+            limit=10,
         )
-        .select_from(Entity)
-        .join(Session, Session.id == Entity.session_id)
-        .where(Entity.normalized_value == entity)
-        .group_by(Session.id, Session.working_dir, Session.start_time)
-        .order_by(Session.start_time.desc())
-    )
 
-    result = await db.execute(stmt)
-    rows = result.all()
+        # Find exact matches in nodes
+        entity_nodes = [n for n in results.nodes if entity_name.lower() in n.name.lower()]
 
-    return EntityTimelineResponse(
-        entity=entity,
-        sessions=[
-            {
-                "session_id": row.id,
-                "working_dir": row.working_dir,
-                "start_time": row.start_time,
-                "mention_count": row.mention_count,
-            }
-            for row in rows
-        ],
-    )
+        if not entity_nodes:
+            return {"entity": entity_name, "found": False, "nodes": [], "edges": []}
 
+        # Get the primary entity node
+        primary_node = entity_nodes[0]
 
-@app.get("/entities/related/{entity}")
-async def get_related_entities(entity: str, limit: int = 20, db: AsyncSession = Depends(get_db)):
-    """Get entities that co-occur with the given entity"""
-    from sqlalchemy import and_, func, select
-
-    # Find conversations containing the target entity
-    # Then find other entities in those conversations
-    e1 = Entity.__table__.alias("e1")
-    e2 = Entity.__table__.alias("e2")
-
-    stmt = (
-        select(
-            e2.c.normalized_value,
-            e2.c.entity_type,
-            func.count(func.distinct(e2.c.conversation_id)).label("co_occurrence_count"),
+        # Get related entities via BFS
+        related_results = await app.state.dere_graph.bfs_search_nodes(
+            origin_uuids=[primary_node.uuid],
+            group_id=user_id or "default",
+            max_depth=1,
+            limit=20,
         )
-        .select_from(e1)
-        .join(e2, and_(e1.c.conversation_id == e2.c.conversation_id, e1.c.id != e2.c.id))
-        .where(e1.c.normalized_value == entity)
-        .group_by(e2.c.normalized_value, e2.c.entity_type)
-        .order_by(func.count(func.distinct(e2.c.conversation_id)).desc())
-        .limit(limit)
-    )
 
-    result = await db.execute(stmt)
-    rows = result.all()
+        return {
+            "entity": entity_name,
+            "found": True,
+            "primary_node": {
+                "uuid": primary_node.uuid,
+                "name": primary_node.name,
+                "labels": primary_node.labels,
+                "created_at": primary_node.created_at.isoformat() if primary_node.created_at else None,
+            },
+            "related_nodes": [
+                {
+                    "uuid": n.uuid,
+                    "name": n.name,
+                    "labels": n.labels,
+                }
+                for n in related_results.nodes if n.uuid != primary_node.uuid
+            ],
+            "relationships": [
+                {
+                    "uuid": e.uuid,
+                    "fact": e.fact,
+                    "source": e.source_node_uuid,
+                    "target": e.target_node_uuid,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in related_results.edges
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Entity info retrieval failed: {e}")
+        return {"error": str(e)}, 500
 
-    return RelatedEntitiesResponse(
-        entity=entity,
-        related=[
-            {
-                "entity": row.normalized_value,
-                "entity_type": row.entity_type,
-                "co_occurrence_count": row.co_occurrence_count,
-            }
-            for row in rows
-        ],
-    )
 
+@app.get("/kg/entity/{entity_name}/related")
+async def get_related_entities(entity_name: str, user_id: str | None = None, limit: int = 20):
+    """Get entities related to the given entity via knowledge graph"""
+    if not app.state.dere_graph:
+        return {"error": "Knowledge graph not available"}, 503
 
-@app.get("/entities/importance")
-async def get_entity_importance(
-    user_id: str | None = None,
-    limit: int = 50,
-    recency_days: int = 30,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get entity importance scores based on mention count, recency, and cross-medium presence"""
-    from sqlalchemy import distinct, func, select
-
-    cutoff_time = int(time.time()) - (recency_days * 86400)
-
-    stmt = (
-        select(
-            Entity.normalized_value,
-            Entity.entity_type,
-            func.count(Entity.id).label("mention_count"),
-            func.count(distinct(Session.medium)).label("medium_count"),
-            func.max(Conversation.timestamp).label("last_seen"),
+    try:
+        # Search for the entity
+        search_results = await app.state.dere_graph.search(
+            query=entity_name,
+            group_id=user_id or "default",
+            limit=1,
         )
-        .select_from(Entity)
-        .join(Conversation, Conversation.id == Entity.conversation_id)
-        .join(Session, Session.id == Conversation.session_id)
-        .where(Conversation.timestamp >= cutoff_time)
-    )
 
-    if user_id:
-        stmt = stmt.where(Session.user_id == user_id)
+        if not search_results.nodes:
+            return {"entity": entity_name, "found": False, "related": []}
 
-    stmt = (
-        stmt.group_by(Entity.normalized_value, Entity.entity_type)
-        .order_by(func.count(Entity.id).desc())
-        .limit(limit)
-    )
+        primary_node = search_results.nodes[0]
 
-    result = await db.execute(stmt)
-    rows = result.all()
+        # Get related entities via BFS
+        related_results = await app.state.dere_graph.bfs_search_nodes(
+            origin_uuids=[primary_node.uuid],
+            group_id=user_id or "default",
+            max_depth=2,
+            limit=limit,
+        )
 
-    return {
-        "entities": [
-            {
-                "entity": row.normalized_value,
-                "entity_type": row.entity_type,
-                "mention_count": row.mention_count,
-                "medium_count": row.medium_count,
-                "last_seen": row.last_seen,
-            }
-            for row in rows
-        ]
-    }
-
-
-@app.get("/entities/user/{user_id}")
-async def get_user_entities(
-    user_id: str,
-    entity_type: str | None = None,
-    limit: int = 100,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get all entities for a user across all sessions and mediums"""
-    from sqlmodel import select
-
-    stmt = (
-        select(Entity)
-        .join(Session, Session.id == Entity.session_id)
-        .where(Session.user_id == user_id)
-    )
-
-    if entity_type:
-        stmt = stmt.where(Entity.entity_type == entity_type)
-
-    stmt = stmt.limit(limit)
-
-    result = await db.execute(stmt)
-    entities = result.scalars().all()
-
-    return {
-        "user_id": user_id,
-        "entities": [
-            {
-                "id": e.id,
-                "entity_type": e.entity_type,
-                "entity_value": e.entity_value,
-                "normalized_value": e.normalized_value,
-                "confidence": e.confidence,
-                "session_id": e.session_id,
-            }
-            for e in entities
-        ],
-    }
-
-
-@app.post("/entities/merge/{user_id}")
-async def merge_user_entities(user_id: str, db: AsyncSession = Depends(get_db)):
-    """Merge duplicate entities for a user across mediums using fingerprints"""
-    # TODO: Reimplement entity merging logic
-    return {"user_id": user_id, "merged_count": 0, "message": "Not yet implemented"}
+        return {
+            "entity": entity_name,
+            "found": True,
+            "related": [
+                {
+                    "name": n.name,
+                    "labels": n.labels,
+                    "uuid": n.uuid,
+                }
+                for n in related_results.nodes if n.uuid != primary_node.uuid
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Related entities retrieval failed: {e}")
+        return {"error": str(e)}, 500
 
 
 @app.post("/conversation/capture")
@@ -1204,7 +1197,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
         db.add(session)
         await db.flush()
 
-    # Store conversation without embedding
+    # Store conversation
     conv = Conversation(
         session_id=req.session_id,
         prompt=req.prompt,
@@ -1219,46 +1212,37 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
     await db.flush()
     conversation_id = conv.id
 
-    # Queue embedding task
-    embedding_task = TaskQueue(
-        task_type="embedding",
-        model_name=app.state.ollama.embedding_model,
-        content=req.prompt,
-        task_metadata={
-            "original_length": len(req.prompt),
-            "processing_mode": "raw",
-            "content_type": "prompt",
-            "conversation_id": conversation_id,
-        },
-        priority=5,
-        status=TaskStatus.PENDING,
-        session_id=req.session_id,
-    )
-    db.add(embedding_task)
-    app.state.processor.trigger()
-
-    # Queue entity extraction task
-    entity_task = TaskQueue(
-        task_type="entity_extraction",
-        model_name="gemma3n:latest",
-        content=req.prompt,
-        task_metadata={
-            "original_length": len(req.prompt),
-            "content_type": "prompt",
-            "context_hint": "coding",
-        },
-        priority=3,
-        status=TaskStatus.PENDING,
-        session_id=req.session_id,
-    )
-    db.add(entity_task)
-    app.state.processor.trigger()
-
-    # Queue emotion processing as background task (don't block response)
+    # Queue background processing (don't block response)
     if req.message_type == "user":
         import asyncio
 
-        async def process_emotion_background():
+        async def process_background():
+            from datetime import datetime
+
+            from loguru import logger
+
+            # Add to knowledge graph if enabled
+            if app.state.dere_graph:
+                try:
+                    from dere_graph.models import EpisodeType
+
+                    # Use canonical user name from config
+                    canonical_user_name = app.state.config.get("user", {}).get("name", "User")
+
+                    await app.state.dere_graph.add_episode(
+                        episode_body=req.prompt,
+                        source_description=f"{req.medium or 'cli'} conversation",
+                        reference_time=datetime.fromtimestamp(conv.timestamp),
+                        source=EpisodeType.message,
+                        group_id=req.user_id or "default",
+                        speaker_id=req.user_id,
+                        speaker_name=canonical_user_name,
+                        personality=req.personality,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to add episode to knowledge graph: {e}")
+
+            # Process emotion
             try:
                 emotion_manager = await get_or_create_emotion_manager(
                     req.session_id, req.personality
@@ -1272,8 +1256,6 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                 }
 
                 # Enrich context with temporal and session information
-                from datetime import datetime
-
                 now = datetime.now()
 
                 # Get session info using session_factory
@@ -1306,13 +1288,10 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                 await emotion_manager.process_stimulus(stimulus, context, req.personality or "AI")
 
             except Exception as e:
-                # Don't fail if emotion processing fails
-                from loguru import logger
-
                 logger.error(f"[conversation_capture] Emotion processing failed: {e}")
 
         # Fire and forget - don't await
-        asyncio.create_task(process_emotion_background())
+        asyncio.create_task(process_background())
 
     return {"status": "stored"}
 
@@ -1341,36 +1320,45 @@ async def session_end(req: SessionEndRequest, db: AsyncSession = Depends(get_db)
     # Build content from messages
     content = "\n".join([f"{row.message_type}: {row.prompt}" for row in reversed(rows)])
 
-    # Get session personality
-    stmt = select(Session.personality).where(Session.id == req.session_id)
-    result = await db.execute(stmt)
-    personality = result.scalar_one_or_none()
-
-    # Queue summarization task
-    summary_task = TaskQueue(
-        task_type="summarization",
-        model_name="gemma3n:latest",
-        content=content,
-        task_metadata={
-            "original_length": len(content),
-            "mode": "session",
-            "max_length": 200,
-            "personality": personality or "",
-        },
-        priority=8,
-        status=TaskStatus.PENDING,
-        session_id=req.session_id,
-    )
-    db.add(summary_task)
-    await db.flush()
-    task_id = summary_task.id
-    app.state.processor.trigger()
-
-    # Mark session as ended
+    # Mark session as ended first
     stmt = update(Session).where(Session.id == req.session_id).values(end_time=int(time.time()))
     await db.execute(stmt)
 
-    return {"summary_task": task_id, "status": "queued"}
+    # Generate summary directly if dere_graph available
+    if app.state.dere_graph:
+        try:
+            summary_prompt = f"""Summarize this conversation session in 2-3 concise sentences:
+
+{content[:2000]}
+
+Focus on:
+1. Main topics discussed
+2. Key outcomes or decisions
+3. What should be followed up on
+
+Summary:"""
+
+            summary = await app.state.dere_graph.llm_client.generate(summary_prompt)
+            summary = summary.strip()
+            if summary.startswith("Summary:"):
+                summary = summary.replace("Summary:", "").strip()
+
+            # Store in SessionSummary table
+            session_summary = SessionSummary(
+                session_id=req.session_id,
+                summary_type="session_end",
+                summary=summary,
+                model_used=app.state.dere_graph.llm_client.model,
+            )
+            db.add(session_summary)
+            await db.flush()
+
+            logger.info(f"Generated session summary for session {req.session_id}")
+        except Exception as e:
+            logger.error(f"Failed to generate session summary: {e}")
+            # Continue anyway - summary is nice-to-have
+
+    return {"status": "ended", "summary_generated": app.state.dere_graph is not None}
 
 
 @app.post("/status/get")
@@ -1447,7 +1435,7 @@ async def queue_status(db: AsyncSession = Depends(get_db)):
 
 @app.post("/context/build")
 async def context_build(req: ContextBuildRequest, db: AsyncSession = Depends(get_db)):
-    """Queue context building task"""
+    """Build context using knowledge graph search"""
     from sqlalchemy import select
 
     # Ensure session exists
@@ -1467,32 +1455,90 @@ async def context_build(req: ContextBuildRequest, db: AsyncSession = Depends(get
 
     # Set defaults
     context_depth = req.context_depth or 5
-    max_tokens = req.max_tokens or 2000
-    context_mode = req.context_mode or "smart"
 
-    # Queue context building task
-    task = TaskQueue(
-        task_type="context_building",
-        model_name="",
-        content=req.current_prompt,
-        task_metadata={
-            "session_id": req.session_id,
-            "project_path": req.project_path,
-            "personality": req.personality,
-            "context_depth": context_depth,
-            "include_entities": req.include_entities,
-            "max_tokens": max_tokens,
-            "context_mode": context_mode,
-            "current_prompt": req.current_prompt,
-        },
-        priority=8,
-        status=TaskStatus.PENDING,
-        session_id=req.session_id,
-    )
-    db.add(task)
-    await db.flush()
+    # Use knowledge graph if available
+    if app.state.dere_graph:
+        try:
+            from datetime import timedelta
 
-    return {"task_id": task.id, "status": "queued"}
+            from dere_graph.filters import ComparisonOperator, DateFilter, SearchFilters
+
+            # Build temporal filter for last 7 days
+            filters = SearchFilters(
+                created_at=DateFilter(
+                    operator=ComparisonOperator.GREATER_THAN,
+                    value=datetime.now() - timedelta(days=7),
+                )
+            )
+
+            # Step 1: Get relevant recent facts with diversity
+            search_results = await app.state.dere_graph.search(
+                query=req.current_prompt,
+                group_id=req.user_id or "default",
+                limit=context_depth * 2,  # Get more for BFS expansion
+                filters=filters,
+                rerank_method="mmr",  # Diverse results
+                lambda_param=0.6,  # Balanced relevance/diversity
+                recency_weight=0.3,  # Slight recency boost
+            )
+
+            # Step 2: BFS expansion for related concepts
+            if search_results.nodes:
+                origin_uuids = [n.uuid for n in search_results.nodes[:3]]
+                related_nodes = await app.state.dere_graph.bfs_search_nodes(
+                    origin_uuids=origin_uuids,
+                    group_id=req.user_id or "default",
+                    max_depth=2,
+                    limit=context_depth,
+                )
+
+                # Merge and deduplicate
+                all_nodes = search_results.nodes + related_nodes
+                seen_uuids = set()
+                unique_nodes = []
+                for node in all_nodes:
+                    if node.uuid not in seen_uuids:
+                        seen_uuids.add(node.uuid)
+                        unique_nodes.append(node)
+
+                search_results.nodes = unique_nodes[:context_depth]
+
+            # Format results into context text
+            context_parts = []
+
+            # Add entity context
+            if search_results.nodes:
+                context_parts.append("# Relevant Entities")
+                for node in search_results.nodes:
+                    context_parts.append(f"- {node.name}: {node.summary}")
+
+            # Add relationship context
+            if search_results.edges:
+                context_parts.append("\n# Relevant Facts")
+                for edge in search_results.edges:
+                    context_parts.append(f"- {edge.fact}")
+
+            context_text = "\n".join(context_parts) if context_parts else ""
+
+            # Cache the result
+            cache = ContextCache(
+                session_id=req.session_id,
+                context_text=context_text,
+                created_at=datetime.now(),
+            )
+            db.add(cache)
+            await db.commit()
+
+            return {"status": "ready", "context": context_text}
+
+        except Exception as e:
+            from loguru import logger
+
+            logger.error(f"Knowledge graph search failed: {e}")
+            return {"status": "error", "context": "", "error": str(e)}
+
+    # Fallback: return empty context if graph unavailable
+    return {"status": "unavailable", "context": ""}
 
 
 @app.post("/context/get")
@@ -1515,190 +1561,6 @@ async def context_get(req: ContextGetRequest, db: AsyncSession = Depends(get_db)
     context = result.scalar_one_or_none()
 
     return {"found": context is not None, "context": context or ""}
-
-
-@app.post("/mode/session/previous")
-async def mode_session_previous(
-    req: ModePreviousSessionRequest, db: AsyncSession = Depends(get_db)
-):
-    """Find previous session for a mode"""
-    from sqlalchemy import select
-
-    stmt = (
-        select(Session)
-        .where(Session.personality == req.mode)
-        .where(Session.working_dir == req.project_path)
-        .where(Session.end_time.is_not(None))
-        .order_by(Session.start_time.desc())
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    session = result.scalar_one_or_none()
-
-    if not session:
-        return {"found": False}
-
-    session_time = datetime.fromtimestamp(session.start_time)
-    days_ago = (datetime.now() - session_time).days
-    last_session_date = session_time.strftime("%B %d, %Y")
-
-    # Parse key_topics if it's JSON
-    key_topics = session.key_topics or ""
-    if key_topics.startswith("["):
-        try:
-            key_topics = ", ".join(json.loads(key_topics))
-        except Exception:
-            pass
-
-    return {
-        "found": True,
-        "session_id": session.id,
-        "last_session_date": last_session_date,
-        "days_ago": days_ago,
-        "summary": session.summary or "",
-        "key_topics": key_topics,
-        "next_steps": session.next_steps or "",
-    }
-
-
-@app.post("/mode/wellness/extract")
-async def mode_wellness_extract(req: WellnessExtractRequest, db: AsyncSession = Depends(get_db)):
-    """Extract wellness data from conversation using LLM"""
-    from sqlalchemy import update
-
-    # Check if Ollama is available
-    if not await app.state.ollama.is_available():
-        return {
-            "mood": 5,
-            "energy": 5,
-            "stress": 5,
-            "key_themes": ["Unable to analyze - Ollama not available"],
-            "notes": "Ollama service not available",
-            "homework": [],
-            "next_step_notes": "",
-        }
-
-    # Build wellness extraction prompt
-    prompt = f"""You are a mental health professional analyzing a therapy conversation. Extract structured wellness data from this conversation:
-
-CONVERSATION:
-{req.conversation}
-
-Extract the following information in JSON format:
-- mood: integer 1-10 (1=very poor, 10=excellent)
-- energy: integer 1-10 (1=very low, 10=very high)
-- stress: integer 1-10 (1=very low, 10=very high)
-- key_themes: array of strings (main emotional/psychological themes discussed)
-- notes: string (brief summary of session insights)
-- homework: array of strings (suggested activities or practices)
-- next_step_notes: string (notes for next session)
-
-Focus on evidence from the conversation. If insufficient information, use reasonable defaults (5 for scales)."""
-
-    # Define JSON schema
-    schema = {
-        "type": "object",
-        "properties": {
-            "mood": {"type": "integer", "minimum": 1, "maximum": 10},
-            "energy": {"type": "integer", "minimum": 1, "maximum": 10},
-            "stress": {"type": "integer", "minimum": 1, "maximum": 10},
-            "key_themes": {"type": "array", "items": {"type": "string"}},
-            "notes": {"type": "string"},
-            "homework": {"type": "array", "items": {"type": "string"}},
-            "next_step_notes": {"type": "string"},
-        },
-        "required": [
-            "mood",
-            "energy",
-            "stress",
-            "key_themes",
-            "notes",
-            "homework",
-            "next_step_notes",
-        ],
-    }
-
-    try:
-        # Log content size before generation
-        prompt_length = len(prompt)
-        logger.info("Wellness extraction: {} chars (~{} tokens)", prompt_length, prompt_length // 4)
-
-        # Generate wellness data with LLM
-        response = await app.state.ollama.generate(prompt, schema=schema)
-        wellness_data = json.loads(response)
-
-        # Store wellness session
-        wellness = WellnessSession(
-            session_id=req.session_id,
-            mode=req.mode,
-            mood=wellness_data["mood"],
-            energy=wellness_data["energy"],
-            stress=wellness_data["stress"],
-            key_themes=json.dumps(wellness_data["key_themes"]),
-            notes=wellness_data["notes"],
-            homework=json.dumps(wellness_data["homework"]),
-            next_step_notes=wellness_data["next_step_notes"],
-            timestamp=int(time.time()),
-        )
-        db.add(wellness)
-
-        # Generate and store session summary
-        summary_prompt = f"""Based on this {req.mode} session data, create a brief summary for future session continuity:
-
-Wellness Metrics:
-- Mood: {wellness_data["mood"]}/10
-- Energy: {wellness_data["energy"]}/10
-- Stress: {wellness_data["stress"]}/10
-
-Key Themes: {", ".join(wellness_data["key_themes"])}
-Session Notes: {wellness_data["notes"]}
-Homework Assigned: {"; ".join(wellness_data["homework"])}
-Next Steps: {wellness_data["next_step_notes"]}
-
-Generate a 2-3 sentence summary that captures:
-1. The main emotional/psychological state
-2. Key issues or progress discussed
-3. What should be followed up on next time
-
-Summary:"""
-
-        # Log content size before generation
-        prompt_len = len(summary_prompt)
-        logger.info(
-            "Wellness summary generation: {} chars (~{} tokens)", prompt_len, prompt_len // 4
-        )
-
-        summary = await app.state.ollama.generate(summary_prompt)
-        summary = summary.strip()
-        if summary.startswith("Summary:"):
-            summary = summary.replace("Summary:", "").strip()
-
-        # Store session summary
-        stmt = (
-            update(Session)
-            .where(Session.id == req.session_id)
-            .values(
-                summary=summary,
-                key_topics=json.dumps(wellness_data["key_themes"]),
-                next_steps=wellness_data["next_step_notes"],
-                summarization_model=app.state.ollama.summarization_model,
-            )
-        )
-        await db.execute(stmt)
-
-        return wellness_data
-
-    except Exception as e:
-        print(f"Failed to extract wellness data: {e}")
-        return {
-            "mood": 5,
-            "energy": 5,
-            "stress": 5,
-            "key_themes": ["Analysis failed"],
-            "notes": f"LLM analysis error: {e}",
-            "homework": [],
-            "next_step_notes": "",
-        }
 
 
 @app.get("/emotion/state/{session_id}")
@@ -2168,30 +2030,21 @@ async def consolidate_memory(
     }
 
 
-async def generate_embedding_task(message_id: int, text: str) -> None:
-    """Background task to generate and store embedding"""
-    from sqlalchemy import update
-
-    try:
-        embedding = await app.state.ollama.get_embedding(text)
-
-        async with app.state.session_factory() as session:
-            stmt = (
-                update(Conversation)
-                .where(Conversation.id == message_id)
-                .values(prompt_embedding=embedding)
-            )
-            await session.execute(stmt)
-            await session.commit()
-
-    except Exception as e:
-        print(f"Failed to generate embedding for message {message_id}: {e}")
+def _configure_logging() -> None:
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        format="<level>{level: <8}</level> | <cyan>{name}</cyan> | {message}",
+        colorize=True,
+    )
 
 
 def main():
     """Main entry point for the daemon"""
     import uvicorn
 
+    _configure_logging()
     uvicorn.run(app, host="127.0.0.1", port=8787, log_level="info")
 
 

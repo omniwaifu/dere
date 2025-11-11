@@ -79,9 +79,20 @@ class ContextAnalyzer:
             if previous_context:
                 logger.debug("Previous context available: {}", previous_context[:100])
 
+            # Step 3a: Get user emotional state (if available)
+            # TODO: Properly resolve session_id from recent activity
+            emotion_summary = await self._get_user_emotion_summary(session_id=None)
+            if emotion_summary:
+                logger.debug("Emotion context: {}", emotion_summary)
+
+            # Step 3b: Get entity/topic context
+            entity_context = await self._get_entity_context(limit=5)
+            if entity_context:
+                logger.debug("Entity context: {}", entity_context[:100])
+
             # Step 4: Evaluate engagement (using LLM)
             engagement_reason = await self._evaluate_engagement(
-                current_activity, previous_context, minutes_idle
+                current_activity, previous_context, minutes_idle, emotion_summary, entity_context
             )
 
             if engagement_reason:
@@ -128,10 +139,20 @@ class ContextAnalyzer:
                 if response.status_code != 200:
                     return None
 
-                # Query for most recent conversation (requires Ollama for embeddings)
+                # Query for most recent interaction using temporal filter
+                from datetime import datetime, timedelta
+
+                since_time = datetime.now(UTC) - timedelta(hours=24)
+
                 response = await client.post(
-                    f"{self.daemon_url}/search/similar",
-                    json={"query": "recent conversation", "limit": 1, "threshold": 0.0},
+                    f"{self.daemon_url}/search/hybrid",
+                    json={
+                        "query": "",  # Empty query = all results
+                        "limit": 1,
+                        "since": since_time.isoformat(),
+                        "entity_values": [],
+                        "user_id": self.config.user_id,
+                    },
                     timeout=5,
                 )
                 if response.status_code == 200:
@@ -139,7 +160,7 @@ class ContextAnalyzer:
                     if results:
                         return float(results[0].get("timestamp", 0))
                 elif response.status_code == 500:
-                    logger.debug("Ollama not available for embedding search")
+                    logger.debug("dere_graph not available for search")
                     return None
 
         except Exception as e:
@@ -197,12 +218,21 @@ class ContextAnalyzer:
         """
         try:
             async with httpx.AsyncClient() as client:
+                from datetime import datetime, timedelta
+
+                lookback_minutes = 30
+                since_time = datetime.now(UTC) - timedelta(minutes=lookback_minutes)
+
                 response = await client.post(
-                    f"{self.daemon_url}/search/similar",
+                    f"{self.daemon_url}/search/hybrid",
                     json={
-                        "query": "what were we discussing",
+                        "query": "conversation context discussion",
                         "limit": self.config.embedding_search_limit,
-                        "threshold": self.config.context_change_threshold,
+                        "since": since_time.isoformat(),
+                        "rerank_method": "mmr",
+                        "diversity": 0.7,  # High diversity to avoid repetition
+                        "entity_values": [],
+                        "user_id": self.config.user_id,
                     },
                     timeout=10,
                 )
@@ -212,11 +242,99 @@ class ContextAnalyzer:
                         summaries = [r.get("prompt", "")[:100] for r in results[:3]]
                         return " | ".join(summaries)
                 elif response.status_code == 500:
-                    logger.debug("Ollama not available for context search")
+                    logger.debug("dere_graph not available for context search")
                     return None
 
         except Exception as e:
             logger.debug("Failed to get previous context: {}", e)
+
+        return None
+
+    async def _get_user_emotion_summary(self, session_id: int | None = None) -> str | None:
+        """Get user's current emotional state summary.
+
+        Args:
+            session_id: Optional session ID to get emotions for. If None, tries to find active session.
+
+        Returns:
+            Human-readable emotion summary, or None if not available
+        """
+        try:
+            # If no session_id provided, try to get the most recent active session
+            # For now we'll just return None if no session_id - this could be improved
+            if session_id is None:
+                logger.debug("No session_id provided for emotion query")
+                return None
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.daemon_url}/emotion/summary/{session_id}",
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    result = response.json()
+                    return result.get("summary", None)
+                elif response.status_code == 404:
+                    logger.debug("No emotion state found for session {}", session_id)
+                    return None
+
+        except Exception as e:
+            logger.debug("Failed to get emotion summary: {}", e)
+
+        return None
+
+    async def _get_entity_context(self, limit: int = 5) -> str | None:
+        """Get recent entities/topics user has been working with.
+
+        Args:
+            limit: Maximum number of entities to retrieve
+
+        Returns:
+            Formatted string of recent entities, or None if not available
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                from datetime import datetime, timedelta
+
+                # Get entities from last 6 hours
+                since_time = datetime.now(UTC) - timedelta(hours=6)
+
+                response = await client.post(
+                    f"{self.daemon_url}/search/hybrid",
+                    json={
+                        "query": "",  # Empty query to get all recent entities
+                        "limit": limit,
+                        "since": since_time.isoformat(),
+                        "entity_values": [],
+                        "user_id": self.config.user_id,
+                    },
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    results = response.json().get("results", [])
+                    if results:
+                        # Extract entity names from results
+                        entities = []
+                        for r in results:
+                            # Check if result has entity information
+                            if "entity" in r:
+                                entities.append(r["entity"])
+                            # Fallback to prompt snippets
+                            elif "prompt" in r:
+                                # Extract first meaningful words as pseudo-entity
+                                snippet = r["prompt"][:60].strip()
+                                if snippet:
+                                    entities.append(snippet)
+
+                        if entities:
+                            return ", ".join(entities[:limit])
+
+                elif response.status_code == 500:
+                    logger.debug("dere_graph not available for entity search")
+                    return None
+
+        except Exception as e:
+            logger.debug("Failed to get entity context: {}", e)
 
         return None
 
@@ -225,6 +343,8 @@ class ContextAnalyzer:
         current_activity: dict[str, Any],
         previous_context: str | None,
         minutes_idle: float | None,
+        emotion_summary: str | None = None,
+        entity_context: str | None = None,
     ) -> tuple[str, Literal["alert", "conversation"]] | None:
         """Evaluate whether to engage based on context using LLM.
 
@@ -232,6 +352,8 @@ class ContextAnalyzer:
             current_activity: Current user activity data
             previous_context: Summary of previous conversations (optional)
             minutes_idle: Minutes since last interaction (optional, None for cold start)
+            emotion_summary: User's current emotional state (optional)
+            entity_context: Recent entities/topics user has worked with (optional)
 
         Returns:
             Tuple of (message, priority) if should engage, None otherwise
@@ -244,6 +366,25 @@ class ContextAnalyzer:
         # Get task context
         task_context = get_task_context(limit=5, include_overdue=True, include_due_soon=True)
 
+        # Build enhanced prompt with emotion and entity context
+        context_parts = [
+            f"Previous conversation context: {previous_context if previous_context else 'None (cold start)'}",
+            f"Minutes since last interaction: {minutes_idle if minutes_idle else 'N/A'}",
+        ]
+
+        if emotion_summary:
+            context_parts.append(f"User emotional state: {emotion_summary}")
+
+        if entity_context:
+            context_parts.append(f"Recent topics/entities: {entity_context}")
+
+        if task_context:
+            context_parts.append(task_context)
+        else:
+            context_parts.append("Tasks: None")
+
+        context_str = "\n- ".join(context_parts)
+
         # Build prompt for LLM decision
         prompt = f"""Analyze this user activity and decide if ambient engagement is warranted.
 
@@ -253,13 +394,18 @@ Current Activity:
 - Duration: {duration_hours:.1f} hours ({duration_seconds:.0f} seconds)
 
 Context:
-- Previous conversation context: {previous_context if previous_context else "None (cold start)"}
-- Minutes since last interaction: {minutes_idle if minutes_idle else "N/A"}
-- {task_context if task_context else "Tasks: None"}
+- {context_str}
+
+Guidelines for engagement:
+- Consider user's emotional state when deciding whether/how to reach out
+- Reference recent topics/entities to make messages contextual and relevant
+- Avoid interrupting if user appears stressed or in deep focus
+- Be empathetic and supportive based on emotional context
+- Use conversational tone that acknowledges their current state
 
 Decide:
 1. Should I reach out? (yes/no)
-2. If yes, what message? (conversational, contextual)
+2. If yes, what message? (conversational, contextual, emotionally aware)
 3. Priority level: "alert" (simple notification) or "conversation" (chat request)
 
 Respond in JSON:
@@ -339,9 +485,8 @@ Respond in JSON:
         Returns:
             Tuple of (medium, location, reasoning) or None if routing fails
         """
-        # TODO: Get actual user_id from config or session
-        # For now, use placeholder - this needs to be configurable
-        user_id = "default_user"
+        # Get user_id from config
+        user_id = self.config.user_id
 
         try:
             async with httpx.AsyncClient() as client:

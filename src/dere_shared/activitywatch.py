@@ -197,14 +197,18 @@ def detect_continuous_activities(
     return continuous_activities
 
 
-def get_activity_context(config: dict[str, Any]) -> dict[str, Any] | None:
-    """Get recent activity context from ActivityWatch with continuous activity detection.
+def get_activity_context(
+    config: dict[str, Any], last_message_time: int | None = None
+) -> dict[str, Any] | None:
+    """Get recent activity context from ActivityWatch with intelligent differential lookback.
 
-    Gathers window and media player events, detects continuous activities,
-    and formats them into a context dictionary.
+    Uses differential lookback based on time since last message:
+    - First message or long gap: full lookback (10 min)
+    - Recent message: differential lookback (time since last, minimum 2 min)
 
     Args:
         config: Configuration dictionary with context and activity settings
+        last_message_time: Unix timestamp of last message (None for first message)
 
     Returns:
         Dictionary with recent_apps list or status string, or None on error
@@ -215,10 +219,33 @@ def get_activity_context(config: dict[str, Any]) -> dict[str, Any] | None:
 
         activity_enabled = config["context"]["activity"]
         media_enabled = config["context"]["media_player"]
-        lookback_minutes = config["context"]["activity_lookback_minutes"]
 
         if not activity_enabled and not media_enabled:
             return None
+
+        # Calculate intelligent lookback
+        differential_enabled = config["context"].get("activity_differential_enabled", True)
+        full_lookback = config["context"]["activity_lookback_minutes"]
+
+        if not differential_enabled or last_message_time is None:
+            # First message or feature disabled: use full lookback
+            lookback_minutes = full_lookback
+        else:
+            # Calculate time since last message
+            current_time = int(now_utc.timestamp())
+            time_since_last = current_time - last_message_time
+            time_since_last_minutes = time_since_last / 60
+
+            threshold = config["context"]["activity_full_lookback_threshold_minutes"]
+            min_lookback = config["context"]["activity_min_lookback_minutes"]
+
+            if time_since_last_minutes >= threshold:
+                # Long gap: revert to full lookback
+                lookback_minutes = full_lookback
+            else:
+                # Recent message: differential with minimum
+                # Add 0.5 min buffer to catch events at boundary
+                lookback_minutes = max(min_lookback, time_since_last_minutes + 0.5)
 
         client = ActivityWatchClient()
         start_recent = now_utc - timedelta(minutes=lookback_minutes)

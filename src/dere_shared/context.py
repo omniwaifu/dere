@@ -74,6 +74,10 @@ def get_full_context(
     config: dict[str, Any] | None = None,
     session_id: int | None = None,
     daemon_url: str = "http://localhost:8787",
+    last_message_time: int | None = None,
+    user_id: str | None = None,
+    personality: str | None = None,
+    current_prompt: str | None = None,
 ) -> str:
     """Get full context from all enabled sources.
 
@@ -85,6 +89,7 @@ def get_full_context(
         config: Optional configuration dictionary. If None, loads from config file.
         session_id: Optional session ID for retrieving conversation context
         daemon_url: URL of the dere daemon for conversation context retrieval
+        last_message_time: Unix timestamp of last message for differential activity lookback
 
     Returns:
         Formatted context string with environmental and conversation context
@@ -120,7 +125,7 @@ def get_full_context(
     # Activity context
     try:
         if config["context"]["activity"] or config["context"]["media_player"]:
-            activity_ctx = get_activity_context(config)
+            activity_ctx = get_activity_context(config, last_message_time)
             if activity_ctx:
                 if activity_ctx.get("recent_apps"):
                     activity_str = "Recent activity: " + ", ".join(activity_ctx["recent_apps"])
@@ -171,11 +176,41 @@ def get_full_context(
         except Exception:
             pass
 
+    # Knowledge graph context
+    knowledge_graph_context = None
+    try:
+        if config["context"].get("knowledge_graph", False) and session_id and current_prompt:
+            import requests
+
+            response = requests.post(
+                f"{daemon_url}/context/build",
+                json={
+                    "session_id": session_id,
+                    "project_path": "",
+                    "personality": personality or "assistant",
+                    "user_id": user_id,
+                    "context_depth": 5,
+                    "current_prompt": current_prompt,
+                },
+                timeout=2,
+            )
+            if response.ok:
+                data = response.json()
+                kg_context = data.get("context")
+                if kg_context and kg_context.strip():
+                    knowledge_graph_context = kg_context
+    except Exception:
+        pass
+
     # Build environmental context section
     sections = []
     if environmental_parts:
         env_context = " | ".join(environmental_parts)
         sections.append(f"[Environmental Context]\n{env_context}")
+
+    # Add knowledge graph context
+    if knowledge_graph_context:
+        sections.append(f"[Knowledge Graph]\n{knowledge_graph_context}")
 
     # Fetch conversation context from daemon
     if session_id:

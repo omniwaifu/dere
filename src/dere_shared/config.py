@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 from typing import Any
 
@@ -13,6 +14,9 @@ def load_dere_config() -> dict[str, Any]:
     Falls back to defaults if the config file doesn't exist or cannot be parsed.
     """
     config: dict[str, Any] = {
+        "user": {
+            "name": getpass.getuser(),
+        },
         "context": {
             "time": True,
             "weather": True,
@@ -20,6 +24,9 @@ def load_dere_config() -> dict[str, Any]:
             "media_player": True,
             "recent_files": True,
             "activity_lookback_minutes": 10,
+            "activity_differential_enabled": True,
+            "activity_min_lookback_minutes": 2,
+            "activity_full_lookback_threshold_minutes": 5,
             "activity_max_duration_hours": 6,
             "recent_files_timeframe": "1h",
             "recent_files_base_path": "/mnt/data/Code",
@@ -52,6 +59,14 @@ def load_dere_config() -> dict[str, Any]:
             "enabled": True,
             "auto_run_interval_hours": 24,
             "min_sessions_for_patterns": 5,
+        },
+        "dere_graph": {
+            "enabled": True,
+            "falkor_host": "localhost",
+            "falkor_port": 6379,
+            "falkor_database": "dere_graph",
+            "claude_model": "claude-haiku-4-5",
+            "embedding_dim": 1536,
         },
     }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -21,6 +22,9 @@ from dere_shared.emotion.models import (
 )
 from dere_shared.emotion.physics import EmotionPhysics, EmotionPhysicsContext
 
+if TYPE_CHECKING:
+    from dere_graph.llm_client import ClaudeClient
+
 
 class OCCEmotionManager:
     """
@@ -35,12 +39,13 @@ class OCCEmotionManager:
         attitudes: list[OCCAttitude],
         session_id: int,
         db,  # Database instance
+        llm_client: ClaudeClient | None = None,
     ):
         self.session_id = session_id
         self.db = db
 
         # Initialize components
-        self.appraisal_engine = AppraisalEngine(goals, standards, attitudes)
+        self.appraisal_engine = AppraisalEngine(goals, standards, attitudes, llm_client)
         self.emotion_physics = EmotionPhysics()
         self.smart_decay = SmartDecay()
         self.stimulus_buffer = StimulusBuffer()
@@ -297,7 +302,9 @@ class OCCEmotionManager:
     async def _persist_state(self) -> None:
         """Persist current emotional state to database"""
         try:
-            await self.db.store_emotion_state(self.session_id, self.active_emotions, self.last_decay_time)
+            await self.db.store_emotion_state(
+                self.session_id, self.active_emotions, self.last_decay_time
+            )
             logger.debug(
                 f"[OCCEmotionManager] Persisted state: {len(self.active_emotions)} emotions"
             )
@@ -341,7 +348,7 @@ class OCCEmotionManager:
         dominant = self.get_current_dominant_emotion()
 
         if not dominant or dominant.type == "neutral":
-            return "Currently in a neutral emotional state."
+            return "User appears to be in a neutral emotional state."
 
         # Format emotion name: OCCEmotionType.INTEREST -> "Interest"
         emotion_name = dominant.type.name.replace("_", " ").title()
@@ -353,4 +360,4 @@ class OCCEmotionManager:
             else "mildly"
         )
 
-        return f"Currently feeling {intensity_desc} {emotion_name} (intensity: {dominant.intensity:.0f}/100)."
+        return f"User appears to be feeling {intensity_desc} {emotion_name} (intensity: {dominant.intensity:.0f}/100)."

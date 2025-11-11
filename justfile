@@ -12,7 +12,6 @@ install: build
     mkdir -p ~/.local/bin
     mkdir -p ~/.local/share/dere
     mkdir -p ~/.config/dere/hooks
-    mkdir -p ~/.config/dere/modes
     uv tool install --force --editable .
     cp -r src/ ~/.local/share/dere/
     cp -f hooks/python/dere-hook.py ~/.config/dere/hooks/
@@ -21,16 +20,13 @@ install: build
     cp -f hooks/python/dere-task-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-statusline.py ~/.config/dere/hooks/
     cp -f hooks/python/dere-stop-hook.py ~/.config/dere/hooks/
-    cp -f hooks/python/dere-wellness-hook.py ~/.config/dere/hooks/
     cp -f hooks/python/rpc_client.py ~/.config/dere/hooks/
-    cp -f prompts/modes/*.md ~/.config/dere/modes/
     chmod +x ~/.config/dere/hooks/dere-hook.py
     chmod +x ~/.config/dere/hooks/dere-hook-session-end.py
     chmod +x ~/.config/dere/hooks/dere-context-hook.py
     chmod +x ~/.config/dere/hooks/dere-task-hook.py
     chmod +x ~/.config/dere/hooks/dere-statusline.py
     chmod +x ~/.config/dere/hooks/dere-stop-hook.py
-    chmod +x ~/.config/dere/hooks/dere-wellness-hook.py
 
 # Clean build artifacts
 clean:
