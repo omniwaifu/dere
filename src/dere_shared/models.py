@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from pgvector.sqlalchemy import Vector
+from pydantic import BaseModel
 from sqlalchemy import BigInteger, Column, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, Relationship, SQLModel
@@ -372,6 +373,25 @@ class Personality(SQLModel):
     occ_goals: list[dict[str, Any]] = []
     occ_standards: list[dict[str, Any]] = []
     occ_attitudes: list[dict[str, Any]] = []
+
+
+# Pydantic models for LLM structured outputs
+class AmbientEngagementDecision(BaseModel):
+    """Decision from LLM about whether to engage with ambient notification."""
+
+    should_engage: bool
+    message: str | None = None
+    priority: Literal["alert", "conversation"] = "conversation"
+    reasoning: str
+
+
+class RoutingDecision(BaseModel):
+    """Decision from LLM about where to route a notification."""
+
+    medium: str
+    location: str
+    reasoning: str
+    fallback: bool = False
 
 
 # TypedDict classes for metadata structures

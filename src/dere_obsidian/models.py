@@ -18,7 +18,7 @@ class ChatMessage(BaseModel):
 class ChatCompletionRequest(BaseModel):
     """OpenAI-compatible chat completion request."""
 
-    model: str = "claude-3-5-sonnet-20241022"
+    model: str = "claude-sonnet-4-5"
     messages: list[ChatMessage]
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)

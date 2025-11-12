@@ -161,7 +161,7 @@ class AmbientNotifyRequest(BaseModel):
 
 class LLMGenerateRequest(BaseModel):
     prompt: str
-    model: str = "claude-3-5-haiku-20241022"
+    model: str = "claude-haiku-4-5"
     session_id: int | None = None
     include_context: bool = False
     medium: str | None = None  # "cli", "discord", or None for any
@@ -409,7 +409,9 @@ async def lifespan(app: FastAPI):
         from dere_ambient import AmbientMonitor, load_ambient_config
 
         ambient_config = load_ambient_config()
-        app.state.ambient_monitor = AmbientMonitor(ambient_config)
+        # Pass llm_client from dere_graph for structured outputs
+        llm_client = app.state.dere_graph.llm_client if app.state.dere_graph else None
+        app.state.ambient_monitor = AmbientMonitor(ambient_config, llm_client=llm_client)
     except Exception as e:
         print(f"Warning: Failed to initialize ambient monitor: {e}")
         app.state.ambient_monitor = None
@@ -1892,6 +1894,7 @@ async def routing_decide(req: RoutingDecideRequest, db: AsyncSession = Depends(g
     ]
 
     # Make routing decision (pass session_factory instead of db)
+    llm_client = app.state.dere_graph.llm_client if app.state.dere_graph else None
     decision = await decide_routing(
         user_id=req.user_id,
         message=req.message,
@@ -1900,6 +1903,7 @@ async def routing_decide(req: RoutingDecideRequest, db: AsyncSession = Depends(g
         user_activity=req.user_activity,
         recent_conversations=recent_conversations,
         session_factory=app.state.session_factory,
+        llm_client=llm_client,
     )
 
     return {

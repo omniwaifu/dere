@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -11,13 +11,16 @@ from .analyzer import ContextAnalyzer
 from .config import AmbientConfig
 from .notifier import Notifier
 
+if TYPE_CHECKING:
+    from dere_graph.llm_client import ClaudeClient
+
 
 class AmbientMonitor:
     """Handles periodic monitoring and engagement logic as a background task."""
 
-    def __init__(self, config: AmbientConfig):
+    def __init__(self, config: AmbientConfig, llm_client: ClaudeClient | None = None):
         self.config = config
-        self.analyzer = ContextAnalyzer(config)
+        self.analyzer = ContextAnalyzer(config, llm_client=llm_client)
         self.notifier = Notifier(config)
         self._running = False
         self._task: asyncio.Task[Any] | None = None

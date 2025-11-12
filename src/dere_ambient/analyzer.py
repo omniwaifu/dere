@@ -5,24 +5,29 @@ from __future__ import annotations
 import socket
 import time
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from loguru import logger
 
 from dere_shared.activitywatch import ActivityWatchClient, detect_continuous_activities
+from dere_shared.models import AmbientEngagementDecision
 from dere_shared.tasks import get_task_context
 
 from .config import AmbientConfig
+
+if TYPE_CHECKING:
+    from dere_graph.llm_client import ClaudeClient
 
 
 class ContextAnalyzer:
     """Analyzes user context and decides when to engage."""
 
-    def __init__(self, config: AmbientConfig):
+    def __init__(self, config: AmbientConfig, llm_client: ClaudeClient | None = None):
         self.config = config
         self.daemon_url = config.daemon_url
         self.aw_client = ActivityWatchClient()
+        self.llm_client = llm_client
 
     async def should_engage(
         self,
@@ -425,66 +430,38 @@ Decide:
 2. If yes, what message? (conversational, contextual, emotionally aware)
 3. Priority level: "alert" (simple notification) or "conversation" (chat request)
 
-Respond in JSON:
-{{"should_engage": true/false, "message": "...", "priority": "alert" or "conversation"}}"""
+Respond with your reasoning and decision."""
+
+        if not self.llm_client:
+            logger.error("LLM client not configured for ambient analyzer")
+            return None
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.daemon_url}/llm/generate",
-                    json={
-                        "prompt": prompt,
-                        "include_context": True,
-                        "medium": None,  # Use any active session
-                        "isolate_session": True,  # Don't pollute conversation history
-                    },
-                    timeout=30,
+            from dere_graph.llm_client import Message
+
+            messages = [Message(role="user", content=prompt)]
+            decision = await self.llm_client.generate_response(
+                messages=messages, response_model=AmbientEngagementDecision
+            )
+
+            # Log the ambient decision for debugging
+            if decision.should_engage and decision.message:
+                logger.info(
+                    "Ambient decision: ENGAGE (priority={}) - {}",
+                    decision.priority,
+                    (
+                        decision.message[:100] + "..."
+                        if len(decision.message) > 100
+                        else decision.message
+                    ),
                 )
-                if response.status_code == 200:
-                    result = response.json()
-
-                    # Check for error response from daemon
-                    if "error" in result:
-                        logger.warning("LLM generation returned error: {}", result["error"])
-                        return None
-
-                    response_text = result.get("response", "")
-                    if not response_text:
-                        logger.warning("Empty response from LLM generation")
-                        return None
-
-                    import json
-
-                    try:
-                        # Claude CLI with --output-format json returns structured JSON
-                        claude_response = json.loads(response_text)
-                        # Extract text content from Claude's JSON structure
-                        content_blocks = claude_response.get("content", [])
-                        if content_blocks:
-                            text_content = content_blocks[0].get("text", "")
-                            decision = json.loads(text_content)
-
-                            # Log the ambient decision for debugging
-                            should_engage = decision.get("should_engage", False)
-                            if should_engage:
-                                message = decision.get("message", "")
-                                priority = decision.get("priority", "conversation")
-                                logger.info(
-                                    "Ambient decision: ENGAGE (priority={}) - {}",
-                                    priority,
-                                    message[:100] + "..." if len(message) > 100 else message,
-                                )
-                                return message, priority
-                            else:
-                                logger.debug("Ambient decision: NO ENGAGEMENT")
-                    except (json.JSONDecodeError, KeyError, IndexError) as e:
-                        logger.warning("Failed to parse LLM response: {}", e)
-                else:
-                    logger.warning("LLM generation failed with status {}", response.status_code)
+                return decision.message, decision.priority
+            else:
+                logger.debug("Ambient decision: NO ENGAGEMENT - {}", decision.reasoning)
+                return None
         except Exception as e:
-            logger.debug("LLM engagement decision failed: {}", e)
-
-        return None
+            logger.error("Ambient LLM decision failed: {}", e)
+            return None
 
     async def _route_message(
         self,

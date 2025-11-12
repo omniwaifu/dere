@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from dere_shared.models import RoutingDecision as RoutingDecisionModel
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from dere_graph.llm_client import ClaudeClient
 
 
 class RoutingDecision:
@@ -74,6 +78,7 @@ async def decide_routing(
     user_activity: dict[str, Any] | None,
     recent_conversations: list[dict[str, Any]],
     session_factory: async_sessionmaker[AsyncSession],
+    llm_client: ClaudeClient | None = None,
 ) -> RoutingDecision:
     """Use LLM to intelligently decide where to route a message.
 
@@ -85,6 +90,7 @@ async def decide_routing(
         user_activity: Current user activity from ActivityWatch
         recent_conversations: Recent conversation history with mediums
         session_factory: SQLModel async session factory (for future database lookups)
+        llm_client: Optional ClaudeClient for structured outputs
 
     Returns:
         RoutingDecision with medium, location, and reasoning
@@ -97,8 +103,6 @@ async def decide_routing(
     - Message urgency
     - User preferences (future: learn from patterns)
     """
-    import httpx
-
     # If no mediums available, fall back to desktop notification
     if not available_mediums:
         return RoutingDecision(
@@ -175,48 +179,34 @@ ROUTING DECISION CRITERIA:
 4. Respect user context (e.g., don't interrupt focused work with chat messages)
 5. Future consideration: learn user preferences over time
 
-Respond in JSON:
-{{
-  "medium": "discord|telegram|etc",
-  "location": "channel_id or dm_user_id",
-  "reasoning": "1-2 sentence explanation"
-}}"""
+Respond with your routing decision and reasoning."""
 
-    # Call LLM via daemon endpoint (reuse existing /llm/generate)
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "http://localhost:8787/llm/generate",
-                json={
-                    "prompt": prompt,
-                    "model": "claude-3-5-haiku-20241022",
-                    "include_context": False,  # Don't inject personality here, pure routing logic
-                },
-                timeout=30,
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                response_text = result.get("response", "")
-
-                import json
-
-                # Parse nested JSON (Claude CLI format)
-                claude_response = json.loads(response_text)
-                content_blocks = claude_response.get("content", [])
-                if content_blocks:
-                    text_content = content_blocks[0].get("text", "")
-                    decision = json.loads(text_content)
-
-                    return RoutingDecision(
-                        medium=decision.get("medium", "desktop"),
-                        location=decision.get("location", "notify-send"),
-                        reasoning=decision.get("reasoning", "LLM routing decision"),
-                    )
-    except Exception as e:
+    if not llm_client:
         from loguru import logger
 
-        logger.error("Routing LLM decision failed: {}", e)
+        logger.error("LLM client not configured for routing")
+        # Fall through to fallback logic below
+
+    else:
+        try:
+            from loguru import logger
+
+            from dere_graph.llm_client import Message
+
+            messages = [Message(role="user", content=prompt)]
+            decision_model = await llm_client.generate_response(
+                messages=messages, response_model=RoutingDecisionModel
+            )
+
+            return RoutingDecision(
+                medium=decision_model.medium,
+                location=decision_model.location,
+                reasoning=decision_model.reasoning,
+                fallback=decision_model.fallback,
+            )
+        except Exception as e:
+            logger.error("Routing LLM decision failed: {}", e)
+            # Fall through to fallback logic below
 
     # Fallback: use most recently active medium
     if available_mediums:
