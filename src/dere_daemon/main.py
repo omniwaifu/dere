@@ -154,11 +154,6 @@ class HookCaptureRequest(BaseModel):
     data: dict[str, Any]
 
 
-class AmbientNotifyRequest(BaseModel):
-    message: str
-    priority: str = "alert"
-
-
 class LLMGenerateRequest(BaseModel):
     prompt: str
     model: str = "claude-haiku-4-5"
@@ -411,7 +406,9 @@ async def lifespan(app: FastAPI):
         ambient_config = load_ambient_config()
         # Pass llm_client from dere_graph for structured outputs
         llm_client = app.state.dere_graph.llm_client if app.state.dere_graph else None
-        app.state.ambient_monitor = AmbientMonitor(ambient_config, llm_client=llm_client)
+        app.state.ambient_monitor = AmbientMonitor(
+            ambient_config, llm_client=llm_client, personality_loader=app.state.personality_loader
+        )
     except Exception as e:
         print(f"Warning: Failed to initialize ambient monitor: {e}")
         app.state.ambient_monitor = None
@@ -716,6 +713,8 @@ async def create_session(req: CreateSessionRequest, db: AsyncSession = Depends(g
     session = Session(
         working_dir=req.working_dir,
         start_time=int(time.time()),
+        personality=req.personality,
+        medium=req.medium,
     )
 
     db.add(session)
@@ -768,6 +767,7 @@ async def find_or_create_session(
         working_dir=req.working_dir,
         start_time=int(time.time()),
         continued_from=existing.id if existing else None,
+        personality=req.personality,
         medium=req.medium,
         user_id=req.user_id,
     )
@@ -1637,24 +1637,6 @@ async def hook_capture(req: HookCaptureRequest):
     """Hook endpoint for capturing conversation data"""
     # Store the hook data
     return {"status": "received"}
-
-
-@app.post("/ambient/notify")
-async def ambient_notify(req: AmbientNotifyRequest):
-    """Legacy endpoint for ambient notifications.
-
-    DEPRECATED: This endpoint is no longer used. The ambient monitor now directly
-    calls /notifications/create instead, which provides better integration with
-    the notification queue and routing system.
-
-    Kept for backwards compatibility but only logs and acknowledges.
-    """
-
-    logger.info("Received ambient notification (priority: {}): {}", req.priority, req.message[:100])
-
-    # NOTE: This endpoint is deprecated. Ambient monitor uses /notifications/create directly.
-
-    return {"status": "received", "message": "Notification logged"}
 
 
 @app.post("/llm/generate")

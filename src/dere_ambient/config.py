@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from dere_shared.config import load_dere_config
 
@@ -18,9 +17,9 @@ class AmbientConfig:
     activity_lookback_hours: int = 6
     embedding_search_limit: int = 20
     context_change_threshold: float = 0.7
-    notification_method: Literal["notify-send", "daemon", "both"] = "both"
     daemon_url: str = "http://localhost:8787"
     user_id: str = "default_user"
+    personality: str = "tsun"
 
 
 def load_ambient_config() -> AmbientConfig:
@@ -31,6 +30,7 @@ def load_ambient_config() -> AmbientConfig:
     """
     config = load_dere_config()
     ambient_section = config.get("ambient", {})
+    default_personality = config.get("default_personality", "tsun")
 
     return AmbientConfig(
         enabled=ambient_section.get("enabled", True),
@@ -39,7 +39,7 @@ def load_ambient_config() -> AmbientConfig:
         activity_lookback_hours=ambient_section.get("activity_lookback_hours", 6),
         embedding_search_limit=ambient_section.get("embedding_search_limit", 20),
         context_change_threshold=ambient_section.get("context_change_threshold", 0.7),
-        notification_method=ambient_section.get("notification_method", "both"),
         daemon_url=ambient_section.get("daemon_url", "http://localhost:8787"),
         user_id=ambient_section.get("user_id", "default_user"),
+        personality=ambient_section.get("personality", default_personality),
     )

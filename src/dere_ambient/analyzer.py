@@ -18,16 +18,23 @@ from .config import AmbientConfig
 
 if TYPE_CHECKING:
     from dere_graph.llm_client import ClaudeClient
+    from dere_shared.personalities import PersonalityLoader
 
 
 class ContextAnalyzer:
     """Analyzes user context and decides when to engage."""
 
-    def __init__(self, config: AmbientConfig, llm_client: ClaudeClient | None = None):
+    def __init__(
+        self,
+        config: AmbientConfig,
+        llm_client: ClaudeClient | None = None,
+        personality_loader: PersonalityLoader | None = None,
+    ):
         self.config = config
         self.daemon_url = config.daemon_url
         self.aw_client = ActivityWatchClient()
         self.llm_client = llm_client
+        self.personality_loader = personality_loader
 
     async def should_engage(
         self,
@@ -46,14 +53,14 @@ class ContextAnalyzer:
             # Step 1: Check current activity first (most important)
             current_activity = await self._get_current_activity()
             if not current_activity:
-                logger.debug("No current activity detected from ActivityWatch")
+                logger.info("No current activity detected from ActivityWatch - skipping check")
                 return False, None, "alert", None, None
 
             app = current_activity.get("app", "")
             duration_seconds = current_activity.get("duration", 0)
             duration_hours = duration_seconds / 3600
 
-            logger.debug(
+            logger.info(
                 "Current activity: {} for {:.1f}h ({:.0f}s)",
                 app,
                 duration_hours,
@@ -66,18 +73,18 @@ class ContextAnalyzer:
             if last_interaction:
                 time_since_interaction = time.time() - last_interaction
                 minutes_idle = time_since_interaction / 60
-                logger.debug("Last interaction was {:.0f}m ago", minutes_idle)
+                logger.info("Last interaction was {:.0f}m ago", minutes_idle)
 
                 # Don't engage if user was recently active with us
                 if minutes_idle < self.config.idle_threshold_minutes:
-                    logger.debug(
-                        "User recently active ({:.0f}m < {}m threshold), skipping engagement",
+                    logger.info(
+                        "User recently active ({:.0f}m < {}m idle threshold), skipping engagement",
                         minutes_idle,
                         self.config.idle_threshold_minutes,
                     )
                     return False, None, "alert", None, None
             else:
-                logger.debug("No previous interactions found (cold start)")
+                logger.info("No previous interactions found (cold start)")
 
             # Step 3: Get previous context (optional, for enhanced messages)
             previous_context = await self._get_previous_context_summary()
@@ -102,7 +109,6 @@ class ContextAnalyzer:
 
             if engagement_reason:
                 message, priority = engagement_reason
-                logger.info("Engagement triggered: {} (priority: {})", message, priority)
 
                 # Step 5: Route the message using LLM-based routing
                 routing = await self._route_message(
@@ -110,15 +116,9 @@ class ContextAnalyzer:
                 )
                 if routing:
                     target_medium, target_location, routing_reason = routing
-                    logger.info(
-                        "Routing decision: {} -> {} (reason: {})",
-                        target_medium,
-                        target_location,
-                        routing_reason,
-                    )
                     return True, message, priority, target_medium, target_location
 
-            logger.debug(
+            logger.info(
                 "No engagement conditions met (activity: {}, duration: {:.1f}h)",
                 app,
                 duration_hours,
@@ -203,11 +203,12 @@ class ContextAnalyzer:
                 )
                 if sorted_activities:
                     key, data = sorted_activities[0]
+                    last_seen = data["last_seen"]
                     return {
                         "app": data["app"],
                         "title": data["title"],
                         "duration": data["duration"],
-                        "last_seen": data["last_seen"],
+                        "last_seen": last_seen.isoformat() if hasattr(last_seen, "isoformat") else last_seen,
                     }
 
         except Exception as e:
@@ -380,57 +381,18 @@ class ContextAnalyzer:
         Returns:
             Tuple of (message, priority) if should engage, None otherwise
         """
-        app = current_activity.get("app", "")
-        title = current_activity.get("title", "")
-        duration_seconds = current_activity.get("duration", 0)
-        duration_hours = duration_seconds / 3600
-
         # Get task context
         task_context = get_task_context(limit=5, include_overdue=True, include_due_soon=True)
 
-        # Build enhanced prompt with emotion and entity context
-        context_parts = [
-            f"Previous conversation context: {previous_context if previous_context else 'None (cold start)'}",
-            f"Minutes since last interaction: {minutes_idle if minutes_idle else 'N/A'}",
-        ]
-
-        if emotion_summary:
-            context_parts.append(f"User emotional state: {emotion_summary}")
-
-        if entity_context:
-            context_parts.append(f"Recent topics/entities: {entity_context}")
-
-        if task_context:
-            context_parts.append(task_context)
-        else:
-            context_parts.append("Tasks: None")
-
-        context_str = "\n- ".join(context_parts)
-
         # Build prompt for LLM decision
-        prompt = f"""Analyze this user activity and decide if ambient engagement is warranted.
+        prompt = f"""Current activity: {current_activity}
+Previous context: {previous_context}
+Minutes idle: {minutes_idle}
+Emotion: {emotion_summary}
+Entities: {entity_context}
+Tasks: {task_context}
 
-Current Activity:
-- Application: {app}
-- Window Title: {title}
-- Duration: {duration_hours:.1f} hours ({duration_seconds:.0f} seconds)
-
-Context:
-- {context_str}
-
-Guidelines for engagement:
-- Consider user's emotional state when deciding whether/how to reach out
-- Reference recent topics/entities to make messages contextual and relevant
-- Avoid interrupting if user appears stressed or in deep focus
-- Be empathetic and supportive based on emotional context
-- Use conversational tone that acknowledges their current state
-
-Decide:
-1. Should I reach out? (yes/no)
-2. If yes, what message? (conversational, contextual, emotionally aware)
-3. Priority level: "alert" (simple notification) or "conversation" (chat request)
-
-Respond with your reasoning and decision."""
+If there are overdue tasks, upcoming deadlines, or relevant context worth mentioning, engage. Otherwise don't."""
 
         if not self.llm_client:
             logger.error("LLM client not configured for ambient analyzer")
@@ -439,7 +401,23 @@ Respond with your reasoning and decision."""
         try:
             from dere_graph.llm_client import Message
 
-            messages = [Message(role="user", content=prompt)]
+            # Load personality and inject system prompt
+            messages = []
+            if self.personality_loader:
+                try:
+                    personality = self.personality_loader.load(self.config.personality)
+                    if personality and personality.prompt_content:
+                        messages.append(Message(role="system", content=personality.prompt_content))
+                        logger.info("Loaded personality: {}", self.config.personality)
+                    else:
+                        logger.warning("Personality {} loaded but has no prompt_content", self.config.personality)
+                except Exception as e:
+                    logger.warning("Failed to load personality {}: {}", self.config.personality, e)
+            else:
+                logger.warning("No personality_loader available")
+
+            messages.append(Message(role="user", content=prompt))
+
             decision = await self.llm_client.generate_response(
                 messages=messages, response_model=AmbientEngagementDecision
             )
@@ -449,15 +427,11 @@ Respond with your reasoning and decision."""
                 logger.info(
                     "Ambient decision: ENGAGE (priority={}) - {}",
                     decision.priority,
-                    (
-                        decision.message[:100] + "..."
-                        if len(decision.message) > 100
-                        else decision.message
-                    ),
+                    decision.message,
                 )
                 return decision.message, decision.priority
             else:
-                logger.debug("Ambient decision: NO ENGAGEMENT - {}", decision.reasoning)
+                logger.info("Ambient decision: NO ENGAGEMENT - {}", decision.reasoning)
                 return None
         except Exception as e:
             logger.error("Ambient LLM decision failed: {}", e)

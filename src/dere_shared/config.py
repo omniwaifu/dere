@@ -14,6 +14,7 @@ def load_dere_config() -> dict[str, Any]:
     Falls back to defaults if the config file doesn't exist or cannot be parsed.
     """
     config: dict[str, Any] = {
+        "default_personality": "tsun",
         "user": {
             "name": getpass.getuser(),
         },

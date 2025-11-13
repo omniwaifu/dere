@@ -23,7 +23,7 @@ class Notifier:
         priority: Literal["alert", "conversation"] = "alert",
         title: str = "Dere Ambient",
     ) -> bool:
-        """Send notification via configured channels.
+        """Send desktop notification via notify-send.
 
         Args:
             message: Notification message content
@@ -31,19 +31,9 @@ class Notifier:
             title: Notification title (for desktop notifications)
 
         Returns:
-            True if notification was sent successfully via at least one channel
+            True if notification was sent successfully
         """
-        success = False
-
-        if self.config.notification_method in ("notify-send", "both"):
-            if await self._send_desktop_notification(title, message):
-                success = True
-
-        if self.config.notification_method in ("daemon", "both"):
-            if await self._send_daemon_notification(message, priority):
-                success = True
-
-        return success
+        return await self._send_desktop_notification(title, message)
 
     async def _send_desktop_notification(self, title: str, message: str) -> bool:
         """Send desktop notification using notify-send.
@@ -57,12 +47,19 @@ class Notifier:
         """
         try:
             result = subprocess.run(
-                ["notify-send", title, message, "--urgency=normal", "--icon=dialog-information"],
+                [
+                    "notify-send",
+                    title,
+                    message,
+                    "--urgency=normal",
+                    "--icon=dialog-information",
+                    "--expire-time=15000",
+                ],
                 capture_output=True,
                 timeout=5,
             )
             if result.returncode == 0:
-                logger.info("Desktop notification sent: {}", message)
+                logger.debug("Desktop notification sent: {}", message)
                 return True
             logger.warning("notify-send failed with code {}", result.returncode)
             return False
@@ -71,32 +68,4 @@ class Notifier:
             return False
         except Exception as e:
             logger.error("Failed to send desktop notification: {}", e)
-            return False
-
-    async def _send_daemon_notification(
-        self, message: str, priority: Literal["alert", "conversation"]
-    ) -> bool:
-        """Send notification to daemon for routing to Discord bot or other channels.
-
-        Args:
-            message: Notification message
-            priority: Priority level for routing
-
-        Returns:
-            True if notification sent successfully
-        """
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.config.daemon_url}/ambient/notify",
-                    json={"message": message, "priority": priority},
-                    timeout=10,
-                )
-                if response.status_code == 200:
-                    logger.info("Daemon notification sent: {}", message)
-                    return True
-                logger.warning("Daemon notification failed with status {}", response.status_code)
-                return False
-        except Exception as e:
-            logger.error("Failed to send daemon notification: {}", e)
             return False
