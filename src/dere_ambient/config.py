@@ -21,6 +21,9 @@ class AmbientConfig:
     user_id: str = "default_user"
     personality: str = "tsun"
 
+    escalation_enabled: bool = True
+    escalation_lookback_hours: int = 12
+
 
 def load_ambient_config() -> AmbientConfig:
     """Load ambient configuration from dere config file.
@@ -40,6 +43,8 @@ def load_ambient_config() -> AmbientConfig:
         embedding_search_limit=ambient_section.get("embedding_search_limit", 20),
         context_change_threshold=ambient_section.get("context_change_threshold", 0.7),
         daemon_url=ambient_section.get("daemon_url", "http://localhost:8787"),
-        user_id=ambient_section.get("user_id", "default_user"),
+        user_id=ambient_section.get("user_id") or config.get("user_id", "default_user"),
         personality=ambient_section.get("personality", default_personality),
+        escalation_enabled=ambient_section.get("escalation_enabled", True),
+        escalation_lookback_hours=ambient_section.get("escalation_lookback_hours", 12),
     )

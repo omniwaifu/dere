@@ -36,6 +36,7 @@ class DereDiscordClient(discord.Client):
         self.daemon = daemon_client
         self.tree = app_commands.CommandTree(self)
         self._resolved_user_id: str | None = None  # Cached resolved user ID
+        self._recent_notifications: dict[int, list[int]] = {}  # channel_id -> [notification_ids]
 
     async def setup_hook(self) -> None:
         """Register slash commands when the bot starts."""
@@ -74,27 +75,24 @@ class DereDiscordClient(discord.Client):
         if not self.user:
             return
 
-        # Get user_id from config, bot owner, or use bot's own ID as fallback
-        user_id = self.config.user_id
-        if user_id is None:
-            # Try to fetch bot owner from application info
-            try:
-                app_info = await self.application_info()
-                if app_info.owner:
-                    user_id = str(app_info.owner.id)
-                    logger.info("Using bot owner ID {} for presence", user_id)
-            except Exception as e:
-                logger.warning("Could not fetch bot owner: {}", e)
+        # Get system user_id (platform-agnostic identifier)
+        # This should come from global config and defaults to system username
+        import getpass
 
-        # Final fallback: use bot's own ID (suboptimal but functional)
-        if user_id is None:
-            user_id = str(self.user.id)
-            logger.warning(
-                "Using bot's own ID {} for presence (consider setting user_id in config)", user_id
-            )
+        system_user_id = self.config.user_id or getpass.getuser()
+
+        # Get Discord owner ID for DM delivery (platform-specific)
+        discord_owner_id = None
+        try:
+            app_info = await self.application_info()
+            if app_info.owner:
+                discord_owner_id = str(app_info.owner.id)
+                logger.info("Discord bot owner ID: {}", discord_owner_id)
+        except Exception as e:
+            logger.warning("Could not fetch bot owner: {}", e)
 
         # Cache the resolved user_id for use in other methods
-        self._resolved_user_id = user_id
+        self._resolved_user_id = system_user_id
 
         # Get available channels
         channels = []
@@ -111,14 +109,29 @@ class DereDiscordClient(discord.Client):
                         }
                     )
 
-        # Add DM channels (can't enumerate easily, will be added dynamically)
-        logger.info("Registering presence with {} channels", len(channels))
+        # Add DM channel for ambient notifications (use Discord owner ID as target)
+        if discord_owner_id:
+            channels.append(
+                {
+                    "id": discord_owner_id,
+                    "name": "Direct Message",
+                    "type": "dm",
+                }
+            )
+        else:
+            logger.warning("No Discord owner ID available - DM notifications will not work")
+
+        logger.info(
+            "Registering presence for system user {} with {} channels",
+            system_user_id,
+            len(channels),
+        )
 
         # Retry with exponential backoff (daemon may not be ready yet)
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                await self.daemon.register_presence(user_id, channels)
+                await self.daemon.register_presence(system_user_id, channels)
                 logger.info("Presence registered successfully")
                 return
             except Exception as e:
@@ -185,6 +198,12 @@ class DereDiscordClient(discord.Client):
                 # Guild channel delivery
                 await channel.send(message)
                 await self.daemon.mark_notification_delivered(notification_id)
+
+                # Track notification for acknowledgment
+                if target_id not in self._recent_notifications:
+                    self._recent_notifications[target_id] = []
+                self._recent_notifications[target_id].append(notification_id)
+
                 logger.info(
                     "Notification {} delivered to channel {}", notification_id, channel.name
                 )
@@ -194,6 +213,12 @@ class DereDiscordClient(discord.Client):
                     user = await self.fetch_user(target_id)
                     await user.send(message)
                     await self.daemon.mark_notification_delivered(notification_id)
+
+                    # Track notification for acknowledgment (use user ID for DMs)
+                    if target_id not in self._recent_notifications:
+                        self._recent_notifications[target_id] = []
+                    self._recent_notifications[target_id].append(notification_id)
+
                     logger.info(
                         "Notification {} delivered to DM with user {}", notification_id, user.name
                     )
@@ -224,6 +249,18 @@ class DereDiscordClient(discord.Client):
         guild_id = message.guild.id if message.guild else None
         channel_id = message.channel.id
         user_id = message.author.id
+
+        # Acknowledge any recent notifications in this channel/DM
+        notification_key = channel_id if message.guild else user_id
+        if notification_key in self._recent_notifications:
+            for notif_id in self._recent_notifications[notification_key]:
+                try:
+                    await self.daemon.mark_notification_acknowledged(notif_id)
+                    logger.debug("Notification {} acknowledged", notif_id)
+                except Exception as e:
+                    logger.warning("Failed to acknowledge notification {}: {}", notif_id, e)
+            # Clear acknowledged notifications
+            del self._recent_notifications[notification_key]
 
         typing_cm = message.channel.typing()
         typing_active = True

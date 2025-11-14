@@ -36,25 +36,63 @@ class ContextAnalyzer:
         self.llm_client = llm_client
         self.personality_loader = personality_loader
 
+
+    async def _get_recent_unacknowledged_notifications(self) -> list[dict[str, Any]]:
+        """Query recent unacknowledged notifications for escalation context.
+
+        Returns:
+            List of recent notification data with context
+        """
+        if not self.config.escalation_enabled:
+            return []
+
+        try:
+            async with httpx.AsyncClient() as client:
+                from datetime import datetime, timedelta
+
+                lookback_time = datetime.now(UTC) - timedelta(hours=self.config.escalation_lookback_hours)
+
+                response = await client.post(
+                    f"{self.daemon_url}/notifications/recent_unacknowledged",
+                    json={
+                        "user_id": self.config.user_id,
+                        "since": lookback_time.isoformat(),
+                    },
+                    timeout=10,
+                )
+                if response.status_code == 200:
+                    return response.json().get("notifications", [])
+                elif response.status_code == 404:
+                    logger.debug("No recent unacknowledged notifications found")
+                    return []
+                else:
+                    logger.warning("Failed to query recent notifications: {}", response.status_code)
+                    return []
+
+        except Exception as e:
+            logger.debug("Failed to get recent notifications: {}", e)
+            return []
+
     async def should_engage(
         self,
-    ) -> tuple[bool, str | None, Literal["alert", "conversation"], str | None, str | None]:
+    ) -> tuple[bool, str | None, Literal["alert", "conversation"], str | None, str | None, int | None]:
         """Determine if bot should engage with user.
 
         Returns:
-            Tuple of (should_engage, message, priority, target_medium, target_location)
+            Tuple of (should_engage, message, priority, target_medium, target_location, parent_notification_id)
             - should_engage: True if bot should reach out
             - message: Optional message to send
             - priority: 'alert' for simple notification, 'conversation' for chat request
             - target_medium: Where to route (discord, telegram, desktop)
             - target_location: Channel/DM ID within medium
+            - parent_notification_id: ID of notification being followed up on (if escalation)
         """
         try:
             # Step 1: Check current activity first (most important)
             current_activity = await self._get_current_activity()
             if not current_activity:
                 logger.info("No current activity detected from ActivityWatch - skipping check")
-                return False, None, "alert", None, None
+                return False, None, "alert", None, None, None
 
             app = current_activity.get("app", "")
             duration_seconds = current_activity.get("duration", 0)
@@ -82,7 +120,7 @@ class ContextAnalyzer:
                         minutes_idle,
                         self.config.idle_threshold_minutes,
                     )
-                    return False, None, "alert", None, None
+                    return False, None, "alert", None, None, None
             else:
                 logger.info("No previous interactions found (cold start)")
 
@@ -102,13 +140,18 @@ class ContextAnalyzer:
             if entity_context:
                 logger.debug("Entity context: {}", entity_context[:100])
 
+            # Step 3c: Get recent unacknowledged notifications for escalation
+            previous_notifications = await self._get_recent_unacknowledged_notifications()
+            if previous_notifications:
+                logger.info("Found {} recent unacknowledged notifications", len(previous_notifications))
+
             # Step 4: Evaluate engagement (using LLM)
             engagement_reason = await self._evaluate_engagement(
-                current_activity, previous_context, minutes_idle, emotion_summary, entity_context
+                current_activity, previous_context, minutes_idle, emotion_summary, entity_context, previous_notifications
             )
 
             if engagement_reason:
-                message, priority = engagement_reason
+                message, priority, parent_notification_id = engagement_reason
 
                 # Step 5: Route the message using LLM-based routing
                 routing = await self._route_message(
@@ -116,18 +159,18 @@ class ContextAnalyzer:
                 )
                 if routing:
                     target_medium, target_location, routing_reason = routing
-                    return True, message, priority, target_medium, target_location
+                    return True, message, priority, target_medium, target_location, parent_notification_id
 
             logger.info(
                 "No engagement conditions met (activity: {}, duration: {:.1f}h)",
                 app,
                 duration_hours,
             )
-            return False, None, "alert", None, None
+            return False, None, "alert", None, None, None
 
         except Exception as e:
             logger.error("Error in engagement analysis: {}", e)
-            return False, None, "alert", None, None
+            return False, None, "alert", None, None, None
 
     async def _get_last_interaction_time(self) -> float | None:
         """Get timestamp of last user interaction from daemon.
@@ -361,6 +404,27 @@ class ContextAnalyzer:
 
         return None
 
+
+    async def _get_last_dm_message(self) -> dict[str, Any] | None:
+        """Get the last Discord DM message for conversation continuity.
+
+        Returns:
+            Dictionary with message, type, timestamp, minutes_ago, or None if no DMs
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.daemon_url}/conversations/last_dm/{self.config.user_id}",
+                    timeout=5,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("message"):
+                        return data
+        except Exception as e:
+            logger.debug("Failed to get last DM: {}", e)
+        return None
+
     async def _evaluate_engagement(
         self,
         current_activity: dict[str, Any],
@@ -368,7 +432,8 @@ class ContextAnalyzer:
         minutes_idle: float | None,
         emotion_summary: str | None = None,
         entity_context: str | None = None,
-    ) -> tuple[str, Literal["alert", "conversation"]] | None:
+        previous_notifications: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, Literal["alert", "conversation"], int | None] | None:
         """Evaluate whether to engage based on context using LLM.
 
         Args:
@@ -377,22 +442,46 @@ class ContextAnalyzer:
             minutes_idle: Minutes since last interaction (optional, None for cold start)
             emotion_summary: User's current emotional state (optional)
             entity_context: Recent entities/topics user has worked with (optional)
+            previous_notifications: Recent unacknowledged notifications (optional)
 
         Returns:
-            Tuple of (message, priority) if should engage, None otherwise
+            Tuple of (message, priority, parent_notification_id) if should engage, None otherwise
         """
-        # Get task context
         task_context = get_task_context(limit=5, include_overdue=True, include_due_soon=True)
 
-        # Build prompt for LLM decision
-        prompt = f"""Current activity: {current_activity}
-Previous context: {previous_context}
-Minutes idle: {minutes_idle}
-Emotion: {emotion_summary}
-Entities: {entity_context}
-Tasks: {task_context}
+        # Get last DM message for conversation continuity
+        last_dm = await self._get_last_dm_message()
 
-If there are overdue tasks, upcoming deadlines, or relevant context worth mentioning, engage. Otherwise don't."""
+        prompt_parts = [
+            f"Current activity: {current_activity}",
+            f"Previous context: {previous_context}",
+            f"Minutes idle: {minutes_idle}",
+            f"Emotion: {emotion_summary}",
+            f"Entities: {entity_context}",
+            f"Tasks: {task_context}",
+        ]
+
+        # Add last DM context for continuity
+        if last_dm:
+            minutes_ago = last_dm["minutes_ago"]
+            msg_content = last_dm["message"][:200]  # Truncate if very long
+            msg_type = last_dm["message_type"]
+
+            if msg_type == "assistant":
+                prompt_parts.append(f"\nLast DM: You messaged user {minutes_ago}m ago: '{msg_content}'")
+            else:
+                prompt_parts.append(f"\nLast DM: User messaged you {minutes_ago}m ago: '{msg_content}'")
+
+        if previous_notifications:
+            notif_summary = "\n".join([
+                f"- [{n.get('created_at')}] {n.get('message')} (status: {n.get('status')}, acknowledged: {n.get('acknowledged')})"
+                for n in previous_notifications[:3]
+            ])
+            prompt_parts.append(f"\nPrevious notifications sent:\n{notif_summary}")
+            prompt_parts.append("\nConsider whether these were addressed or ignored. If ignored and still relevant, you may escalate or follow up with appropriate tone.")
+
+        prompt_parts.append("\nIf there are overdue tasks, upcoming deadlines, or relevant context worth mentioning, engage. Otherwise don't.")
+        prompt = "\n".join(prompt_parts)
 
         if not self.llm_client:
             logger.error("LLM client not configured for ambient analyzer")
@@ -401,7 +490,6 @@ If there are overdue tasks, upcoming deadlines, or relevant context worth mentio
         try:
             from dere_graph.llm_client import Message
 
-            # Load personality and inject system prompt
             messages = []
             if self.personality_loader:
                 try:
@@ -422,14 +510,14 @@ If there are overdue tasks, upcoming deadlines, or relevant context worth mentio
                 messages=messages, response_model=AmbientEngagementDecision
             )
 
-            # Log the ambient decision for debugging
             if decision.should_engage and decision.message:
                 logger.info(
                     "Ambient decision: ENGAGE (priority={}) - {}",
                     decision.priority,
                     decision.message,
                 )
-                return decision.message, decision.priority
+                parent_id = previous_notifications[0].get("id") if previous_notifications else None
+                return decision.message, decision.priority, parent_id
             else:
                 logger.info("Ambient decision: NO ENGAGEMENT - {}", decision.reasoning)
                 return None

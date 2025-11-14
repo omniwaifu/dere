@@ -348,16 +348,19 @@ class OCCEmotionManager:
         dominant = self.get_current_dominant_emotion()
 
         if not dominant or dominant.type == "neutral":
-            return "User appears to be in a neutral emotional state."
+            return "Note: No particular emotional signals detected."
 
-        # Format emotion name: OCCEmotionType.INTEREST -> "Interest"
-        emotion_name = dominant.type.name.replace("_", " ").title()
-        intensity_desc = (
-            "strongly"
-            if dominant.intensity > 70
-            else "moderately"
-            if dominant.intensity > 40
-            else "mildly"
-        )
+        # Format emotion name: OCCEmotionType.INTEREST -> "interest"
+        emotion_name = dominant.type.name.replace("_", " ").lower()
 
-        return f"User appears to be feeling {intensity_desc} {emotion_name} (intensity: {dominant.intensity:.0f}/100)."
+        # Get intensity-specific guidance
+        def get_tone_guidance(intensity: float) -> str:
+            if intensity > 70:
+                return "Respond with care and attention to this."
+            elif intensity > 40:
+                return "Keep this in mind when responding."
+            else:
+                return "Minor signal, don't overreact."
+
+        guidance = get_tone_guidance(dominant.intensity)
+        return f"Context: User showing signs of {emotion_name}. {guidance}"

@@ -86,8 +86,52 @@ class DiscordAgent:
                 context_text = await get_full_context(
                     session_id=session.session_id, last_message_time=last_message_time
                 )
+
+                # Add recent ambient notifications to context
+                notification_context = ""
+                try:
+                    from datetime import UTC, datetime, timedelta
+
+                    import httpx
+
+                    daemon_url = "http://localhost:8787"
+                    async with httpx.AsyncClient() as client:
+                        # Query notifications from last hour that were delivered to this channel/DM
+                        lookback_time = datetime.now(UTC) - timedelta(hours=1)
+                        response = await client.post(
+                            f"{daemon_url}/notifications/recent_unacknowledged",
+                            json={
+                                "user_id": str(session.user_id) if hasattr(session, 'user_id') else "default_user",
+                                "since": lookback_time.isoformat(),
+                            },
+                            timeout=2.0,
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            notifications = data.get("notifications", [])
+                            # Filter to only this channel/DM
+                            relevant_notifs = [
+                                n for n in notifications
+                                if n.get("target_location") == str(channel_id)
+                                or (guild_id is None and n.get("target_location") == str(user_id))
+                            ]
+                            if relevant_notifs:
+                                notif_messages = []
+                                for n in relevant_notifs[-3:]:  # Last 3 notifications
+                                    msg = n.get("message", "")[:200]  # Truncate long messages
+                                    notif_messages.append(f"- {msg}")
+                                notification_context = (
+                                    "\n\n[System: You recently sent ambient notifications to this user:\n"
+                                    + "\n".join(notif_messages)
+                                    + "\nThe user is now responding. You may acknowledge or adjust based on their reply.]"
+                                )
+                except Exception as e:
+                    logger.debug("Failed to fetch notification context: {}", e)
+
                 if context_text:
-                    prompt = f"{context_text}\n\n{content}"
+                    prompt = f"{context_text}{notification_context}\n\n{content}"
+                elif notification_context:
+                    prompt = f"{notification_context}\n\n{content}"
 
             await send_initial()
 

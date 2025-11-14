@@ -204,6 +204,11 @@ class NotificationCreateRequest(BaseModel):
     message: str
     priority: str
     routing_reasoning: str
+    parent_notification_id: int | None = None
+    context_snapshot: dict[str, Any] | None = None
+    trigger_type: str | None = None
+    trigger_id: str | None = None
+    trigger_data: dict[str, Any] | None = None
 
 
 class SynthesisRunRequest(BaseModel):
@@ -1265,8 +1270,8 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                         speaker_name=canonical_user_name,
                         personality=req.personality,
                     )
-                except Exception as e:
-                    logger.error(f"Failed to add episode to knowledge graph: {e}")
+                except Exception:
+                    logger.exception("Failed to add episode to knowledge graph")
 
             # Process emotion
             try:
@@ -1364,7 +1369,7 @@ Focus on:
 
 Summary:"""
 
-            summary = await app.state.dere_graph.llm_client.generate(summary_prompt)
+            summary = await app.state.dere_graph.llm_client.generate_text_response(summary_prompt)
             summary = summary.strip()
             if summary.startswith("Summary:"):
                 summary = summary.replace("Summary:", "").strip()
@@ -1854,7 +1859,7 @@ async def routing_decide(req: RoutingDecideRequest, db: AsyncSession = Depends(g
     available_mediums = [
         {
             "medium": p.medium,
-            "available_channels": json.loads(p.available_channels) if p.available_channels else [],
+            "available_channels": p.available_channels if p.available_channels else [],
             "last_heartbeat": p.last_heartbeat,
         }
         for p in presences
@@ -1902,6 +1907,7 @@ async def notifications_create(req: NotificationCreateRequest, db: AsyncSession 
 
     Called by ambient monitor when it decides to engage.
     """
+    from dere_shared.models import NotificationContext
 
     notification = Notification(
         user_id=req.user_id,
@@ -1912,18 +1918,117 @@ async def notifications_create(req: NotificationCreateRequest, db: AsyncSession 
         routing_reasoning=req.routing_reasoning,
         status="pending",
         created_at=datetime.now(UTC),
+        parent_notification_id=req.parent_notification_id,
     )
     db.add(notification)
     await db.flush()
 
+    if req.context_snapshot or req.trigger_type:
+        notif_context = NotificationContext(
+            notification_id=notification.id,
+            trigger_type=req.trigger_type,
+            trigger_id=req.trigger_id,
+            trigger_data=req.trigger_data,
+            context_snapshot=req.context_snapshot,
+        )
+        db.add(notif_context)
+
+    await db.commit()
+
+    # Truncate message for logging
+    message_preview = req.message[:100] + "..." if len(req.message) > 100 else req.message
     logger.info(
-        "Notification {} created: {} -> {} ({})",
+        "Notification {} created: {} -> {} ({}) | \"{}\"",
         notification.id,
         req.target_medium,
         req.target_location,
         req.priority,
+        message_preview,
     )
     return {"notification_id": notification.id, "status": "queued"}
+
+
+class NotificationQueryRequest(BaseModel):
+    user_id: str
+    since: str
+
+
+@app.post("/notifications/recent_unacknowledged")
+async def notifications_recent_unacknowledged(
+    req: NotificationQueryRequest, db: AsyncSession = Depends(get_db)
+):
+    """Query recent unacknowledged notifications for escalation context.
+
+    Returns notifications that were delivered but not acknowledged within the lookback period.
+    """
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    since_time = datetime.fromisoformat(req.since)
+
+    stmt = (
+        select(Notification)
+        .where(
+            Notification.user_id == req.user_id,
+            Notification.created_at >= since_time,
+            Notification.status == "delivered",
+            ~Notification.acknowledged,
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(10)
+    )
+
+    result = await db.execute(stmt)
+    notifications = result.scalars().all()
+
+    return {
+        "notifications": [
+            {
+                "id": n.id,
+                "message": n.message,
+                "priority": n.priority,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "delivered_at": n.delivered_at.isoformat() if n.delivered_at else None,
+                "status": n.status,
+                "acknowledged": n.acknowledged,
+                "parent_notification_id": n.parent_notification_id,
+            }
+            for n in notifications
+        ]
+    }
+
+
+@app.get("/conversations/last_dm/{user_id}")
+async def get_last_dm_message(user_id: str, db: AsyncSession = Depends(get_db)):
+    """Get the last message exchanged in Discord DMs with this user.
+
+    Used by ambient monitor to provide conversation continuity context.
+    """
+    from sqlalchemy import select
+
+    stmt = (
+        select(Conversation)
+        .where(Conversation.user_id == user_id)
+        .where(Conversation.medium == "discord")
+        .order_by(Conversation.timestamp.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    last_msg = result.scalar_one_or_none()
+
+    if last_msg:
+        import time
+
+        minutes_ago = int((time.time() - last_msg.timestamp) / 60)
+        return {
+            "message": last_msg.prompt,
+            "message_type": last_msg.message_type,
+            "timestamp": last_msg.timestamp,
+            "minutes_ago": minutes_ago,
+            "session_id": last_msg.session_id,
+        }
+    return {"message": None}
 
 
 @app.get("/notifications/pending")
@@ -1979,6 +2084,30 @@ async def notification_delivered(notification_id: int, db: AsyncSession = Depend
 
     logger.info("Notification {} marked as delivered", notification_id)
     return {"status": "delivered"}
+
+
+@app.post("/notifications/{notification_id}/acknowledge")
+async def notification_acknowledge(notification_id: int, db: AsyncSession = Depends(get_db)):
+    """Mark a notification as acknowledged by the user.
+
+    Called when user responds/interacts after receiving notification.
+    This prevents escalation of the notification.
+    """
+    from sqlalchemy import update
+
+    stmt = (
+        update(Notification)
+        .where(Notification.id == notification_id)
+        .values(
+            acknowledged=True,
+            acknowledged_at=datetime.now(UTC),
+        )
+    )
+    await db.execute(stmt)
+    await db.commit()
+
+    logger.info("Notification {} acknowledged by user", notification_id)
+    return {"status": "acknowledged"}
 
 
 @app.post("/notifications/{notification_id}/failed")

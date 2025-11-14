@@ -189,6 +189,28 @@ Interpret through your {persona_name} personality - your characteristic way of r
 3. **Map to OCC Emotion(s):** Determine what specific emotions the USER is experiencing and their intensity (0-100) based on appraisal.
    Your {persona_name} perspective may pick up on nuances others might miss or emphasize different emotional aspects.
 
+   INTENSITY CALIBRATION (0-100 scale):
+   - 10-30: Subtle/mild emotion (passing thought, slight preference, minor reaction)
+   - 30-50: Noticeable emotion (clear feeling, colors perspective)
+   - 50-70: Strong emotion (significant response, influences behavior)
+   - 70-90: Intense emotion (dominant state, hard to ignore)
+   - 90-100: Overwhelming (peak experience, all-consuming)
+
+   IMPORTANT: Most normal conversation involves mild emotions (20-40 range).
+   Reserve 70+ for genuinely intense emotional moments (excitement, distress, anger, etc.).
+
+   Map appraisal strength to intensity:
+   - Desirability/appealingness ±1-3 → intensity 15-35
+   - Desirability/appealingness ±4-6 → intensity 35-60
+   - Desirability/appealingness ±7-9 → intensity 60-85
+   - Desirability/appealingness ±10 → intensity 85-95
+
+   Examples:
+   - "that's neat" → interest: 25 (mild curiosity)
+   - "I'm really excited about this!" → joy: 75 (strong enthusiasm)
+   - "ugh, frustrated" → distress: 45 (moderate irritation)
+   - "THIS IS AMAZING!!!" → joy: 90 (overwhelming excitement)
+
 4. **Trust Delta:** If the stimulus significantly impacts the user's trust, suggest adjustment (-0.1 to 0.1).
 
 Use the user's profile, goals, standards, attitudes, AND temporal context to interpret what the user is experiencing.

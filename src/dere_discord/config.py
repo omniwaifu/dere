@@ -166,6 +166,7 @@ def load_discord_config(
         os.getenv("DERE_DISCORD_USER_ID")
         or discord_section.get("user_id")
         or discord_section.get("owner_id")
+        or raw.get("user_id")  # Fall back to global user_id
     )
     if user_id is not None:
         user_id = str(user_id)

@@ -577,8 +577,8 @@ class DereGraph:
         RETURN count(e) as deleted
         """
         result = await self.driver.execute_query(query, uuids=uuids)
-        if result.result_set:
-            return result.result_set[0][0]
+        if result:
+            return result[0]["deleted"]
         return 0
 
     async def bfs_search_nodes(
@@ -659,9 +659,9 @@ class DereGraph:
             group_id=group_id,
         )
 
-        if result.result_set:
-            last_conversation_id = result.result_set[0][0]
-            last_valid_at_str = result.result_set[0][1]
+        if result:
+            last_conversation_id = result[0]["conversation_id"]
+            last_valid_at_str = result[0]["valid_at"]
 
             if last_valid_at_str:
                 last_valid_at = datetime.fromisoformat(last_valid_at_str)

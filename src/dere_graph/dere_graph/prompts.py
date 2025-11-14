@@ -152,8 +152,8 @@ CRITICAL: When extracting entities, resolve first-person pronouns:
 - Link all first-person actions/preferences/statements to the speaker entity
 
 Example:
-- "I like the color blue" → Extract: Entity("{speaker_name}", type="User"), Entity("blue", type="Color")
-- "My project is called dere" → Extract: Entity("{speaker_name}", type="User"), Entity("dere", type="Project")
+- "I like the color blue" → Extract: Entity("{{speaker_name}}", type="User"), Entity("blue", type="Color")
+- "My project is called dere" → Extract: Entity("{{speaker_name}}", type="User"), Entity("dere", type="Project")
 """
     elif speaker_name:
         speaker_context = f"""
@@ -177,8 +177,8 @@ CRITICAL: When extracting entities:
 - Extract {personality} as an entity when the user addresses the bot
 
 Example:
-- "I like you" → Extract: Entity("{speaker_name or "User"}", type="User"), Entity("{personality}", type="Assistant")
-- "You are helpful" → Extract: Entity("{personality}", type="Assistant")
+- "I like you" → Extract: Entity("{{speaker_name or "User"}}", type="User"), Entity("{{personality}}", type="Assistant")
+- "You are helpful" → Extract: Entity("{{personality}}", type="Assistant")
 """
 
     # Build entity type constraints
@@ -231,7 +231,7 @@ For each entity, extract relevant attributes that help distinguish it from simil
 - For Tasks: deadline, priority, status, assignee
 - For Concepts: domain, definition
 
-For speaker entities, include: {{"is_speaker": true, "user_id": "{speaker_id if speaker_id else "unknown"}"}}
+For speaker entities, include: {{"is_speaker": true, "user_id": "{{speaker_id if speaker_id else "unknown"}}"}}
 
 Only include attributes that are explicitly mentioned or clearly implied in the text.
 Empty attributes dict is acceptable if no distinguishing attributes are present.
@@ -312,9 +312,9 @@ You may use information from the PREVIOUS MESSAGES only to disambiguate referenc
    - "You're neat" → justin LIKES tsun
 
    Examples (Bot perspective - when bot responds):
-   - Bot says: "My favorite color is red" → {personality} FAVORITE_IS red
-   - Bot says: "I like classical music" → {personality} LIKES classical_music
-   - Bot says: "I prefer Python over JavaScript" → {personality} PREFERS Python
+   - Bot says: "My favorite color is red" → {{personality}} FAVORITE_IS red
+   - Bot says: "I like classical music" → {{personality}} LIKES classical_music
+   - Bot says: "I prefer Python over JavaScript" → {{personality}} PREFERS Python
 
 4. Do not emit duplicate or semantically redundant facts.
 5. The fact should closely paraphrase the original source sentence(s).
@@ -580,9 +580,9 @@ Guidelines:
 - If extraction looks good, it's fine to return empty lists for missed/hallucinated entities
 
 Return your analysis in this format:
-- missed_entities: list of {name, summary} for missed entities
+- missed_entities: list of {{{{name, summary}}}} for missed entities
 - hallucinated_entities: list of entity names that should be removed
-- refinements: list of {original_name, refined_name, refined_summary} for improvements
+- refinements: list of {{{{original_name, refined_name, refined_summary}}}} for improvements
 """
     return [
         Message(role="system", content=sys_prompt),

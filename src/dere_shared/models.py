@@ -344,7 +344,27 @@ class Notification(SQLModel, table=True):
     status: str = Field(default="pending")
     error_message: str | None = None
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
-    delivered_at: datetime | None = None
+    delivered_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+    parent_notification_id: int | None = Field(default=None, foreign_key="ambient_notifications.id")
+    acknowledged: bool = Field(default=False)
+    acknowledged_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+
+class NotificationContext(SQLModel, table=True):
+    """Tracks the context/trigger that caused a notification for follow-up detection."""
+    __tablename__ = "notification_context"
+
+    id: int | None = Field(default=None, primary_key=True)
+    notification_id: int = Field(foreign_key="ambient_notifications.id")
+
+    trigger_type: str | None = None
+    trigger_id: str | None = None
+    trigger_data: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+
+    context_snapshot: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
 
 class Presence(SQLModel, table=True):
@@ -354,7 +374,7 @@ class Presence(SQLModel, table=True):
     user_id: str = Field(primary_key=True)
     status: str = Field(default="online")
     last_heartbeat: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
-    available_channels: dict[str, Any] | None = Field(
+    available_channels: list[dict[str, Any]] | None = Field(
         default=None, sa_column=Column("available_channels", JSONB)
     )
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))

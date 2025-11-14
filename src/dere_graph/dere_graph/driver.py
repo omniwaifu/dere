@@ -368,7 +368,10 @@ class FalkorDriver:
             created_at=datetime.fromisoformat(record["created_at"])
             if record["created_at"]
             else None,
-            mention_count=record.get("mention_count", 1),
+            mention_count=record.get("mention_count") or 1,
+            retrieval_count=record.get("retrieval_count") or 0,
+            citation_count=record.get("citation_count") or 0,
+            retrieval_quality=record.get("retrieval_quality") or 1.0,
             labels=[label for label in record["labels"] if label != "Entity"],
             attributes=attributes,
         )

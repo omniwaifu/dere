@@ -9,7 +9,6 @@ from loguru import logger
 
 from .analyzer import ContextAnalyzer
 from .config import AmbientConfig
-from .notifier import Notifier
 
 if TYPE_CHECKING:
     from dere_graph.llm_client import ClaudeClient
@@ -29,7 +28,6 @@ class AmbientMonitor:
         self.analyzer = ContextAnalyzer(
             config, llm_client=llm_client, personality_loader=personality_loader
         )
-        self.notifier = Notifier(config)
         self._running = False
         self._task: asyncio.Task[Any] | None = None
 
@@ -131,42 +129,37 @@ class AmbientMonitor:
                 priority,
                 target_medium,
                 target_location,
+                parent_notification_id,
             ) = await self.analyzer.should_engage()
 
             if should_engage and message and target_medium and target_location:
-                # Desktop notifications are sent immediately, others are queued for bots to poll
-                if target_medium == "desktop":
-                    success = await self.notifier.send_notification(
-                        message=message,
-                        priority=priority,
-                        title="Dere Check-in",
-                    )
-                    if not success:
-                        logger.error("Desktop notification failed to send")
-                else:
-                    # Create notification in queue for delivery by bots (Discord, Telegram, etc)
-                    import httpx
+                # Create notification in queue for delivery by bots (Discord, Telegram, etc)
+                import httpx
 
-                    user_id = self.config.user_id
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            # Create notification via daemon API
-                            response = await client.post(
-                                f"{self.config.daemon_url}/notifications/create",
-                                json={
-                                    "user_id": user_id,
-                                    "target_medium": target_medium,
-                                    "target_location": target_location,
-                                    "message": message,
-                                    "priority": priority,
-                                    "routing_reasoning": "LLM-based ambient engagement",
-                                },
-                                timeout=10,
-                            )
-                            if response.status_code != 200:
-                                logger.warning("Failed to queue notification: {}", response.status_code)
-                    except Exception as e:
-                        logger.error("Failed to queue notification: {}", e)
+                user_id = self.config.user_id
+                try:
+                    async with httpx.AsyncClient() as client:
+                        # Create notification via daemon API
+                        payload = {
+                            "user_id": user_id,
+                            "target_medium": target_medium,
+                            "target_location": target_location,
+                            "message": message,
+                            "priority": priority,
+                            "routing_reasoning": "LLM-based ambient engagement",
+                        }
+                        if parent_notification_id:
+                            payload["parent_notification_id"] = parent_notification_id
+
+                        response = await client.post(
+                            f"{self.config.daemon_url}/notifications/create",
+                            json=payload,
+                            timeout=10,
+                        )
+                        if response.status_code != 200:
+                            logger.warning("Failed to queue notification: {}", response.status_code)
+                except Exception as e:
+                    logger.error("Failed to queue notification: {}", e)
             else:
                 logger.info("Ambient check complete: No engagement needed at this time")
 

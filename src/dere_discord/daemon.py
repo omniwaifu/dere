@@ -108,6 +108,16 @@ class DaemonClient:
         resp = await self._client.post(f"/notifications/{notification_id}/delivered")
         resp.raise_for_status()
 
+
+    async def mark_notification_acknowledged(self, notification_id: int) -> None:
+        """Mark notification as acknowledged by user.
+
+        Args:
+            notification_id: Notification ID
+        """
+        resp = await self._client.post(f"/notifications/{notification_id}/acknowledge")
+        resp.raise_for_status()
+
     async def mark_notification_failed(self, notification_id: int, error: str) -> None:
         """Mark notification as failed.
 

@@ -15,6 +15,7 @@ def load_dere_config() -> dict[str, Any]:
     """
     config: dict[str, Any] = {
         "default_personality": "tsun",
+        "user_id": getpass.getuser(),  # Global user identifier for single-user system
         "user": {
             "name": getpass.getuser(),
         },
