@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from .analyzer import ContextAnalyzer
 from .config import AmbientConfig
+from .fsm import AmbientFSM, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
     from dere_graph.llm_client import ClaudeClient
@@ -30,6 +32,29 @@ class AmbientMonitor:
         )
         self._running = False
         self._task: asyncio.Task[Any] | None = None
+
+        # Initialize FSM if enabled
+        if config.fsm_enabled:
+            intervals = StateIntervals(
+                idle=config.fsm_idle_interval,
+                monitoring=config.fsm_monitoring_interval,
+                engaged=config.fsm_engaged_interval,
+                cooldown=config.fsm_cooldown_interval,
+                escalating=config.fsm_escalating_interval,
+                suppressed=config.fsm_suppressed_interval,
+            )
+            weights = SignalWeights(
+                activity=config.fsm_weight_activity,
+                emotion=config.fsm_weight_emotion,
+                responsiveness=config.fsm_weight_responsiveness,
+                temporal=config.fsm_weight_temporal,
+                task=config.fsm_weight_task,
+            )
+            self.fsm = AmbientFSM(intervals=intervals, weights=weights)
+            logger.info("Ambient FSM initialized")
+        else:
+            self.fsm = None
+            logger.info("Ambient FSM disabled, using fixed intervals")
 
     async def start(self) -> None:
         """Start the monitoring loop."""
@@ -115,14 +140,28 @@ class AmbientMonitor:
             except Exception as e:
                 logger.error("Error in ambient monitor loop: {}", e)
 
-            logger.info(
-                "Ambient monitor: Next check in {}m", self.config.check_interval_minutes
-            )
-            await asyncio.sleep(self.config.check_interval_minutes * 60)
+            # Calculate next interval (FSM-driven or fixed)
+            if self.fsm:
+                interval_seconds = self.fsm.calculate_next_interval()
+                state = self.fsm.state
+                logger.info(
+                    f"Ambient FSM: {state.value} → sleeping {interval_seconds/60:.1f}m"
+                )
+            else:
+                interval_seconds = self.config.check_interval_minutes * 60
+                logger.info(
+                    "Ambient monitor: Next check in {}m", self.config.check_interval_minutes
+                )
+
+            await asyncio.sleep(interval_seconds)
 
     async def _check_and_engage(self) -> None:
         """Check context and engage if appropriate."""
         try:
+            # Evaluate FSM state transitions before engagement decision
+            if self.fsm:
+                await self._evaluate_fsm_state()
+
             (
                 should_engage,
                 message,
@@ -158,6 +197,15 @@ class AmbientMonitor:
                         )
                         if response.status_code != 200:
                             logger.warning("Failed to queue notification: {}", response.status_code)
+                        else:
+                            # Transition to ENGAGED state after successful notification
+                            if self.fsm:
+                                from .fsm import AmbientState
+
+                                self.fsm.transition_to(
+                                    AmbientState.ENGAGED, "notification sent"
+                                )
+                                self.fsm.last_notification_time = asyncio.get_event_loop().time()
                 except Exception as e:
                     logger.error("Failed to queue notification: {}", e)
             else:
@@ -165,3 +213,77 @@ class AmbientMonitor:
 
         except Exception as e:
             logger.error("Error during ambient check and engage: {}", e)
+
+    async def _evaluate_fsm_state(self) -> None:
+        """Evaluate FSM signals and transition state if appropriate."""
+        if not self.fsm:
+            return
+
+        import httpx
+
+        try:
+            # Gather signals for FSM evaluation
+            async with httpx.AsyncClient() as client:
+                # Get current activity
+                import socket
+
+                hostname = socket.gethostname()
+                window_events = self.analyzer.aw_client.get_window_events(
+                    hostname, lookback_minutes=10
+                )
+                activity_data = {}
+                if window_events:
+                    latest = window_events[0]
+                    activity_data = {
+                        "app_name": latest.get("app", ""),
+                        "duration_seconds": latest.get("duration", 0),
+                    }
+
+                # Get emotion state
+                emotion_data = {"emotion_type": "neutral", "intensity": 0}
+                try:
+                    # Get most recent session for user (simplified - in practice need better session tracking)
+                    response = await client.get(
+                        f"{self.config.daemon_url}/emotion/summary/0",  # Placeholder
+                        timeout=2.0,
+                    )
+                    if response.status_code == 200:
+                        # Parse emotion from summary text
+                        # This is simplified - actual implementation would need proper session tracking
+                        pass
+                except Exception:
+                    pass
+
+                # Get recent notifications for responsiveness signal
+                notification_history = []
+                try:
+                    response = await client.get(
+                        f"{self.config.daemon_url}/notifications/recent?user_id={self.config.user_id}&limit=5",
+                        timeout=2.0,
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        notification_history = data.get("notifications", [])
+                except Exception:
+                    pass
+
+                # Get task data (simplified)
+                task_data = {"overdue_count": 0, "due_soon_count": 0}
+
+                # Current hour for temporal signal (use local timezone, not UTC)
+                current_hour = datetime.now().hour
+
+                # Evaluate state transition
+                new_state = self.fsm.should_transition(
+                    activity_data=activity_data,
+                    emotion_data=emotion_data,
+                    notification_history=notification_history,
+                    task_data=task_data,
+                    current_hour=current_hour,
+                )
+
+                if new_state:
+                    self.fsm.transition_to(new_state, "signal evaluation")
+
+        except Exception as e:
+            logger.debug(f"Error evaluating FSM state: {e}")

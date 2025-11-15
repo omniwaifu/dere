@@ -349,6 +349,11 @@ class Notification(SQLModel, table=True):
     parent_notification_id: int | None = Field(default=None, foreign_key="ambient_notifications.id")
     acknowledged: bool = Field(default=False)
     acknowledged_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    response_time: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
+        description="When user first interacted with notification (for response time tracking)",
+    )
 
 
 class NotificationContext(SQLModel, table=True):

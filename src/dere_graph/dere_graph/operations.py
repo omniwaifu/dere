@@ -107,6 +107,7 @@ async def extract_nodes(
 
     response = await llm_client.generate_response(messages, ExtractedEntities)
 
+    logger.debug("[EntityExtraction] === INITIAL EXTRACTION ===")
     extracted_nodes = []
     for entity in response.extracted_entities:
         if not entity.name.strip():
@@ -122,7 +123,15 @@ async def extract_nodes(
         )
         extracted_nodes.append(node)
 
-    logger.debug(f"Extracted {len(extracted_nodes)} entities (initial pass)")
+        # Log each extracted entity
+        logger.debug(
+            f"[EntityExtraction] - {entity.name} "
+            f"(type: {entity.entity_type or 'untyped'}, "
+            f"aliases: {entity.aliases}, "
+            f"attrs: {list(entity.attributes.keys()) if entity.attributes else []})"
+        )
+
+    logger.debug(f"[EntityExtraction] Extracted {len(extracted_nodes)} entities (initial pass)")
 
     # Reflection validation pass
     if enable_reflection and extracted_nodes and previous_episodes:
@@ -144,18 +153,25 @@ async def extract_nodes(
 
         validation = await llm_client.generate_response(reflection_messages, EntityValidation)
 
+        logger.debug("[EntityExtraction] === REFLECTION VALIDATION ===")
+
         # Process validation results
         # 1. Remove hallucinated entities
         if validation.hallucinated_entities:
+            logger.debug(
+                f"[EntityExtraction] Hallucinations detected: {validation.hallucinated_entities}"
+            )
             extracted_nodes = [
                 node
                 for node in extracted_nodes
                 if node.name not in validation.hallucinated_entities
             ]
-            logger.debug(f"Removed {len(validation.hallucinated_entities)} hallucinated entities")
+            for hallucination in validation.hallucinated_entities:
+                logger.debug(f"[EntityExtraction] ✗ Removed hallucination: {hallucination}")
 
         # 2. Add missed entities
         if validation.missed_entities:
+            logger.debug(f"[EntityExtraction] Missed entities detected: {len(validation.missed_entities)}")
             for missed in validation.missed_entities:
                 node = EntityNode(
                     name=missed.name,
@@ -166,19 +182,27 @@ async def extract_nodes(
                     aliases=[],
                 )
                 extracted_nodes.append(node)
-            logger.debug(f"Added {len(validation.missed_entities)} missed entities")
+                logger.debug(
+                    f"[EntityExtraction] ✓ Added missed entity: {missed.name} - {missed.summary}"
+                )
 
         # 3. Apply refinements
         if validation.refinements:
+            logger.debug(f"[EntityExtraction] Refinements to apply: {len(validation.refinements)}")
             for refinement in validation.refinements:
                 for node in extracted_nodes:
                     if node.name == refinement.original_name:
                         if refinement.refined_name:
+                            logger.debug(
+                                f"[EntityExtraction] ↻ Renamed: {refinement.original_name} → {refinement.refined_name}"
+                            )
                             node.name = refinement.refined_name
                         if refinement.refined_summary:
+                            logger.debug(
+                                f"[EntityExtraction] ↻ Updated summary: {node.name}"
+                            )
                             node.summary = refinement.refined_summary
                         break
-            logger.debug(f"Applied {len(validation.refinements)} entity refinements")
 
     logger.debug(f"Final: {len(extracted_nodes)} entities after reflection")
     return extracted_nodes
@@ -234,6 +258,8 @@ async def deduplicate_nodes(
 
     response = await llm_client.generate_response(messages, NodeResolutions)
 
+    logger.debug("[EntityExtraction] === DEDUPLICATION ===")
+
     # Build resolution map
     resolved_nodes = []
     uuid_map = {}
@@ -246,16 +272,26 @@ async def deduplicate_nodes(
             resolved_node = existing_candidates[resolution.duplicate_idx]
             resolved_node.mention_count = (resolved_node.mention_count or 1) + 1
             uuid_map[extracted_node.uuid] = resolved_node.uuid
+
+            logger.debug(
+                f"[EntityExtraction] ⊕ Merged duplicate: {extracted_node.name} → "
+                f"existing {resolved_node.name} (mentions: {resolved_node.mention_count})"
+            )
         else:
             # It's new - initialize with mention_count=1
             resolved_node = extracted_node
             resolved_node.mention_count = 1
             uuid_map[extracted_node.uuid] = extracted_node.uuid
 
+            logger.debug(f"[EntityExtraction] ✓ New entity: {extracted_node.name}")
+
         resolved_nodes.append(resolved_node)
 
+    duplicates_count = len([v for k, v in uuid_map.items() if k != v])
     logger.debug(
-        f"Resolved {len(resolved_nodes)} nodes, {len([v for k, v in uuid_map.items() if k != v])} duplicates found"
+        f"[EntityExtraction] Resolved {len(resolved_nodes)} nodes: "
+        f"{duplicates_count} duplicates merged, "
+        f"{len(resolved_nodes) - duplicates_count} new"
     )
     return resolved_nodes, uuid_map
 

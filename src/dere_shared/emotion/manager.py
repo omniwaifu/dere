@@ -102,6 +102,7 @@ class OCCEmotionManager:
             return self.active_emotions
 
         # 3. APPLY PHYSICS TO RESULTING EMOTIONS
+        logger.debug("[OCCEmotionManager] === APPLYING EMOTION PHYSICS ===")
         physics_results = []
         for emotion in appraisal_output.resulting_emotions:
             if emotion.type == "neutral" or emotion.type not in OCCEmotionType.__members__.values():
@@ -109,6 +110,7 @@ class OCCEmotionManager:
 
             emotion_type = OCCEmotionType(emotion.type)
             raw_intensity = emotion.intensity
+            prior_intensity = self.active_emotions.get(emotion_type)
 
             # Build physics context
             physics_context = self._build_physics_context(context or {})
@@ -118,22 +120,46 @@ class OCCEmotionManager:
                 emotion_type, raw_intensity, physics_context
             )
 
+            # Log detailed physics calculations
+            logger.debug(
+                f"[OCCEmotionManager] {emotion_type.value}: "
+                f"raw={raw_intensity:.1f}, "
+                f"prior={prior_intensity.intensity:.1f if prior_intensity else 0:.1f}, "
+                f"resonance={physics_result.resonance_factor:.2f}, "
+                f"momentum={physics_result.momentum_adjustment:.1f}, "
+                f"final={physics_result.final_intensity:.1f}"
+            )
+
             # Update active emotions if intensity is significant
             if physics_result.final_intensity > 1.0:
+                old_intensity = self.active_emotions[emotion_type].intensity if emotion_type in self.active_emotions else 0
                 self.active_emotions[emotion_type] = EmotionInstance(
                     type=emotion_type,
                     intensity=physics_result.final_intensity,
                     last_updated=start_time,
                 )
                 physics_results.append((emotion_type, physics_result))
-                logger.debug(
-                    f"[OCCEmotionManager] {emotion_type}: "
-                    f"{raw_intensity:.1f} → {physics_result.final_intensity:.1f}"
-                )
+
+                if old_intensity > 0:
+                    delta = physics_result.final_intensity - old_intensity
+                    logger.debug(
+                        f"[OCCEmotionManager] Updated {emotion_type.value}: "
+                        f"{old_intensity:.1f} → {physics_result.final_intensity:.1f} "
+                        f"(Δ{delta:+.1f})"
+                    )
+                else:
+                    logger.debug(
+                        f"[OCCEmotionManager] New emotion {emotion_type.value}: "
+                        f"{physics_result.final_intensity:.1f}"
+                    )
             elif emotion_type in self.active_emotions:
                 # Remove if physics brought it below threshold
+                old_intensity = self.active_emotions[emotion_type].intensity
                 del self.active_emotions[emotion_type]
-                logger.debug(f"[OCCEmotionManager] Removed {emotion_type} (below threshold)")
+                logger.debug(
+                    f"[OCCEmotionManager] Removed {emotion_type.value}: "
+                    f"{old_intensity:.1f} → 0 (below threshold)"
+                )
 
         # 4. RECORD STIMULUS IN HISTORY
         await self._record_stimulus_in_history(stimulus, appraisal_output, context or {})
@@ -158,16 +184,29 @@ class OCCEmotionManager:
         if time_delta_minutes < 0.1:  # Less than 6 seconds
             return
 
+        logger.debug(f"[OCCEmotionManager] === APPLYING DECAY ({time_delta_minutes:.1f}min elapsed) ===")
+
         # Build decay context (simplified for now, can be enhanced)
+        recent_activity = self._calculate_recent_emotional_activity()
+        time_of_day = self._get_time_of_day()
+
         decay_context = DecayContext(
             is_user_present=False,  # TODO: Get from presence service
             is_user_engaged=False,
-            recent_emotional_activity=self._calculate_recent_emotional_activity(),
+            recent_emotional_activity=recent_activity,
             environmental_stress=0.3,
             social_support=0.5,
-            time_of_day=self._get_time_of_day(),
+            time_of_day=time_of_day,
             personality_stability=0.6,
         )
+
+        logger.debug(
+            f"[OCCEmotionManager] Decay context: "
+            f"activity={recent_activity:.2f}, time={time_of_day}"
+        )
+
+        # Store pre-decay state for comparison
+        pre_decay_emotions = {k: v.intensity for k, v in self.active_emotions.items()}
 
         # Apply decay
         decay_result = self.smart_decay.apply_decay_to_emotions(
@@ -176,6 +215,22 @@ class OCCEmotionManager:
 
         self.active_emotions = decay_result["updated_emotions"]
         self.last_decay_time = current_time
+
+        # Log detailed decay results
+        for emotion_type, pre_intensity in pre_decay_emotions.items():
+            if emotion_type in self.active_emotions:
+                post_intensity = self.active_emotions[emotion_type].intensity
+                if abs(post_intensity - pre_intensity) > 0.1:
+                    logger.debug(
+                        f"[OCCEmotionManager] Decayed {emotion_type}: "
+                        f"{pre_intensity:.1f} → {post_intensity:.1f} "
+                        f"(Δ{post_intensity - pre_intensity:+.1f})"
+                    )
+            else:
+                logger.debug(
+                    f"[OCCEmotionManager] Decayed away {emotion_type}: "
+                    f"{pre_intensity:.1f} → 0"
+                )
 
         if decay_result["total_decay_activity"] > 0:
             logger.info(

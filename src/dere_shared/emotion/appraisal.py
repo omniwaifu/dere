@@ -63,6 +63,43 @@ class AppraisalEngine:
                 response_model=AppraisalOutput,
             )
 
+            # Log full appraisal dimensions
+            logger.debug("[AppraisalEngine] === APPRAISAL DIMENSIONS ===")
+            if appraisal_output.event_outcome:
+                logger.debug(
+                    f"[AppraisalEngine] Event Outcome: {appraisal_output.event_outcome.type} "
+                    f"(desirability: {appraisal_output.event_outcome.desirability}, "
+                    f"prospect: {appraisal_output.event_outcome.prospect}, "
+                    f"affected goals: {appraisal_output.event_outcome.affected_goals})"
+                )
+            if appraisal_output.agent_action:
+                logger.debug(
+                    f"[AppraisalEngine] Agent Action: {appraisal_output.agent_action.type} "
+                    f"(praiseworthiness: {appraisal_output.agent_action.praiseworthiness}, "
+                    f"agent: {appraisal_output.agent_action.agent}, "
+                    f"affected standards: {appraisal_output.agent_action.affected_standards})"
+                )
+            if appraisal_output.object_attribute:
+                logger.debug(
+                    f"[AppraisalEngine] Object Attribute: {appraisal_output.object_attribute.type} "
+                    f"(appealingness: {appraisal_output.object_attribute.appealingness}, "
+                    f"familiarity: {appraisal_output.object_attribute.familiarity}, "
+                    f"affected attitudes: {appraisal_output.object_attribute.affected_attitudes})"
+                )
+
+            # Log each detected emotion in detail
+            logger.debug(f"[AppraisalEngine] === DETECTED EMOTIONS ({len(appraisal_output.resulting_emotions)}) ===")
+            for emotion in appraisal_output.resulting_emotions:
+                logger.debug(
+                    f"[AppraisalEngine] - {emotion.name} ({emotion.type}): "
+                    f"intensity={emotion.intensity}, reason: {emotion.eliciting}"
+                )
+
+            # Log reasoning and trust delta
+            logger.debug(f"[AppraisalEngine] Reasoning: {appraisal_output.reasoning}")
+            if appraisal_output.suggested_trust_delta:
+                logger.debug(f"[AppraisalEngine] Suggested trust delta: {appraisal_output.suggested_trust_delta}")
+
             logger.info(
                 f"[AppraisalEngine] Appraisal completed: "
                 f"{len(appraisal_output.resulting_emotions)} emotions"

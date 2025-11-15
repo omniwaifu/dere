@@ -1358,6 +1358,8 @@ async def session_end(req: SessionEndRequest, db: AsyncSession = Depends(get_db)
     # Generate summary directly if dere_graph available
     if app.state.dere_graph:
         try:
+            from dere_graph.llm_client import Message
+
             summary_prompt = f"""Summarize this conversation session in 2-3 concise sentences:
 
 {content[:2000]}
@@ -1369,7 +1371,8 @@ Focus on:
 
 Summary:"""
 
-            summary = await app.state.dere_graph.llm_client.generate_text_response(summary_prompt)
+            messages = [Message(role="user", content=summary_prompt)]
+            summary = await app.state.dere_graph.llm_client.generate_text_response(messages)
             summary = summary.strip()
             if summary.startswith("Summary:"):
                 summary = summary.replace("Summary:", "").strip()
