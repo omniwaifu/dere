@@ -28,8 +28,12 @@ async def add_episode(
     previous_episodes: list[EpisodicNode] | None = None,
     postgres_driver=None,
     enable_reflection: bool = True,
-) -> None:
-    """Main ingestion pipeline for adding an episode to the graph."""
+) -> tuple[list[EntityNode], list[EntityEdge]]:
+    """Main ingestion pipeline for adding an episode to the graph.
+
+    Returns:
+        tuple: (new_nodes, new_edges) created during ingestion
+    """
     if previous_episodes is None:
         # Fetch recent episodes for context in entity deduplication
         previous_episodes = await driver.get_recent_episodes(episode.group_id, limit=5)
@@ -42,7 +46,7 @@ async def add_episode(
     extracted_nodes = await extract_nodes(llm_client, episode, previous_episodes, enable_reflection)
     if not extracted_nodes:
         logger.info("No entities extracted")
-        return
+        return [], []
 
     # 3. Deduplicate entities
     resolved_nodes, uuid_map = await deduplicate_nodes(
@@ -88,6 +92,9 @@ async def add_episode(
     )
 
     logger.info(f"Ingestion complete: {len(new_nodes)} new nodes, {len(deduped_edges)} edges")
+
+    # Return the created nodes and edges
+    return new_nodes, deduped_edges
 
 
 async def extract_nodes(

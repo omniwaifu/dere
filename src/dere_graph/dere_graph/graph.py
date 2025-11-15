@@ -198,7 +198,7 @@ class DereGraph:
         previous_episodes = await self.driver.get_recent_episodes(group_id, limit=5)
 
         # Run ingestion pipeline
-        await add_episode(
+        created_nodes, created_edges = await add_episode(
             self.driver,
             self.llm_client,
             self.embedder,
@@ -210,12 +210,11 @@ class DereGraph:
 
         logger.info(f"Episode added: {episode.uuid}")
 
-        # Return results (for now, just the episode)
-        # TODO: Track and return actual nodes/edges created
+        # Return results with actual nodes/edges created
         return AddEpisodeResults(
             episode=episode,
-            nodes=[],
-            edges=[],
+            nodes=created_nodes,
+            edges=created_edges,
         )
 
     async def add_episodes_bulk(
