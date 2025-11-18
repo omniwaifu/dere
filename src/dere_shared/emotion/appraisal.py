@@ -111,17 +111,8 @@ class AppraisalEngine:
             logger.error(f"[AppraisalEngine] Appraisal failed: {e}")
             return None
 
-    # TODO(sweep): Extract prompt sections to template methods: _format_user_profile(), _format_appraisal_task(), _format_response_schema()
-    def _build_appraisal_prompt(
-        self,
-        stimulus: dict | str,
-        current_emotion_state: OCCEmotionState,
-        context: dict,
-        persona_name: str,
-    ) -> str:
-        """Build the OCC appraisal prompt"""
-
-        # Format OCC config
+    def _format_user_profile(self) -> str:
+        """Format the user's OCC profile (goals, standards, attitudes)."""
         goals_str = "\n".join(
             f"- {g.id}: {g.description} (importance: {g.importance})"
             for g in self.goals
@@ -138,6 +129,86 @@ class AppraisalEngine:
             f"- {a.id}: {a.target_object} - {a.description} (appealingness: {a.appealingness})"
             for a in self.attitudes
         )
+
+        return f"""USER'S PROFILE:
+Goals (What the user wants to achieve):
+{goals_str}
+
+Standards (What makes the user feel proud/ashamed):
+{standards_str}
+
+Attitudes (How the user feels about things):
+{attitudes_str}"""
+
+    def _format_appraisal_task(self, persona_name: str) -> str:
+        """Format the appraisal task instructions."""
+        return f"""APPRAISAL TASK:
+
+Analyze what the USER is likely experiencing emotionally based on their profile and the situation.
+Interpret through your {persona_name} personality - your characteristic way of reading emotions.
+
+1. **Identify Relevant Dimension(s) for the USER:**
+   - Event Consequences: Does this impact the user's goals (desirability)?
+   - User Actions: Does this involve the user's praiseworthy/blameworthy actions related to their standards?
+   - Object Aspects: Does this concern appealingness of objects/people based on the user's attitudes?
+
+2. **Evaluate Along Dimension(s) from USER's Perspective:**
+   - Event: From the user's perspective, is this desirable/undesirable/neutral? Prospective or actual? Which of their goals are affected? Strength (-10 to 10)?
+   - Action: From the user's perspective, is this praiseworthy/blameworthy/neutral? Self or other? Which of their standards are affected? Strength (-10 to 10)?
+   - Object: From the user's perspective, is this appealing/unappealing/neutral? Familiar/unfamiliar? Which of their attitudes are affected? Strength (-10 to 10)?
+
+3. **Map to OCC Emotion(s):** Determine what specific emotions the USER is experiencing and their intensity (0-100) based on appraisal.
+   Your {persona_name} perspective may pick up on nuances others might miss or emphasize different emotional aspects.
+
+   INTENSITY CALIBRATION (0-100 scale):
+   - 10-30: Subtle/mild emotion (passing thought, slight preference, minor reaction)
+   - 30-50: Noticeable emotion (clear feeling, colors perspective)
+   - 50-70: Strong emotion (significant response, influences behavior)
+   - 70-90: Intense emotion (dominant state, hard to ignore)
+   - 90-100: Overwhelming (peak experience, all-consuming)
+
+   IMPORTANT: Most normal conversation involves mild emotions (20-40 range).
+   Reserve 70+ for genuinely intense emotional moments (excitement, distress, anger, etc.).
+
+   Map appraisal strength to intensity:
+   - Desirability/appealingness ±1-3 → intensity 15-35
+   - Desirability/appealingness ±4-6 → intensity 35-60
+   - Desirability/appealingness ±7-9 → intensity 60-85
+   - Desirability/appealingness ±10 → intensity 85-95
+
+   Examples:
+   - "that's neat" → interest: 25 (mild curiosity)
+   - "I'm really excited about this!" → joy: 75 (strong enthusiasm)
+   - "ugh, frustrated" → distress: 45 (moderate irritation)
+   - "THIS IS AMAZING!!!" → joy: 90 (overwhelming excitement)
+
+4. **Trust Delta:** If the stimulus significantly impacts the user's trust, suggest adjustment (-0.1 to 0.1).
+
+Use the user's profile, goals, standards, attitudes, AND temporal context to interpret what the user is experiencing.
+Let your {persona_name} personality guide your interpretation while staying true to the OCC model."""
+
+    def _format_response_schema(self) -> str:
+        """Format the expected response schema."""
+        return """Return ONLY a JSON object. No text before or after. Schema:
+{
+  "event_outcome": {"type": "desirable|undesirable|neutral", "prospect": "prospective|actual|none", "affected_goals": [], "desirability": -10 to 10},
+  "agent_action": {"agent": "self|other", "type": "praiseworthy|blameworthy|neutral", "affected_standards": [], "praiseworthiness": -10 to 10},
+  "object_attribute": {"familiarity": "familiar|unfamiliar|none", "type": "appealing|unappealing|neutral", "affected_attitudes": [], "appealingness": -10 to 10},
+  "resulting_emotions": [{"name": "...", "type": "VALID_OCC_TYPE", "intensity": 0-100, "eliciting": "..."}],
+  "reasoning": "...",
+  "suggested_trust_delta": null or number
+}
+
+CRITICAL: emotion type MUST be: hope, fear, joy, distress, satisfaction, relief, fears-confirmed, disappointment, happy-for, pity, gloating, resentment, pride, shame, admiration, reproach, love, hate, interest, disgust, gratitude, anger, gratification, remorse, OR neutral. Map non-OCC emotions (surprise→interest, worry→fear)."""
+
+    def _build_appraisal_prompt(
+        self,
+        stimulus: dict | str,
+        current_emotion_state: OCCEmotionState,
+        context: dict,
+        persona_name: str,
+    ) -> str:
+        """Build the OCC appraisal prompt using template methods."""
 
         # Format current emotion
         current_emotion_str = (
@@ -182,7 +253,12 @@ class AppraisalEngine:
 
                 context_str = "\n".join(context_lines) + "\n\n"
 
-        # Build the complete prompt following OCC hierarchy
+        # Compose prompt using template methods
+        user_profile = self._format_user_profile()
+        appraisal_task = self._format_appraisal_task(persona_name)
+        response_schema = self._format_response_schema()
+
+        # Build the complete prompt
         prompt = f"""You are analyzing the USER's emotional state using the OCC (Ortony, Clore, Collins) cognitive appraisal model.
 You are interpreting their emotions through the lens of a {persona_name} personality.
 
@@ -191,15 +267,7 @@ CRITICAL: You are detecting what emotions the USER is experiencing, NOT what emo
 YOUR PERSPECTIVE AS {persona_name.upper()}:
 Your personality colors how you interpret the user's emotional state. As {persona_name}, you bring your characteristic lens to understanding their emotions - this affects how you read subtle cues, what aspects you emphasize, and how you frame their emotional experience.
 
-USER'S PROFILE:
-Goals (What the user wants to achieve):
-{goals_str}
-
-Standards (What makes the user feel proud/ashamed):
-{standards_str}
-
-Attitudes (How the user feels about things):
-{attitudes_str}
+{user_profile}
 
 USER'S CURRENT EMOTIONAL STATE:
 {current_emotion_str}
@@ -209,61 +277,8 @@ Stimulus Type: {stimulus_type}
 Stimulus Details:
 {stimulus_str}
 
-APPRAISAL TASK:
+{appraisal_task}
 
-Analyze what the USER is likely experiencing emotionally based on their profile and the situation.
-Interpret through your {persona_name} personality - your characteristic way of reading emotions.
-
-1. **Identify Relevant Dimension(s) for the USER:**
-   - Event Consequences: Does this impact the user's goals (desirability)?
-   - User Actions: Does this involve the user's praiseworthy/blameworthy actions related to their standards?
-   - Object Aspects: Does this concern appealingness of objects/people based on the user's attitudes?
-
-2. **Evaluate Along Dimension(s) from USER's Perspective:**
-   - Event: From the user's perspective, is this desirable/undesirable/neutral? Prospective or actual? Which of their goals are affected? Strength (-10 to 10)?
-   - Action: From the user's perspective, is this praiseworthy/blameworthy/neutral? Self or other? Which of their standards are affected? Strength (-10 to 10)?
-   - Object: From the user's perspective, is this appealing/unappealing/neutral? Familiar/unfamiliar? Which of their attitudes are affected? Strength (-10 to 10)?
-
-3. **Map to OCC Emotion(s):** Determine what specific emotions the USER is experiencing and their intensity (0-100) based on appraisal.
-   Your {persona_name} perspective may pick up on nuances others might miss or emphasize different emotional aspects.
-
-   INTENSITY CALIBRATION (0-100 scale):
-   - 10-30: Subtle/mild emotion (passing thought, slight preference, minor reaction)
-   - 30-50: Noticeable emotion (clear feeling, colors perspective)
-   - 50-70: Strong emotion (significant response, influences behavior)
-   - 70-90: Intense emotion (dominant state, hard to ignore)
-   - 90-100: Overwhelming (peak experience, all-consuming)
-
-   IMPORTANT: Most normal conversation involves mild emotions (20-40 range).
-   Reserve 70+ for genuinely intense emotional moments (excitement, distress, anger, etc.).
-
-   Map appraisal strength to intensity:
-   - Desirability/appealingness ±1-3 → intensity 15-35
-   - Desirability/appealingness ±4-6 → intensity 35-60
-   - Desirability/appealingness ±7-9 → intensity 60-85
-   - Desirability/appealingness ±10 → intensity 85-95
-
-   Examples:
-   - "that's neat" → interest: 25 (mild curiosity)
-   - "I'm really excited about this!" → joy: 75 (strong enthusiasm)
-   - "ugh, frustrated" → distress: 45 (moderate irritation)
-   - "THIS IS AMAZING!!!" → joy: 90 (overwhelming excitement)
-
-4. **Trust Delta:** If the stimulus significantly impacts the user's trust, suggest adjustment (-0.1 to 0.1).
-
-Use the user's profile, goals, standards, attitudes, AND temporal context to interpret what the user is experiencing.
-Let your {persona_name} personality guide your interpretation while staying true to the OCC model.
-
-Return ONLY a JSON object. No text before or after. Schema:
-{{
-  "event_outcome": {{"type": "desirable|undesirable|neutral", "prospect": "prospective|actual|none", "affected_goals": [], "desirability": -10 to 10}},
-  "agent_action": {{"agent": "self|other", "type": "praiseworthy|blameworthy|neutral", "affected_standards": [], "praiseworthiness": -10 to 10}},
-  "object_attribute": {{"familiarity": "familiar|unfamiliar|none", "type": "appealing|unappealing|neutral", "affected_attitudes": [], "appealingness": -10 to 10}},
-  "resulting_emotions": [{{"name": "...", "type": "VALID_OCC_TYPE", "intensity": 0-100, "eliciting": "..."}}],
-  "reasoning": "...",
-  "suggested_trust_delta": null or number
-}}
-
-CRITICAL: emotion type MUST be: hope, fear, joy, distress, satisfaction, relief, fears-confirmed, disappointment, happy-for, pity, gloating, resentment, pride, shame, admiration, reproach, love, hate, interest, disgust, gratitude, anger, gratification, remorse, OR neutral. Map non-OCC emotions (surprise→interest, worry→fear)."""
+{response_schema}"""
 
         return prompt

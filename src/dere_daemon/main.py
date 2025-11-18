@@ -560,8 +560,24 @@ async def lifespan(app: FastAPI):
     print("👋 Dere daemon shutdown")
 
 
-# TODO(sweep): Consider splitting endpoints into separate router modules by domain (sessions, emotions, notifications, synthesis)
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
+
+# Include domain-specific routers
+from dere_daemon.routers import (
+    context_router,
+    emotions_router,
+    kg_router,
+    notifications_router,
+    presence_router,
+    sessions_router,
+)
+
+app.include_router(sessions_router)
+app.include_router(emotions_router)
+app.include_router(notifications_router)
+app.include_router(presence_router)
+app.include_router(kg_router)
+app.include_router(context_router)
 
 
 # Database session dependency
