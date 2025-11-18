@@ -323,7 +323,284 @@ def compose_system_prompt(personalities: list[str]) -> str:
     return "\n\n".join(prompts)
 
 
-# HACK(sweep): Function too long (268 lines), break into smaller functions: _handle_session_tracking(), _build_command(), _configure_settings()
+def _setup_environment(
+    session_id: int,
+    mcp_servers: tuple,
+    context: bool,
+    output_style: str | None,
+    mode: str | None,
+    include_history: bool,
+    context_depth: int,
+    context_mode: str,
+    max_context_tokens: int,
+    continue_conv: bool,
+    resume: str | None,
+) -> None:
+    """Set up environment variables for the session"""
+    os.environ["DERE_SESSION_ID"] = str(session_id)
+
+    if mcp_servers:
+        os.environ["DERE_MCP_SERVERS"] = ",".join(mcp_servers)
+    if context:
+        os.environ["DERE_CONTEXT"] = "true"
+    if output_style:
+        os.environ["DERE_OUTPUT_STYLE"] = output_style
+    if mode:
+        os.environ["DERE_MODE"] = mode
+    if include_history:
+        os.environ["DERE_INCLUDE_HISTORY"] = "true"
+        os.environ["DERE_CONTEXT_DEPTH"] = str(context_depth)
+        os.environ["DERE_CONTEXT_MODE"] = context_mode
+        os.environ["DERE_MAX_CONTEXT_TOKENS"] = str(max_context_tokens)
+
+    # Determine session type
+    if continue_conv:
+        os.environ["DERE_SESSION_TYPE"] = "continue"
+    elif resume:
+        os.environ["DERE_SESSION_TYPE"] = "resume"
+    else:
+        os.environ["DERE_SESSION_TYPE"] = "new"
+
+
+def _load_personality_and_announcements(
+    personalities_list: list[str],
+) -> tuple[str | None, str | None]:
+    """Load personality metadata and get announcement
+
+    Returns:
+        Tuple of (personality_str, announcement)
+    """
+    if not personalities_list:
+        return None, None
+
+    config_dir = get_config_dir()
+    loader = PersonalityLoader(config_dir)
+    config = load_dere_config()
+
+    # Export personality metadata for statusline
+    try:
+        first_pers = loader.load(personalities_list[0])
+        os.environ["DERE_PERSONALITY_COLOR"] = first_pers.color
+        os.environ["DERE_PERSONALITY_ICON"] = first_pers.icon
+    except ValueError:
+        pass
+
+    # Get announcement from personality or config
+    announcement = None
+    try:
+        first_pers = loader.load(personalities_list[0])
+        announcement = first_pers.announcement
+    except ValueError:
+        pass
+
+    # Fallback to config if no personality announcement
+    if not announcement:
+        config_announcements = config.get("announcements", {}).get("messages")
+        if config_announcements:
+            announcement = (
+                config_announcements[0]
+                if isinstance(config_announcements, list)
+                else config_announcements
+            )
+
+    personality_str = ",".join(personalities_list)
+    return personality_str, announcement
+
+
+def _configure_settings(
+    personality_str: str | None,
+    output_style: str | None,
+    mode: str | None,
+    context: bool,
+    session_id: int,
+    announcement: str | None,
+) -> tuple[dict, str | None, SettingsBuilder]:
+    """Configure settings and write to temp file
+
+    Returns:
+        Tuple of (settings dict, temp file path, builder for cleanup)
+    """
+    effective_output_style = output_style or (mode if mode else None)
+    builder = SettingsBuilder(
+        personality=personality_str,
+        output_style=effective_output_style,
+        context=context,
+        session_id=session_id,
+        company_announcements=[announcement] if announcement else None,
+    )
+    settings = builder.build()
+
+    # Write settings to temp file
+    settings_path = None
+    if settings:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(settings, f, indent=2)
+            settings_path = f.name
+            builder.temp_files.append(settings_path)
+
+    return settings, settings_path, builder
+
+
+def _handle_session_tracking(
+    continue_conv: bool,
+    resume: str | None,
+    cwd: str,
+) -> list[str]:
+    """Handle session tracking (continue/resume/new)
+
+    Returns:
+        List of command arguments for session handling
+    """
+    cmd_args = []
+
+    if continue_conv:
+        # Continue: resume specific dere session for this directory
+        last_session = get_last_session_for_dir(cwd)
+        if last_session:
+            cmd_args.extend(["--resume", last_session])
+        else:
+            print("Error: No previous dere session in this directory", file=sys.stderr)
+            print("Start a new session with: dere", file=sys.stderr)
+            sys.exit(1)
+    elif resume:
+        # Explicit resume: use provided session ID
+        cmd_args.extend(["-r", resume])
+    else:
+        # New session: generate UUID and track it
+        import uuid
+
+        session_uuid = str(uuid.uuid4())
+        cmd_args.extend(["--session-id", session_uuid])
+        save_session_for_dir(cwd, session_uuid)
+
+    return cmd_args
+
+
+def _build_claude_command(
+    session_args: list[str],
+    model: str | None,
+    fallback_model: str | None,
+    permission_mode: str | None,
+    allowed_tools: str | None,
+    disallowed_tools: str | None,
+    add_dirs: tuple,
+    ide: bool,
+    settings_path: str | None,
+    system_prompt: str,
+    print_mode: bool,
+    mcp_servers: tuple,
+    builder: SettingsBuilder,
+    args: list,
+) -> tuple[list[str], str | None]:
+    """Build the complete claude command
+
+    Returns:
+        Tuple of (command list, mcp_config_path)
+    """
+    cmd = ["claude"]
+    cmd.extend(session_args)
+
+    # Add model configuration
+    if model:
+        cmd.extend(["--model", model])
+    if fallback_model:
+        cmd.extend(["--fallback-model", fallback_model])
+
+    # Add permission mode
+    if permission_mode:
+        cmd.extend(["--permission-mode", permission_mode])
+
+    # Add tool restrictions
+    if allowed_tools:
+        cmd.extend(["--allowed-tools", allowed_tools])
+    if disallowed_tools:
+        cmd.extend(["--disallowed-tools", disallowed_tools])
+
+    # Add additional directories
+    for dir_path in add_dirs:
+        cmd.extend(["--add-dir", dir_path])
+
+    # Add IDE flag
+    if ide:
+        cmd.append("--ide")
+
+    # Add settings file
+    if settings_path:
+        cmd.extend(["--settings", settings_path])
+
+    # Add system prompt
+    if system_prompt:
+        cmd.extend(["--append-system-prompt", system_prompt])
+
+    # Add print mode
+    if print_mode:
+        cmd.append("-p")
+
+    # Add MCP servers
+    mcp_config_path = None
+    if mcp_servers:
+        try:
+            config_dir = get_config_dir()
+            mcp_config_path = build_mcp_config(list(mcp_servers), config_dir)
+            if mcp_config_path:
+                cmd.extend(["--mcp-config", mcp_config_path])
+                builder.temp_files.append(mcp_config_path)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # Add separator if we have args
+    if args:
+        cmd.append("--")
+        cmd.extend(args)
+
+    return cmd, mcp_config_path
+
+
+def _handle_dry_run(
+    cmd: list[str],
+    settings_path: str | None,
+    mcp_config_path: str | None,
+    system_prompt: str,
+) -> None:
+    """Handle dry run mode - print command and exit"""
+    print("Command:", " ".join(cmd))
+    print("\nEnvironment variables:")
+    for key in sorted(os.environ.keys()):
+        if key.startswith("DERE_"):
+            print(f"  {key}={os.environ[key]}")
+    if settings_path:
+        print(f"\nSettings file: {settings_path}")
+        with open(settings_path) as f:
+            print(f.read())
+    if mcp_config_path:
+        print(f"\nMCP config file: {mcp_config_path}")
+        with open(mcp_config_path) as f:
+            print(f.read())
+    if system_prompt:
+        print(f"\nSystem prompt ({len(system_prompt)} chars):")
+        print(system_prompt[:500] + "..." if len(system_prompt) > 500 else system_prompt)
+
+
+def _execute_claude(cmd: list[str]) -> None:
+    """Execute the claude command"""
+    try:
+        process = subprocess.Popen(cmd, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)
+
+        # Setup signal handling
+        def signal_handler(signum, frame):
+            process.send_signal(signum)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        # Wait for process
+        process.wait()
+        sys.exit(process.returncode)
+
+    except FileNotFoundError:
+        print("Error: 'claude' command not found. Please install Claude CLI.", file=sys.stderr)
+        sys.exit(1)
 @click.group(invoke_without_command=True)
 @click.option("-P", "--personality", "personalities", multiple=True, help="Personality modes")
 @click.option("--output-style", help="Output style override")
@@ -382,88 +659,39 @@ def cli(
 
     # Generate session ID
     session_id = generate_session_id()
-    os.environ["DERE_SESSION_ID"] = str(session_id)
 
-    # Set environment variables
-    if mcp_servers:
-        os.environ["DERE_MCP_SERVERS"] = ",".join(mcp_servers)
-    if context:
-        os.environ["DERE_CONTEXT"] = "true"
-    if output_style:
-        os.environ["DERE_OUTPUT_STYLE"] = output_style
-    if mode:
-        os.environ["DERE_MODE"] = mode
-    if include_history:
-        os.environ["DERE_INCLUDE_HISTORY"] = "true"
-        os.environ["DERE_CONTEXT_DEPTH"] = str(context_depth)
-        os.environ["DERE_CONTEXT_MODE"] = context_mode
-        os.environ["DERE_MAX_CONTEXT_TOKENS"] = str(max_context_tokens)
-
-    # Determine session type
-    if continue_conv:
-        os.environ["DERE_SESSION_TYPE"] = "continue"
-    elif resume:
-        os.environ["DERE_SESSION_TYPE"] = "resume"
-    else:
-        os.environ["DERE_SESSION_TYPE"] = "new"
+    # Set up environment variables
+    _setup_environment(
+        session_id=session_id,
+        mcp_servers=mcp_servers,
+        context=context,
+        output_style=output_style,
+        mode=mode,
+        include_history=include_history,
+        context_depth=context_depth,
+        context_mode=context_mode,
+        max_context_tokens=max_context_tokens,
+        continue_conv=continue_conv,
+        resume=resume,
+    )
 
     # Default to tsun if no personality specified and not bare
     personalities_list = list(personalities)
     if not bare and not personalities_list:
         personalities_list = ["tsun"]
 
-    # Export personality metadata for statusline
-    if personalities_list:
-        config_dir = get_config_dir()
-        loader = PersonalityLoader(config_dir)
-        try:
-            first_pers = loader.load(personalities_list[0])
-            os.environ["DERE_PERSONALITY_COLOR"] = first_pers.color
-            os.environ["DERE_PERSONALITY_ICON"] = first_pers.icon
-        except ValueError:
-            pass
+    # Load personality and announcements
+    personality_str, announcement = _load_personality_and_announcements(personalities_list)
 
-    # Load config
-    config = load_dere_config()
-
-    # Get announcement from personality or config
-    announcement = None
-    if personalities_list:
-        try:
-            first_pers = loader.load(personalities_list[0])
-            announcement = first_pers.announcement
-        except ValueError:
-            pass
-
-    # Fallback to config if no personality announcement
-    if not announcement:
-        config_announcements = config.get("announcements", {}).get("messages")
-        if config_announcements:
-            announcement = (
-                config_announcements[0]
-                if isinstance(config_announcements, list)
-                else config_announcements
-            )
-
-    # Build settings
-    personality_str = ",".join(personalities_list) if personalities_list else None
-    effective_output_style = output_style or (mode if mode else None)
-    builder = SettingsBuilder(
-        personality=personality_str,
-        output_style=effective_output_style,
+    # Configure settings and write to temp file
+    settings, settings_path, builder = _configure_settings(
+        personality_str=personality_str,
+        output_style=output_style,
+        mode=mode,
         context=context,
         session_id=session_id,
-        company_announcements=[announcement] if announcement else None,
+        announcement=announcement,
     )
-    settings = builder.build()
-
-    # Write settings to temp file
-    settings_path = None
-    if settings:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(settings, f, indent=2)
-            settings_path = f.name
-            builder.temp_files.append(settings_path)
 
     try:
         # Compose system prompt
@@ -471,124 +699,35 @@ def cli(
         if not bare and personalities_list:
             system_prompt = compose_system_prompt(personalities_list)
 
-        # Build claude command
-        cmd = ["claude"]
-
-        # Handle session tracking for continue/resume
+        # Handle session tracking
         cwd = os.getcwd()
+        session_args = _handle_session_tracking(continue_conv, resume, cwd)
 
-        if continue_conv:
-            # Continue: resume specific dere session for this directory
-            last_session = get_last_session_for_dir(cwd)
-            if last_session:
-                cmd.extend(["--resume", last_session])
-            else:
-                print("Error: No previous dere session in this directory", file=sys.stderr)
-                print("Start a new session with: dere", file=sys.stderr)
-                sys.exit(1)
-        elif resume:
-            # Explicit resume: use provided session ID
-            cmd.extend(["-r", resume])
-        else:
-            # New session: generate UUID and track it
-            import uuid
+        # Build claude command
+        cmd, mcp_config_path = _build_claude_command(
+            session_args=session_args,
+            model=model,
+            fallback_model=fallback_model,
+            permission_mode=permission_mode,
+            allowed_tools=allowed_tools,
+            disallowed_tools=disallowed_tools,
+            add_dirs=add_dirs,
+            ide=ide,
+            settings_path=settings_path,
+            system_prompt=system_prompt,
+            print_mode=print_mode,
+            mcp_servers=mcp_servers,
+            builder=builder,
+            args=args,
+        )
 
-            session_uuid = str(uuid.uuid4())
-            cmd.extend(["--session-id", session_uuid])
-            save_session_for_dir(cwd, session_uuid)
-
-        # Add model configuration
-        if model:
-            cmd.extend(["--model", model])
-        if fallback_model:
-            cmd.extend(["--fallback-model", fallback_model])
-
-        # Add permission mode
-        if permission_mode:
-            cmd.extend(["--permission-mode", permission_mode])
-
-        # Add tool restrictions
-        if allowed_tools:
-            cmd.extend(["--allowed-tools", allowed_tools])
-        if disallowed_tools:
-            cmd.extend(["--disallowed-tools", disallowed_tools])
-
-        # Add additional directories
-        for dir_path in add_dirs:
-            cmd.extend(["--add-dir", dir_path])
-
-        # Add IDE flag
-        if ide:
-            cmd.append("--ide")
-
-        # Add settings file
-        if settings_path:
-            cmd.extend(["--settings", settings_path])
-
-        # Add system prompt
-        if system_prompt:
-            cmd.extend(["--append-system-prompt", system_prompt])
-
-        # Add print mode
-        if print_mode:
-            cmd.append("-p")
-
-        # Add MCP servers
-        mcp_config_path = None
-        if mcp_servers:
-            try:
-                config_dir = get_config_dir()
-                mcp_config_path = build_mcp_config(list(mcp_servers), config_dir)
-                if mcp_config_path:
-                    cmd.extend(["--mcp-config", mcp_config_path])
-                    builder.temp_files.append(mcp_config_path)
-            except ValueError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                sys.exit(1)
-
-        # Add separator if we have args
-        if args:
-            cmd.append("--")
-            cmd.extend(args)
-
-        # Dry run mode - print command and exit
+        # Handle dry run mode
         if dry_run:
-            print("Command:", " ".join(cmd))
-            print("\nEnvironment variables:")
-            for key in sorted(os.environ.keys()):
-                if key.startswith("DERE_"):
-                    print(f"  {key}={os.environ[key]}")
-            if settings_path:
-                print(f"\nSettings file: {settings_path}")
-                with open(settings_path) as f:
-                    print(f.read())
-            if mcp_config_path:
-                print(f"\nMCP config file: {mcp_config_path}")
-                with open(mcp_config_path) as f:
-                    print(f.read())
-            if system_prompt:
-                print(f"\nSystem prompt ({len(system_prompt)} chars):")
-                print(system_prompt[:500] + "..." if len(system_prompt) > 500 else system_prompt)
+            _handle_dry_run(cmd, settings_path, mcp_config_path, system_prompt)
             return
 
-        # Run claude
-        try:
-            process = subprocess.Popen(cmd, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr)
-
-            # Setup signal handling
-            def signal_handler(signum, frame):
-                process.send_signal(signum)
-
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-
-            # Wait for process
-            process.wait()
-            sys.exit(process.returncode)
-
-        except FileNotFoundError:
-            print("Error: 'claude' command not found. Please install Claude CLI.", file=sys.stderr)
-            sys.exit(1)
+        # Execute claude
+        _execute_claude(cmd)
 
     finally:
         builder.cleanup()
