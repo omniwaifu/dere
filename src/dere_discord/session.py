@@ -27,41 +27,6 @@ def _now() -> float:
     return time.monotonic()
 
 
-def _ensure_discord_output_style() -> None:
-    """Ensure discord output style exists in global Claude folder."""
-    import platform
-
-    system = platform.system()
-    if system == "Darwin":  # macOS
-        claude_dir = Path.home() / "Library" / "Application Support" / "Claude" / "output-styles"
-    elif system == "Windows":
-        import os
-
-        appdata = os.getenv("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
-        claude_dir = Path(appdata) / "Claude" / "output-styles"
-    else:  # Linux/Unix
-        claude_dir = Path.home() / ".claude" / "output-styles"
-
-    claude_dir.mkdir(parents=True, exist_ok=True)
-
-    discord_style = claude_dir / "discord.md"
-    if not discord_style.exists():
-        content = """---
-name: Discord Chat
-description: Brief conversational responses for Discord
----
-
-# Discord Communication Style
-
-Keep responses SHORT and conversational:
-- 1-2 sentences for simple answers
-- Brief paragraph for complex topics
-- Direct answers only, no preamble
-- Don't explain what tools you're using
-- Chat style, not technical docs"""
-        discord_style.write_text(content)
-
-
 @dataclass(slots=True)
 class ChannelSession:
     """Active Discord conversation bridged to the daemon + Claude SDK."""
@@ -169,9 +134,6 @@ class SessionManager:
                 )
             else:
                 logger.info("Created new session {} for channel {}", session_id, key)
-
-            # Ensure discord output style exists
-            _ensure_discord_output_style()
 
             # Get emotion summary from daemon
             emotion_summary = ""
