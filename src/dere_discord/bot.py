@@ -9,6 +9,7 @@ from loguru import logger
 from .agent import DiscordAgent
 from .config import DiscordBotConfig
 from .daemon import DaemonClient
+from .message_handler import handle_discord_message
 from .persona import PersonaProfile, PersonaService
 from .retry import exponential_backoff_retry
 from .session import SessionManager
@@ -221,8 +222,8 @@ class DereDiscordClient(discord.Client):
             logger.error("Failed to deliver notification {}: {}", notification_id, e)
             await self.daemon.mark_notification_failed(notification_id, str(e))
 
-    # HACK(sweep): Reduce callback nesting, consider async context manager pattern for typing indicator
     async def on_message(self, message: discord.Message) -> None:
+        """Handle incoming Discord messages with automatic typing indicator management."""
         if message.author.bot:
             return
 
@@ -252,60 +253,16 @@ class DereDiscordClient(discord.Client):
             # Clear acknowledged notifications
             del self._recent_notifications[notification_key]
 
-        typing_cm = message.channel.typing()
-        typing_active = True
-        await typing_cm.__aenter__()
-
-        async def send_initial() -> None:
-            # Typing indicator already active; no placeholder message needed.
-            return None
-
-        async def send_text_message(text: str, persona_profile: PersonaProfile) -> None:
-            content = text.strip() if text else ""
-            if not content:
-                return
-            await message.channel.send(
-                content,
-                allowed_mentions=AllowedMentions.none(),
-            )
-
-        async def send_tool_summary(
-            tool_events: list[str], persona_profile: PersonaProfile
-        ) -> None:
-            if not tool_events:
-                return
-            embed = self._build_embed_response(tool_events, persona_profile)
-            await message.channel.send(
-                embed=embed,
-                allowed_mentions=AllowedMentions.none(),
-            )
-
-        async def finalize() -> None:
-            nonlocal typing_active
-            if typing_active:
-                await typing_cm.__aexit__(None, None, None)
-                typing_active = False
-
-        try:
-            await self.agent.handle_message(
-                guild_id=guild_id,
-                channel_id=channel_id,
-                user_id=user_id,
-                content=content,
-                send_initial=send_initial,
-                send_text_message=send_text_message,
-                send_tool_summary=send_tool_summary,
-                finalize=finalize,
-            )
-        except Exception as exc:  # pragma: no cover - network errors
-            logger.exception("Failed handling message in channel {}: {}", channel_id, exc)
-            await message.channel.send("Sorry, something went wrong while contacting Claude.")
-        finally:
-            if typing_active:
-                try:
-                    await typing_cm.__aexit__(None, None, None)
-                except Exception:  # pragma: no cover - logging would be noisy
-                    pass
+        # Handle message with automatic typing indicator management
+        await handle_discord_message(
+            message=message,
+            agent=self.agent,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            user_id=user_id,
+            content=content,
+            build_embed_fn=self._build_embed_response,
+        )
 
     def _build_embed_response(
         self,

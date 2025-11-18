@@ -139,91 +139,92 @@ class SettingsBuilder:
         # Control third-party plugins
         self._control_third_party_plugins(settings)
 
-        # Add hooks if they exist
-        self._add_conversation_hooks(settings)
+        # Add hooks and status line
         self._add_status_line(settings)
         self._add_hook_environment(settings)
 
         return settings
 
-    # HACK(sweep): Extract plugin detection to separate methods per plugin type
-    def _add_dere_plugins(self, settings: dict) -> None:
-        """Add dere plugins marketplace and enable plugins conditionally"""
+    def _should_enable_vault_plugin(self) -> bool:
+        """Check if vault plugin should be enabled (in an Obsidian vault)."""
         try:
-            # Import to get the plugins directory path
+            from dere_vault.scripts.detect_vault import is_vault
+
+            return is_vault()
+        except Exception:
+            return False
+
+    def _should_enable_tasks_plugin(self) -> bool:
+        """Check if tasks plugin should be enabled (always enabled)."""
+        return True  # Tasks plugin always enabled, uses MCP when available
+
+    def _should_enable_wellness_plugin(self) -> bool:
+        """Check if wellness plugin should be enabled (always enabled)."""
+        return True  # Wellness plugin always enabled for mental health support
+
+    def _should_enable_graph_features_plugin(self) -> bool:
+        """Check if graph features plugin should be enabled (always enabled)."""
+        return True  # Graph features always enabled for graph extraction
+
+    def _find_plugins_path(self) -> Path | None:
+        """Find the dere_plugins directory path."""
+        try:
             import dere_personality
 
-            # Get path to dere_plugins directory
-            # In development (editable install), __file__ is in site-packages
-            # We need to find the actual source directory
             plugin_file = Path(dere_personality.__file__).resolve()
 
             # Check if we're in an editable install (site-packages)
             if "site-packages" in str(plugin_file):
                 # Find the source directory by looking for src/dere_plugins
-                # Start from current working directory and walk up
                 cwd = Path.cwd()
-                plugins_path = None
                 for parent in [cwd, *cwd.parents]:
                     candidate = parent / "src" / "dere_plugins"
                     if candidate.exists() and (candidate / ".claude-plugin").exists():
-                        plugins_path = candidate
-                        break
-                if not plugins_path:
-                    # Fallback to installed location
-                    plugins_path = plugin_file.parent.parent
+                        return candidate
+                # Fallback to installed location
+                return plugin_file.parent.parent
             else:
                 # Running from source directly
-                plugins_path = plugin_file.parent.parent
-
-            # Add marketplace
-            if "extraKnownMarketplaces" not in settings:
-                settings["extraKnownMarketplaces"] = {}
-
-            settings["extraKnownMarketplaces"]["dere_plugins"] = {
-                "source": {"source": "directory", "path": str(plugins_path)}
-            }
-
-            # Enable base dere plugin
-            if "enabledPlugins" not in settings:
-                settings["enabledPlugins"] = {}
-
-            settings["enabledPlugins"]["dere-personality@dere_plugins"] = True
-
-            # Enable dere-vault plugin if in a vault
-            try:
-                from dere_vault.scripts.detect_vault import is_vault
-
-                if is_vault():
-                    settings["enabledPlugins"]["dere-vault@dere_plugins"] = True
-            except Exception:
-                # Vault plugin not available or not in vault
-                pass
-
-            # Enable dere-tasks plugin (always enabled, skills use MCP when available)
-            try:
-                settings["enabledPlugins"]["dere-tasks@dere_plugins"] = True
-            except Exception:
-                # Tasks plugin not available
-                pass
-
-            # Enable dere-wellness plugin (always enabled for mental health support)
-            try:
-                settings["enabledPlugins"]["dere-wellness@dere_plugins"] = True
-            except Exception:
-                # Wellness plugin not available
-                pass
-
-            # Enable dere-graph-features plugin (always enabled for graph extraction)
-            try:
-                settings["enabledPlugins"]["dere-graph-features@dere_plugins"] = True
-            except Exception:
-                # Graph features plugin not available
-                pass
-
+                return plugin_file.parent.parent
         except Exception:
-            # Silently fail if plugins not available
-            pass
+            return None
+
+    def _add_dere_plugins(self, settings: dict) -> None:
+        """Add dere plugins marketplace and enable plugins conditionally."""
+        plugins_path = self._find_plugins_path()
+        if not plugins_path:
+            return  # Plugins not available
+
+        # Add marketplace
+        if "extraKnownMarketplaces" not in settings:
+            settings["extraKnownMarketplaces"] = {}
+
+        settings["extraKnownMarketplaces"]["dere_plugins"] = {
+            "source": {"source": "directory", "path": str(plugins_path)}
+        }
+
+        # Initialize enabled plugins
+        if "enabledPlugins" not in settings:
+            settings["enabledPlugins"] = {}
+
+        # Enable base dere-personality plugin
+        settings["enabledPlugins"]["dere-personality@dere_plugins"] = True
+
+        # Conditionally enable other plugins
+        plugin_checks = [
+            ("dere-vault@dere_plugins", self._should_enable_vault_plugin),
+            ("dere-tasks@dere_plugins", self._should_enable_tasks_plugin),
+            ("dere-wellness@dere_plugins", self._should_enable_wellness_plugin),
+            ("dere-graph-features@dere_plugins", self._should_enable_graph_features_plugin),
+        ]
+
+        for plugin_name, check_fn in plugin_checks:
+            try:
+                if check_fn():
+                    settings["enabledPlugins"][plugin_name] = True
+            except Exception:
+                # Plugin not available or detection failed
+                pass
 
     def _control_third_party_plugins(self, settings: dict) -> None:
         """Control third-party plugins based on config"""
@@ -264,11 +265,6 @@ class SettingsBuilder:
         except Exception:
             # Silently fail if config loading fails
             pass
-
-    # FIXME(sweep): Remove deprecated stub method, no longer needed since hooks loaded from plugin
-    def _add_conversation_hooks(self, settings: dict) -> None:
-        """Hooks are now loaded from dere_personality plugin"""
-        pass
 
     def _add_status_line(self, settings: dict) -> None:
         """Add status line from dere_personality plugin"""
