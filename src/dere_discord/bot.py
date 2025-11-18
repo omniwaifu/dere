@@ -68,6 +68,7 @@ class DereDiscordClient(discord.Client):
         finally:
             await super().close()
 
+    # TODO(sweep): Extract retry logic to decorator or separate utility function
     async def _register_presence(self) -> None:
         """Register bot presence with daemon on startup."""
         import asyncio
@@ -232,6 +233,7 @@ class DereDiscordClient(discord.Client):
             logger.error("Failed to deliver notification {}: {}", notification_id, e)
             await self.daemon.mark_notification_failed(notification_id, str(e))
 
+    # HACK(sweep): Reduce callback nesting, consider async context manager pattern for typing indicator
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
             return

@@ -560,6 +560,7 @@ async def lifespan(app: FastAPI):
     print("👋 Dere daemon shutdown")
 
 
+# TODO(sweep): Consider splitting endpoints into separate router modules by domain (sessions, emotions, notifications, synthesis)
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
 
 

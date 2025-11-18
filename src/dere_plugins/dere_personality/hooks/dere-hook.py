@@ -9,6 +9,7 @@ sys.path.insert(0, hooks_dir)
 from rpc_client import RPCClient
 
 
+# FIXME(sweep): Remove debug file logging (/tmp/dere_hook_debug.log security concern), extract argument parsing to separate function
 def main():
     # Debug: log all arguments
     with open("/tmp/dere_hook_debug.log", "a") as f:

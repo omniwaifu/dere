@@ -74,6 +74,7 @@ class OCCEmotionManager:
             self.active_emotions = {}
             self.last_decay_time = int(time.time() * 1000)
 
+    # TODO(sweep): Break into pipeline stages: _apply_decay_stage(), _appraisal_stage(), _physics_stage(), _persistence_stage()
     async def process_stimulus(
         self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
     ) -> dict[OCCEmotionType | str, EmotionInstance]:

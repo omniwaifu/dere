@@ -146,6 +146,7 @@ class SettingsBuilder:
 
         return settings
 
+    # HACK(sweep): Extract plugin detection to separate methods per plugin type
     def _add_dere_plugins(self, settings: dict) -> None:
         """Add dere plugins marketplace and enable plugins conditionally"""
         try:
@@ -264,6 +265,7 @@ class SettingsBuilder:
             # Silently fail if config loading fails
             pass
 
+    # FIXME(sweep): Remove deprecated stub method, no longer needed since hooks loaded from plugin
     def _add_conversation_hooks(self, settings: dict) -> None:
         """Hooks are now loaded from dere_personality plugin"""
         pass
@@ -325,6 +327,7 @@ def compose_system_prompt(personalities: list[str]) -> str:
     return "\n\n".join(prompts)
 
 
+# HACK(sweep): Function too long (268 lines), break into smaller functions: _handle_session_tracking(), _build_command(), _configure_settings()
 @click.group(invoke_without_command=True)
 @click.option("-P", "--personality", "personalities", multiple=True, help="Personality modes")
 @click.option("--output-style", help="Output style override")

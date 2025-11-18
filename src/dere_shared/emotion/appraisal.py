@@ -111,6 +111,7 @@ class AppraisalEngine:
             logger.error(f"[AppraisalEngine] Appraisal failed: {e}")
             return None
 
+    # TODO(sweep): Extract prompt sections to template methods: _format_user_profile(), _format_appraisal_task(), _format_response_schema()
     def _build_appraisal_prompt(
         self,
         stimulus: dict | str,

@@ -31,6 +31,7 @@ class DiscordAgent:
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._context_enabled = context_enabled
 
+    # HACK(sweep): Function too long (217 lines), break into smaller functions: _fetch_context(), _stream_response(), _handle_tool_events(), _finalize_response()
     async def handle_message(
         self,
         *,
