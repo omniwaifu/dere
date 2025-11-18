@@ -1,0 +1,80 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-serena-init.sh",
+            "description": "Auto-activates Serena and prompts onboarding/memory loading"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-read-symbol-nudge.sh",
+            "description": "Suggests get_symbols_overview before reading code files"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-grep-symbol-nudge.sh",
+            "description": "Suggests find_symbol for code searches"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/safe-mode-guard.sh",
+            "description": "Validates potentially destructive bash commands"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "WebFetch|WebSearch|mcp__context7__get-library-docs",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/post-research-memory-nudge.sh",
+            "description": "Prompts write_memory() after research"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_workforce-assistant_serena__find_symbol|mcp__plugin_workforce-assistant_serena__get_symbols_overview|mcp__plugin_workforce-assistant_serena__find_referencing_symbols",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/post-symbol-memory-reminder.sh",
+            "description": "After 5+ symbol calls, suggests persisting discoveries"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__plugin_workforce-assistant_serena__check_onboarding_performed",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/post-onboarding-memory-loader.sh",
+            "description": "Auto-suggests loading memories after onboarding check"
+          }
+        ]
+      }
+    ]
+  }
+}

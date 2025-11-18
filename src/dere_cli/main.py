@@ -158,13 +158,41 @@ class SettingsBuilder:
         """Check if tasks plugin should be enabled (always enabled)."""
         return True  # Tasks plugin always enabled, uses MCP when available
 
-    def _should_enable_wellness_plugin(self) -> bool:
-        """Check if wellness plugin should be enabled (always enabled)."""
-        return True  # Wellness plugin always enabled for mental health support
-
     def _should_enable_graph_features_plugin(self) -> bool:
-        """Check if graph features plugin should be enabled (always enabled)."""
-        return True  # Graph features always enabled for graph extraction
+        """Check if graph features plugin should be enabled (when daemon is running)."""
+        try:
+            import httpx
+
+            with httpx.Client() as client:
+                response = client.get("http://localhost:8787/health", timeout=0.5)
+                return response.status_code == 200
+        except Exception:
+            return False
+
+    def _should_enable_code_plugin(self) -> bool:
+        """Check if code plugin should be enabled based on config."""
+        try:
+            config = load_dere_config()
+            code_config = config.get("plugins", {}).get("dere_code", {})
+            mode = code_config.get("mode", "auto")
+            directories = code_config.get("directories", [])
+
+            if mode == "always":
+                return True
+            elif mode == "auto":
+                cwd = Path.cwd()
+                for directory in directories:
+                    dir_path = Path(directory).expanduser().resolve()
+                    try:
+                        cwd.relative_to(dir_path)
+                        return True
+                    except ValueError:
+                        continue
+                return False
+            else:  # mode == "never"
+                return False
+        except Exception:
+            return False
 
     def _find_plugins_path(self) -> Path | None:
         """Find the dere_plugins directory path."""
@@ -214,8 +242,8 @@ class SettingsBuilder:
         plugin_checks = [
             ("dere-vault@dere_plugins", self._should_enable_vault_plugin),
             ("dere-tasks@dere_plugins", self._should_enable_tasks_plugin),
-            ("dere-wellness@dere_plugins", self._should_enable_wellness_plugin),
             ("dere-graph-features@dere_plugins", self._should_enable_graph_features_plugin),
+            ("dere-code@dere_plugins", self._should_enable_code_plugin),
         ]
 
         for plugin_name, check_fn in plugin_checks:
@@ -227,44 +255,8 @@ class SettingsBuilder:
                 pass
 
     def _control_third_party_plugins(self, settings: dict) -> None:
-        """Control third-party plugins based on config"""
-        try:
-            config = load_dere_config()
-            plugins_config = config.get("plugins", {})
-
-            # Get workforce assistant config
-            workforce_config = plugins_config.get("workforce_assistant", {})
-            workforce_mode = workforce_config.get("mode", "auto")
-            workforce_directories = workforce_config.get("directories", [])
-
-            # Determine if workforce should be enabled
-            enable_workforce = False
-
-            if workforce_mode == "always":
-                enable_workforce = True
-            elif workforce_mode == "auto":
-                # Check if cwd is under any configured directory
-                cwd = Path.cwd()
-                for directory in workforce_directories:
-                    dir_path = Path(directory).expanduser().resolve()
-                    try:
-                        cwd.relative_to(dir_path)
-                        enable_workforce = True
-                        break
-                    except ValueError:
-                        continue
-            # else: workforce_mode == "never", leave as False
-
-            # Set plugin state
-            if "enabledPlugins" not in settings:
-                settings["enabledPlugins"] = {}
-
-            settings["enabledPlugins"]["workforce-assistant@omniwaifu-claude-plugins-local"] = (
-                enable_workforce
-            )
-        except Exception:
-            # Silently fail if config loading fails
-            pass
+        """Control third-party plugins based on config (reserved for future external plugins)."""
+        pass
 
     def _add_status_line(self, settings: dict) -> None:
         """Add status line from dere_personality plugin"""

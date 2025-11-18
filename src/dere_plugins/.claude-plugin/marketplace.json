@@ -20,14 +20,14 @@
       "description": "GTD task management with Taskwarrior integration for inbox processing, focus sessions, and habit tracking"
     },
     {
-      "name": "dere-wellness",
-      "source": "./dere_wellness",
-      "description": "Mental health and wellness support skills for CBT techniques, burnout monitoring, and cognitive reframing"
-    },
-    {
       "name": "dere-graph-features",
       "source": "./dere_graph_features",
       "description": "Output styles and utilities for dere knowledge graph extraction"
+    },
+    {
+      "name": "dere-code",
+      "source": "./dere_code",
+      "description": "Coding workflow automation - symbol-aware navigation, memory persistence, and safe refactoring patterns"
     }
   ]
 }
