@@ -23,6 +23,11 @@
       "name": "dere-wellness",
       "source": "./dere_wellness",
       "description": "Mental health and wellness support skills for CBT techniques, burnout monitoring, and cognitive reframing"
+    },
+    {
+      "name": "dere-graph-features",
+      "source": "./dere_graph_features",
+      "description": "Output styles and utilities for dere knowledge graph extraction"
     }
   ]
 }

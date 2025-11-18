@@ -10,12 +10,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Add both installed and development paths
-hook_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(Path.home() / ".local/share/dere/src"))
-sys.path.insert(0, str(hook_dir / "src"))
+# Add src directory to path to find dere_shared
+src_dir = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(src_dir))
 
-from dere_shared.tasks import get_task_context  # noqa: E402
+from dere_shared.tasks import get_task_context
 
 
 def log_error(message):

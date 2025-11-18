@@ -4,18 +4,18 @@ Dynamic context injection hook for dere.
 Injects fresh time, weather, and activity context with every user message.
 """
 
+import asyncio
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
-# Add both installed and development paths
-hook_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(Path.home() / ".local/share/dere/src"))
-sys.path.insert(0, str(hook_dir / "src"))
+# Add src directory to path to find dere_shared
+src_dir = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(src_dir))
 
-from dere_shared.context import get_full_context  # noqa: E402
+from dere_shared.context import get_full_context
 
 
 def log_error(message):
@@ -87,8 +87,7 @@ def main():
         if not stdin_data:
             sys.exit(0)
 
-        hook_input = json.loads(stdin_data)
-        current_prompt = hook_input.get("prompt", "")
+        json.loads(stdin_data)  # Validate JSON but don't need the data
     except json.JSONDecodeError as e:
         log_error(f"JSON decode error from stdin: {e}")
         sys.exit(0)
@@ -104,33 +103,7 @@ def main():
         # Load documents on first message (if specified)
         _load_initial_documents(session_id)
 
-        # Fetch last message time for differential lookback
-        last_message_time = None
-        if session_id:
-            try:
-                import requests
-
-                daemon_url = "http://localhost:8787"
-                response = requests.get(
-                    f"{daemon_url}/sessions/{session_id}/last_message_time", timeout=1
-                )
-                if response.ok:
-                    data = response.json()
-                    last_message_time = data.get("last_message_time")
-            except Exception:
-                pass  # Silent failure - differential lookback is optional
-
-        # Get parameters for knowledge graph context
-        user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
-        personality = os.getenv("DERE_PERSONALITY") or "assistant"
-
-        context_str = get_full_context(
-            session_id=session_id,
-            last_message_time=last_message_time,
-            user_id=user_id,
-            personality=personality,
-            current_prompt=current_prompt,
-        )
+        context_str = asyncio.run(get_full_context(session_id=session_id))
         if context_str:
             # Output JSON with additionalContext to inject context silently
             output = {

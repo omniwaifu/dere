@@ -28,6 +28,11 @@ class RPCClient:
             # Other errors - fail silently
             return None
 
+    def call_method(self, method: str, params: dict[str, Any] | None = None) -> Any:
+        """Generic RPC method call - converts method name to endpoint"""
+        endpoint = f"/rpc/{method}"
+        return self.call(endpoint, params)
+
     def capture_conversation(
         self,
         session_id: int,

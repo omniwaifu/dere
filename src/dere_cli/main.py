@@ -106,7 +106,6 @@ class SettingsBuilder:
         self.session_id = session_id
         self.company_announcements = company_announcements
         self.config_dir = get_config_dir()
-        self.hooks_dir = self.config_dir / "hooks"
         self.temp_files: list[str] = []
 
     def build(self) -> dict:
@@ -117,8 +116,19 @@ class SettingsBuilder:
             "env": {},
         }
 
-        if self.output_style:
-            settings["outputStyle"] = self.output_style
+        # Auto-detect vault output style if not explicitly set
+        output_style_to_use = self.output_style
+        if not output_style_to_use:
+            try:
+                from dere_plugins.dere_vault.scripts.detect_vault import is_vault
+                if is_vault():
+                    output_style_to_use = "dere-vault:vault"
+            except Exception:
+                # Silent fail if vault plugin not installed or detection fails
+                pass
+
+        if output_style_to_use:
+            settings["outputStyle"] = output_style_to_use
 
         if self.company_announcements:
             settings["companyAnnouncements"] = self.company_announcements
@@ -203,6 +213,13 @@ class SettingsBuilder:
                 # Wellness plugin not available
                 pass
 
+            # Enable dere-graph-features plugin (always enabled for graph extraction)
+            try:
+                settings["enabledPlugins"]["dere-graph-features@dere_plugins"] = True
+            except Exception:
+                # Graph features plugin not available
+                pass
+
         except Exception:
             # Silently fail if plugins not available
             pass
@@ -248,81 +265,19 @@ class SettingsBuilder:
             pass
 
     def _add_conversation_hooks(self, settings: dict) -> None:
-        """Add conversation capture hooks"""
-        hooks = []
-
-        # Context hook (if enabled)
-        if self.context:
-            context_hook = self.hooks_dir / "dere-context-hook.py"
-            if context_hook.exists():
-                hooks.append(
-                    {
-                        "matcher": "",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": str(context_hook),
-                            }
-                        ],
-                    }
-                )
-
-        # Capture hook
-        capture_hook = self.hooks_dir / "dere-hook.py"
-        if capture_hook.exists():
-            hooks.append(
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": str(capture_hook),
-                        }
-                    ],
-                }
-            )
-
-        # Stop hook
-        stop_hook = self.hooks_dir / "dere-stop-hook.py"
-        if stop_hook.exists():
-            hooks.append(
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": str(stop_hook),
-                        }
-                    ],
-                }
-            )
-
-        if hooks:
-            settings["hooks"]["UserPromptSubmit"] = hooks
-
-        # Session end hook (separate event)
-        session_end_hook = self.hooks_dir / "dere-hook-session-end.py"
-        if session_end_hook.exists():
-            settings["hooks"]["SessionEnd"] = [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": str(session_end_hook),
-                        }
-                    ],
-                }
-            ]
+        """Hooks are now loaded from dere_personality plugin"""
+        pass
 
     def _add_status_line(self, settings: dict) -> None:
-        """Add status line hook"""
-        statusline_hook = self.hooks_dir / "dere-statusline.py"
+        """Add status line from dere_personality plugin"""
+        from pathlib import Path
 
-        if statusline_hook.exists():
+        plugin_statusline = Path(__file__).parent.parent / "dere_plugins" / "dere_personality" / "scripts" / "dere-statusline.py"
+
+        if plugin_statusline.exists():
             settings["statusLine"] = {
                 "type": "command",
-                "command": str(statusline_hook),
+                "command": str(plugin_statusline),
                 "padding": 0,
             }
 

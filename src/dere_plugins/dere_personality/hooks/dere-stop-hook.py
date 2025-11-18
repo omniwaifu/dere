@@ -3,29 +3,11 @@ import json
 import os
 import sys
 
-# Add the hooks directory to Python path
+# Add the hooks directory to Python path for rpc_client import
 hooks_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, hooks_dir)
 
-try:
-    from rpc_client import RPCClient
-except ImportError:
-    # Try different path locations
-    import sys
-
-    possible_paths = [
-        os.path.join(hooks_dir, "..", "..", "hooks", "python"),
-        "/home/justin/.local/bin",
-        "/home/justin/.config/dere/.claude/hooks",
-    ]
-    for path in possible_paths:
-        if os.path.exists(os.path.join(path, "rpc_client.py")):
-            sys.path.insert(0, path)
-            from rpc_client import RPCClient
-
-            break
-    else:
-        raise ImportError("Could not find rpc_client module")
+from rpc_client import RPCClient
 
 
 def read_transcript(transcript_path):
@@ -106,21 +88,8 @@ def main():
         session_id = int(os.getenv("DERE_SESSION_ID", "0"))
         project_path = os.getenv("PWD", "")
 
-        # Determine event type: Stop or SubagentStop
-        event_name = hook_data.get("hook_event_name", "Stop")
-        is_subagent = event_name == "SubagentStop"
-
-        with open("/tmp/dere_stop_hook_debug.log", "a") as f:
-            f.write(f"Event type: {event_name}\n")
-
-        # Extract transcript path (different field for subagents)
-        if is_subagent:
-            transcript_path = hook_data.get("agent_transcript_path")
-            agent_id = hook_data.get("agent_id", "unknown")
-        else:
-            transcript_path = hook_data.get("transcript_path")
-            agent_id = None
-
+        # Extract transcript path
+        transcript_path = hook_data.get("transcript_path")
         if not transcript_path:
             with open("/tmp/dere_stop_hook_debug.log", "a") as f:
                 f.write("No transcript path provided\n")
@@ -141,38 +110,21 @@ def main():
             sys.exit(0)
 
         with open("/tmp/dere_stop_hook_debug.log", "a") as f:
-            f.write(
-                f"Captured {'subagent' if is_subagent else 'agent'} response "
-                f"(agent_id: {agent_id}, length: {len(claude_response)})\n"
-            )
+            f.write(f"Captured Claude response (length: {len(claude_response)})\n")
 
-        # Store Claude's response (with subagent metadata if applicable)
+        # Store Claude's response
         rpc = RPCClient()
-        if is_subagent:
-            result = rpc.call_method(
-                "capture_subagent_response",
-                {
-                    "session_id": session_id,
-                    "personality": personality,
-                    "project_path": project_path,
-                    "agent_id": agent_id,
-                    "response": claude_response,
-                },
-            )
-        else:
-            result = rpc.capture_claude_response(session_id, personality, project_path, claude_response)
+        result = rpc.capture_claude_response(session_id, personality, project_path, claude_response)
 
         with open("/tmp/dere_stop_hook_debug.log", "a") as f:
             f.write(f"RPC result for Claude response: {result}\n")
 
         if result:
             with open("/tmp/dere_stop_hook_debug.log", "a") as f:
-                f.write(
-                    f"{'Subagent' if is_subagent else 'Agent'} response captured successfully\n"
-                )
+                f.write("Claude response captured successfully\n")
         else:
             with open("/tmp/dere_stop_hook_debug.log", "a") as f:
-                f.write(f"Failed to capture {'subagent' if is_subagent else 'agent'} response\n")
+                f.write("Failed to capture Claude response\n")
 
         # Suppress output to avoid cluttering message history
         print(json.dumps({"suppressOutput": True}))

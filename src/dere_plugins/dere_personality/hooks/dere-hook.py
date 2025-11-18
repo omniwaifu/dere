@@ -2,29 +2,11 @@
 import os
 import sys
 
-# Add the hooks directory to Python path
+# Add the hooks directory to Python path for rpc_client import
 hooks_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, hooks_dir)
 
-try:
-    from rpc_client import RPCClient
-except ImportError:
-    # Try different path locations
-    import sys
-
-    possible_paths = [
-        os.path.join(hooks_dir, "..", "..", "hooks", "python"),
-        "/home/justin/.local/bin",
-        "/home/justin/.config/dere/.claude/hooks",
-    ]
-    for path in possible_paths:
-        if os.path.exists(os.path.join(path, "rpc_client.py")):
-            sys.path.insert(0, path)
-            from rpc_client import RPCClient
-
-            break
-    else:
-        raise ImportError("Could not find rpc_client module")
+from rpc_client import RPCClient
 
 
 def main():

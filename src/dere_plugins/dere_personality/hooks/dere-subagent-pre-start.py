@@ -16,27 +16,11 @@ import os
 import sys
 from pathlib import Path
 
-# Add hooks directory to Python path
+# Add hooks directory to Python path for rpc_client import
 hooks_dir = Path(__file__).parent
 sys.path.insert(0, str(hooks_dir))
 
-try:
-    from rpc_client import RPCClient
-except ImportError:
-    # Try alternate path locations
-    possible_paths = [
-        hooks_dir.parent.parent / "hooks" / "python",
-        Path.home() / ".local" / "bin",
-        Path.home() / ".config" / "dere" / ".claude" / "hooks",
-    ]
-    for path in possible_paths:
-        if (path / "rpc_client.py").exists():
-            sys.path.insert(0, str(path))
-            from rpc_client import RPCClient
-
-            break
-    else:
-        raise ImportError("Could not find rpc_client module")
+from rpc_client import RPCClient
 
 
 def load_personality_config(personality_name: str) -> dict | None:
