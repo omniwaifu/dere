@@ -96,12 +96,14 @@ class SettingsBuilder:
         self,
         personality: str | None = None,
         output_style: str | None = None,
+        mode: str | None = None,
         context: bool = False,
         session_id: int | None = None,
         company_announcements: list[str] | None = None,
     ):
         self.personality = personality
         self.output_style = output_style
+        self.mode = mode
         self.context = context
         self.session_id = session_id
         self.company_announcements = company_announcements
@@ -146,7 +148,12 @@ class SettingsBuilder:
         return settings
 
     def _should_enable_vault_plugin(self) -> bool:
-        """Check if vault plugin should be enabled (in an Obsidian vault)."""
+        """Check if vault plugin should be enabled (via --mode vault or when in Obsidian vault)."""
+        # CLI flag takes precedence
+        if self.mode == "vault":
+            return True
+        
+        # Fall back to auto-detection (in an Obsidian vault)
         try:
             from dere_vault.scripts.detect_vault import is_vault
 
@@ -155,8 +162,19 @@ class SettingsBuilder:
             return False
 
     def _should_enable_tasks_plugin(self) -> bool:
-        """Check if tasks plugin should be enabled (always enabled)."""
-        return True  # Tasks plugin always enabled, uses MCP when available
+        """Check if tasks plugin should be enabled (via --mode tasks or config)."""
+        # CLI flag takes precedence
+        if self.mode == "tasks":
+            return True
+        
+        # Fall back to config
+        try:
+            config = load_dere_config()
+            tasks_config = config.get("plugins", {}).get("dere_tasks", {})
+            mode = tasks_config.get("mode", "never")
+            return mode == "always"
+        except Exception:
+            return False
 
     def _should_enable_graph_features_plugin(self) -> bool:
         """Check if graph features plugin should be enabled (when daemon is running)."""
@@ -170,7 +188,12 @@ class SettingsBuilder:
             return False
 
     def _should_enable_code_plugin(self) -> bool:
-        """Check if code plugin should be enabled based on config."""
+        """Check if code plugin should be enabled (via --mode code or config)."""
+        # CLI flag takes precedence
+        if self.mode == "code":
+            return True
+        
+        # Fall back to config
         try:
             config = load_dere_config()
             code_config = config.get("plugins", {}).get("dere_code", {})
@@ -416,6 +439,7 @@ def _configure_settings(
     builder = SettingsBuilder(
         personality=personality_str,
         output_style=effective_output_style,
+        mode=mode,
         context=context,
         session_id=session_id,
         company_announcements=[announcement] if announcement else None,
@@ -605,7 +629,7 @@ def _execute_claude(cmd: list[str]) -> None:
 @click.option("--context-mode", default="smart", help="Context mode: summary, full, smart")
 @click.option("--max-context-tokens", default=2000, help="Max tokens for context")
 @click.option("--include-history", is_flag=True, help="Include conversation history")
-@click.option("--mode", help="Mental health mode (checkin, cbt, therapy, mindfulness, goals)")
+@click.option("--mode", help="Plugin/output mode (code, tasks, vault, or output style name)")
 @click.option("--model", help="Model override")
 @click.option("--fallback-model", help="Fallback model")
 @click.option("--permission-mode", help="Permission mode")

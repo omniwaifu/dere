@@ -39,6 +39,7 @@ dere = "dere_cli.main:cli"
 dere-daemon = "dere_daemon.main:main"
 dere-discord = "dere_discord.main:run"
 dere-obsidian = "dere_obsidian.main:main"
+dere-taskwarrior-mcp = "dere_tasks.scripts.taskwarrior_mcp_wrapper:main"
 
 [build-system]
 requires = ["hatchling"]

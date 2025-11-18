@@ -3,16 +3,17 @@
 # Default recipe
 default: build
 
+# Build MCP servers
+build-mcp:
+    cd src/dere_plugins/dere_tasks/mcp-server && npm run build
+
 # Build/sync Python environment
-build:
+build: build-mcp
     uv sync --extra dev
 
 # Install binaries to user PATH
 install: build
-    mkdir -p ~/.local/bin
-    mkdir -p ~/.local/share/dere
     uv tool install --force --editable .
-    cp -r src/ ~/.local/share/dere/
 
 # Clean build artifacts
 clean:
