@@ -10,6 +10,7 @@ from .agent import DiscordAgent
 from .config import DiscordBotConfig
 from .daemon import DaemonClient
 from .persona import PersonaProfile, PersonaService
+from .retry import exponential_backoff_retry
 from .session import SessionManager
 
 
@@ -68,11 +69,8 @@ class DereDiscordClient(discord.Client):
         finally:
             await super().close()
 
-    # TODO(sweep): Extract retry logic to decorator or separate utility function
     async def _register_presence(self) -> None:
         """Register bot presence with daemon on startup."""
-        import asyncio
-
         if not self.user:
             return
 
@@ -128,28 +126,18 @@ class DereDiscordClient(discord.Client):
             len(channels),
         )
 
-        # Retry with exponential backoff (daemon may not be ready yet)
-        max_retries = 5
-        for attempt in range(max_retries):
-            try:
-                await self.daemon.register_presence(system_user_id, channels)
-                logger.info("Presence registered successfully")
-                return
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = 2**attempt  # 1s, 2s, 4s, 8s, 16s
-                    logger.warning(
-                        "Failed to register presence (attempt {}/{}): {} - retrying in {}s",
-                        attempt + 1,
-                        max_retries,
-                        e,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error(
-                        "Failed to register presence after {} attempts: {}", max_retries, e
-                    )
+        # Register with daemon using retry decorator
+        await self._do_register_presence(system_user_id, channels)
+        logger.info("Presence registered successfully")
+
+    @exponential_backoff_retry(max_retries=5, base_delay=1.0, operation_name="presence registration")
+    async def _do_register_presence(self, user_id: str, channels: list[dict]) -> None:
+        """Perform presence registration with retry logic.
+
+        This method is decorated with exponential_backoff_retry to handle
+        transient failures when the daemon may not be ready yet.
+        """
+        await self.daemon.register_presence(user_id, channels)
 
     async def _heartbeat_loop(self) -> None:
         """Send heartbeat every 30s to keep presence alive."""

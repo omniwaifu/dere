@@ -10,6 +10,7 @@ from dere_shared.emotion.decay import DecayContext, SmartDecay
 from dere_shared.emotion.history import StimulusBuffer, StimulusRecord
 from dere_shared.emotion.models import (
     EMOTION_CHARACTERISTICS,
+    AppraisalOutput,
     CurrentMoodState,
     EmotionInstance,
     OCCAppraisal,
@@ -74,37 +75,32 @@ class OCCEmotionManager:
             self.active_emotions = {}
             self.last_decay_time = int(time.time() * 1000)
 
-    # TODO(sweep): Break into pipeline stages: _apply_decay_stage(), _appraisal_stage(), _physics_stage(), _persistence_stage()
-    async def process_stimulus(
-        self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
-    ) -> dict[OCCEmotionType | str, EmotionInstance]:
-        """
-        Process a stimulus through the complete pipeline:
-        decay → appraise → physics → persist
-        """
-        start_time = int(time.time() * 1000)
-
-        logger.debug(
-            f"[OCCEmotionManager] Processing stimulus, "
-            f"current emotions: {len(self.active_emotions)}"
-        )
-
-        # 1. APPLY DECAY FIRST
+    async def _apply_decay_stage(self, start_time: int) -> None:
+        """Pipeline Stage 1: Apply emotion decay based on time elapsed."""
         await self._apply_smart_decay(start_time)
 
-        # 2. RUN APPRAISAL
+    async def _appraisal_stage(
+        self, stimulus: dict | str, context: dict, persona_name: str
+    ) -> AppraisalOutput | None:
+        """Pipeline Stage 2: Run OCC appraisal on stimulus."""
         current_emotion_state = self._build_current_emotion_state(stimulus)
         appraisal_output = await self.appraisal_engine.appraise_stimulus(
-            stimulus, current_emotion_state, context or {}, persona_name
+            stimulus, current_emotion_state, context, persona_name
         )
 
         if not appraisal_output or not appraisal_output.resulting_emotions:
             logger.debug("[OCCEmotionManager] No emotions from appraisal")
-            return self.active_emotions
+            return None
 
-        # 3. APPLY PHYSICS TO RESULTING EMOTIONS
+        return appraisal_output
+
+    async def _physics_stage(
+        self, appraisal_output: AppraisalOutput, context: dict, start_time: int
+    ) -> list[tuple[OCCEmotionType, any]]:
+        """Pipeline Stage 3: Apply emotion physics to resulting emotions."""
         logger.debug("[OCCEmotionManager] === APPLYING EMOTION PHYSICS ===")
         physics_results = []
+
         for emotion in appraisal_output.resulting_emotions:
             if emotion.type == "neutral" or emotion.type not in OCCEmotionType.__members__.values():
                 continue
@@ -114,7 +110,7 @@ class OCCEmotionManager:
             prior_intensity = self.active_emotions.get(emotion_type)
 
             # Build physics context
-            physics_context = self._build_physics_context(context or {})
+            physics_context = self._build_physics_context(context)
 
             # Calculate physics-adjusted intensity
             physics_result = self.emotion_physics.calculate_intensity_change(
@@ -133,7 +129,11 @@ class OCCEmotionManager:
 
             # Update active emotions if intensity is significant
             if physics_result.final_intensity > 1.0:
-                old_intensity = self.active_emotions[emotion_type].intensity if emotion_type in self.active_emotions else 0
+                old_intensity = (
+                    self.active_emotions[emotion_type].intensity
+                    if emotion_type in self.active_emotions
+                    else 0
+                )
                 self.active_emotions[emotion_type] = EmotionInstance(
                     type=emotion_type,
                     intensity=physics_result.final_intensity,
@@ -162,13 +162,48 @@ class OCCEmotionManager:
                     f"{old_intensity:.1f} → 0 (below threshold)"
                 )
 
-        # 4. RECORD STIMULUS IN HISTORY
-        await self._record_stimulus_in_history(stimulus, appraisal_output, context or {})
+        return physics_results
 
-        # 5. PERSIST STATE IF CHANGED
+    async def _persistence_stage(
+        self, appraisal_output: AppraisalOutput, stimulus: dict | str, context: dict, start_time: int
+    ) -> None:
+        """Pipeline Stage 4: Record stimulus history and persist emotional state."""
+        # Record stimulus in history
+        await self._record_stimulus_in_history(stimulus, appraisal_output, context)
+
+        # Persist state
+        await self._persist_state()
+        self.last_major_emotional_change = start_time
+
+    async def process_stimulus(
+        self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
+    ) -> dict[OCCEmotionType | str, EmotionInstance]:
+        """
+        Process a stimulus through the complete pipeline:
+        decay → appraise → physics → persist
+        """
+        start_time = int(time.time() * 1000)
+        context = context or {}
+
+        logger.debug(
+            f"[OCCEmotionManager] Processing stimulus, "
+            f"current emotions: {len(self.active_emotions)}"
+        )
+
+        # Stage 1: Apply decay
+        await self._apply_decay_stage(start_time)
+
+        # Stage 2: Run appraisal
+        appraisal_output = await self._appraisal_stage(stimulus, context, persona_name)
+        if not appraisal_output:
+            return self.active_emotions
+
+        # Stage 3: Apply physics
+        physics_results = await self._physics_stage(appraisal_output, context, start_time)
+
+        # Stage 4: Persist if changed
         if physics_results:
-            await self._persist_state()
-            self.last_major_emotional_change = start_time
+            await self._persistence_stage(appraisal_output, stimulus, context, start_time)
             logger.info(
                 f"[OCCEmotionManager] Emotional state updated: "
                 f"{len(physics_results)} emotions changed, "
@@ -176,6 +211,39 @@ class OCCEmotionManager:
             )
 
         return self.active_emotions
+
+    async def _check_user_presence(self) -> tuple[bool, bool]:
+        """Check if user is present and engaged via presence service.
+
+        Returns:
+            (is_present, is_engaged): Tuple indicating presence and engagement status
+        """
+        # For now, we check the database for recent presence heartbeats
+        # In the future, this could be enhanced with more sophisticated presence detection
+        try:
+            # Check if there's a recent session activity (within last 5 minutes)
+            from datetime import datetime, timedelta, UTC
+
+            if self.db and hasattr(self.db, 'session_factory'):
+                from sqlmodel import select
+                from dere_shared.models import Session
+
+                async with self.db.session_factory() as db_session:
+                    stmt = select(Session).where(Session.id == self.session_id)
+                    result = await db_session.execute(stmt)
+                    session = result.scalar_one_or_none()
+
+                    if session and session.last_activity:
+                        time_since_activity = datetime.now(UTC) - session.last_activity
+                        is_present = time_since_activity < timedelta(minutes=5)
+                        is_engaged = time_since_activity < timedelta(minutes=1)
+
+                        return (is_present, is_engaged)
+        except Exception as e:
+            logger.debug(f"[OCCEmotionManager] Failed to check presence: {e}")
+
+        # Default: assume not present
+        return (False, False)
 
     async def _apply_smart_decay(self, current_time: int) -> None:
         """Apply context-aware decay to active emotions"""
@@ -187,13 +255,16 @@ class OCCEmotionManager:
 
         logger.debug(f"[OCCEmotionManager] === APPLYING DECAY ({time_delta_minutes:.1f}min elapsed) ===")
 
-        # Build decay context (simplified for now, can be enhanced)
+        # Get user presence status
+        is_user_present, is_user_engaged = await self._check_user_presence()
+
+        # Build decay context
         recent_activity = self._calculate_recent_emotional_activity()
         time_of_day = self._get_time_of_day()
 
         decay_context = DecayContext(
-            is_user_present=False,  # TODO: Get from presence service
-            is_user_engaged=False,
+            is_user_present=is_user_present,
+            is_user_engaged=is_user_engaged,
             recent_emotional_activity=recent_activity,
             environmental_stress=0.3,
             social_support=0.5,

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 
 from dere_discord.daemon import DaemonClient
@@ -17,6 +19,9 @@ from dere_shared.personalities import PersonalityLoader
 from .claude_client import ObsidianClaudeClient
 from .models import (
     ChatCompletionChoice,
+    ChatCompletionChunk,
+    ChatCompletionChunkChoice,
+    ChatCompletionChunkDelta,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionUsage,
@@ -157,10 +162,9 @@ class ObsidianServer:
             """OpenAI-compatible chat completions endpoint."""
             try:
                 if request.stream:
-                    # TODO: implement streaming
-                    raise HTTPException(
-                        status_code=501,
-                        detail="Streaming not yet implemented",
+                    return StreamingResponse(
+                        self._handle_streaming_completion(request),
+                        media_type="text/event-stream",
                     )
 
                 return await self._handle_completion(request)
@@ -269,6 +273,133 @@ class ObsidianServer:
         )
 
         return response
+
+    async def _handle_streaming_completion(self, request: ChatCompletionRequest):
+        """Handle streaming completion request with Server-Sent Events."""
+
+        # Extract user message
+        user_messages = [msg for msg in request.messages if msg.role == "user"]
+        if not user_messages:
+            raise HTTPException(status_code=400, detail="No user message found")
+
+        user_prompt = user_messages[-1].content
+
+        # Parse personality from model name
+        personality = request.personality
+        if not personality and "-" in request.model:
+            potential_personality = request.model.split("-")[0].lower()
+            available = self.personality_loader.list_available()
+            if potential_personality in available:
+                personality = potential_personality
+                logger.debug(
+                    f"Extracted personality '{personality}' from model name '{request.model}'"
+                )
+
+        # Create session if enabled
+        session_id = None
+        if self.enable_sessions and self.daemon_client:
+            session_id, resumed, _ = await self.daemon_client.find_or_create_session(
+                working_dir=str(self.vault_path),
+                personality=personality,
+                max_age_hours=24,
+                user_id=request.user,
+            )
+            logger.info(f"Session {session_id} ({'resumed' if resumed else 'created'})")
+
+        # Create Claude client
+        claude_client = ObsidianClaudeClient(
+            vault_parser=self.vault_parser,
+            personality_name=personality,
+            daemon_client=self.daemon_client,
+            session_id=session_id,
+        )
+
+        # Query Claude (non-streaming)
+        # TODO: In the future, could integrate with Claude CLI streaming if available
+        response_text = await claude_client.query_and_receive(
+            prompt=user_prompt,
+            note_path=request.note_path,
+            note_content=request.note_content,
+        )
+
+        # Capture to daemon if session enabled
+        if session_id and self.daemon_client:
+            await self.daemon_client.capture_message(
+                {
+                    "session_id": session_id,
+                    "prompt": user_prompt,
+                    "message_type": "user",
+                    "medium": "obsidian",
+                }
+            )
+            await self.daemon_client.capture_message(
+                {
+                    "session_id": session_id,
+                    "prompt": response_text,
+                    "message_type": "assistant",
+                    "medium": "obsidian",
+                }
+            )
+
+        # Generate streaming response
+        completion_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+        created_timestamp = int(time.time())
+
+        # Send initial chunk with role
+        initial_chunk = ChatCompletionChunk(
+            id=completion_id,
+            created=created_timestamp,
+            model=request.model,
+            choices=[
+                ChatCompletionChunkChoice(
+                    index=0,
+                    delta=ChatCompletionChunkDelta(role="assistant", content=""),
+                    finish_reason=None,
+                )
+            ],
+        )
+        yield f"data: {initial_chunk.model_dump_json()}\n\n"
+
+        # Stream content in chunks (word by word for natural streaming feel)
+        words = response_text.split()
+        for i, word in enumerate(words):
+            # Add space before word except for first word
+            content = f" {word}" if i > 0 else word
+
+            chunk = ChatCompletionChunk(
+                id=completion_id,
+                created=created_timestamp,
+                model=request.model,
+                choices=[
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta=ChatCompletionChunkDelta(content=content),
+                        finish_reason=None,
+                    )
+                ],
+            )
+            yield f"data: {chunk.model_dump_json()}\n\n"
+
+            # Small delay to simulate streaming (adjust as needed)
+            await asyncio.sleep(0.01)
+
+        # Send final chunk with finish_reason
+        final_chunk = ChatCompletionChunk(
+            id=completion_id,
+            created=created_timestamp,
+            model=request.model,
+            choices=[
+                ChatCompletionChunkChoice(
+                    index=0,
+                    delta=ChatCompletionChunkDelta(content=""),
+                    finish_reason="stop",
+                )
+            ],
+        )
+        yield f"data: {final_chunk.model_dump_json()}\n\n"
+
+        # Send [DONE] marker
+        yield "data: [DONE]\n\n"
 
     async def shutdown(self):
         """Cleanup on shutdown."""
