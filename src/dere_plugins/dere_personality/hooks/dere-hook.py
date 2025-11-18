@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
+"""Dere personality hook for Claude CLI integration."""
+
+import json
 import os
 import sys
+from typing import NamedTuple
 
 # Add the hooks directory to Python path for rpc_client import
 hooks_dir = os.path.dirname(os.path.abspath(__file__))
@@ -9,72 +13,93 @@ sys.path.insert(0, hooks_dir)
 from rpc_client import RPCClient
 
 
-# FIXME(sweep): Remove debug file logging (/tmp/dere_hook_debug.log security concern), extract argument parsing to separate function
-def main():
-    # Debug: log all arguments
-    with open("/tmp/dere_hook_debug.log", "a") as f:
-        f.write(f"Hook called with args: {sys.argv}\n")
+class HookArgs(NamedTuple):
+    """Parsed hook arguments."""
 
-    # Read from stdin if no arguments provided (dere might pass data via stdin)
-    if len(sys.argv) == 1:
-        try:
-            import json
+    session_id: int
+    personality: str
+    project_path: str
+    prompt: str
 
-            stdin_data = sys.stdin.read().strip()
-            with open("/tmp/dere_hook_debug.log", "a") as f:
-                f.write(f"Reading from stdin: {stdin_data}\n")
 
-            if stdin_data:
-                data = json.loads(stdin_data)
+def parse_stdin_args() -> HookArgs | None:
+    """Parse arguments from stdin (JSON format).
 
-                # Only process if DERE_PERSONALITY is set (i.e., this is a dere session)
-                personality = os.getenv("DERE_PERSONALITY")
-                if not personality:
-                    with open("/tmp/dere_hook_debug.log", "a") as f:
-                        f.write("Skipping - not a dere session (no DERE_PERSONALITY)\n")
-                    sys.exit(0)
+    Returns:
+        HookArgs if successful, None if should skip hook
+    """
+    try:
+        stdin_data = sys.stdin.read().strip()
+        if not stdin_data:
+            # No stdin data, use defaults (empty hook)
+            return HookArgs(0, "", "", "")
 
-                # Use the dere session ID from environment variable, not Claude Code's session ID
-                session_id = int(os.getenv("DERE_SESSION_ID", "0"))
+        data = json.loads(stdin_data)
 
-                project_path = data.get("cwd", "")
-                prompt = data.get("prompt", "")
-            else:
-                with open("/tmp/dere_hook_debug.log", "a") as f:
-                    f.write("No stdin data, using defaults\n")
-                session_id = 0
-                personality = ""
-                project_path = ""
-                prompt = ""
-        except Exception as e:
-            with open("/tmp/dere_hook_debug.log", "a") as f:
-                f.write(f"Error reading stdin: {e}\n")
-            sys.exit(1)
-    elif len(sys.argv) >= 5:
-        # Traditional argument parsing
-        session_id = int(sys.argv[1])
-        personality = sys.argv[2]
-        project_path = sys.argv[3]
-        prompt = sys.argv[4]
-    else:
-        with open("/tmp/dere_hook_debug.log", "a") as f:
-            f.write(f"ERROR: Not enough args. Got {len(sys.argv)}, need 5\n")
+        # Only process if DERE_PERSONALITY is set (i.e., this is a dere session)
+        personality = os.getenv("DERE_PERSONALITY")
+        if not personality:
+            return None  # Skip - not a dere session
+
+        # Use the dere session ID from environment variable
+        session_id = int(os.getenv("DERE_SESSION_ID", "0"))
+        project_path = data.get("cwd", "")
+        prompt = data.get("prompt", "")
+
+        return HookArgs(session_id, personality, project_path, prompt)
+    except Exception:
+        sys.exit(1)
+
+
+def parse_cli_args() -> HookArgs:
+    """Parse arguments from command line.
+
+    Returns:
+        HookArgs with parsed values
+
+    Raises:
+        SystemExit if arguments are invalid
+    """
+    if len(sys.argv) < 5:
         print(
             "Usage: dere-hook.py <session_id> <personality> <project_path> <prompt>",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    with open("/tmp/dere_hook_debug.log", "a") as f:
-        f.write(
-            f"Calling RPC with session_id={session_id}, personality={personality}, project_path={project_path}, prompt='{prompt}'\n"
-        )
+    return HookArgs(
+        session_id=int(sys.argv[1]),
+        personality=sys.argv[2],
+        project_path=sys.argv[3],
+        prompt=sys.argv[4],
+    )
 
+
+def parse_args() -> HookArgs | None:
+    """Parse hook arguments from stdin or command line.
+
+    Returns:
+        HookArgs if successful, None if should skip hook
+    """
+    if len(sys.argv) == 1:
+        # Read from stdin (Claude Code format)
+        return parse_stdin_args()
+    else:
+        # Traditional CLI arguments
+        return parse_cli_args()
+
+
+def main():
+    """Main hook entry point."""
+    args = parse_args()
+    if args is None:
+        sys.exit(0)  # Skip hook for non-dere sessions
+
+    # Call RPC to capture conversation
     rpc = RPCClient()
-    result = rpc.capture_conversation(session_id, personality, project_path, prompt)
-
-    with open("/tmp/dere_hook_debug.log", "a") as f:
-        f.write(f"RPC result: {result}\n")
+    result = rpc.capture_conversation(
+        args.session_id, args.personality, args.project_path, args.prompt
+    )
 
     # Always suppress output to avoid cluttering message history
     print(json.dumps({"suppressOutput": True}))
