@@ -50,7 +50,7 @@ If inbox_count > 0:
      - Yes → Use `create_project_tree` or identify first next action
      - No → Single next action
   5. **When/where?**
-     - Set context (@home, @computer, etc.)
+     - Set context (home, computer, etc.)
      - Set energy level (H/M/L)
      - Optionally schedule or defer
 

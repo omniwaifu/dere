@@ -5,10 +5,16 @@ import sys
 from pathlib import Path
 
 def main():
-    # Find the MCP server relative to this script
-    script_dir = Path(__file__).parent.parent
-    mcp_server = script_dir / "mcp-server" / "dist" / "index.js"
-    
+    # Point directly to source repo (not installed copy)
+    # Find dere repo root by going up from this file
+    repo_root = Path(__file__).parent.parent.parent.parent.parent
+    mcp_server = repo_root / "src" / "dere_plugins" / "dere_tasks" / "mcp-server" / "dist" / "index.js"
+
+    if not mcp_server.exists():
+        print(f"Error: MCP server not found at {mcp_server}", file=sys.stderr)
+        print("Run 'just build-mcp' to build it", file=sys.stderr)
+        sys.exit(1)
+
     # Run the MCP server
     subprocess.run(["node", str(mcp_server)] + sys.argv[1:])
 

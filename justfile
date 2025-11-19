@@ -1,18 +1,12 @@
 # dere - personality-layered wrapper for Claude CLI
 
 # Default recipe
-default: build
-
-# Build MCP servers
-build-mcp:
-    cd src/dere_plugins/dere_tasks/mcp-server && npm run build
-
-# Build/sync Python environment
-build: build-mcp
-    uv sync --extra dev
+default: install
 
 # Install binaries to user PATH
-install: build
+install:
+    cd src/dere_plugins/dere_tasks/mcp-server && npm run build
+    uv sync --extra dev
     uv tool install --force --editable .
 
 # Clean build artifacts
@@ -33,11 +27,11 @@ fmt:
     uv run ruff format .
 
 # Run development daemon
-dev: build
+dev:
     uv run python -m dere_daemon.main
 
 # Run all services (daemon + discord)
-dev-all: build
+dev-all:
     uv run honcho start
 
 # Check for dependency updates

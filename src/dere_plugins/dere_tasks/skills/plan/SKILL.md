@@ -44,8 +44,8 @@ User: "I need to plan the website redesign project"
    What's the very first action you could take today?"
 
 4. Create actions:
-   - "Review 3 competitor sites" (@computer, energy:L)
-   - "Schedule feedback meeting with team" (@work, energy:M)
+   - "Review 3 competitor sites" (computer, energy:L)
+   - "Schedule feedback meeting with team" (work, energy:M)
 
 5. Result:
    Project now has 2 next actions, unblocked

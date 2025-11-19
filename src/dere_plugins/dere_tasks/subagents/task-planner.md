@@ -35,7 +35,7 @@ This subagent specializes in:
    - Cognitive load and capacity
 
 3. **Determine Focus**: Use `get_next_actions` MCP tool to identify priorities
-   - Filter by context (@home, @computer, etc.)
+   - Filter by context (home, computer, etc.)
    - Filter by energy level (H/M/L)
    - Filter by time available (15m, 1h, 2h+)
    - Returns enriched recommendations with insights
@@ -120,10 +120,10 @@ Reference personality TOML for:
 - **Low energy**: Administrative, simple, clearable items
 
 ### Context-Based Filtering
-- **@home**: Personal tasks, errands, household
-- **@computer**: Development, research, writing
-- **@anywhere**: Phone calls, thinking, reading
-- **@social**: Meetings, collaboration, communication
+- **home**: Personal tasks, errands, household
+- **computer**: Development, research, writing
+- **anywhere**: Phone calls, thinking, reading
+- **social**: Meetings, collaboration, communication
 
 ## MCP Tools Usage
 
@@ -159,6 +159,22 @@ Reference personality TOML for:
 - **Processing inbox?** → Use `process_inbox` (not `list_tasks(tags=['inbox'])`)
 - **Project review?** → Use `get_project_status` (not just list tasks)
 - **Bulk task creation?** → Use `create_project_tree` (not individual add_task calls)
+
+### Task Field Guidance
+
+**scheduled vs due:**
+- `scheduled` - When task becomes available to work on (GTD "tickler file")
+- `due` - Hard deadline (use sparingly, not everything needs one)
+- For daily habits: Use both `scheduled:today` and `due:today` (due required for recurrence)
+- For routine work: Use `scheduled` only (no deadline pressure)
+- For true deadlines: Use both `scheduled` (when to start) and `due` (when it's late)
+
+**Recurring tasks (habits):**
+- Must have `due` date (TaskWarrior requirement)
+- Set `scheduled` to control when task appears
+- Configure `recurrence.limit=0` to show only current instance
+- Tag with `+habit` for filtering
+- Use `get_recurring_tasks` to track streaks
 
 ## Anti-Patterns to Avoid
 

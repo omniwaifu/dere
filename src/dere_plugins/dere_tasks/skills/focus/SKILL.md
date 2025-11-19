@@ -10,7 +10,7 @@ Help user select and start the optimal task based on current context, energy, an
 ## Workflow
 
 1. **Ask context**:
-   - Where are you? (@home, @computer, @errands)
+   - Where are you? (home, computer, errands)
    - How much time? (15m, 1h, 2h+)
    - Energy level? (high, medium, low)
 
@@ -32,7 +32,7 @@ Help user select and start the optimal task based on current context, energy, an
 User: "What should I work on? I'm at home, have 1 hour, feeling tired"
 
 You:
-1. Use get_next_actions(context="@home", energy_level="L", time_available="1h")
+1. Use get_next_actions(context="home", energy_level="L", time_available="1h")
 2. Present: "Here are good low-energy tasks for home:
    - Organize project files (30min, low energy)
    - Review PR comments (45min, can do anywhere)

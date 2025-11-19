@@ -18,7 +18,7 @@ Capture tasks from casual mentions, parsing context and metadata without forcing
 Extract from user's language:
 
 - **Project**: "for the redesign" → project:redesign
-- **Context**: "when I'm home" → @home, "call about" → @phone
+- **Context**: "when I'm home" → home, "call about" → phone
 - **Energy**: "think through" → energy:H, "organize" → energy:L
 - **Due**: "today", "tomorrow", "this week" → due dates
 - **Priority**: "urgent" → priority:H, "eventually" → priority:L
@@ -45,13 +45,14 @@ Ask clarifying questions when needed.
 User: "I should really email John about the proposal soon"
 
 You:
-1. Parse: action="email John", context="@computer", vague timing
+1. Parse: action="email John", context="computer", vague timing
 2. Clarify: "Is this urgent or can it wait?"
 3. Add task with:
    - description: "Email John about proposal timeline"
-   - tags: ["@computer", "+communication"]
+   - context: "computer"
+   - tags: ["+communication"]
    - priority: M
-4. Confirm: "Added 'Email John about proposal timeline' (@computer).
+4. Confirm: "Added 'Email John about proposal timeline' (computer).
             Want to set a specific due date?"
 ```
 

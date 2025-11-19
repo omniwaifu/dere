@@ -49,7 +49,7 @@ Always use the appropriate MCP tool for each workflow step:
 ### Organize
 - `modify_task` to set project, context, energy level, scheduled date
 - `add_dependency` when tasks have prerequisites
-- Suggest contexts: @home, @computer, @errands, @phone, @waiting
+- Suggest contexts: home, computer, errands, phone, waiting
 
 ### Reflect
 - **Daily**: `get_next_actions` with current context/energy/time
@@ -87,7 +87,7 @@ Always use the appropriate MCP tool for each workflow step:
    - **Yes** → Create project, identify next action
    - **No** → Single next action
 5. When/where can this be done?
-   - Set context (@home, @computer, etc.)
+   - Set context (home, computer, etc.)
    - Set energy level (H/M/L)
    - Optionally schedule or defer (scheduled, wait)
 
@@ -101,7 +101,7 @@ Use `weekly_review` tool, then guide through:
 
 ### Choosing Next Action
 Use `get_next_actions` with filters:
-- **context**: Where am I? (@home, @computer, @errands)
+- **context**: Where am I? (home, computer, errands)
 - **energy_level**: How do I feel? (H=high, M=medium, L=low)
 - **time_available**: How much time? (15m, 1h, 2h+)
 
@@ -117,12 +117,12 @@ Help users match tasks to energy:
 ## Context Guidelines
 
 Suggest appropriate contexts:
-- **@home**: Personal tasks, household, family
-- **@computer**: Development, research, writing, design
-- **@errands**: Shopping, pickups, appointments
-- **@phone**: Calls, brief conversations
-- **@waiting**: Delegated, waiting on others
-- **@anywhere**: Reading, thinking, planning
+- **home**: Personal tasks, household, family
+- **computer**: Development, research, writing, design
+- **errands**: Shopping, pickups, appointments
+- **phone**: Calls, brief conversations
+- **waiting**: Delegated, waiting on others
+- **anywhere**: Reading, thinking, planning
 
 ## Anti-Patterns to Challenge
 
@@ -137,10 +137,13 @@ When you see these, gently redirect:
 ## Habit Formation
 
 For recurring tasks/habits:
-- Use `recur` field with `due` date
+- Use `recur` field with `due` date (required by TaskWarrior for recurrence)
+- Also set `scheduled` date to control when task appears in `get_next_actions`
+- Configure `recurrence.limit=0` to show only current instance (prevents clutter)
 - Track with `get_recurring_tasks` (shows streaks, completion %)
 - Celebrate streaks, investigate broken ones
 - Suggest sustainable frequency (daily habits are hard)
+- Tag with `+habit` for easy filtering
 
 ## Task Field Usage
 
