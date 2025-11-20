@@ -85,16 +85,26 @@ def format_session_type(session_type):
         return GRAY + "●" + RESET + " " + session_type
 
 
-def format_mode(mode):
-    """Format mode indicator"""
-    if mode == "productivity" or mode == "tasks":
-        return CYAN + "◆" + RESET + " productivity"
-    elif mode == "code":
-        return MAGENTA + "◆" + RESET + " code"
-    elif mode == "vault":
-        return GREEN + "◆" + RESET + " vault"
+def format_modes(modes_str):
+    """Format mode indicators for multiple plugins"""
+    if not modes_str:
+        return ""
+
+    # modes_str is already "/" separated from env var
+    mode_names = [m.strip() for m in modes_str.split("/")]
+
+    # Use first mode's color for the icon
+    first_mode = mode_names[0]
+    if first_mode == "productivity":
+        icon = CYAN + "◆" + RESET
+    elif first_mode == "code":
+        icon = MAGENTA + "◆" + RESET
+    elif first_mode == "vault":
+        icon = GREEN + "◆" + RESET
     else:
-        return GRAY + "◆" + RESET + " " + mode
+        icon = GRAY + "◆" + RESET
+
+    return icon + " " + modes_str
 
 
 def check_daemon_status():
@@ -171,7 +181,7 @@ def main():
     # Get dere configuration from environment
     personality = os.getenv("DERE_PERSONALITY", "")
     mcp_servers = os.getenv("DERE_MCP_SERVERS", "")
-    mode = os.getenv("DERE_MODE", "")
+    enabled_plugins = os.getenv("DERE_ENABLED_PLUGINS", "")
     output_style = os.getenv("DERE_OUTPUT_STYLE", "")
     custom_prompts = os.getenv("DERE_CUSTOM_PROMPTS", "")
     session_type = os.getenv("DERE_SESSION_TYPE", "")
@@ -194,9 +204,9 @@ def main():
     if mcp_servers:
         parts.append(format_mcp_servers(mcp_servers))
 
-    # Mode
-    if mode:
-        parts.append(format_mode(mode))
+    # Enabled plugins (modes)
+    if enabled_plugins:
+        parts.append(format_modes(enabled_plugins))
 
     # Session type
     if session_type and session_type != "new":

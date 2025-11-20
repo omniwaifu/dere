@@ -107,6 +107,7 @@ class SettingsBuilder:
         self.company_announcements = company_announcements
         self.config_dir = get_config_dir()
         self.temp_files: list[str] = []
+        self.enabled_plugins: list[str] = []
 
     def build(self) -> dict:
         """Build settings dictionary"""
@@ -265,16 +266,19 @@ class SettingsBuilder:
 
         # Conditionally enable other plugins
         plugin_checks = [
-            ("dere-vault@dere_plugins", self._should_enable_vault_plugin),
-            ("dere-productivity@dere_plugins", self._should_enable_productivity_plugin),
-            ("dere-graph-features@dere_plugins", self._should_enable_graph_features_plugin),
-            ("dere-code@dere_plugins", self._should_enable_code_plugin),
+            ("dere-vault@dere_plugins", "vault", self._should_enable_vault_plugin),
+            ("dere-productivity@dere_plugins", "productivity", self._should_enable_productivity_plugin),
+            ("dere-graph-features@dere_plugins", None, self._should_enable_graph_features_plugin),
+            ("dere-code@dere_plugins", "code", self._should_enable_code_plugin),
         ]
 
-        for plugin_name, check_fn in plugin_checks:
+        for plugin_name, mode_name, check_fn in plugin_checks:
             try:
                 if check_fn():
                     settings["enabledPlugins"][plugin_name] = True
+                    # Track enabled plugin for statusline (skip infrastructure plugins)
+                    if mode_name:
+                        self.enabled_plugins.append(mode_name)
             except Exception:
                 # Plugin not available or detection failed
                 pass
@@ -307,6 +311,10 @@ class SettingsBuilder:
         # Set productivity mode env var for productivity context hook
         if self.mode == "productivity" or self.mode == "tasks":
             settings["env"]["DERE_PRODUCTIVITY"] = "true"
+
+        # Export enabled plugins for statusline
+        if self.enabled_plugins:
+            settings["env"]["DERE_ENABLED_PLUGINS"] = "/".join(self.enabled_plugins)
 
         # Add session ID
         if self.session_id:
