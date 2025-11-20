@@ -1,0 +1,194 @@
+# Dere Configuration Example
+# Copy this file to ~/.config/dere/config.toml and customize for your setup
+# All values shown are defaults - you only need to specify what you want to change
+
+# ============================================================================
+# Core Settings
+# ============================================================================
+
+# Default personality for interactions (tsun, kuu, dere, yan)
+default_personality = "tsun"
+
+# Global user identifier (defaults to system username if not set)
+# user_id = "username"
+
+[user]
+# User display name (defaults to system username)
+# name = "User Name"
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+
+[database]
+# PostgreSQL connection URL
+# Format: postgresql://username:password@host:port/database
+url = "postgresql://postgres:dere@localhost/dere"
+
+# ============================================================================
+# Context Settings
+# ============================================================================
+
+[context]
+# Core context features (always available when dere-core plugin is enabled)
+time = true                # Current time and date
+weather = true            # Weather information (requires weather.enabled = true)
+recent_files = true       # Recently modified files
+knowledge_graph = true    # Knowledge graph entities
+
+# Productivity context (only when dere-productivity plugin is enabled)
+activity = true           # ActivityWatch window tracking
+media_player = true       # Media player status
+tasks = true              # Task management integration
+calendar = true           # Calendar events
+
+# Activity tracking settings
+activity_lookback_minutes = 10                      # Default lookback window
+activity_differential_enabled = true                # Use smart differential lookback
+activity_min_lookback_minutes = 2                   # Minimum lookback for recent messages
+activity_full_lookback_threshold_minutes = 5        # Gap threshold for full lookback
+activity_max_duration_hours = 6                     # Maximum duration to track continuous activity
+
+# Recent files settings
+recent_files_timeframe = "1h"                       # Time window for recent files (e.g., "1h", "30m")
+recent_files_base_path = "/mnt/data/Code"          # Base directory to scan
+recent_files_max_depth = 5                          # Maximum directory depth
+
+# Display settings
+show_inactive_items = true                          # Show ended/inactive activities
+format = "concise"                                  # Output format (concise, detailed)
+max_title_length = 50                               # Truncate titles longer than this
+
+# Update settings
+update_interval_seconds = 0                         # Context refresh interval (0 = on-demand)
+weather_cache_minutes = 10                          # Weather data cache duration
+
+# ============================================================================
+# Weather Configuration
+# ============================================================================
+
+[weather]
+enabled = false          # Enable weather context
+# city = "London"       # City name for weather lookup
+units = "metric"        # Units: "metric" (°C) or "imperial" (°F)
+
+# ============================================================================
+# Discord Bot Configuration
+# ============================================================================
+
+[discord]
+# token = ""                        # Discord bot token (required for Discord mode)
+default_persona = "tsun"            # Default persona for bot
+allowed_guilds = ""                 # Comma-separated guild IDs (empty = all)
+allowed_channels = ""               # Comma-separated channel IDs (empty = all)
+idle_timeout_seconds = 1200         # Time before bot stops typing (20 min)
+summary_grace_seconds = 30          # Grace period before conversation summary
+context_enabled = true              # Inject context into messages
+
+# ============================================================================
+# DereGraph (Knowledge Graph) Configuration
+# ============================================================================
+
+[dere_graph]
+enabled = true                      # Enable knowledge graph features
+falkor_host = "localhost"           # FalkorDB host
+falkor_port = 6379                  # FalkorDB port
+falkor_database = "dere_graph"      # Graph database name
+claude_model = "claude-haiku-4-5"   # Model for entity extraction
+embedding_dim = 1536                # Embedding dimensions
+enable_reflection = true            # Enable periodic reflection
+idle_threshold_minutes = 15         # Minutes of inactivity before reflection
+
+# ============================================================================
+# Ambient Monitoring Configuration
+# ============================================================================
+
+[ambient]
+enabled = true                      # Enable ambient monitoring
+daemon_url = "http://localhost:8787"  # Dere daemon URL
+user_id = "default_user"            # User ID for notifications
+personality = "tsun"                # Personality for ambient messages
+
+# Timing settings (deprecated - FSM intervals used instead)
+check_interval_minutes = 30         # Legacy check interval
+idle_threshold_minutes = 60         # Idle detection threshold
+activity_lookback_hours = 6         # Activity analysis window
+
+# Search settings
+embedding_search_limit = 20         # Max conversation snippets to retrieve
+context_change_threshold = 0.7      # Threshold for significant context changes
+
+# Escalation settings
+escalation_enabled = true           # Enable escalation for prolonged inactivity
+escalation_lookback_hours = 12      # Hours to check for escalation
+
+# FSM (Finite State Machine) Configuration
+fsm_enabled = true                  # Enable state-based notification system
+
+# FSM State Intervals (min, max) in minutes
+fsm_idle_interval = [60, 120]           # Idle state check interval
+fsm_monitoring_interval = [15, 30]      # Monitoring state check interval
+fsm_engaged_interval = 5                # Engaged state check interval (fixed)
+fsm_cooldown_interval = [45, 90]        # Cooldown state check interval
+fsm_escalating_interval = [30, 60]      # Escalating state check interval
+fsm_suppressed_interval = [90, 180]     # Suppressed state check interval
+
+# FSM Signal Weights (sum should equal 1.0)
+fsm_weight_activity = 0.3           # Activity signal weight
+fsm_weight_emotion = 0.25           # Emotion signal weight
+fsm_weight_responsiveness = 0.2     # Responsiveness signal weight
+fsm_weight_temporal = 0.15          # Temporal signal weight
+fsm_weight_task = 0.1               # Task signal weight
+
+# ============================================================================
+# ActivityWatch Configuration
+# ============================================================================
+
+[activitywatch]
+url = "http://localhost:5600"       # ActivityWatch server URL
+
+# ============================================================================
+# Plugin Configuration
+# ============================================================================
+
+# Plugin modes:
+#   "always"  - Always enabled
+#   "never"   - Never enabled
+#   "auto"    - Enable when in specified directories
+
+[plugins.dere_core]
+mode = "always"                     # Core plugin (always enabled)
+
+[plugins.dere_productivity]
+mode = "never"                      # Productivity features
+directories = []                    # Auto-enable in these paths
+
+[plugins.dere_code]
+mode = "auto"                       # Code analysis features
+directories = ["/mnt/data/Code"]    # Auto-enable for code projects
+
+[plugins.dere_vault]
+mode = "never"                      # Obsidian vault integration
+# directories = []                  # Auto-enable for specific vaults
+
+# Per-vault configuration example:
+# [vaults."/path/to/vault"]
+# personality = "tsun"
+# enable_daemon = true
+
+# ============================================================================
+# Task Management Configuration (dere-productivity plugin)
+# ============================================================================
+
+# [tasks]
+# backend = "todoist"               # Task backend: todoist, local, etc.
+# todoist_token = ""                # Todoist API token
+
+# ============================================================================
+# Calendar Integration (dere-productivity plugin)
+# ============================================================================
+
+# [calendar]
+# enabled = false                   # Enable calendar integration
+# backend = "google"                # Calendar backend
+# credentials_path = ""             # Path to credentials file

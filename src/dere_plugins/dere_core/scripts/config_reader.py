@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import tomllib
 
+from dere_shared.constants import DEFAULT_ACTIVITYWATCH_URL, DEFAULT_DAEMON_URL
 from dere_shared.paths import get_config_dir
 
 
@@ -21,13 +22,13 @@ def read_config() -> dict:
 def get_daemon_url() -> str:
     """Get daemon URL from config."""
     config = read_config()
-    return config.get("ambient", {}).get("daemon_url", "http://localhost:8787")
+    return config.get("ambient", {}).get("daemon_url", DEFAULT_DAEMON_URL)
 
 
 def get_activitywatch_url() -> str:
     """Get ActivityWatch URL from config."""
     config = read_config()
-    return config.get("activitywatch", {}).get("url", "http://localhost:5600")
+    return config.get("activitywatch", {}).get("url", DEFAULT_ACTIVITYWATCH_URL)
 
 
 if __name__ == "__main__":

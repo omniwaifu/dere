@@ -15,6 +15,7 @@ from pathlib import Path
 src_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(src_dir))
 
+from dere_shared.constants import DEFAULT_DAEMON_URL
 from dere_shared.context import get_full_context
 
 
@@ -48,7 +49,7 @@ def _load_initial_documents(session_id: int | None) -> None:
     try:
         import requests
 
-        daemon_url = "http://localhost:8787"
+        daemon_url = DEFAULT_DAEMON_URL
         user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
 
         # Prepare load request

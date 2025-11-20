@@ -14,6 +14,7 @@ import click
 
 from dere_cli.mcp import build_mcp_config
 from dere_shared.config import load_dere_config
+from dere_shared.constants import DEFAULT_DAEMON_URL
 from dere_shared.paths import get_config_dir, get_data_dir
 from dere_shared.personalities import PersonalityLoader
 
@@ -164,7 +165,7 @@ class SettingsBuilder:
             import httpx
 
             with httpx.Client() as client:
-                response = client.get("http://localhost:8787/health", timeout=0.5)
+                response = client.get(f"{DEFAULT_DAEMON_URL}/health", timeout=0.5)
                 return response.status_code == 200
         except Exception:
             return False
@@ -285,7 +286,7 @@ class SettingsBuilder:
             settings["env"]["DERE_PERSONALITY"] = self.personality
 
         # Add daemon URL for hooks to call
-        settings["env"]["DERE_DAEMON_URL"] = "http://localhost:8787"
+        settings["env"]["DERE_DAEMON_URL"] = DEFAULT_DAEMON_URL
 
         # Set productivity mode env var for productivity context hook
         if self.mode == "productivity" or self.mode == "tasks":
@@ -723,7 +724,7 @@ def status():
 
     try:
         with httpx.Client() as client:
-            response = client.get("http://localhost:8787/health", timeout=2.0)
+            response = client.get(f"{DEFAULT_DAEMON_URL}/health", timeout=2.0)
             if response.status_code == 200:
                 data = response.json()
                 click.echo("Daemon is running")

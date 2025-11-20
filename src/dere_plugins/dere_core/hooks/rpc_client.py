@@ -5,10 +5,13 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+# Default daemon URL (matches dere_shared.constants.DEFAULT_DAEMON_URL)
+DEFAULT_DAEMON_URL = "http://localhost:8787"
+
 
 class RPCClient:
     def __init__(self):
-        daemon_url = os.getenv("DERE_DAEMON_URL", "http://localhost:8787")
+        daemon_url = os.getenv("DERE_DAEMON_URL", DEFAULT_DAEMON_URL)
         self.base_url = daemon_url.rstrip("/")
 
     def call(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:

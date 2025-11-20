@@ -14,6 +14,7 @@ from sqlmodel.sql.sqltypes import AutoString
 # Import all models to ensure they're registered with SQLModel.metadata
 from dere_shared import models  # noqa: F401
 from dere_shared.config import load_dere_config
+from dere_shared.constants import DEFAULT_DB_ASYNC_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -30,7 +31,7 @@ target_metadata = SQLModel.metadata
 # Get database URL from config or environment variable
 dere_config = load_dere_config()
 database_url = os.environ.get("DATABASE_URL") or dere_config.get("database", {}).get(
-    "url", "postgresql+asyncpg://postgres:postgres@localhost:5432/dere"
+    "url", DEFAULT_DB_ASYNC_URL
 )
 # Ensure asyncpg driver
 if database_url.startswith("postgresql://"):

@@ -17,6 +17,7 @@ from claude_agent_sdk import (
 )
 from loguru import logger
 
+from dere_shared.constants import DEFAULT_DAEMON_URL
 from dere_shared.context import get_full_context
 
 from .persona import PersonaProfile
@@ -48,7 +49,7 @@ class DiscordAgent:
 
             import httpx
 
-            daemon_url = "http://localhost:8787"
+            daemon_url = DEFAULT_DAEMON_URL
             async with httpx.AsyncClient() as client:
                 # Query notifications from last hour
                 lookback_time = datetime.now(UTC) - timedelta(hours=1)
@@ -84,7 +85,7 @@ class DiscordAgent:
         try:
             import httpx
 
-            daemon_url = "http://localhost:8787"
+            daemon_url = DEFAULT_DAEMON_URL
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{daemon_url}/sessions/{session_id}/last_message_time",

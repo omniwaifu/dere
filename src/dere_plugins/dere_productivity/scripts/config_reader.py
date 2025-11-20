@@ -3,15 +3,18 @@
 
 from __future__ import annotations
 
-import json
+import tomllib
 from pathlib import Path
+
+# Default daemon URL (matches dere_shared.constants.DEFAULT_DAEMON_URL)
+DEFAULT_DAEMON_URL = "http://localhost:8787"
 
 
 def get_config_path() -> Path:
     """Get path to dere config file."""
     config_locations = [
-        Path.home() / ".config" / "dere" / "config.json",
-        Path.home() / ".dere" / "config.json",
+        Path.home() / ".config" / "dere" / "config.toml",
+        Path.home() / ".dere" / "config.toml",
     ]
 
     for loc in config_locations:
@@ -32,9 +35,9 @@ def load_config() -> dict:
         return {}
 
     try:
-        with open(config_path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
 
 
@@ -44,4 +47,4 @@ def get_daemon_url() -> str:
     Returns default localhost URL if not configured.
     """
     config = load_config()
-    return config.get("daemon", {}).get("url", "http://localhost:8787")
+    return config.get("daemon", {}).get("url", DEFAULT_DAEMON_URL)

@@ -8,11 +8,13 @@ from typing import Any
 
 import httpx
 
+from dere_shared.constants import DEFAULT_ACTIVITYWATCH_URL
+
 
 class ActivityWatchClient:
     """Client for interacting with the ActivityWatch API."""
 
-    def __init__(self, base_url: str = "http://localhost:5600"):
+    def __init__(self, base_url: str = DEFAULT_ACTIVITYWATCH_URL):
         """Initialize the ActivityWatch client.
 
         Args:

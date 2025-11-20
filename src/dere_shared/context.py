@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from .config import load_dere_config
+from .constants import DEFAULT_DAEMON_URL
 from .weather import get_weather_context
 
 
@@ -71,7 +72,7 @@ def get_recent_files_context(config: dict[str, Any]) -> list[str] | None:
 async def get_full_context(
     config: dict[str, Any] | None = None,
     session_id: int | None = None,
-    daemon_url: str = "http://localhost:8787",
+    daemon_url: str = DEFAULT_DAEMON_URL,
     last_message_time: int | None = None,
     user_id: str | None = None,
     personality: str | None = None,

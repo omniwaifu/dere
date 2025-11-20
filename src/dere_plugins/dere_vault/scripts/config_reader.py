@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import json
 import sys
+import tomllib
 from pathlib import Path
 
 
@@ -12,8 +12,8 @@ def get_config_path() -> Path:
     """Get path to dere config file."""
     # Check for config in standard locations
     config_locations = [
-        Path.home() / ".config" / "dere" / "config.json",
-        Path.home() / ".dere" / "config.json",
+        Path.home() / ".config" / "dere" / "config.toml",
+        Path.home() / ".dere" / "config.toml",
     ]
 
     for loc in config_locations:
@@ -35,9 +35,9 @@ def load_config() -> dict:
         return {}
 
     try:
-        with open(config_path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
 
 

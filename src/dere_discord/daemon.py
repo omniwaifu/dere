@@ -7,6 +7,8 @@ from typing import Any, Literal, TypedDict
 
 import httpx
 
+from dere_shared.constants import DEFAULT_DAEMON_URL
+
 
 class DaemonError(RuntimeError):
     """Raised when the daemon returns an unexpected response."""
@@ -36,7 +38,7 @@ class SessionEndPayload(TypedDict, total=False):
 class DaemonClient:
     """Minimal HTTP client for the dere daemon REST API."""
 
-    base_url: str = "http://localhost:8787"
+    base_url: str = DEFAULT_DAEMON_URL
     timeout: float = 10.0
     _client: httpx.AsyncClient = field(init=False, repr=False)
 
