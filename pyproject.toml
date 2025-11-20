@@ -39,7 +39,7 @@ dere = "dere_cli.main:cli"
 dere-daemon = "dere_daemon.main:main"
 dere-discord = "dere_discord.main:run"
 dere-obsidian = "dere_obsidian.main:main"
-dere-taskwarrior-mcp = "dere_tasks.scripts.taskwarrior_mcp_wrapper:main"
+dere-taskwarrior-mcp = "dere_productivity.scripts.taskwarrior_mcp_wrapper:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -49,10 +49,11 @@ build-backend = "hatchling.build"
 packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord", "src/dere_ambient", "src/dere_obsidian"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/dere_plugins/dere_personality" = "dere_personality"
+"src/dere_plugins/dere_core" = "dere_core"
 "src/dere_plugins/dere_vault" = "dere_vault"
-"src/dere_plugins/dere_tasks" = "dere_tasks"
+"src/dere_plugins/dere_productivity" = "dere_productivity"
 "src/dere_plugins/dere_code" = "dere_code"
+"src/dere_plugins/dere_graph_features" = "dere_graph_features"
 
 [tool.ruff]
 line-length = 100

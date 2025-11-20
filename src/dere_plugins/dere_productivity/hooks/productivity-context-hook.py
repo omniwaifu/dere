@@ -54,18 +54,22 @@ def main():
         # Task context (from Taskwarrior)
         try:
             if config.get("context", {}).get("tasks", False):
-                working_dir = os.getenv("PWD")
+                # Don't filter by project in productivity mode - show ALL tasks
                 task_ctx = get_task_context(
                     limit=5,
-                    working_dir=working_dir,
+                    working_dir=None,
                     include_overdue=True,
                     include_due_soon=True,
                 )
                 if task_ctx:
                     context_parts.append(task_ctx)
                     context_parts.append("Tool: taskwarrior available via MCP")
+                else:
+                    log_error("Task context: No tasks returned from get_task_context()")
         except Exception as e:
             log_error(f"Task context error: {e}")
+            import traceback
+            log_error(traceback.format_exc())
 
         # Activity context (from ActivityWatch)
         try:
@@ -79,15 +83,12 @@ def main():
                         context_parts.append(f"User status: {activity_ctx['status']}")
         except Exception as e:
             log_error(f"Activity context error: {e}")
+            import traceback
+            log_error(traceback.format_exc())
 
-        # Calendar context (TODO: integrate once calendar MCP is added)
-        # try:
-        #     if config.get("context", {}).get("calendar", False):
-        #         calendar_ctx = get_calendar_context(limit=5)
-        #         if calendar_ctx:
-        #             context_parts.append(calendar_ctx)
-        # except Exception as e:
-        #     log_error(f"Calendar context error: {e}")
+        # Calendar context
+        # NOTE: Calendar is available via MCP (google-calendar server) but can't be
+        # injected via hook since hooks can't call MCP tools. Query calendar directly via MCP.
 
         if context_parts:
             productivity_context = "\n".join(context_parts)

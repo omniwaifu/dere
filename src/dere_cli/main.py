@@ -153,7 +153,7 @@ class SettingsBuilder:
         
         # Fall back to auto-detection (in an Obsidian vault)
         try:
-            from dere_vault.scripts.detect_vault import is_vault
+            from dere_plugins.dere_vault.scripts.detect_vault import is_vault
 
             return is_vault()
         except Exception:
