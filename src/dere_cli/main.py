@@ -14,29 +14,8 @@ import click
 
 from dere_cli.mcp import build_mcp_config
 from dere_shared.config import load_dere_config
+from dere_shared.paths import get_config_dir, get_data_dir
 from dere_shared.personalities import PersonalityLoader
-
-
-def get_config_dir() -> Path:
-    """Get platform-specific config directory"""
-    match platform.system():
-        case "Windows":
-            return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-        case "Darwin":
-            return Path.home() / "Library" / "Application Support" / "dere"
-        case _:
-            return Path.home() / ".config" / "dere"
-
-
-def get_data_dir() -> Path:
-    """Get platform-specific data directory"""
-    match platform.system():
-        case "Windows":
-            return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-        case "Darwin":
-            return Path.home() / "Library" / "Application Support" / "dere"
-        case _:
-            return Path.home() / ".local" / "share" / "dere"
 
 
 def get_dere_plugin_dir() -> Path:

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dere_shared.database import get_session
+from dere_daemon.dependencies import get_db
 from dere_shared.models import ContextCache, Session
 
 router = APIRouter(prefix="/context", tags=["context"])
@@ -37,7 +37,7 @@ class ContextGetRequest(BaseModel):
 
 @router.post("/build")
 async def context_build(
-    req: ContextBuildRequest, db: AsyncSession = Depends(get_session), request: Request = None
+    req: ContextBuildRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     """Build context using knowledge graph search"""
     app_state = request.app.state
@@ -143,7 +143,7 @@ async def context_build(
 
 
 @router.post("/get")
-async def context_get(req: ContextGetRequest, db: AsyncSession = Depends(get_session)):
+async def context_get(req: ContextGetRequest, db: AsyncSession = Depends(get_db)):
     """Get cached context for session (body)"""
     max_age = req.max_age_minutes or 30
     max_age_seconds = max_age * 60

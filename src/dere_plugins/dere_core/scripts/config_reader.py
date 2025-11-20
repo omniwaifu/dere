@@ -3,21 +3,9 @@
 
 from __future__ import annotations
 
-import os
-import platform
 import tomllib
-from pathlib import Path
 
-
-def get_config_dir() -> Path:
-    """Get platform-specific config directory."""
-    match platform.system():
-        case "Windows":
-            return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-        case "Darwin":
-            return Path.home() / "Library" / "Application Support" / "dere"
-        case _:
-            return Path.home() / ".config" / "dere"
+from dere_shared.paths import get_config_dir
 
 
 def read_config() -> dict:

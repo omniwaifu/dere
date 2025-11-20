@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from dere_shared.database import get_session
+from dere_daemon.dependencies import get_db
 from dere_shared.models import Conversation, MessageType, Session
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -51,7 +51,7 @@ class StoreMessageResponse(BaseModel):
 
 
 @router.post("/create", response_model=CreateSessionResponse)
-async def create_session(req: CreateSessionRequest, db: AsyncSession = Depends(get_session)):
+async def create_session(req: CreateSessionRequest, db: AsyncSession = Depends(get_db)):
     """Create a new session"""
     session = Session(
         working_dir=req.working_dir,
@@ -69,7 +69,7 @@ async def create_session(req: CreateSessionRequest, db: AsyncSession = Depends(g
 
 @router.post("/find_or_create", response_model=FindOrCreateSessionResponse)
 async def find_or_create_session(
-    req: FindOrCreateSessionRequest, db: AsyncSession = Depends(get_session)
+    req: FindOrCreateSessionRequest, db: AsyncSession = Depends(get_db)
 ):
     """Find existing session or create new one with continuity support.
 
@@ -122,7 +122,7 @@ async def find_or_create_session(
 
 @router.post("/{session_id}/claude_session")
 async def update_claude_session(
-    session_id: int, claude_session_id: str = Body(...), db: AsyncSession = Depends(get_session)
+    session_id: int, claude_session_id: str = Body(...), db: AsyncSession = Depends(get_db)
 ):
     """Update the Claude SDK session ID for a daemon session.
 
@@ -150,7 +150,7 @@ async def update_claude_session(
 async def store_message(
     session_id: int,
     req: StoreMessageRequest,
-    db: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_db),
 ):
     """Store a message"""
     conv = Conversation(
@@ -168,7 +168,7 @@ async def store_message(
 
 
 @router.get("/{session_id}/history")
-async def get_history(session_id: int, limit: int = 50, db: AsyncSession = Depends(get_session)):
+async def get_history(session_id: int, limit: int = 50, db: AsyncSession = Depends(get_db)):
     """Get conversation history for a session"""
     stmt = (
         select(Conversation)
@@ -193,7 +193,7 @@ async def get_history(session_id: int, limit: int = 50, db: AsyncSession = Depen
 
 
 @router.get("/{session_id}/last_message_time")
-async def get_last_message_time(session_id: int, db: AsyncSession = Depends(get_session)):
+async def get_last_message_time(session_id: int, db: AsyncSession = Depends(get_db)):
     """Get timestamp of most recent conversation message in session"""
     stmt = (
         select(Conversation.created_at)

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dere_shared.database import get_session
+from dere_daemon.dependencies import get_db
 from dere_shared.models import Presence
 
 router = APIRouter(prefix="/presence", tags=["presence"])
@@ -36,7 +36,7 @@ class PresenceUnregisterRequest(BaseModel):
 
 
 @router.post("/register")
-async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Depends(get_session)):
+async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Depends(get_db)):
     """Register a medium as online with available channels.
 
     Used by Discord/Telegram/etc bots to announce they are online and ready to receive messages.
@@ -89,7 +89,7 @@ async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Dep
 
 
 @router.post("/heartbeat")
-async def presence_heartbeat(req: PresenceHeartbeatRequest, db: AsyncSession = Depends(get_session)):
+async def presence_heartbeat(req: PresenceHeartbeatRequest, db: AsyncSession = Depends(get_db)):
     """Heartbeat to keep medium alive.
 
     Bots should call this every 30s to maintain presence.
@@ -104,7 +104,7 @@ async def presence_heartbeat(req: PresenceHeartbeatRequest, db: AsyncSession = D
 
 
 @router.post("/unregister")
-async def presence_unregister(req: PresenceUnregisterRequest, db: AsyncSession = Depends(get_session)):
+async def presence_unregister(req: PresenceUnregisterRequest, db: AsyncSession = Depends(get_db)):
     """Cleanly unregister a medium on shutdown."""
     logger.info("Presence unregistered: {} for user {}", req.medium, req.user_id)
 
@@ -117,7 +117,7 @@ async def presence_unregister(req: PresenceUnregisterRequest, db: AsyncSession =
 
 
 @router.get("/available")
-async def presence_available(user_id: str, db: AsyncSession = Depends(get_session)):
+async def presence_available(user_id: str, db: AsyncSession = Depends(get_db)):
     """Get all online mediums for a user.
 
     Returns mediums that can currently receive messages.

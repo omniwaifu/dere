@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dere_shared.database import get_session
+from dere_daemon.dependencies import get_db
 from dere_shared.models import Notification, NotificationContext
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -47,7 +47,7 @@ class NotificationQueryRequest(BaseModel):
 
 
 @router.post("/create")
-async def notifications_create(req: NotificationCreateRequest, db: AsyncSession = Depends(get_session)):
+async def notifications_create(req: NotificationCreateRequest, db: AsyncSession = Depends(get_db)):
     """Create a notification in the queue for delivery.
 
     Called by ambient monitor when it decides to engage.
@@ -92,7 +92,7 @@ async def notifications_create(req: NotificationCreateRequest, db: AsyncSession 
 
 
 @router.get("/pending")
-async def notifications_pending(medium: str, db: AsyncSession = Depends(get_session)):
+async def notifications_pending(medium: str, db: AsyncSession = Depends(get_db)):
     """Get pending notifications for a specific medium.
 
     Bots poll this endpoint to retrieve messages that need to be delivered.
@@ -124,7 +124,7 @@ async def notifications_pending(medium: str, db: AsyncSession = Depends(get_sess
 
 @router.post("/recent_unacknowledged")
 async def notifications_recent_unacknowledged(
-    req: NotificationQueryRequest, db: AsyncSession = Depends(get_session)
+    req: NotificationQueryRequest, db: AsyncSession = Depends(get_db)
 ):
     """Query recent unacknowledged notifications for escalation context.
 
@@ -165,7 +165,7 @@ async def notifications_recent_unacknowledged(
 
 
 @router.post("/{notification_id}/delivered")
-async def notification_delivered(notification_id: int, db: AsyncSession = Depends(get_session)):
+async def notification_delivered(notification_id: int, db: AsyncSession = Depends(get_db)):
     """Mark a notification as successfully delivered.
 
     Called by bots after successfully sending a message.
@@ -185,7 +185,7 @@ async def notification_delivered(notification_id: int, db: AsyncSession = Depend
 
 
 @router.post("/{notification_id}/acknowledge")
-async def notification_acknowledge(notification_id: int, db: AsyncSession = Depends(get_session)):
+async def notification_acknowledge(notification_id: int, db: AsyncSession = Depends(get_db)):
     """Mark a notification as acknowledged by the user.
 
     Called when user responds/interacts after receiving notification.
@@ -208,7 +208,7 @@ async def notification_acknowledge(notification_id: int, db: AsyncSession = Depe
 
 @router.post("/{notification_id}/failed")
 async def notification_failed(
-    notification_id: int, req: NotificationFailedRequest, db: AsyncSession = Depends(get_session)
+    notification_id: int, req: NotificationFailedRequest, db: AsyncSession = Depends(get_db)
 ):
     """Mark a notification as failed with error message.
 

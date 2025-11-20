@@ -2,20 +2,9 @@
 
 from __future__ import annotations
 
-import os
-import platform
-from pathlib import Path
+from dere_shared.paths import get_config_dir
 
-
-def get_config_dir() -> Path:
-    """Return the configuration directory used by dere projects."""
-
-    system = platform.system()
-    if system == "Windows":
-        return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-    if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "dere"
-    return Path.home() / ".config" / "dere"
+__all__ = ["get_config_dir", "format_project_path"]
 
 
 def format_project_path(
