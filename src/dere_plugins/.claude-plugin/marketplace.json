@@ -5,9 +5,9 @@
   },
   "plugins": [
     {
-      "name": "dere-personality",
-      "source": "./dere_personality",
-      "description": "Dere AI companion personality skills for emotion awareness, memory integration, and behavioral pattern recognition"
+      "name": "dere-core",
+      "source": "./dere_core",
+      "description": "Core dere infrastructure: personality tone, emotion awareness (OCC), memory/recall, knowledge graph integration, and environmental context. Always enabled."
     },
     {
       "name": "dere-vault",
@@ -15,9 +15,9 @@
       "description": "Zettelkasten knowledge vault skills for working with Obsidian-style markdown vaults following atomic note principles"
     },
     {
-      "name": "dere-tasks",
-      "source": "./dere_tasks",
-      "description": "GTD task management with Taskwarrior integration for inbox processing, focus sessions, and habit tracking"
+      "name": "dere-productivity",
+      "source": "./dere_productivity",
+      "description": "Comprehensive productivity suite: GTD task management (Taskwarrior), calendar integration (Google Calendar), activity tracking (ActivityWatch), and intelligent scheduling. Opt-in productivity features."
     },
     {
       "name": "dere-graph-features",

@@ -5,7 +5,7 @@ default: install
 
 # Install binaries to user PATH
 install:
-    cd src/dere_plugins/dere_tasks/mcp-server && npm run build
+    cd src/dere_plugins/dere_productivity/mcp-server && npm run build
     uv sync --extra dev
     uv tool install --force --editable .
 

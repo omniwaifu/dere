@@ -7,9 +7,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from .activitywatch import get_activity_context
 from .config import load_dere_config
-from .tasks import get_task_context
 from .weather import get_weather_context
 
 
@@ -122,18 +120,8 @@ async def get_full_context(
     except Exception:
         pass
 
-    # Activity context
-    try:
-        if config["context"]["activity"] or config["context"]["media_player"]:
-            activity_ctx = get_activity_context(config, last_message_time)
-            if activity_ctx:
-                if activity_ctx.get("recent_apps"):
-                    activity_str = "Recent activity: " + ", ".join(activity_ctx["recent_apps"])
-                    environmental_parts.append(activity_str)
-                elif activity_ctx.get("status"):
-                    environmental_parts.append(f"User status: {activity_ctx['status']}")
-    except Exception:
-        pass
+    # Activity context - MOVED TO dere-productivity plugin
+    # (Activity context is now part of productivity features, not core personality)
 
     # Recent files context
     try:
@@ -145,23 +133,8 @@ async def get_full_context(
     except Exception:
         pass
 
-    # Task context
-    try:
-        if config["context"].get("tasks", False):
-            import os
-
-            working_dir = os.getenv("PWD")
-            task_ctx = get_task_context(
-                limit=5,
-                working_dir=working_dir,
-                include_overdue=True,
-                include_due_soon=True,
-            )
-            if task_ctx:
-                environmental_parts.append(task_ctx)
-                environmental_parts.append("Tool: taskwarrior available via bash")
-    except Exception:
-        pass
+    # Task context - MOVED TO dere-productivity plugin
+    # (Task context is now part of productivity features, not core personality)
 
     # Emotion context
     if session_id:

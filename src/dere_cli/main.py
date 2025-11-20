@@ -41,10 +41,10 @@ def get_data_dir() -> Path:
 
 def get_dere_plugin_dir() -> Path:
     """Get dere plugin directory for skills loading"""
-    import dere_personality
+    import dere_core
 
-    # dere_personality module is in src/dere_personality/
-    plugin_path = Path(dere_personality.__file__).parent
+    # dere_core module is in src/dere_plugins/dere_core/
+    plugin_path = Path(dere_core.__file__).parent
     return plugin_path
 
 
@@ -97,14 +97,12 @@ class SettingsBuilder:
         personality: str | None = None,
         output_style: str | None = None,
         mode: str | None = None,
-        context: bool = False,
         session_id: int | None = None,
         company_announcements: list[str] | None = None,
     ):
         self.personality = personality
         self.output_style = output_style
         self.mode = mode
-        self.context = context
         self.session_id = session_id
         self.company_announcements = company_announcements
         self.config_dir = get_config_dir()
@@ -161,17 +159,21 @@ class SettingsBuilder:
         except Exception:
             return False
 
-    def _should_enable_tasks_plugin(self) -> bool:
-        """Check if tasks plugin should be enabled (via --mode tasks or config)."""
+    def _should_enable_productivity_plugin(self) -> bool:
+        """Check if productivity plugin should be enabled (via --mode productivity or config)."""
         # CLI flag takes precedence
+        if self.mode == "productivity":
+            return True
+
+        # Backwards compatibility: also accept "tasks" mode
         if self.mode == "tasks":
             return True
-        
+
         # Fall back to config
         try:
             config = load_dere_config()
-            tasks_config = config.get("plugins", {}).get("dere_tasks", {})
-            mode = tasks_config.get("mode", "never")
+            productivity_config = config.get("plugins", {}).get("dere_productivity", {})
+            mode = productivity_config.get("mode", "never")
             return mode == "always"
         except Exception:
             return False
@@ -220,9 +222,9 @@ class SettingsBuilder:
     def _find_plugins_path(self) -> Path | None:
         """Find the dere_plugins directory path."""
         try:
-            import dere_personality
+            import dere_core
 
-            plugin_file = Path(dere_personality.__file__).resolve()
+            plugin_file = Path(dere_core.__file__).resolve()
 
             # Check if we're in an editable install (site-packages)
             if "site-packages" in str(plugin_file):
@@ -258,13 +260,13 @@ class SettingsBuilder:
         if "enabledPlugins" not in settings:
             settings["enabledPlugins"] = {}
 
-        # Enable base dere-personality plugin
-        settings["enabledPlugins"]["dere-personality@dere_plugins"] = True
+        # Enable base dere-core plugin (always-on personality and environmental context)
+        settings["enabledPlugins"]["dere-core@dere_plugins"] = True
 
         # Conditionally enable other plugins
         plugin_checks = [
             ("dere-vault@dere_plugins", self._should_enable_vault_plugin),
-            ("dere-tasks@dere_plugins", self._should_enable_tasks_plugin),
+            ("dere-productivity@dere_plugins", self._should_enable_productivity_plugin),
             ("dere-graph-features@dere_plugins", self._should_enable_graph_features_plugin),
             ("dere-code@dere_plugins", self._should_enable_code_plugin),
         ]
@@ -282,10 +284,10 @@ class SettingsBuilder:
         pass
 
     def _add_status_line(self, settings: dict) -> None:
-        """Add status line from dere_personality plugin"""
+        """Add status line from dere_core plugin"""
         from pathlib import Path
 
-        plugin_statusline = Path(__file__).parent.parent / "dere_plugins" / "dere_personality" / "scripts" / "dere-statusline.py"
+        plugin_statusline = Path(__file__).parent.parent / "dere_plugins" / "dere_core" / "scripts" / "dere-statusline.py"
 
         if plugin_statusline.exists():
             settings["statusLine"] = {
@@ -302,9 +304,9 @@ class SettingsBuilder:
         # Add daemon URL for hooks to call
         settings["env"]["DERE_DAEMON_URL"] = "http://localhost:8787"
 
-        # Add context flag
-        if self.context:
-            settings["env"]["DERE_CONTEXT"] = "true"
+        # Set productivity mode env var for productivity context hook
+        if self.mode == "productivity" or self.mode == "tasks":
+            settings["env"]["DERE_PRODUCTIVITY"] = "true"
 
         # Add session ID
         if self.session_id:
@@ -341,13 +343,8 @@ def compose_system_prompt(personalities: list[str]) -> str:
 def _setup_environment(
     session_id: int,
     mcp_servers: tuple,
-    context: bool,
     output_style: str | None,
     mode: str | None,
-    include_history: bool,
-    context_depth: int,
-    context_mode: str,
-    max_context_tokens: int,
     continue_conv: bool,
     resume: str | None,
 ) -> None:
@@ -356,17 +353,10 @@ def _setup_environment(
 
     if mcp_servers:
         os.environ["DERE_MCP_SERVERS"] = ",".join(mcp_servers)
-    if context:
-        os.environ["DERE_CONTEXT"] = "true"
     if output_style:
         os.environ["DERE_OUTPUT_STYLE"] = output_style
     if mode:
         os.environ["DERE_MODE"] = mode
-    if include_history:
-        os.environ["DERE_INCLUDE_HISTORY"] = "true"
-        os.environ["DERE_CONTEXT_DEPTH"] = str(context_depth)
-        os.environ["DERE_CONTEXT_MODE"] = context_mode
-        os.environ["DERE_MAX_CONTEXT_TOKENS"] = str(max_context_tokens)
 
     # Determine session type
     if continue_conv:
@@ -426,7 +416,6 @@ def _configure_settings(
     personality_str: str | None,
     output_style: str | None,
     mode: str | None,
-    context: bool,
     session_id: int,
     announcement: str | None,
 ) -> tuple[dict, str | None, SettingsBuilder]:
@@ -440,7 +429,6 @@ def _configure_settings(
         personality=personality_str,
         output_style=effective_output_style,
         mode=mode,
-        context=context,
         session_id=session_id,
         company_announcements=[announcement] if announcement else None,
     )
@@ -624,12 +612,7 @@ def _execute_claude(cmd: list[str]) -> None:
 @click.option("-c", "--continue", "continue_conv", is_flag=True, help="Continue last conversation")
 @click.option("-r", "--resume", help="Resume specific session ID")
 @click.option("--bare", is_flag=True, help="Plain Claude, no personality")
-@click.option("--context", is_flag=True, help="Enable contextual information")
-@click.option("--context-depth", default=5, help="Number of related conversations")
-@click.option("--context-mode", default="smart", help="Context mode: summary, full, smart")
-@click.option("--max-context-tokens", default=2000, help="Max tokens for context")
-@click.option("--include-history", is_flag=True, help="Include conversation history")
-@click.option("--mode", help="Plugin/output mode (code, tasks, vault, or output style name)")
+@click.option("--mode", help="Plugin/output mode (code, productivity, vault, or output style name)")
 @click.option("--model", help="Model override")
 @click.option("--fallback-model", help="Fallback model")
 @click.option("--permission-mode", help="Permission mode")
@@ -648,11 +631,6 @@ def cli(
     continue_conv,
     resume,
     bare,
-    context,
-    context_depth,
-    context_mode,
-    max_context_tokens,
-    include_history,
     mode,
     model,
     fallback_model,
@@ -680,13 +658,8 @@ def cli(
     _setup_environment(
         session_id=session_id,
         mcp_servers=mcp_servers,
-        context=context,
         output_style=output_style,
         mode=mode,
-        include_history=include_history,
-        context_depth=context_depth,
-        context_mode=context_mode,
-        max_context_tokens=max_context_tokens,
         continue_conv=continue_conv,
         resume=resume,
     )
@@ -704,7 +677,6 @@ def cli(
         personality_str=personality_str,
         output_style=output_style,
         mode=mode,
-        context=context,
         session_id=session_id,
         announcement=announcement,
     )
@@ -866,227 +838,6 @@ def restart():
 
 @cli.group(invoke_without_command=True)
 @click.pass_context
-def queue(ctx):
-    """Queue management"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@queue.command("list")
-def queue_list():
-    """List queue items"""
-    import httpx
-
-    try:
-        with httpx.Client() as client:
-            response = client.get("http://localhost:8787/queue/status", timeout=5.0)
-            response.raise_for_status()
-            data = response.json()
-
-            items = data.get("tasks", [])
-            if not items:
-                click.echo("Queue is empty")
-                return
-
-            click.echo(f"\nQueue ({len(items)} items):\n")
-            for item in items:
-                task_id = item.get("id")
-                status = item.get("status", "unknown")
-                model = item.get("model_name", "unknown")
-                click.echo(f"  [{task_id}] {status} - {model}")
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
-def history(ctx):
-    """View conversation history"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@history.command("show")
-@click.argument("session_id", type=int)
-def history_show(session_id):
-    """Show conversation history for a session"""
-    import httpx
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(
-                f"http://localhost:8787/sessions/{session_id}/history", timeout=5.0
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            messages = data.get("messages", [])
-            if not messages:
-                click.echo(f"No history found for session {session_id}")
-                return
-
-            click.echo(f"\nSession {session_id} history ({len(messages)} messages):\n")
-            for msg in messages:
-                role = msg.get("message_type", "unknown")
-                content = msg.get("prompt", "")[:100]
-                click.echo(f"  [{role}] {content}...")
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
-def entities(ctx):
-    """View and search extracted entities"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@entities.command("info")
-@click.argument("entity")
-@click.option("--user-id", help="User ID to filter by")
-def entities_info(entity, user_id):
-    """Show information about an entity from the knowledge graph"""
-    import httpx
-
-    daemon_url = "http://localhost:8787"
-
-    try:
-        params = {}
-        if user_id:
-            params["user_id"] = user_id
-
-        with httpx.Client() as client:
-            response = client.get(f"{daemon_url}/kg/entity/{entity}", params=params, timeout=5.0)
-            response.raise_for_status()
-            data = response.json()
-
-            if not data.get("found"):
-                click.echo(f"Entity not found: {entity}")
-                return
-
-            click.echo(f"\nEntity: {entity}")
-            click.echo("-" * 80)
-
-            # Show primary node
-            primary = data.get("primary_node", {})
-            click.echo(f"Name: {primary.get('name')}")
-            click.echo(f"Labels: {', '.join(primary.get('labels', []))}")
-            click.echo(f"Created: {primary.get('created_at', 'unknown')}")
-
-            # Show related nodes
-            related = data.get("related_nodes", [])
-            if related:
-                click.echo(f"\nRelated entities ({len(related)}):")
-                for rel in related[:10]:  # Show first 10
-                    click.echo(f"  - {rel.get('name')} ({', '.join(rel.get('labels', []))})")
-
-            # Show relationships
-            relationships = data.get("relationships", [])
-            if relationships:
-                click.echo(f"\nRelationships ({len(relationships)}):")
-                for rel in relationships[:10]:  # Show first 10
-                    click.echo(f"  - {rel.get('fact')}")
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
-        sys.exit(1)
-    except httpx.HTTPError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@entities.command("related")
-@click.argument("entity")
-@click.option("--limit", default=20, help="Max number of related entities")
-@click.option("--user-id", help="User ID to filter by")
-def entities_related(entity, limit, user_id):
-    """Show entities related to given entity via knowledge graph"""
-    import httpx
-
-    daemon_url = "http://localhost:8787"
-
-    try:
-        params = {"limit": limit}
-        if user_id:
-            params["user_id"] = user_id
-
-        with httpx.Client() as client:
-            response = client.get(
-                f"{daemon_url}/kg/entity/{entity}/related", params=params, timeout=5.0
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            if not data.get("found"):
-                click.echo(f"Entity not found: {entity}")
-                return
-
-            related = data.get("related", [])
-            if not related:
-                click.echo(f"No related entities found for: {entity}")
-                return
-
-            click.echo(f"\nEntities related to: {entity}")
-            click.echo("-" * 80)
-
-            for rel in related:
-                name = rel.get("name")
-                labels = ", ".join(rel.get("labels", []))
-                click.echo(f"  - {name} ({labels})")
-
-            click.echo(f"\nTotal: {len(related)} related entities")
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
-        sys.exit(1)
-    except httpx.HTTPError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
-def summaries(ctx):
-    """View session summaries"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@summaries.command("list")
-def summaries_list():
-    """List recent session summaries"""
-    click.echo("Summary listing not yet implemented")
-    click.echo("Will show recent session summaries from database")
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
-def stats(ctx):
-    """View statistics"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@stats.command("show")
-def stats_show():
-    """Show system statistics"""
-    click.echo("Statistics not yet implemented")
-    click.echo("Will show session counts, entity counts, etc.")
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
 def config(ctx):
     """Configuration management"""
     if ctx.invoked_subcommand is None:
@@ -1122,175 +873,6 @@ def config_edit():
         subprocess.run([editor, str(config_path)], check=True)
     except Exception as e:
         click.echo(f"Failed to open editor: {e}", err=True)
-        sys.exit(1)
-
-
-@cli.group(invoke_without_command=True)
-@click.pass_context
-def synthesis(ctx):
-    """Knowledge synthesis and pattern detection"""
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-@synthesis.command("insights")
-@click.option("--personality", "-p", multiple=True, help="Personality combo (e.g., -p tsun)")
-@click.option("--limit", type=int, default=10, help="Maximum number of insights to show")
-@click.option("--no-format", is_flag=True, help="Disable personality formatting")
-def synthesis_insights(personality, limit, no_format):
-    """Show synthesized insights"""
-    import httpx
-
-    daemon_url = "http://localhost:8787"
-
-    if not personality:
-        click.echo("Error: --personality is required (e.g., --personality tsun)", err=True)
-        sys.exit(1)
-
-    try:
-        payload = {
-            "personality_combo": list(personality),
-            "limit": limit,
-            "format_with_personality": not no_format,
-        }
-
-        with httpx.Client() as client:
-            response = client.post(
-                f"{daemon_url}/api/synthesis/insights", json=payload, timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            insights = data.get("insights", [])
-            if not insights:
-                click.echo(f"No insights found for personality: {', '.join(personality)}")
-                return
-
-            click.echo(f"\nInsights for personality: {', '.join(personality)}")
-            click.echo("=" * 80)
-
-            for idx, insight in enumerate(insights, 1):
-                insight_type = insight.get("insight_type", "unknown")
-                content = insight.get("content", "")
-                confidence = insight.get("confidence", 0)
-                created_at = insight.get("created_at", "")
-
-                click.echo(f"\n[{idx}] {insight_type.upper()} (confidence: {confidence:.2f})")
-                click.echo(f"    {content}")
-                if created_at:
-                    click.echo(f"    Generated: {created_at}")
-
-            click.echo(f"\nTotal: {len(insights)} insights")
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
-        sys.exit(1)
-    except httpx.HTTPError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@synthesis.command("patterns")
-@click.option("--personality", "-p", multiple=True, help="Personality combo (e.g., -p tsun)")
-@click.option("--limit", type=int, default=10, help="Maximum number of patterns to show")
-@click.option("--no-format", is_flag=True, help="Disable personality formatting")
-def synthesis_patterns(personality, limit, no_format):
-    """Show detected patterns"""
-    import httpx
-
-    daemon_url = "http://localhost:8787"
-
-    if not personality:
-        click.echo("Error: --personality is required (e.g., --personality tsun)", err=True)
-        sys.exit(1)
-
-    try:
-        payload = {
-            "personality_combo": list(personality),
-            "limit": limit,
-            "format_with_personality": not no_format,
-        }
-
-        with httpx.Client() as client:
-            response = client.post(
-                f"{daemon_url}/api/synthesis/patterns", json=payload, timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            patterns = data.get("patterns", [])
-            if not patterns:
-                click.echo(f"No patterns found for personality: {', '.join(personality)}")
-                return
-
-            click.echo(f"\nPatterns for personality: {', '.join(personality)}")
-            click.echo("=" * 80)
-
-            for idx, pattern in enumerate(patterns, 1):
-                pattern_type = pattern.get("pattern_type", "unknown")
-                description = pattern.get("description", "")
-                frequency = pattern.get("frequency", 0)
-                created_at = pattern.get("created_at", "")
-
-                click.echo(f"\n[{idx}] {pattern_type.upper()} (frequency: {frequency})")
-                click.echo(f"    {description}")
-                if created_at:
-                    click.echo(f"    Detected: {created_at}")
-
-            click.echo(f"\nTotal: {len(patterns)} patterns")
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
-        sys.exit(1)
-    except httpx.HTTPError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-
-@synthesis.command("run")
-@click.option("--personality", "-p", multiple=True, help="Personality combo (e.g., -p tsun)")
-@click.option("--user-session", type=int, help="User session ID to synthesize")
-def synthesis_run(personality, user_session):
-    """Manually trigger synthesis"""
-    import httpx
-
-    daemon_url = "http://localhost:8787"
-
-    if not personality:
-        click.echo("Error: --personality is required (e.g., --personality tsun)", err=True)
-        sys.exit(1)
-
-    try:
-        payload = {
-            "personality_combo": list(personality),
-            "user_session_id": user_session,
-        }
-
-        click.echo(f"Running synthesis for personality: {', '.join(personality)}...")
-
-        with httpx.Client() as client:
-            response = client.post(f"{daemon_url}/api/synthesis/run", json=payload, timeout=60.0)
-            response.raise_for_status()
-            data = response.json()
-
-            if data.get("success"):
-                click.echo("\nSynthesis completed successfully!")
-                click.echo(f"  Sessions analyzed: {data.get('total_sessions', 0)}")
-                click.echo(f"  Insights generated: {data.get('insights_generated', 0)}")
-                click.echo(f"  Patterns detected: {data.get('patterns_detected', 0)}")
-                click.echo(f"  Entity collisions resolved: {data.get('entity_collisions', 0)}")
-            else:
-                click.echo("Synthesis failed", err=True)
-                sys.exit(1)
-
-    except (httpx.ConnectError, httpx.TimeoutException):
-        click.echo("Error: Cannot connect to daemon. Is it running?", err=True)
-        sys.exit(1)
-    except httpx.TimeoutException:
-        click.echo("Error: Synthesis request timed out (taking longer than 60s)", err=True)
-        sys.exit(1)
-    except httpx.HTTPError as e:
-        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
 

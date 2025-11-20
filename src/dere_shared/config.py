@@ -20,11 +20,17 @@ def load_dere_config() -> dict[str, Any]:
             "name": getpass.getuser(),
         },
         "context": {
+            # Core context (always injected when dere-core is enabled)
             "time": True,
             "weather": True,
+            "recent_files": True,
+            "knowledge_graph": True,
+            # Productivity context (only injected when dere-productivity plugin is enabled)
             "activity": True,
             "media_player": True,
-            "recent_files": True,
+            "tasks": True,
+            "calendar": True,
+            # Activity tracking settings
             "activity_lookback_minutes": 10,
             "activity_differential_enabled": True,
             "activity_min_lookback_minutes": 2,
@@ -57,11 +63,6 @@ def load_dere_config() -> dict[str, Any]:
         "database": {
             "url": "postgresql://postgres:dere@localhost/dere",
         },
-        "synthesis": {
-            "enabled": True,
-            "auto_run_interval_hours": 24,
-            "min_sessions_for_patterns": 5,
-        },
         "dere_graph": {
             "enabled": True,
             "falkor_host": "localhost",
@@ -71,6 +72,22 @@ def load_dere_config() -> dict[str, Any]:
             "embedding_dim": 1536,
             "enable_reflection": os.getenv("DERE_ENABLE_REFLECTION", "true").lower() == "true",
             "idle_threshold_minutes": 15,
+        },
+        "plugins": {
+            "dere_core": {
+                "mode": "always",  # Always enabled
+            },
+            "dere_productivity": {
+                "mode": "never",  # Options: "always", "never", "auto"
+                "directories": [],  # Auto-enable in these directories
+            },
+            "dere_code": {
+                "mode": "auto",
+                "directories": ["/mnt/data/Code"],
+            },
+            "dere_vault": {
+                "mode": "never",
+            },
         },
     }
 

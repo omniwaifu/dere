@@ -1,0 +1,5 @@
+{
+  "name": "dere-core",
+  "version": "0.1.0",
+  "description": "Core dere infrastructure: personality tone, emotion awareness (OCC), memory/recall, knowledge graph integration, and environmental context. Always enabled."
+}
