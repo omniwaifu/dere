@@ -3,6 +3,18 @@
 # All values shown are defaults - you only need to specify what you want to change
 
 # ============================================================================
+# Environment Variables
+# ============================================================================
+# Some settings can be overridden with environment variables:
+#
+# OPENAI_API_KEY          - Required for knowledge graph embeddings
+# DERE_DISCORD_TOKEN      - Discord bot token (overrides [discord].token)
+# DERE_DAEMON_URL         - Daemon URL (overrides default http://localhost:8787)
+# DATABASE_URL            - Database connection (overrides [database].url)
+# DERE_ENABLE_REFLECTION  - Enable/disable DereGraph reflection (true/false)
+# EDITOR                  - Editor for config editing (default: nano)
+
+# ============================================================================
 # Core Settings
 # ============================================================================
 
