@@ -61,6 +61,19 @@ class WeatherConfig(BaseModel):
     units: str = "metric"
 
 
+class ActivityWatchConfig(BaseModel):
+    """ActivityWatch integration configuration."""
+
+    enabled: bool = True
+    url: str = "http://localhost:5600"
+
+
+class AnnouncementsConfig(BaseModel):
+    """Personality announcement configuration."""
+
+    messages: list[str] = Field(default_factory=list)
+
+
 class DiscordConfig(BaseModel):
     """Discord bot configuration."""
 
@@ -133,6 +146,8 @@ class DereConfig(BaseModel):
     user: UserConfig = Field(default_factory=UserConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     weather: WeatherConfig = Field(default_factory=WeatherConfig)
+    activitywatch: ActivityWatchConfig = Field(default_factory=ActivityWatchConfig)
+    announcements: AnnouncementsConfig = Field(default_factory=AnnouncementsConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     dere_graph: DereGraphConfigFlat = Field(default_factory=DereGraphConfigFlat)
