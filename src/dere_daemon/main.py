@@ -202,6 +202,193 @@ class AppState:
     dere_graph: Any  # DereGraph - knowledge graph for context
 
 
+async def _init_database(db_url: str, app_state: AppState) -> None:
+    """Initialize database connection and session factory."""
+    try:
+        app_state.engine = create_engine(db_url)
+        app_state.session_factory = create_session_factory(app_state.engine)
+        app_state.db = EmotionDBAdapter(app_state.session_factory)
+        print(f"Database connected: {db_url}")
+    except Exception as e:
+        print("FATAL: Failed to connect to database")
+        print(f"   URL: {db_url}")
+        print(f"   Error: {e}")
+        print("\n   Make sure PostgreSQL is running:")
+        print("   docker ps | grep postgres")
+        raise
+
+
+async def _init_dere_graph(config: dict[str, Any], db_url: str, app_state: AppState) -> None:
+    """Initialize DereGraph for knowledge management."""
+    graph_config = config.get("dere_graph", {})
+    if not graph_config.get("enabled", True):
+        app_state.dere_graph = None
+        return
+
+    try:
+        from dere_graph import DereGraph
+
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            print("Warning: OPENAI_API_KEY not set, knowledge graph disabled")
+            app_state.dere_graph = None
+            return
+
+        postgres_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+
+        app_state.dere_graph = DereGraph(
+            falkor_host=graph_config.get("falkor_host", "localhost"),
+            falkor_port=graph_config.get("falkor_port", 6379),
+            falkor_database=graph_config.get("falkor_database", "dere_graph"),
+            openai_api_key=openai_key,
+            claude_model=graph_config.get("claude_model", "claude-haiku-4-5"),
+            embedding_dim=graph_config.get("embedding_dim", 1536),
+            postgres_db_url=postgres_url,
+            enable_reflection=graph_config.get("enable_reflection", True),
+            idle_threshold_minutes=graph_config.get("idle_threshold_minutes", 15),
+        )
+        await app_state.dere_graph.build_indices()
+        print("DereGraph initialized")
+    except Exception as e:
+        print(f"Warning: Failed to initialize DereGraph: {e}")
+        app_state.dere_graph = None
+
+
+async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
+    """Initialize personality loader and ambient monitor."""
+    from dere_shared.personalities import PersonalityLoader
+
+    app_state.personality_loader = PersonalityLoader(data_dir)
+
+    try:
+        from dere_ambient import AmbientMonitor, load_ambient_config
+
+        ambient_config = load_ambient_config()
+        llm_client = app_state.dere_graph.llm_client if app_state.dere_graph else None
+        app_state.ambient_monitor = AmbientMonitor(
+            ambient_config, llm_client=llm_client, personality_loader=app_state.personality_loader
+        )
+        await app_state.ambient_monitor.start()
+    except Exception as e:
+        print(f"Warning: Failed to initialize ambient monitor: {e}")
+        app_state.ambient_monitor = None
+
+
+def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task]:
+    """Start background tasks for presence cleanup and emotion decay."""
+
+    async def cleanup_presence_loop():
+        """Background task placeholder for future presence maintenance."""
+        while True:
+            try:
+                await asyncio.sleep(30)
+                pass
+            except Exception as e:
+                logger.error("Presence cleanup failed: {}", e)
+
+    async def periodic_emotion_decay_loop():
+        """Background task to apply decay to emotions during idle time and cleanup stale managers."""
+        from datetime import timedelta
+
+        from sqlalchemy import select
+
+        while True:
+            try:
+                await asyncio.sleep(60)
+
+                if not app_state.emotion_managers:
+                    continue
+
+                current_time = int(time.time() * 1000)
+                ttl_threshold = datetime.now(UTC) - timedelta(days=7)
+
+                async with app_state.session_factory() as db:
+                    stmt = select(Session.id, Session.last_activity).where(
+                        Session.id.in_(list(app_state.emotion_managers.keys()))
+                    )
+                    result = await db.execute(stmt)
+                    session_activities = {row[0]: row[1] for row in result}
+
+                for session_id, manager in list(app_state.emotion_managers.items()):
+                    last_activity = session_activities.get(session_id)
+                    if last_activity and last_activity < ttl_threshold:
+                        logger.info(
+                            "Removing emotion manager for inactive session {} (last active: {})",
+                            session_id,
+                            last_activity,
+                        )
+                        del app_state.emotion_managers[session_id]
+                        continue
+
+                    if not manager.active_emotions:
+                        continue
+
+                    time_since_last_decay = (current_time - manager.last_decay_time) / (1000 * 60)
+                    if time_since_last_decay < 1.0:
+                        continue
+
+                    await manager._apply_smart_decay(current_time)
+
+            except Exception as e:
+                logger.error("Periodic emotion decay failed: {}", e)
+
+    cleanup_task = asyncio.create_task(cleanup_presence_loop())
+    emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
+
+    return cleanup_task, emotion_decay_task
+
+
+async def _shutdown_cleanup(
+    app_state: AppState,
+    pid_file: Path,
+    cleanup_task: asyncio.Task,
+    emotion_decay_task: asyncio.Task,
+) -> None:
+    """Shutdown all services and cleanup resources."""
+    errors = []
+
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+
+    emotion_decay_task.cancel()
+    try:
+        await emotion_decay_task
+    except asyncio.CancelledError:
+        pass
+
+    if app_state.ambient_monitor:
+        try:
+            await app_state.ambient_monitor.shutdown()
+        except Exception as e:
+            errors.append(e)
+
+    if app_state.dere_graph:
+        try:
+            await app_state.dere_graph.close()
+        except Exception as e:
+            errors.append(e)
+
+    try:
+        await app_state.engine.dispose()
+    except Exception as e:
+        errors.append(e)
+
+    try:
+        pid_file.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        errors.append(e)
+
+    if errors:
+        raise ExceptionGroup("Errors during shutdown", errors)
+
+    print("Dere daemon shutdown")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown"""
@@ -217,221 +404,29 @@ async def lifespan(app: FastAPI):
     db_path = data_dir / "dere.db"
     pid_file = data_dir / "daemon.pid"
 
-    # Write PID file
     pid_file.write_text(str(os.getpid()))
 
-    # Load config
     config = load_dere_config()
     db_url = config.get("database", {}).get("url", "postgresql://postgres:dere@localhost/dere")
 
-    # Convert to asyncpg URL if needed
     if db_url.startswith("postgresql://"):
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
     app.state = AppState()  # type: ignore[assignment]
-
-    # Initialize async database engine
-    try:
-        app.state.engine = create_engine(db_url)
-        app.state.session_factory = create_session_factory(app.state.engine)
-        app.state.db = EmotionDBAdapter(app.state.session_factory)
-        print(f"✓ Database connected: {db_url}")
-    except Exception as e:
-        print("❌ FATAL: Failed to connect to database")
-        print(f"   URL: {db_url}")
-        print(f"   Error: {e}")
-        print("\n   Make sure PostgreSQL is running:")
-        print("   docker ps | grep postgres")
-        raise
-
     app.state.emotion_managers = {}
     app.state.config = config
 
-    # Initialize DereGraph for knowledge management
-    graph_config = config.get("dere_graph", {})
-    if graph_config.get("enabled", True):
-        try:
-            from dere_graph import DereGraph
+    await _init_database(db_url, app.state)
+    await _init_dere_graph(config, db_url, app.state)
+    await _init_ambient_monitor(data_dir, app.state)
 
-            openai_key = os.getenv("OPENAI_API_KEY")
-            if not openai_key:
-                print("Warning: OPENAI_API_KEY not set, knowledge graph disabled")
-                app.state.dere_graph = None
-            else:
-                # Convert asyncpg URL back to standard postgres URL for dere_graph
-                postgres_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+    cleanup_task, emotion_decay_task = _start_background_tasks(app.state)
 
-                app.state.dere_graph = DereGraph(
-                    falkor_host=graph_config.get("falkor_host", "localhost"),
-                    falkor_port=graph_config.get("falkor_port", 6379),
-                    falkor_database=graph_config.get("falkor_database", "dere_graph"),
-                    openai_api_key=openai_key,
-                    claude_model=graph_config.get("claude_model", "claude-haiku-4-5"),
-                    embedding_dim=graph_config.get("embedding_dim", 1536),
-                    postgres_db_url=postgres_url,
-                    enable_reflection=graph_config.get("enable_reflection", True),
-                    idle_threshold_minutes=graph_config.get("idle_threshold_minutes", 15),
-                )
-                await app.state.dere_graph.build_indices()
-                print("✓ DereGraph initialized")
-        except Exception as e:
-            print(f"Warning: Failed to initialize DereGraph: {e}")
-            app.state.dere_graph = None
-    else:
-        app.state.dere_graph = None
-
-    # Initialize personality loader
-    from dere_shared.personalities import PersonalityLoader
-
-    config_dir = data_dir  # Use same dir as database for user personalities
-    app.state.personality_loader = PersonalityLoader(config_dir)
-
-    # Initialize ambient monitor
-    try:
-        from dere_ambient import AmbientMonitor, load_ambient_config
-
-        ambient_config = load_ambient_config()
-        # Pass llm_client from dere_graph for structured outputs
-        llm_client = app.state.dere_graph.llm_client if app.state.dere_graph else None
-        app.state.ambient_monitor = AmbientMonitor(
-            ambient_config, llm_client=llm_client, personality_loader=app.state.personality_loader
-        )
-    except Exception as e:
-        print(f"Warning: Failed to initialize ambient monitor: {e}")
-        app.state.ambient_monitor = None
-
-    # NOTE: Stuck task reset was removed during database simplification
-    # Tasks now use proper status management and don't get stuck
-
-    # Start ambient monitor
-    if app.state.ambient_monitor:
-        await app.state.ambient_monitor.start()
-
-    # Start presence cleanup background task
-    # NOTE: Automatic presence cleanup removed - heartbeat mechanism handles stale detection
-    async def cleanup_presence_loop():
-        """Background task placeholder for future presence maintenance."""
-        while True:
-            try:
-                await asyncio.sleep(30)  # Every 30s
-                # Presence records now cleaned up via heartbeat timeout mechanism
-                pass
-            except Exception as e:
-                from loguru import logger
-
-                logger.error("Presence cleanup failed: {}", e)
-
-    cleanup_task = asyncio.create_task(cleanup_presence_loop())
-
-    # Start emotion decay background task
-    async def periodic_emotion_decay_loop():
-        """Background task to apply decay to emotions during idle time and cleanup stale managers."""
-        from datetime import timedelta
-
-        from sqlalchemy import select
-
-        while True:
-            try:
-                await asyncio.sleep(60)  # Every 60 seconds
-
-                if not app.state.emotion_managers:
-                    continue
-
-                current_time = int(time.time() * 1000)
-                ttl_threshold = datetime.now(UTC) - timedelta(days=7)  # 7 day TTL
-
-                # Fetch last_activity times for all managed sessions in one query
-                async with app.state.session_factory() as db:
-                    stmt = select(Session.id, Session.last_activity).where(
-                        Session.id.in_(list(app.state.emotion_managers.keys()))
-                    )
-                    result = await db.execute(stmt)
-                    session_activities = {row[0]: row[1] for row in result}
-
-                for session_id, manager in list(app.state.emotion_managers.items()):
-                    # TTL cleanup: remove managers for inactive sessions
-                    last_activity = session_activities.get(session_id)
-                    if last_activity and last_activity < ttl_threshold:
-                        from loguru import logger
-
-                        logger.info(
-                            "Removing emotion manager for inactive session {} (last active: {})",
-                            session_id,
-                            last_activity,
-                        )
-                        del app.state.emotion_managers[session_id]
-                        continue
-
-                    # Only apply decay if there are active emotions
-                    if not manager.active_emotions:
-                        continue
-
-                    # Check if enough time has passed (avoid micro-decays)
-                    time_since_last_decay = (current_time - manager.last_decay_time) / (1000 * 60)
-                    if time_since_last_decay < 1.0:  # At least 1 minute
-                        continue
-
-                    # Apply decay
-                    await manager._apply_smart_decay(current_time)
-
-            except Exception as e:
-                from loguru import logger
-
-                logger.error("Periodic emotion decay failed: {}", e)
-
-    emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
-
-    print(f"🚀 Dere daemon started - database: {db_path}")
+    print(f"Dere daemon started - database: {db_path}")
 
     yield
 
-    # Shutdown - collect all exceptions
-    errors = []
-
-    # Cancel presence cleanup task
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-
-    # Cancel emotion decay task
-    emotion_decay_task.cancel()
-    try:
-        await emotion_decay_task
-    except asyncio.CancelledError:
-        pass
-
-    # Shutdown ambient monitor
-    if app.state.ambient_monitor:
-        try:
-            await app.state.ambient_monitor.shutdown()
-        except Exception as e:
-            errors.append(e)
-
-    # Shutdown DereGraph
-    if app.state.dere_graph:
-        try:
-            await app.state.dere_graph.close()
-        except Exception as e:
-            errors.append(e)
-
-    try:
-        await app.state.engine.dispose()
-    except Exception as e:
-        errors.append(e)
-
-    try:
-        pid_file.unlink()
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        errors.append(e)
-
-    if errors:
-        raise ExceptionGroup("Errors during shutdown", errors)
-
-    print("👋 Dere daemon shutdown")
+    await _shutdown_cleanup(app.state, pid_file, cleanup_task, emotion_decay_task)
 
 
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
