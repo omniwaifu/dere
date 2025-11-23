@@ -8,7 +8,6 @@ Technical specifications for literature notes and bibliographic metadata.
 ```yaml
 ---
 type: literature
-status: [draft|processing|complete]
 created: YYYY-MM-DD HH:MM
 updated: YYYY-MM-DD HH:MM
 source: https://full-url

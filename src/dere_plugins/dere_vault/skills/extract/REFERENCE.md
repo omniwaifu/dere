@@ -7,7 +7,6 @@ Technical specifications for permanent (evergreen) notes and concept extraction.
 ```yaml
 ---
 type: permanent
-status: [growing|mature|stable]
 created: YYYY-MM-DD HH:MM
 updated: YYYY-MM-DD HH:MM
 tags:

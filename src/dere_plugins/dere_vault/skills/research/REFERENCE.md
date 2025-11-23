@@ -42,8 +42,6 @@ updated: YYYY-MM-DD HH:MM
 tags:
   - hub
   - topic-area
-coverage: [comprehensive|partial|emerging]
-note_count: XX
 ---
 ```
 
@@ -97,7 +95,6 @@ updated: YYYY-MM-DD HH:MM
 tags:
   - project
   - domain-tag
-deadline: YYYY-MM-DD  # if applicable
 ---
 ```
 
@@ -149,9 +146,7 @@ type: technical
 created: YYYY-MM-DD HH:MM
 updated: YYYY-MM-DD HH:MM
 tags:
-  - tech
   - language/framework
-decision_status: [evaluating|adopted|rejected|deprecated]
 ---
 ```
 
