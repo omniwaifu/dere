@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI
+from fastapi import Depends, FastAPI
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -20,11 +20,9 @@ from sqlmodel import select
 from dere_shared.config import load_dere_config
 from dere_shared.database import create_engine, create_session_factory, get_session
 from dere_shared.models import (
-    ContextCache,
     Conversation,
     EmotionState,
     MessageType,
-    Notification,
     Presence,
     Session,
     SessionSummary,
@@ -471,7 +469,6 @@ def _get_time_of_day(hour: int) -> str:
 # Helper functions for emotion system
 async def get_or_create_emotion_manager(session_id: int, personality: str | None = None):
     """Get or create emotion manager for a session"""
-    import json
     from pathlib import Path
 
     from loguru import logger

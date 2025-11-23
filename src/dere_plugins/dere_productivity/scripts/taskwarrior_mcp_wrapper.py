@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def main():
     # Point directly to source repo (not installed copy)
     # Find dere repo root by going up from this file

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from dere_daemon.dependencies import get_db
-from dere_shared.models import Conversation, MessageType, Session
+from dere_shared.models import Conversation, Session
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 

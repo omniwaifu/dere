@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime
@@ -59,7 +58,7 @@ class ZoteroItem:
 
 
 def build_collection_hierarchy(
-    client: "ZoteroClient",
+    client: ZoteroClient,
     collection_path: str,
 ) -> str:
     """
@@ -175,7 +174,9 @@ class ZoteroClient:
                     continue
             elif search_type == "author":
                 creators = data.get("creators", [])
-                author_names = [f"{c.get('lastName', '')} {c.get('firstName', '')}".lower() for c in creators]
+                author_names = [
+                    f"{c.get('lastName', '')} {c.get('firstName', '')}".lower() for c in creators
+                ]
                 if not any(query.lower() in name for name in author_names):
                     continue
             elif search_type == "citekey":
@@ -233,7 +234,9 @@ class ZoteroClient:
                 last = parts[-1]
 
             creator_type = "author"
-            template["creators"] = [{"creatorType": creator_type, "firstName": first, "lastName": last}]
+            template["creators"] = [
+                {"creatorType": creator_type, "firstName": first, "lastName": last}
+            ]
 
         # Create item via API
         response = self.zot.create_items([template])
@@ -424,7 +427,10 @@ class VaultIntegration:
         if not self.vault_path:
             raise FileNotFoundError("Could not auto-detect vault. Provide vault_path.")
 
-        self.template_dir = template_dir or Path(__file__).parent.parent / "skills" / "source" / "tools" / "templates"
+        self.template_dir = (
+            template_dir
+            or Path(__file__).parent.parent / "skills" / "source" / "tools" / "templates"
+        )
         self.template_dir.mkdir(parents=True, exist_ok=True)
 
         self.env = Environment(
@@ -453,7 +459,7 @@ class VaultIntegration:
 
     def _create_default_template(self, path: Path) -> None:
         """Create default Jinja2 template."""
-        template_content = '''---
+        template_content = """---
 title: "{{ item.title }}"
 authors: {{ item.format_authors() }}
 year: {{ item.year or "n.d." }}
@@ -506,7 +512,7 @@ _(No abstract available)_
 
 ## Connections
 -
-'''
+"""
         path.write_text(template_content)
 
     def create_literature_note(

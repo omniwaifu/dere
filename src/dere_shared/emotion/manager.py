@@ -222,10 +222,11 @@ class OCCEmotionManager:
         # In the future, this could be enhanced with more sophisticated presence detection
         try:
             # Check if there's a recent session activity (within last 5 minutes)
-            from datetime import datetime, timedelta, UTC
+            from datetime import UTC, datetime, timedelta
 
             if self.db and hasattr(self.db, 'session_factory'):
                 from sqlmodel import select
+
                 from dere_shared.models import Session
 
                 async with self.db.session_factory() as db_session:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import signal
 import subprocess
 import sys
@@ -131,7 +130,7 @@ class SettingsBuilder:
         # CLI flag takes precedence
         if self.mode == "vault":
             return True
-        
+
         # Fall back to auto-detection (in an Obsidian vault)
         try:
             from dere_plugins.dere_vault.scripts.detect_vault import is_vault
@@ -180,7 +179,7 @@ class SettingsBuilder:
         # CLI flag takes precedence
         if self.mode == "code":
             return True
-        
+
         # Fall back to config
         try:
             config = load_dere_config()

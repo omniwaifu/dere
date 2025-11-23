@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import discord
-from discord import AllowedMentions, app_commands
+from discord import app_commands
 from loguru import logger
 
 from .agent import DiscordAgent

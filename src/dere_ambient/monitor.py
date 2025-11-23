@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -14,6 +14,7 @@ from .fsm import AmbientFSM, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
     from dere_graph.llm_client import ClaudeClient
+
     from dere_shared.personalities import PersonalityLoader
 
 
