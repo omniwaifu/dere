@@ -18,7 +18,9 @@ Create literature notes from external sources (articles, papers, books, videos) 
 
 1. **Fetch and read** source material
 2. **Summarize in your own words** - no copy-paste, demonstrate understanding
-3. **Add bibliographic metadata** - author, title, date, URL
+3. **Add bibliographic metadata**
+   - If library.bib exists: search for entry by title/author, extract metadata
+   - Otherwise: manual entry (author, title, date, URL)
 4. **Extract key concepts** - what ideas are reusable?
 5. **Link to related notes** - what does this connect to?
 

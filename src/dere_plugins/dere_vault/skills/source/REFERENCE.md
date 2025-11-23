@@ -43,6 +43,53 @@ publisher: Publisher Name
 edition: X
 ```
 
+## BibTeX Integration
+
+If using Zotero with Better BibTeX exporting to `library.bib` in vault root, you can look up citation metadata automatically instead of manual entry.
+
+### Searching library.bib
+
+Find entries by citekey, title, or author:
+
+```bash
+# By citekey
+grep -A 20 "@.*{citekey," library.bib
+
+# By title (case-insensitive)
+grep -i -A 20 "title = {.*search term" library.bib
+
+# By author
+grep -i -A 20 "author = {.*lastname" library.bib
+```
+
+### Available Fields
+
+BibTeX entries provide:
+- `author` - Author name(s)
+- `title` - Full title
+- `year` / `date` - Publication year
+- `doi` - Digital Object Identifier
+- `url` / `urldate` - Web source
+- `abstract` - Paper abstract
+- `journal` / `booktitle` - Publication venue
+- `isbn` - Book identifier
+- `publisher` - Publisher name
+- `keywords` - Subject tags
+
+### Workflow with Zotero
+
+1. Check if `library.bib` exists in vault root
+2. Search for entry by title, author, or citekey
+3. Extract metadata fields from BibTeX entry
+4. Auto-populate frontmatter instead of manual entry
+5. Proceed with standard literature note creation
+
+### Fallback
+
+If library.bib doesn't exist or entry not found:
+- Manual metadata entry (standard workflow)
+- Note to add source to Zotero for future
+
 ## Title Format
 
 `# [Source Title] ([Year])`
