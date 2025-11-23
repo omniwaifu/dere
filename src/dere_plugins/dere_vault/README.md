@@ -1,117 +1,110 @@
-# dere-vault
+# dere-vault Plugin
 
-Claude Code plugin providing Zettelkasten knowledge vault skills.
+Zettelkasten knowledge vault skills for working with Obsidian-style markdown vaults.
 
-## What is this?
+## Skills
 
-This plugin teaches Claude Code how to work with Zettelkasten-style knowledge vaults (like Obsidian). Instead of using CLAUDE.md files scattered throughout your vault, the plugin provides structured skills that guide Claude on creating and managing different note types.
-
-## Skills Provided
-
-### zettelkasten-daily-notes
-Create and process daily journal entries for task tracking and thought capture.
+### capture
+Quick capture of thoughts, tasks, and daily reflections for later processing.
 
 **Use when:**
 - Creating daily notes
-- Processing daily entries
-- Extracting insights from daily reflections
+- Journaling
+- Tracking daily work
+- Morning/evening planning
 
-### zettelkasten-literature-notes
-Summarize and analyze external sources (papers, articles, books, videos).
-
-**Use when:**
-- Processing URLs or papers
-- Creating research summaries
-- Building literature review
-
-### zettelkasten-permanent-notes
-Create atomic, evergreen ideas that form your knowledge graph.
+### source
+Summarize articles, papers, books, and videos in your own words with proper citations.
 
 **Use when:**
-- Extracting concepts from literature/daily notes
-- Synthesizing original insights
-- Building reusable knowledge
+- Processing URLs or external content
+- Creating literature notes
+- Building research bibliography
 
-### zettelkasten-project-notes
-Track active projects with goals, decisions, and learnings.
-
-**Use when:**
-- Starting new projects
-- Documenting project progress
-- Tracking decisions and learnings
-
-### zettelkasten-technical-notes
-Analyze technologies with honest trade-off evaluation.
+### extract
+Extract atomic concepts from daily notes and sources into densely-linked evergreen notes.
 
 **Use when:**
-- Evaluating frameworks or tools
-- Documenting technical decisions
-- Creating implementation guides
+- Identifying reusable ideas
+- Creating permanent notes
+- Processing fleeting notes
+- Synthesizing insights
 
-### vault-research-synthesis
-Search across vault, synthesize findings, create Hubs.
+### research
+Search vault, synthesize findings, analyze technologies, track projects, and create Hubs.
 
 **Use when:**
 - Researching topics across vault
+- Creating Hubs (overview notes)
+- Documenting technical decisions
 - Finding connections between notes
-- Creating Hubs
 
 ## Installation
 
-1. The plugin is part of the dere monorepo
-2. Install with: `uv pip install -e .`
-3. Claude Code will auto-detect the plugin
+This plugin is included with dere. Activate vault output style:
 
-## Helper Scripts
-
-- `detect_vault.py` - Check if CWD is in a vault
-- `get_vault_context.py` - Load vault context from CLAUDE.md (legacy)
-- `config_reader.py` - Read personality/daemon settings
-
-## Configuration (Optional)
-
-Create `~/.config/dere/config.json`:
-
-```json
-{
-  "default_personality": "tsun",
-  "daemon_url": "http://localhost:8080",
-  "enable_daemon": false,
-  "vaults": {
-    "/path/to/vault": {
-      "personality": "kuudere",
-      "enable_daemon": true
-    }
-  }
-}
+```bash
+dere --output-style vault
 ```
 
-## Migrating from CLAUDE.md
+## Configuration
 
-This plugin replaces the need for CLAUDE.md files in your vault. The skills contain all the instructions that were previously in:
+Vault detection is automatic via `scripts/detect_vault.py`. Override in `~/.config/dere/config.toml`:
 
-- `/CLAUDE.md` → `vault-research-synthesis` skill
-- `/Daily/CLAUDE.md` → `zettelkasten-daily-notes` skill
-- `/Research/CLAUDE.md` → `zettelkasten-literature-notes` skill
-- `/Permanent/CLAUDE.md` → `zettelkasten-permanent-notes` skill
-- `/Projects/CLAUDE.md` → `zettelkasten-project-notes` skill
-- `/Tech/CLAUDE.md` → `zettelkasten-technical-notes` skill
+```toml
+[vault]
+path = "/path/to/your/vault"
+```
 
-After confirming the skills work, you can remove the CLAUDE.md files.
+## Skill Structure
 
-## How It Works
+Each skill includes:
+- **SKILL.md** - Core workflow and activation triggers
+- **REFERENCE.md** - Technical specifications (frontmatter, formats)
+- **examples/** - Good/bad pattern examples
+- **tools/** - Helper scripts (research skill only)
 
-Claude Code loads skills from plugins and automatically applies them based on context. The skills teach Claude:
+## Zettelkasten Workflow
 
-- Note structures and frontmatter requirements
-- Quality standards for each note type
-- Linking conventions and best practices
-- When to use Read/Grep/Write tools
-- How to synthesize across multiple notes
+1. **Capture** → Quick daily notes (fleeting thoughts)
+2. **Source** → Literature notes from external content
+3. **Extract** → Permanent notes (atomic concepts)
+4. **Research** → Cross-vault synthesis and Hubs
 
-## vs dere-obsidian
+Process fleeting notes within 1-2 days to maintain flow.
 
-- **dere-obsidian**: FastAPI server for Obsidian QuickAdd plugin integration
-- **dere-vault**: Skills for Claude Code CLI/desktop
+## Quality Guidelines
 
-Both can coexist and serve different use cases.
+**Good permanent notes:**
+- Atomic (one concept)
+- Autonomous (makes sense alone)
+- Linked (5-10+ connections)
+- Example-rich (2+ concrete instances)
+- Searchable titles
+
+**Avoid:**
+- Multiple concepts bundled
+- Copy-paste without understanding
+- Orphaned notes (no links)
+- Vague abstractions without examples
+
+## Tools
+
+### find-orphans.py
+Find notes with low link density:
+
+```bash
+./skills/research/tools/find-orphans.py /path/to/vault 3
+```
+
+### create-hub.py
+Generate Hub template from tag:
+
+```bash
+./skills/research/tools/create-hub.py /path/to/vault concept output.md
+```
+
+## References
+
+- Ahrens, Sönke. *How to Take Smart Notes* (2017)
+- [Zettelkasten Method](https://zettelkasten.de/)
