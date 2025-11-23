@@ -43,13 +43,61 @@ publisher: Publisher Name
 edition: X
 ```
 
-## BibTeX Integration
+## Zotero Integration
 
-If using Zotero with Better BibTeX exporting to `library.bib` in vault root, you can look up citation metadata automatically instead of manual entry.
+### Method 1: Zotero SQLite (Recommended)
 
-### Searching library.bib
+Query Zotero database directly for full metadata including abstracts, tags, and attachments.
 
-Find entries by citekey, title, or author:
+**Tool:** `tools/zotlit-create.py`
+
+**Database:** `~/Zotero/zotero.sqlite`
+
+**Usage:**
+```bash
+# Quick title search
+zotlit-create.py "Computational Complexity"
+
+# Specific author
+zotlit-create.py --author "Aaronson"
+
+# Title + author
+zotlit-create.py --title "Quantum" --author "Aaronson"
+
+# By citekey (Better BibTeX)
+zotlit-create.py --citekey "aaronson2011"
+
+# Override vault location
+zotlit-create.py "Search" --vault ~/my-vault
+
+# Use @citekey.md naming
+zotlit-create.py "Search" --citekey-naming
+
+# Skip daily note logging
+zotlit-create.py "Search" --no-daily-log
+```
+
+**Features:**
+- Queries Zotero's SQLite database directly
+- Extracts full metadata (title, authors, year, abstract, DOI, URL)
+- Includes tags and attachments from Zotero
+- Auto-generates formatted markdown note
+- Auto-logs to daily note under "## Reading"
+- Interactive picker for multiple matches
+
+**Output:**
+- Creates note: `Sources/Author - Title (Year).md`
+- Appends to: `Journal/YYYY-MM-DD.md`
+
+### Method 2: BibTeX Export
+
+Use exported library.bib for lightweight metadata lookup without full Zotero database.
+
+**Tool:** `tools/bib-lookup.py`
+
+**File:** `library.bib` (exported via Better BibTeX)
+
+**Searching library.bib:**
 
 ```bash
 # By citekey
@@ -62,9 +110,7 @@ grep -i -A 20 "title = {.*search term" library.bib
 grep -i -A 20 "author = {.*lastname" library.bib
 ```
 
-### Available Fields
-
-BibTeX entries provide:
+**Available Fields:**
 - `author` - Author name(s)
 - `title` - Full title
 - `year` / `date` - Publication year
@@ -76,19 +122,18 @@ BibTeX entries provide:
 - `publisher` - Publisher name
 - `keywords` - Subject tags
 
-### Workflow with Zotero
+### Comparison
 
-1. Check if `library.bib` exists in vault root
-2. Search for entry by title, author, or citekey
-3. Extract metadata fields from BibTeX entry
-4. Auto-populate frontmatter instead of manual entry
-5. Proceed with standard literature note creation
+| Feature | Zotero SQLite | BibTeX Export |
+|---------|---------------|---------------|
+| Full metadata | ✓ | ✓ |
+| Abstracts | ✓ | Limited |
+| Tags | ✓ | Via keywords |
+| Attachments | ✓ | ✗ |
+| Daily logging | Auto | Manual |
+| Requires Zotero | ✓ | ✗ |
 
-### Fallback
-
-If library.bib doesn't exist or entry not found:
-- Manual metadata entry (standard workflow)
-- Note to add source to Zotero for future
+**Recommendation:** Use `zotlit-create.py` if Zotero database exists. Fallback to `bib-lookup.py` if only library.bib is available.
 
 ## Title Format
 

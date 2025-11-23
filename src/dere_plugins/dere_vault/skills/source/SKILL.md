@@ -18,12 +18,13 @@ Create literature notes from external sources (articles, papers, books, videos) 
 
 1. **Fetch and read** source material
 2. **Summarize in your own words** - no copy-paste, demonstrate understanding
-3. **Add bibliographic metadata**
-   - If library.bib exists: search for entry by title/author, extract metadata
-   - Otherwise: manual entry (author, title, date, URL)
+3. **Add bibliographic metadata** (choose one method):
+   - **Zotero SQLite** (recommended): Use `tools/zotlit-create.py` to query Zotero database directly
+   - **BibTeX file**: If library.bib exists, use `tools/bib-lookup.py` to extract metadata
+   - **Manual entry**: Author, title, date, URL
 4. **Extract key concepts** - what ideas are reusable?
 5. **Link to related notes** - what does this connect to?
-6. **Log to daily note** - Append link to today's daily note under Reading section
+6. **Log to daily note** - Automatically appended by zotlit-create.py (or manually via Advanced URI)
 
 ## Key Principles
 

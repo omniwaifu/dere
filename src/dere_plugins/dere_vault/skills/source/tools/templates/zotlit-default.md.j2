@@ -1,0 +1,61 @@
+---
+title: "{{ item.title }}"
+authors: {{ item.format_authors() }}
+year: {{ item.year or "n.d." }}
+{% if item.publication -%}
+publication: "{{ item.publication }}"
+{% endif -%}
+{% if item.citekey -%}
+citekey: "@{{ item.citekey }}"
+{% endif -%}
+{% if item.url -%}
+url: {{ item.url }}
+{% endif -%}
+{% if item.doi -%}
+doi: {{ item.doi }}
+{% endif -%}
+tags:
+{% for tag in item.tags %}
+  - {{ tag }}
+{% endfor %}
+date: {{ today }}
+---
+
+# {{ item.title }}
+
+## Metadata
+- **Authors**: {{ item.format_authors() }}
+- **Year**: {{ item.year or "n.d." }}
+{% if item.publication -%}
+- **Publication**: {{ item.publication }}
+{% endif -%}
+{% if item.url -%}
+- **URL**: {{ item.url }}
+{% endif -%}
+{% if item.doi -%}
+- **DOI**: {{ item.doi }}
+{% endif %}
+
+## Abstract
+{% if item.abstract -%}
+{{ item.abstract }}
+{% else -%}
+_(No abstract available)_
+{% endif %}
+
+## Key Concepts
+-
+
+## Quotes & Notes
+
+
+## Connections
+-
+
+## References
+{% if item.attachments -%}
+**Attachments**:
+{%- for attachment in item.attachments %}
+- {{ attachment }}
+{%- endfor %}
+{% endif %}
