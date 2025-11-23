@@ -79,7 +79,7 @@ When user asks to "process" or "review" daily notes:
    - Permanent note on [concept]
    - Literature note from [URL]
    - Link to [[existing-note]]
-   - Update [[MOC]] with connection
+   - Update [[Hub]] with connection
 
 ### Reflection Questions
 Help user reflect:
@@ -104,7 +104,7 @@ Help user reflect:
 ## Pattern Recognition
 
 Look for over time:
-- Recurring themes → suggest MOC or permanent note
+- Recurring themes → suggest Hub or permanent note
 - Repeated questions → signal for deep dive
 - Tasks never done → suggest reprioritize
 - High-energy topics → guide exploration
@@ -141,7 +141,7 @@ Daily notes connect to:
 - Permanent notes (extract concepts)
 - Project notes (track tasks)
 - Literature notes (source summaries)
-- MOCs (topic organization)
+- Hubs (topic organization)
 
 ## Best Practices
 

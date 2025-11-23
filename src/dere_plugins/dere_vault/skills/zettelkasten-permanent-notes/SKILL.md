@@ -120,7 +120,7 @@ Explicit links to:
 - Contrasting concepts
 - Applications
 - Examples
-- MOCs this belongs in
+- Hubs this belongs in
 
 ## The Atomicity Test
 
@@ -213,7 +213,7 @@ Example: [[build-vs-buy-framework]] → [[infrastructure-decisions]]
 Aim for 5-10 links per note:
 - Too few (<3) → orphaned
 - Just right (5-10) → well-integrated
-- Many (10+) → hub concept (consider MOC)
+- Many (10+) → hub concept (consider creating overview note)
 
 ### Bidirectional Linking
 When creating permanent note:
@@ -239,7 +239,7 @@ When creating permanent note:
 If note grows too large or has multiple concepts:
 1. Identify atomic concepts within
 2. Create separate notes for each
-3. Create hub note or MOC to link them
+3. Create hub note to link them
 4. Update all related links
 
 ### Merging Notes

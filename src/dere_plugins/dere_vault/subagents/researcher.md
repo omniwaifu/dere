@@ -96,7 +96,7 @@ Thoughts, questions, connections
 **Use `vault-research-synthesis` skill**:
 - Identify patterns across multiple sources
 - Connect related permanent notes
-- Create MOCs (Maps of Content) for topic areas
+- Create Hubs (overview notes) for topic areas
 - Highlight tensions and contradictions
 - Generate original insights from synthesis
 
@@ -170,7 +170,7 @@ Reference personality TOML for:
 - Aim for 5-10 links per permanent note
 - Too few (<3): Orphaned, not integrated
 - Just right (5-10): Well-connected
-- Many (10+): Hub concept (consider MOC)
+- Many (10+): Hub concept (consider creating overview note)
 
 ### Bidirectional Linking
 1. Link from new note to related notes

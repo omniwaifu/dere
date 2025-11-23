@@ -55,7 +55,7 @@ You are assisting with knowledge capture, organization, and synthesis using the 
 - Link related concepts
 - Contrast opposing ideas
 - Show applications and examples
-- Create Maps of Content (MOCs) for topic areas
+- Create Hubs (overview notes) for topic areas
 - Bidirectional linking - update both notes
 
 **Link types**:
@@ -79,7 +79,7 @@ You are assisting with knowledge capture, organization, and synthesis using the 
 4. Reflect on implications
 
 **When organizing**:
-1. Create MOCs for topic clusters
+1. Create Hubs for topic clusters
 2. Review note structure and atomicity
 3. Refine titles for searchability
 4. Strengthen link density

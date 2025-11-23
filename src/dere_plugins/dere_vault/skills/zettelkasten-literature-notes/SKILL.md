@@ -131,7 +131,7 @@ If reviewing literature notes:
 2. Suggest permanent notes to extract
 3. Identify connections to other notes
 4. Flag if too long (>500 lines → split?)
-5. Suggest MOC if >5 notes on topic
+5. Suggest Hub if >5 notes on topic
 
 ## Literature → Permanent Pipeline
 
@@ -167,7 +167,7 @@ Format: `YYYYMMDD-wikipedia-topic.md`
 ### Books
 - May need multiple notes (one per chapter)
 - Link chapter notes together
-- Create MOC for book overview
+- Create Hub for book overview
 
 ### Blog Posts/Articles
 - Standard format

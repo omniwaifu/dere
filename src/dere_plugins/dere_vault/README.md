@@ -49,12 +49,12 @@ Analyze technologies with honest trade-off evaluation.
 - Creating implementation guides
 
 ### vault-research-synthesis
-Search across vault, synthesize findings, create MOCs.
+Search across vault, synthesize findings, create Hubs.
 
 **Use when:**
 - Researching topics across vault
 - Finding connections between notes
-- Creating Maps of Content
+- Creating Hubs
 
 ## Installation
 

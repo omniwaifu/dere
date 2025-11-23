@@ -1,6 +1,6 @@
 ---
 name: Vault Research & Synthesis
-description: Search across vault, synthesize findings from multiple notes, and create comprehensive research. Use when researching topics, finding connections, or creating MOCs.
+description: Search across vault, synthesize findings from multiple notes, and create comprehensive research. Use when researching topics, finding connections, or creating Hubs.
 ---
 
 # Vault Research & Synthesis
@@ -11,7 +11,7 @@ Search across your Zettelkasten vault, synthesize information from multiple note
 
 - User asks to research a topic across vault
 - User wants to find connections between notes
-- Creating Maps of Content (MOCs)
+- Creating Hubs (overview notes)
 - Identifying orphan notes
 - Finding missing connections
 - "What do I know about X?"
@@ -48,7 +48,7 @@ Analyze collected information:
 
 ### 4. Create Output
 Depending on request:
-- **MOC** (Map of Content): Index note linking related concepts
+- **Hub**: Overview note linking related concepts
 - **Synthesis Note**: New permanent note combining ideas
 - **Summary**: Quick overview of what vault contains on topic
 - **Gap Analysis**: What's missing or needs exploration
@@ -98,9 +98,9 @@ Use `[[note-name]]` for direct links.
 ### Contextual Linking
 Add context: `[[note-name|descriptive text]]`
 
-### MOCs (Maps of Content)
-Create index notes for major topics when >10 notes exist:
-- Location: `MOCs/` folder or root
+### Hubs (Overview Notes)
+Create overview notes for major topics when >10 notes exist:
+- Location: `Hubs/` folder or root
 - Link to all related notes
 - Structure: hierarchical outline or categorized lists
 
@@ -108,7 +108,7 @@ Create index notes for major topics when >10 notes exist:
 1. Link liberally - connections create knowledge
 2. Link at point of relevance, not just at end
 3. Create bidirectional links when relationship is strong
-4. Use MOCs when >10 notes on same topic
+4. Use Hubs when >10 notes on same topic
 
 ## Research Patterns
 
@@ -122,7 +122,7 @@ Search for notes with few or no links:
 Look for dense connection patterns:
 1. Notes that reference many common concepts
 2. Themes appearing across note types
-3. Suggest MOC when cluster >10 notes
+3. Suggest Hub when cluster >10 notes
 
 ### Gap Analysis
 Find what's missing:
@@ -153,8 +153,8 @@ Hierarchical tags enable filtering:
 - `#research/papers` - academic papers
 - `#tech/frameworks` - technical frameworks
 
-### Using MOCs
-Navigate topics through index notes.
+### Using Hubs
+Navigate topics through overview notes.
 
 ## Quality Standards for Synthesis
 
@@ -164,15 +164,15 @@ Navigate topics through index notes.
 - **Critical** - Identifies gaps and conflicts
 - **Actionable** - Suggests next steps
 
-### Good MOCs
+### Good Hubs
 - **Organized** - Logical structure (chronological, hierarchical, thematic)
 - **Complete** - Includes all major notes on topic
 - **Annotated** - Brief descriptions of linked notes
 - **Updated** - Maintained as new notes added
 
-## Creating MOCs
+## Creating Hubs
 
-When creating Map of Content:
+When creating overview notes:
 
 1. **Search** for all notes on topic
 2. **Group** by themes or categories
@@ -181,19 +181,19 @@ When creating Map of Content:
    - Hierarchical (for nested concepts)
    - Thematic (for related concepts)
 4. **Annotate** each link with brief description
-5. **Link** MOC from related permanent notes
+5. **Link** Hub from related permanent notes
 
-### MOC Structure Example
+### Hub Structure Example
 ```markdown
 ---
 type: permanent
 status: mature
 tags:
-  - moc
+  - hub
   - ai/agents
 ---
 
-# AI Agent Architectures MOC
+# AI Agent Architectures Hub
 
 Overview of agent architecture patterns and implementations.
 
@@ -211,9 +211,9 @@ Overview of agent architecture patterns and implementations.
 - [[mcp-protocol]] - Model Context Protocol
 - [[dynamic-tool-generation]] - Runtime tool creation
 
-## Related MOCs
-- [[AI Research MOC]]
-- [[System Design MOC]]
+## Related Hubs
+- [[AI Research Hub]]
+- [[System Design Hub]]
 ```
 
 ## Workflow Examples
@@ -235,11 +235,11 @@ Overview of agent architecture patterns and implementations.
 4. Analyze linking patterns
 5. Suggest new connections or synthesis note
 
-### "Create MOC for topic"
+### "Create Hub for topic"
 1. Search for all related notes
 2. Group by logical categories
-3. Create MOC with annotated links
-4. Suggest where to link MOC from
+3. Create Hub with annotated links
+4. Suggest where to link Hub from
 5. Identify gaps for future notes
 
 ## Best Practices
@@ -256,7 +256,7 @@ When synthesizing across vault:
 1. Respect atomic note principle - one idea per note
 2. Maintain linking conventions
 3. Follow frontmatter standards
-4. Update MOCs when adding new notes
+4. Update Hubs when adding new notes
 5. Suggest permanent note extraction when appropriate
 
 Remember: The goal is building a living knowledge graph that grows more valuable through consistent note-taking and linking practices. Search, synthesize, connect.
