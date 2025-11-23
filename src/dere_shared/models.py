@@ -70,35 +70,11 @@ class Session(SQLModel, table=True):
 
     # Relationships
     conversations: list["Conversation"] = Relationship(back_populates="session")
-    mcps: list["SessionMCP"] = Relationship(back_populates="session")
-    flags: list["SessionFlag"] = Relationship(back_populates="session")
     entities: list["Entity"] = Relationship(back_populates="session")
     session_summaries: list["SessionSummary"] = Relationship(back_populates="session")
-    conversation_segments: list["ConversationSegment"] = Relationship(back_populates="session")
     context_caches: list["ContextCache"] = Relationship(back_populates="session")
     emotion_states: list["EmotionState"] = Relationship(back_populates="session")
     stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session")
-
-
-class SessionMCP(SQLModel, table=True):
-    __tablename__ = "session_mcps"
-
-    session_id: int = Field(foreign_key="sessions.id", primary_key=True)
-    mcp_name: str = Field(primary_key=True)
-
-    # Relationships
-    session: "Session" = Relationship(back_populates="mcps")
-
-
-class SessionFlag(SQLModel, table=True):
-    __tablename__ = "session_flags"
-
-    session_id: int = Field(foreign_key="sessions.id", primary_key=True)
-    flag_name: str = Field(primary_key=True)
-    flag_value: str | None = None
-
-    # Relationships
-    session: "Session" = Relationship(back_populates="flags")
 
 
 class Conversation(SQLModel, table=True):
@@ -202,20 +178,6 @@ class Entity(SQLModel, table=True):
     conversation: "Conversation" = Relationship(back_populates="entities")
 
 
-class EntityRelationship(SQLModel, table=True):
-    __tablename__ = "entity_relationships"
-
-    id: int | None = Field(default=None, primary_key=True)
-    entity_1_id: int
-    entity_2_id: int
-    relationship_type: str
-    confidence: float
-    relationship_metadata: dict[str, Any] | None = Field(
-        default=None, sa_column=Column("metadata", JSONB)
-    )
-    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
-
-
 class SessionSummary(SQLModel, table=True):
     __tablename__ = "session_summaries"
 
@@ -239,24 +201,6 @@ class SessionSummary(SQLModel, table=True):
     session: "Session" = Relationship(back_populates="session_summaries")
 
 
-class ConversationSegment(SQLModel, table=True):
-    __tablename__ = "conversation_segments"
-
-    id: int | None = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="sessions.id")
-    segment_number: int
-    segment_summary: str
-    original_length: int
-    summary_length: int
-    start_conversation_id: int
-    end_conversation_id: int
-    model_used: str
-    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
-
-    # Relationships
-    session: "Session" = Relationship(back_populates="conversation_segments")
-
-
 class ContextCache(SQLModel, table=True):
     __tablename__ = "context_cache"
 
@@ -270,16 +214,6 @@ class ContextCache(SQLModel, table=True):
 
     # Relationships
     session: "Session" = Relationship(back_populates="context_caches")
-
-
-class SessionRelationship(SQLModel, table=True):
-    __tablename__ = "session_relationships"
-
-    session_id: int = Field(primary_key=True)
-    related_session_id: int = Field(primary_key=True)
-    relationship_type: str = Field(primary_key=True)
-    strength: float = Field(default=1.0)
-    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
 
 class EmotionState(SQLModel, table=True):

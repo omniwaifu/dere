@@ -160,7 +160,12 @@ class SettingsBuilder:
             return False
 
     def _should_enable_graph_features_plugin(self) -> bool:
-        """Check if graph features plugin should be enabled (when daemon is running)."""
+        """Check if graph features plugin should be enabled (all modes except code)."""
+        # Skip in code mode - entity extraction not useful during coding
+        if self.mode == "code" or self._is_coding_context():
+            return False
+
+        # Check if daemon is running
         try:
             import httpx
 
