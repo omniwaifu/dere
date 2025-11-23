@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal
 
 from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel
@@ -33,18 +33,6 @@ class MessageType(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
-
-
-class SummaryType(str, Enum):
-    EXIT = "exit"
-    PERIODIC = "periodic"
-    MANUAL = "manual"
-
-
-class RelationshipType(str, Enum):
-    CONTINUATION = "continuation"
-    SAME_PROJECT = "same_project"
-    SIMILAR_CONTEXT = "similar_context"
 
 
 # SQLModel Table Models
@@ -353,22 +341,3 @@ class RoutingDecision(BaseModel):
     fallback: bool = False
 
 
-# TypedDict classes for metadata structures
-class EmbeddingMetadata(TypedDict):
-    conversation_id: NotRequired[int]
-
-
-class SummarizationMetadata(TypedDict):
-    personality: NotRequired[str]
-    max_length: NotRequired[int]
-
-
-class EntityExtractionMetadata(TypedDict):
-    conversation_id: NotRequired[int]
-    context_hint: NotRequired[str]
-
-
-class ContextBuildingMetadata(TypedDict):
-    session_id: NotRequired[int]
-    context_depth: NotRequired[int]
-    max_tokens: NotRequired[int]
