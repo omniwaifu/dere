@@ -17,14 +17,22 @@ Create literature notes from external sources (articles, papers, books, videos) 
 ## Core Workflow
 
 1. **Fetch and read** source material
-2. **Summarize in your own words** - no copy-paste, demonstrate understanding
-3. **Add bibliographic metadata** (choose one method):
-   - **Zotero SQLite** (recommended): Use `tools/zotlit-create.py` to query Zotero database directly
-   - **BibTeX file**: If library.bib exists, use `tools/bib-lookup.py` to extract metadata
-   - **Manual entry**: Author, title, date, URL
-4. **Extract key concepts** - what ideas are reusable?
-5. **Link to related notes** - what does this connect to?
-6. **Log to daily note** - Automatically appended by zotlit-create.py (or manually via Advanced URI)
+2. **Check Zotero database** - Does this URL/title already exist?
+   - Use `tools/zotero-lookup.py --url <url>` or `--title <title>`
+   - If found → Use `tools/zotlit-create.py` to create note (skip to step 6)
+   - If not found → Continue to step 3
+3. **Ask user about Zotero** - Should this be added to your Zotero library?
+   - Use `AskUserQuestion` tool with options:
+     - "Yes (article/paper)" → Use `tools/zotero-add-item.py` with `--type journalArticle`
+     - "Yes (blog/webpage)" → Use `tools/zotero-add-item.py` with `--type blogPost`
+     - "No (just create note)" → Continue to step 4
+   - After adding to Zotero, use `zotlit-create.py` to create note (skip to step 6)
+4. **Summarize in your own words** - no copy-paste, demonstrate understanding
+5. **Create manual literature note** with metadata:
+   - Extract metadata from URL (Open Graph tags, HTML meta)
+   - Use standard frontmatter format (see REFERENCE.md)
+   - Structure: Title, Metadata, Summary, Key Concepts, Connections
+6. **Log to daily note** - Automatically appended under "## Reading" section
 
 ## Key Principles
 

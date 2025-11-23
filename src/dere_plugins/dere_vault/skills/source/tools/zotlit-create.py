@@ -315,19 +315,27 @@ def log_to_daily_note(vault_path: Path, note_title: str) -> None:
     # Ensure Journal directory exists
     daily_note_path.parent.mkdir(parents=True, exist_ok=True)
 
+    link_text = f"- [[{note_title}]]"
+
+    # Check if already logged (duplicate prevention)
+    if daily_note_path.exists():
+        content = daily_note_path.read_text()
+        if link_text in content:
+            return  # Already logged, skip
+
     # Create or append
     if not daily_note_path.exists():
-        daily_note_path.write_text(f"# {today}\n\n## Reading\n- [[{note_title}]]\n")
+        daily_note_path.write_text(f"# {today}\n\n## Reading\n{link_text}\n")
     else:
         content = daily_note_path.read_text()
         if "## Reading" not in content:
-            content += f"\n## Reading\n- [[{note_title}]]\n"
+            content += f"\n## Reading\n{link_text}\n"
         else:
             # Append under existing Reading section
             lines = content.split("\n")
             for i, line in enumerate(lines):
                 if line.startswith("## Reading"):
-                    lines.insert(i + 1, f"- [[{note_title}]]")
+                    lines.insert(i + 1, link_text)
                     break
             content = "\n".join(lines)
         daily_note_path.write_text(content)
