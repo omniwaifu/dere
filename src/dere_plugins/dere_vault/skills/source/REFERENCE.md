@@ -148,6 +148,40 @@ How could you use this?
 - [ ] Read [[cited-work]]
 ```
 
+## Daily Note Integration
+
+After creating a literature note, automatically log it to today's daily note for tracking reading progress.
+
+### Using Advanced URI
+
+Append to daily note's "Reading" section:
+
+```bash
+xdg-open "obsidian://advanced-uri?vault=VaultName&daily=true&heading=Reading&data=- [[Note Title]]&mode=append"
+```
+
+### Configuration
+
+**Vault name:**
+- Read from vault detection (`.obsidian` directory name)
+- Or override in `~/.config/dere/config.toml`:
+  ```toml
+  [vault]
+  name = "MyVault"
+  ```
+
+**Daily note format:**
+- Appends under "## Reading" heading
+- Creates heading if it doesn't exist
+- Format: `- [[Literature Note Title]] - Brief summary`
+
+### Fallback
+
+If daily note doesn't exist yet (Advanced URI limitation):
+- Note still created successfully
+- Daily logging skipped gracefully
+- User can manually add link later or create daily note first
+
 ## Citation Formats
 
 ### In-text Citation

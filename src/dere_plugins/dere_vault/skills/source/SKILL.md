@@ -23,6 +23,7 @@ Create literature notes from external sources (articles, papers, books, videos) 
    - Otherwise: manual entry (author, title, date, URL)
 4. **Extract key concepts** - what ideas are reusable?
 5. **Link to related notes** - what does this connect to?
+6. **Log to daily note** - Append link to today's daily note under Reading section
 
 ## Key Principles
 
