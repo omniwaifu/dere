@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse hook to inject personality after every tool call."""
+"""PostToolUse hook to inject compressed personality reminder after high-output tools."""
 
 from __future__ import annotations
 
@@ -9,16 +9,67 @@ import sys
 from pathlib import Path
 
 
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token."""
+    return len(text) // 4
+
+
+def get_compressed_reminder(prompt: str) -> str:
+    """Extract compressed reminder from personality prompt.
+
+    Takes first sentence or first ~50 chars as a reminder.
+    """
+    # Try to get first sentence
+    lines = prompt.strip().split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Found first non-header line, use it
+        if "." in line:
+            # Get up to first period
+            first_sentence = line.split(".")[0] + "."
+            return first_sentence
+        return line[:100]  # Fallback to first 100 chars
+
+    # Fallback: just return first 50 chars of entire prompt
+    return prompt[:50]
+
+
 def main() -> None:
-    """Inject personality prompt after tool execution."""
-    # Check if personality is set
-    personality = os.environ.get("DERE_PERSONALITY")
-    if not personality:
-        # No personality, output empty JSON
+    """Inject compressed personality reminder after high-output tools."""
+    # Read hook input from stdin
+    try:
+        hook_input = json.loads(sys.stdin.read())
+    except Exception:
         print(json.dumps({}))
         return
 
-    # Load personality from TOML
+    # Check if personality is set
+    personality = os.environ.get("DERE_PERSONALITY")
+    if not personality:
+        print(json.dumps({}))
+        return
+
+    # Get tool name and result
+    tool_name = hook_input.get("tool_name", "")
+    tool_result = hook_input.get("tool_result", "")
+
+    # Only inject for high-output tools
+    HIGH_OUTPUT_TOOLS = {"Read", "Bash", "Grep"}
+    if tool_name not in HIGH_OUTPUT_TOOLS:
+        print(json.dumps({}))
+        return
+
+    # Check output size
+    output_tokens = estimate_tokens(str(tool_result))
+    TOKEN_THRESHOLD = 500
+
+    if output_tokens < TOKEN_THRESHOLD:
+        print(json.dumps({}))
+        return
+
+    # Load personality and create compressed reminder
     try:
         from dere_shared.personalities import PersonalityLoader
 
@@ -40,8 +91,11 @@ def main() -> None:
         # Load the personality
         pers = loader.load(personality_names[0])
 
-        # Output personality prompt as additionalContext
-        output = {"additionalContext": pers.prompt_content}
+        # Create compressed reminder
+        compressed = get_compressed_reminder(pers.prompt_content)
+
+        # Output compressed reminder as additionalContext
+        output = {"additionalContext": compressed}
         print(json.dumps(output))
 
     except Exception:
