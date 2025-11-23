@@ -17,22 +17,31 @@ Create literature notes from external sources (articles, papers, books, videos) 
 ## Core Workflow
 
 1. **Fetch and read** source material
-2. **Check Zotero database** - Does this URL/title already exist?
-   - Use `tools/zotero-lookup.py --url <url>` or `--title <title>`
-   - If found → Use `tools/zotlit-create.py` to create note (skip to step 6)
+2. **Check Zotero library** - Does this URL/title already exist?
+   - Use `search_zotero` MCP tool with appropriate search_type
+   - If found → Use `create_literature_note` MCP tool with item key (skip to step 7)
    - If not found → Continue to step 3
 3. **Ask user about Zotero** - Should this be added to your Zotero library?
    - Use `AskUserQuestion` tool with options:
-     - "Yes (article/paper)" → Use `tools/zotero-add-item.py` with `--type journalArticle`
-     - "Yes (blog/webpage)" → Use `tools/zotero-add-item.py` with `--type blogPost`
-     - "No (just create note)" → Continue to step 4
-   - After adding to Zotero, use `zotlit-create.py` to create note (skip to step 6)
-4. **Summarize in your own words** - no copy-paste, demonstrate understanding
-5. **Create manual literature note** with metadata:
+     - "Yes (article/paper)" → Use `add_zotero_item` MCP tool with `item_type="journalArticle"`
+     - "Yes (blog/webpage)" → Use `add_zotero_item` MCP tool with `item_type="blogPost"`
+     - "No (just create note)" → Continue to step 5
+   - If added to Zotero → Continue to step 4
+4. **Categorize in Zotero** - Analyze and organize
+   - **Analysis priority**: Abstract (primary) → Title → Authors/venue
+   - Use `list_collections()` and `list_all_tags()` to see existing taxonomy
+   - Propose collection path (max 3 levels: Field/Subfield/Topic)
+   - Propose 2-5 tags (reuse existing when possible)
+   - Use `add_item_to_collection(item_key, collection_path)` to categorize
+   - Use `add_tags_to_item(item_key, tags)` to tag
+   - Only create new collections/tags if no existing ones fit
+   - Then use `create_literature_note` MCP tool (skip to step 7)
+5. **Summarize in your own words** - no copy-paste, demonstrate understanding
+6. **Create manual literature note** with metadata:
    - Extract metadata from URL (Open Graph tags, HTML meta)
    - Use standard frontmatter format (see REFERENCE.md)
    - Structure: Title, Metadata, Summary, Key Concepts, Connections
-6. **Log to daily note** - Automatically appended under "## Reading" section
+7. **Log to daily note** - Automatically appended under "## Reading" section (handled by create_literature_note tool)
 
 ## Key Principles
 

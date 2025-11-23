@@ -24,6 +24,7 @@ dependencies = [
     "jinja2>=3.1.0",
     "dere-graph",
     "pyzotero>=1.7.5",
+    "fastmcp>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,7 @@ dere = "dere_cli.main:cli"
 dere-daemon = "dere_daemon.main:main"
 dere-discord = "dere_discord.main:run"
 dere-taskwarrior-mcp = "dere_productivity.scripts.taskwarrior_mcp_wrapper:main"
+dere-vault-zotero-mcp = "dere_plugins.dere_vault.mcp_server.server:main"
 
 [build-system]
 requires = ["hatchling"]
