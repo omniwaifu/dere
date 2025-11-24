@@ -23,39 +23,8 @@ date: {{ today }}
 
 # {{ item.title }}
 
-## Metadata
-- **Authors**: {{ item.format_authors() }}
-- **Year**: {{ item.year or "n.d." }}
-{% if item.publication -%}
-- **Publication**: {{ item.publication }}
-{% endif -%}
-{% if item.url -%}
-- **URL**: {{ item.url }}
-{% endif -%}
-{% if item.doi -%}
-- **DOI**: {{ item.doi }}
-{% endif %}
-
-## Abstract
 {% if item.abstract -%}
+## Abstract
+
 {{ item.abstract }}
-{% else -%}
-_(No abstract available)_
-{% endif %}
-
-## Key Concepts
--
-
-## Quotes & Notes
-
-
-## Connections
--
-
-## References
-{% if item.attachments -%}
-**Attachments**:
-{%- for attachment in item.attachments %}
-- {{ attachment }}
-{%- endfor %}
 {% endif %}

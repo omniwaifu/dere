@@ -27,36 +27,37 @@ Create literature notes from external sources (articles, papers, books, videos) 
      - "Yes (blog/webpage)" → Use `add_zotero_item` MCP tool with `item_type="blogPost"`
      - "No (just create note)" → Continue to step 5
    - If added to Zotero → Continue to step 4
-4. **Categorize in Zotero** - Analyze and organize
-   - **Analysis priority**: Abstract (primary) → Title → Authors/venue
+4. **Categorize in Zotero** - Analyze and organize automatically
    - Use `list_collections()` and `list_all_tags()` to see existing taxonomy
+   - **Analysis priority**: Abstract (primary) → Title → Authors/venue
    - Propose collection path (max 3 levels: Field/Subfield/Topic)
    - Propose 2-5 tags (reuse existing when possible)
+   - Show proposed categorization to user for approval
    - Use `add_item_to_collection(item_key, collection_path)` to categorize
    - Use `add_tags_to_item(item_key, tags)` to tag
    - Only create new collections/tags if no existing ones fit
-   - Then use `create_literature_note` MCP tool (skip to step 7)
-5. **Summarize in your own words** - no copy-paste, demonstrate understanding
-6. **Create manual literature note** with metadata:
+   - Then use `create_literature_note` MCP tool (skip to step 6)
+5. **Create manual literature note** with metadata only:
    - Extract metadata from URL (Open Graph tags, HTML meta)
    - Use standard frontmatter format (see REFERENCE.md)
-   - Structure: Title, Metadata, Summary, Key Concepts, Connections
-7. **Log to daily note** - Automatically appended under "## Reading" section (handled by create_literature_note tool)
+   - Structure: Title, Frontmatter, Abstract (if available)
+   - **DO NOT** write summary, key concepts, or connections - user does this
+6. **Log to daily note** - Automatically appended under "## Reading" section (handled by create_literature_note tool)
 
 ## Key Principles
 
-- **Own words only** - if you copy, you don't understand
-- **Source attribution** - always cite with full metadata
-- **Concept extraction** - identify atomic ideas for permanent notes
-- **Critical thinking** - note agreements, disagreements, questions
+- **Metadata only** - create empty note with frontmatter, title, and abstract
+- **User writes content** - don't fill in summary, concepts, or connections
+- **Source attribution** - full metadata in frontmatter
+- **Proper categorization** - analyze content to suggest collection and tags
 
 ## Note Structure
 
-- Title: Author - Title (Year)
-- Type: #source/article, #source/paper, #source/book, #source/video
-- Summary: 2-3 paragraphs in your words
-- Key concepts: Bullet list of main ideas
-- Connections: Links to related notes
+Literature notes are minimal templates:
+- Frontmatter: title, authors, year, url, doi, tags, date
+- Title heading
+- Abstract section (from Zotero, if available)
+- User fills in the rest (summary, key concepts, connections)
 
 ## Integration
 
