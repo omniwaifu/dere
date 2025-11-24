@@ -95,17 +95,33 @@ def create_literature_note(
     Returns:
         Info about created note
     """
+    import time
+
     config = load_config()
     client = ZoteroClient(config)
 
-    # Get item from Zotero
+    # Get item from Zotero - retry to get BBT citekey
     item = client.get_item(item_key)
     if not item:
         raise ValueError(f"Item not found: {item_key}")
 
+    # If no citekey, wait for Better BibTeX and refetch
+    if not item.citekey:
+        time.sleep(5)
+        item = client.get_item(item_key)
+        if not item:
+            raise ValueError(f"Item not found after refetch: {item_key}")
+
+    # Get collection paths
+    collection_paths = client.get_item_collections(item_key)
+
     # Create literature note
     vault = VaultIntegration(vault_path=Path(vault_path) if vault_path else None)
-    note_path = vault.create_literature_note(item, use_citekey_naming=use_citekey_naming)
+    note_path = vault.create_literature_note(
+        item,
+        use_citekey_naming=use_citekey_naming,
+        collection_paths=collection_paths,
+    )
 
     return {
         "note_path": str(note_path),

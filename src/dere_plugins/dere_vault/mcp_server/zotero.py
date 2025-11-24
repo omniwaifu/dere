@@ -265,6 +265,39 @@ class ZoteroClient:
                 return line.replace("Citation Key:", "").strip()
         return None
 
+    def _get_citekey_from_bib(self, item_url: str | None) -> str | None:
+        """Extract citekey from library.bib file by URL."""
+        if not item_url:
+            return None
+
+        # Try common bib file locations
+        bib_paths = [
+            Path("/mnt/data/Notes/Vault/library.bib"),
+            Path.home() / "vault" / "library.bib",
+            Path.cwd() / "library.bib",
+        ]
+
+        for bib_path in bib_paths:
+            if not bib_path.exists():
+                continue
+
+            try:
+                content = bib_path.read_text()
+                # Simple regex to find @type{citekey, ... howpublished = {url}
+                import re
+                pattern = r'@\w+\{([^,]+),.*?howpublished\s*=\s*\{([^}]+)\}'
+                matches = re.findall(pattern, content, re.DOTALL)
+                
+                for citekey, bib_url in matches:
+                    # Clean up URL from bib
+                    clean_bib_url = bib_url.replace('\\textasciitilde', '~').strip()
+                    if clean_bib_url in item_url or item_url in clean_bib_url:
+                        return citekey.strip()
+            except Exception:
+                pass
+
+        return None
+
     def get_collections(self) -> dict[str, dict]:
         """Get all collections with hierarchy paths."""
         collections = self.zot.collections()
@@ -303,13 +336,12 @@ class ZoteroClient:
 
     def create_collection(self, name: str, parent_key: str | None = None) -> str:
         """Create collection. Returns collection key."""
-        template = self.zot.collection_template()
-        template["name"] = name
+        collection_data = {"name": name}
 
         if parent_key:
-            template["parentCollection"] = parent_key
+            collection_data["parentCollection"] = parent_key
 
-        response = self.zot.create_collections([template])
+        response = self.zot.create_collections([collection_data])
 
         if response.get("successful"):
             return response["successful"]["0"]["key"]
@@ -351,7 +383,9 @@ class ZoteroClient:
     def get_all_tags(self) -> list[str]:
         """Get all tags from library."""
         tags = self.zot.tags()
-        return [tag["tag"] for tag in tags]
+        if not tags or not isinstance(tags, list):
+            return []
+        return [tag["tag"] for tag in tags if isinstance(tag, dict) and "tag" in tag]
 
     def add_tags(self, item_key: str, tag_names: list[str]) -> None:
         """Add tags to item (preserves existing tags)."""
@@ -371,6 +405,21 @@ class ZoteroClient:
 
         data["tags"] = [{"tag": tag} for tag in tag_names]
         self.zot.update_item(item)
+
+    def get_item_collections(self, item_key: str) -> list[str]:
+        """Get collection paths for an item."""
+        item = self.zot.item(item_key)
+        data = item.get("data", {})
+        collection_keys = data.get("collections", [])
+
+        if not collection_keys:
+            return []
+
+        # Get all collections
+        all_collections = self.get_collections()
+
+        # Map keys to paths
+        return [all_collections[key]["path"] for key in collection_keys if key in all_collections]
 
     def _parse_item(self, item_data: dict) -> ZoteroItem:
         """Parse API response into ZoteroItem."""
@@ -411,9 +460,11 @@ class ZoteroClient:
         # Tags
         tags = [tag.get("tag", "") for tag in data.get("tags", [])]
 
-        # Citekey from extra field
+        # Citekey from extra field, fallback to bib file
         extra = data.get("extra", "")
         citekey = self._extract_citekey(extra)
+        if not citekey:
+            citekey = self._get_citekey_from_bib(url)
 
         return ZoteroItem(
             key=key,
@@ -479,7 +530,7 @@ class VaultIntegration:
         return None
 
     def _create_default_template(self, path: Path) -> None:
-        """Create default Jinja2 template."""
+        """Create default Jinja2 template with hierarchical Obsidian tags."""
         template_content = """---
 title: "{{ item.title }}"
 authors: {{ item.format_authors() }}
@@ -497,6 +548,9 @@ url: {{ item.url }}
 doi: {{ item.doi }}
 {% endif -%}
 tags:
+{% for path in collection_paths %}
+  - domain/{{ path.lower().replace(' ', '-').replace('/', '/') }}
+{% endfor %}
 {% for tag in item.tags %}
   - {{ tag }}
 {% endfor %}
@@ -505,34 +559,14 @@ date: {{ today }}
 
 # {{ item.title }}
 
-## Metadata
-- **Authors**: {{ item.format_authors() }}
-- **Year**: {{ item.year or "n.d." }}
-{% if item.publication -%}
-- **Publication**: {{ item.publication }}
-{% endif -%}
-{% if item.url -%}
-- **URL**: {{ item.url }}
-{% endif -%}
-{% if item.doi -%}
-- **DOI**: {{ item.doi }}
-{% endif %}
-
-## Abstract
 {% if item.abstract -%}
 {{ item.abstract }}
 {% else -%}
 _(No abstract available)_
 {% endif %}
 
-## Key Concepts
--
+## Notes
 
-## Quotes & Notes
-
-
-## Connections
--
 """
         path.write_text(template_content)
 
@@ -541,11 +575,23 @@ _(No abstract available)_
         item: ZoteroItem,
         use_citekey_naming: bool = False,
         skip_daily_log: bool = False,
+        collection_paths: list[str] | None = None,
     ) -> Path:
-        """Create literature note from Zotero item."""
+        """Create literature note from Zotero item.
+        
+        Args:
+            item: ZoteroItem with metadata
+            use_citekey_naming: Use @citekey.md naming
+            skip_daily_log: Skip logging to daily note
+            collection_paths: List of Zotero collection paths for this item
+        """
         # Render template
         template = self.env.get_template("zotlit-default.md.j2")
-        content = template.render(item=item, today=datetime.now().strftime("%Y-%m-%d"))
+        content = template.render(
+            item=item,
+            today=datetime.now().strftime("%Y-%m-%d"),
+            collection_paths=collection_paths or [],
+        )
 
         # Generate filename
         filename = item.format_filename(use_citekey=use_citekey_naming)

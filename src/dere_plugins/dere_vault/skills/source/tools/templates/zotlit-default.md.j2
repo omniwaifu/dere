@@ -15,6 +15,9 @@ url: {{ item.url }}
 doi: {{ item.doi }}
 {% endif -%}
 tags:
+{% for path in collection_paths %}
+  - domain/{{ path.lower().replace(' ', '-').replace('/', '/') }}
+{% endfor %}
 {% for tag in item.tags %}
   - {{ tag }}
 {% endfor %}
@@ -24,7 +27,10 @@ date: {{ today }}
 # {{ item.title }}
 
 {% if item.abstract -%}
-## Abstract
-
 {{ item.abstract }}
+{% else -%}
+_(No abstract available)_
 {% endif %}
+
+## Notes
+
