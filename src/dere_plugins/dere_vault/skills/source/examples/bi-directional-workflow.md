@@ -27,8 +27,8 @@ zotlit-create.py --author "Aaronson"
 ```
 
 **Result:**
-- Creates: `Sources/Aaronson - Why Philosophers Should Care About Computational C (2011).md`
-- Logs to: `Journal/2025-11-23.md` under "## Reading"
+- Creates: `Literature/Aaronson - Why Philosophers Should Care About Computational C (2011).md`
+- Logs to daily note under "## Reading"
 - Includes: Full metadata, abstract, tags, attachments
 
 ---
@@ -129,7 +129,7 @@ Since user doesn't want it in Zotero, create manual literature note:
 4. Create note with standard frontmatter
 5. Log to daily note manually
 
-**Created note:** `Sources/Hacker News - Discussion on LLMs.md`
+**Created note:** `Literature/Hacker News - Discussion on LLMs.md`
 
 ```markdown
 ---

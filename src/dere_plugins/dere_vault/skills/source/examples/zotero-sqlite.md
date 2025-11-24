@@ -17,13 +17,13 @@ This queries `~/Zotero/zotero.sqlite` directly and generates a formatted note.
 Found 1 match:
 1. Why Philosophers Should Care About Computational Complexity (2011) - Aaronson, Scott
 
-Created: Sources/Aaronson - Why Philosophers Should Care About Computational C (2011).md
-Logged to daily note: Journal/2025-11-23.md
+Created: Literature/Aaronson - Why Philosophers Should Care About Computational C (2011).md
+Logged to daily note
 ```
 
 ## Step 3: Generated Note Structure
 
-The tool creates `Sources/Aaronson - Why Philosophers Should Care About Computational C (2011).md`:
+The tool creates `Literature/Aaronson - Why Philosophers Should Care About Computational C (2011).md`:
 
 ```markdown
 ---
@@ -65,7 +65,7 @@ One might think that, once we know something is computable...
 
 ## Step 4: Daily Note Logging
 
-The tool automatically appends to `Journal/2025-11-23.md`:
+The tool automatically appends to the daily note:
 
 ```markdown
 # 2025-11-23

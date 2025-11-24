@@ -85,8 +85,8 @@ zotlit-create.py "Search" --no-daily-log
 - Interactive picker for multiple matches
 
 **Output:**
-- Creates note: `Sources/Author - Title (Year).md`
-- Appends to: `Journal/YYYY-MM-DD.md`
+- Creates note: `Literature/Author - Title (Year).md`
+- Appends to daily note (path from .obsidian/daily-notes.json)
 
 ### Method 2: BibTeX Export
 

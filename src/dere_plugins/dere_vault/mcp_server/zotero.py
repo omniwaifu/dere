@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,20 +42,30 @@ class ZoteroItem:
         return "; ".join(self.authors)
 
     def format_filename(self, use_citekey: bool = False) -> str:
-        """Generate filename: 'Author - Title (Year).md' or '@citekey.md'."""
+        """Generate filename: 'author-title-year.md' or '@citekey.md'."""
         if use_citekey and self.citekey:
             return f"@{self.citekey}.md"
 
         # First author last name
-        first_author = self.authors[0].split(",")[0] if self.authors else "Unknown"
+        first_author = self.authors[0].split(",")[0] if self.authors else "unknown"
 
-        # Clean title (first 50 chars)
-        clean_title = self.title[:50].replace("/", "-").replace(":", " -")
+        # Clean title (first 50 chars, lowercase, no spaces)
+        clean_title = (
+            self.title[:50]
+            .lower()
+            .replace(" ", "-")
+            .replace("/", "-")
+            .replace(":", "-")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("'", "")
+            .replace('"', "")
+        )
 
         # Year
-        year_str = f"({self.year})" if self.year else ""
+        year_str = str(self.year) if self.year else "nd"
 
-        return f"{first_author} - {clean_title} {year_str}.md".strip()
+        return f"{first_author.lower()}-{clean_title}-{year_str}.md"
 
 
 def build_collection_hierarchy(
@@ -446,15 +457,25 @@ class VaultIntegration:
             self._create_default_template(default_template)
 
     def _find_vault(self) -> Path | None:
-        """Auto-detect vault directory."""
+        """Auto-detect vault directory by checking for .obsidian folder."""
+        # Check current directory and parents
+        current = Path.cwd().resolve()
+        while current != current.parent:
+            if (current / ".obsidian").is_dir():
+                return current
+            current = current.parent
+
+        # Check common vault locations
         candidates = [
             Path.home() / "vault",
             Path.home() / "Documents" / "vault",
             Path.home() / "Obsidian",
+            Path("/mnt/data/Notes/Vault"),
         ]
         for candidate in candidates:
-            if candidate.exists() and candidate.is_dir():
+            if candidate.exists() and (candidate / ".obsidian").is_dir():
                 return candidate
+
         return None
 
     def _create_default_template(self, path: Path) -> None:
@@ -528,9 +549,9 @@ _(No abstract available)_
 
         # Generate filename
         filename = item.format_filename(use_citekey=use_citekey_naming)
-        note_path = self.vault_path / "Sources" / filename
+        note_path = self.vault_path / "Literature" / filename
 
-        # Ensure Sources directory exists
+        # Ensure Literature directory exists
         note_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write note
@@ -546,12 +567,37 @@ _(No abstract available)_
 
         return note_path
 
+    def _get_daily_note_config(self) -> dict:
+        """Read Obsidian daily notes configuration."""
+        config_path = self.vault_path / ".obsidian" / "daily-notes.json"
+        if config_path.exists():
+            try:
+                return json.loads(config_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Default fallback
+        return {"folder": "Daily", "format": "YYYY-MM-DD"}
+
+    def _format_daily_note_path(self, date: datetime) -> Path:
+        """Get daily note path based on Obsidian config."""
+        config = self._get_daily_note_config()
+        folder = config.get("folder", "Daily")
+        format_str = config.get("format", "YYYY-MM-DD")
+
+        # Convert moment.js format to Python strftime
+        # YYYY -> %Y, MM -> %m, DD -> %d
+        python_format = format_str.replace("YYYY", "%Y").replace("MM", "%m").replace("DD", "%d")
+
+        relative_path = date.strftime(python_format)
+        return self.vault_path / folder / f"{relative_path}.md"
+
     def _log_to_daily_note(self, note_title: str) -> None:
         """Append link to today's daily note under Reading section."""
-        today = datetime.now().strftime("%Y-%m-%d")
-        daily_note_path = self.vault_path / "Journal" / f"{today}.md"
+        today = datetime.now()
+        daily_note_path = self._format_daily_note_path(today)
 
-        # Ensure Journal directory exists
+        # Ensure parent directory exists
         daily_note_path.parent.mkdir(parents=True, exist_ok=True)
 
         link_text = f"- [[{note_title}]]"
@@ -564,7 +610,8 @@ _(No abstract available)_
 
         # Create or append
         if not daily_note_path.exists():
-            daily_note_path.write_text(f"# {today}\n\n## Reading\n{link_text}\n")
+            date_header = today.strftime("%Y-%m-%d")
+            daily_note_path.write_text(f"# {date_header}\n\n## Reading\n{link_text}\n")
         else:
             content = daily_note_path.read_text()
             if "## Reading" not in content:
