@@ -995,6 +995,7 @@ async def queue_status(db: AsyncSession = Depends(get_db)):
     return stats
 
 
+# FIXME(sweep): Stub endpoint - implement hook capture logic or remove if not needed
 @app.post("/hooks/capture")
 async def hook_capture(req: HookCaptureRequest):
     """Hook endpoint for capturing conversation data"""

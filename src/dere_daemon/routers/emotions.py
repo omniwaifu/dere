@@ -32,6 +32,7 @@ async def emotion_get_state(session_id: int, request: Request):
         }
     except Exception as e:
         logger.error(f"[emotion_get_state] Error: {e}")
+        # FIXME(sweep:stack): FastAPI - Tuple return won't set status code; use raise HTTPException(status_code=500, detail=str(e))
         return {"error": str(e)}, 500
 
 

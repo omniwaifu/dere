@@ -267,6 +267,7 @@ class SettingsBuilder:
                 # Plugin not available or detection failed
                 pass
 
+    # NOTE(sweep): Reserved stub - implement when external plugin support is added
     def _control_third_party_plugins(self, settings: dict) -> None:
         """Control third-party plugins based on config (reserved for future external plugins)."""
         pass
