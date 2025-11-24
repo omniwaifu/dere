@@ -90,18 +90,25 @@ Process fleeting notes within 1-2 days to maintain flow.
 
 ## Tools
 
-### find-orphans.py
-Find notes with low link density:
+### link_analysis.py
+Analyze knowledge graph health:
 
 ```bash
-./skills/research/tools/find-orphans.py /path/to/vault 3
+# Show vault statistics
+./scripts/link_analysis.py --stats
+
+# Find orphaned notes (< 3 links)
+./scripts/link_analysis.py --orphans
+
+# Suggest connections for a note
+./scripts/link_analysis.py --suggest "Note Title"
 ```
 
-### create-hub.py
-Generate Hub template from tag:
+### concept_search.py
+Search for similar permanent notes:
 
 ```bash
-./skills/research/tools/create-hub.py /path/to/vault concept output.md
+./scripts/concept_search.py "concept name"
 ```
 
 ## References

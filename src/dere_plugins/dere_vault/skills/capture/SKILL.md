@@ -9,7 +9,7 @@ Quick timestamped entries in daily notes.
 
 ## Workflow
 
-1. Open today's daily note (`YYYY-MM-DD.md`)
+1. Open today's daily note: `xdg-open "obsidian://daily"`
 2. Add timestamped entry
 3. Done
 

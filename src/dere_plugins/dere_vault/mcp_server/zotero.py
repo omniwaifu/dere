@@ -265,17 +265,20 @@ class ZoteroClient:
                 return line.replace("Citation Key:", "").strip()
         return None
 
-    def _get_citekey_from_bib(self, item_url: str | None) -> str | None:
+    def _get_citekey_from_bib(self, item_url: str | None, vault_path: Path | None = None) -> str | None:
         """Extract citekey from library.bib file by URL."""
         if not item_url:
             return None
 
-        # Try common bib file locations
-        bib_paths = [
-            Path("/mnt/data/Notes/Vault/library.bib"),
+        # Try vault-relative path first, then fallbacks
+        bib_paths = []
+        if vault_path:
+            bib_paths.append(vault_path / "library.bib")
+
+        bib_paths.extend([
             Path.home() / "vault" / "library.bib",
             Path.cwd() / "library.bib",
-        ]
+        ])
 
         for bib_path in bib_paths:
             if not bib_path.exists():
@@ -287,7 +290,7 @@ class ZoteroClient:
                 import re
                 pattern = r'@\w+\{([^,]+),.*?howpublished\s*=\s*\{([^}]+)\}'
                 matches = re.findall(pattern, content, re.DOTALL)
-                
+
                 for citekey, bib_url in matches:
                     # Clean up URL from bib
                     clean_bib_url = bib_url.replace('\\textasciitilde', '~').strip()
@@ -505,7 +508,10 @@ class VaultIntegration:
         # Ensure default template exists
         default_template = self.template_dir / "zotlit-default.md.j2"
         if not default_template.exists():
-            self._create_default_template(default_template)
+            raise FileNotFoundError(
+                f"Template not found: {default_template}. "
+                "Ensure zotlit-default.md.j2 exists in the templates directory."
+            )
 
     def _find_vault(self) -> Path | None:
         """Auto-detect vault directory by checking for .obsidian folder."""
@@ -519,9 +525,9 @@ class VaultIntegration:
         # Check common vault locations
         candidates = [
             Path.home() / "vault",
+            Path.home() / "Vault",
             Path.home() / "Documents" / "vault",
             Path.home() / "Obsidian",
-            Path("/mnt/data/Notes/Vault"),
         ]
         for candidate in candidates:
             if candidate.exists() and (candidate / ".obsidian").is_dir():
@@ -529,46 +535,6 @@ class VaultIntegration:
 
         return None
 
-    def _create_default_template(self, path: Path) -> None:
-        """Create default Jinja2 template with hierarchical Obsidian tags."""
-        template_content = """---
-title: "{{ item.title }}"
-authors: {{ item.format_authors() }}
-year: {{ item.year or "n.d." }}
-{% if item.publication -%}
-publication: "{{ item.publication }}"
-{% endif -%}
-{% if item.citekey -%}
-citekey: "@{{ item.citekey }}"
-{% endif -%}
-{% if item.url -%}
-url: {{ item.url }}
-{% endif -%}
-{% if item.doi -%}
-doi: {{ item.doi }}
-{% endif -%}
-tags:
-{% for path in collection_paths %}
-  - domain/{{ path.lower().replace(' ', '-').replace('/', '/') }}
-{% endfor %}
-{% for tag in item.tags %}
-  - {{ tag }}
-{% endfor %}
-date: {{ today }}
----
-
-# {{ item.title }}
-
-{% if item.abstract -%}
-{{ item.abstract }}
-{% else -%}
-_(No abstract available)_
-{% endif %}
-
-## Notes
-
-"""
-        path.write_text(template_content)
 
     def create_literature_note(
         self,
