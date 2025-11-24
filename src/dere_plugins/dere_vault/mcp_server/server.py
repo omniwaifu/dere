@@ -82,7 +82,7 @@ def add_zotero_item(
 def create_literature_note(
     item_key: str,
     vault_path: str | None = None,
-    use_citekey_naming: bool = False,
+    use_citekey_naming: bool = True,
 ) -> dict:
     """
     Create Obsidian literature note from Zotero item.
@@ -90,7 +90,7 @@ def create_literature_note(
     Args:
         item_key: Zotero item key
         vault_path: Path to Obsidian vault (auto-detected if not provided)
-        use_citekey_naming: Use @citekey.md naming instead of Author - Title (Year).md
+        use_citekey_naming: Use @citekey.md naming (default: True)
 
     Returns:
         Info about created note

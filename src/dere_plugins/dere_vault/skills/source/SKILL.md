@@ -16,6 +16,8 @@ Create literature notes from external sources (articles, papers, books, videos) 
 
 ## Core Workflow
 
+**CRITICAL: Literature notes are METADATA ONLY. DO NOT write summaries, key concepts, or connections. After creating the note, STOP. Do not read or edit it.**
+
 1. **Fetch and read** source material
 2. **Check Zotero library** - Does this URL/title already exist?
    - Use `search_zotero` MCP tool with appropriate search_type
