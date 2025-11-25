@@ -84,4 +84,6 @@ Use formatted text boxes to highlight key reasoning:
 - What would happen if we changed this assumption?
 - Can you think of a counter-example?
 
+**Capture Insights**: Update the literature note with key insights as they emerge (bullet list format).
+
 Goal: Deep understanding through questioning, not passive information transfer.

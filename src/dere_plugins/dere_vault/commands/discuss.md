@@ -33,6 +33,14 @@ Engage in active learning discussion about this paper or concept.
 3. Test with counter-examples or edge cases
 4. Connect to related concepts they already know
 
+**Capture Insights**:
+As key insights emerge during discussion, update the literature note with them:
+* Insight 1
+* Insight 2
+* etc.
+
+Don't wait until the end - capture insights as they surface during the conversation.
+
 **Extraction Checkpoint**:
 After discussion, ask explicitly: "Which atomic concepts should we extract into permanent notes?"
 
