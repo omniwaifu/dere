@@ -218,6 +218,7 @@ class ZoteroClient:
         author: str | None = None,
         item_type: str = "webpage",
         abstract: str | None = None,
+        date: str | None = None,
     ) -> str:
         """Add new item to Zotero library. Returns item key."""
         # Get template for item type
@@ -231,6 +232,9 @@ class ZoteroClient:
 
         if abstract:
             template["abstractNote"] = abstract
+
+        if date:
+            template["date"] = date
 
         # Add author/creator
         if author:
@@ -264,6 +268,52 @@ class ZoteroClient:
             if line.startswith("Citation Key:"):
                 return line.replace("Citation Key:", "").strip()
         return None
+
+    @staticmethod
+    def _generate_citekey(author: str | None, title: str, year: int | None) -> str:
+        """Generate citekey following Better BibTeX default pattern [auth][Title][year]."""
+        import re
+        import unicodedata
+
+        # Stop words to remove from title (Better BibTeX default list)
+        stop_words = {
+            "a", "an", "the", "and", "or", "but", "for", "nor", "on", "at",
+            "to", "from", "by", "of", "in", "with", "as", "against",
+        }
+
+        def normalize(s: str) -> str:
+            """Remove accents and normalize unicode."""
+            return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode()
+
+        # [auth] - first author's last name, lowercased, preserving hyphens
+        auth_part = ""
+        if author:
+            # Handle "Last, First" or "First Last" format
+            if "," in author:
+                auth_part = author.split(",")[0].strip()
+            else:
+                parts = author.strip().split()
+                auth_part = parts[-1] if parts else ""
+            auth_part = normalize(auth_part).lower()
+            # Keep only letters and hyphens
+            auth_part = re.sub(r"[^a-z-]", "", auth_part)
+
+        # [Title] - first 3 significant words, stop words removed
+        title_part = ""
+        if title:
+            # Remove punctuation and split
+            clean_title = re.sub(r"[^\w\s]", " ", normalize(title))
+            words = clean_title.split()
+            # Filter stop words, take first 3, capitalize first letter preserving rest
+            significant_words = [w for w in words if w.lower() not in stop_words][:3]
+            title_words = [w[0].upper() + w[1:] if w else "" for w in significant_words]
+            title_part = "".join(title_words)
+            title_part = re.sub(r"[^a-zA-Z0-9]", "", title_part)
+
+        # [year] - 4-digit year or empty
+        year_part = str(year) if year else ""
+
+        return f"{auth_part}{title_part}{year_part}"
 
     def _get_citekey_from_bib(self, item_url: str | None, vault_path: Path | None = None) -> str | None:
         """Extract citekey from library.bib file by URL."""
@@ -463,11 +513,14 @@ class ZoteroClient:
         # Tags
         tags = [tag.get("tag", "") for tag in data.get("tags", [])]
 
-        # Citekey from extra field, fallback to bib file
+        # Citekey: extra field -> bib file -> generate from metadata
         extra = data.get("extra", "")
         citekey = self._extract_citekey(extra)
         if not citekey:
             citekey = self._get_citekey_from_bib(url)
+        if not citekey:
+            first_author = authors[0] if authors else None
+            citekey = self._generate_citekey(first_author, title, year)
 
         return ZoteroItem(
             key=key,

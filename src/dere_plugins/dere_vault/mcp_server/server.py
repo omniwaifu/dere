@@ -48,6 +48,7 @@ def add_zotero_item(
     author: str | None = None,
     item_type: str = "webpage",
     abstract: str | None = None,
+    date: str | None = None,
 ) -> dict:
     """
     Add new item to Zotero library.
@@ -58,13 +59,14 @@ def add_zotero_item(
         author: Author name in "Last, First" or "First Last" format (optional)
         item_type: Type of item - "webpage", "blogPost", "journalArticle", "book", etc.
         abstract: Item abstract/description (optional)
+        date: Publication date in "YYYY-MM-DD" or "YYYY" format (optional)
 
     Returns:
         Created item info with key
     """
     config = load_config()
     client = ZoteroClient(config)
-    item_key = client.add_item(title, url, author, item_type, abstract)
+    item_key = client.add_item(title, url, author, item_type, abstract, date)
 
     # Fetch created item
     item = client.get_item(item_key)
