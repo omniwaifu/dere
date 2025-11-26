@@ -56,16 +56,16 @@ def main() -> None:
     tool_result = hook_input.get("tool_result", "")
 
     # Only inject for high-output tools
-    HIGH_OUTPUT_TOOLS = {"Read", "Bash", "Grep"}
-    if tool_name not in HIGH_OUTPUT_TOOLS:
+    high_output_tools = {"Read", "Bash", "Grep"}
+    if tool_name not in high_output_tools:
         print(json.dumps({}))
         return
 
     # Check output size
     output_tokens = estimate_tokens(str(tool_result))
-    TOKEN_THRESHOLD = 500
+    token_threshold = 500
 
-    if output_tokens < TOKEN_THRESHOLD:
+    if output_tokens < token_threshold:
         print(json.dumps({}))
         return
 

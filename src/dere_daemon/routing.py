@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from dere_graph.llm_client import ClaudeClient
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from dere_graph.llm_client import ClaudeClient
 
 
 class RoutingDecision:

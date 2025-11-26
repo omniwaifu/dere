@@ -55,7 +55,6 @@ def format_personality_context(personality_name: str, config: dict | None) -> st
     identity = config.get("identity", {})
     goals = config.get("goals", [])
     standards = config.get("standards", [])
-    attitudes = config.get("attitudes", {})
 
     context_parts = [f"[Personality: {personality_name}]"]
 

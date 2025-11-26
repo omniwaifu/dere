@@ -14,7 +14,6 @@ from .fsm import AmbientFSM, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
     from dere_graph.llm_client import ClaudeClient
-
     from dere_shared.personalities import PersonalityLoader
 
 

@@ -597,7 +597,7 @@ class VaultIntegration:
         collection_paths: list[str] | None = None,
     ) -> Path:
         """Create literature note from Zotero item.
-        
+
         Args:
             item: ZoteroItem with metadata
             use_citekey_naming: Use @citekey.md naming

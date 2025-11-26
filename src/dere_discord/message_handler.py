@@ -104,7 +104,7 @@ async def handle_discord_message(
     """
     callbacks = MessageHandlerCallbacks(message, build_embed_fn)
 
-    async with TypingIndicatorContext(message.channel) as typing:
+    async with TypingIndicatorContext(message.channel) as _:
         try:
             # Finalize callback that checks typing state
             async def finalize() -> None:
