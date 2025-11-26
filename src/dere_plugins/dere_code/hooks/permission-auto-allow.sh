@@ -43,7 +43,7 @@ ZOTERO_ALLOW=(
 # Check Serena tools
 for tool in "${SERENA_ALLOW[@]}"; do
   if [[ "$TOOL_NAME" == *"serena__$tool"* ]]; then
-    echo '{"decision": {"behavior": "allow"}}'
+    echo '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}'
     exit 0
   fi
 done
@@ -51,14 +51,14 @@ done
 # Check Zotero tools
 for tool in "${ZOTERO_ALLOW[@]}"; do
   if [[ "$TOOL_NAME" == *"zotero__$tool"* ]]; then
-    echo '{"decision": {"behavior": "allow"}}'
+    echo '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}'
     exit 0
   fi
 done
 
 # Context7 - all tools are read-only
 if [[ "$TOOL_NAME" == *"context7__"* ]]; then
-  echo '{"decision": {"behavior": "allow"}}'
+  echo '{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow"}}}'
   exit 0
 fi
 
