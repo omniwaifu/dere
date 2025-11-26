@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/permission-auto-allow.sh",
+            "description": "Auto-approves non-destructive MCP tools"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "*",
