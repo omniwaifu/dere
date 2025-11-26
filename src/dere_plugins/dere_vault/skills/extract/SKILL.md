@@ -22,6 +22,8 @@ Create atomic permanent notes from source material.
 - Self-contained (makes sense without source)
 - Link to 3+ related notes
 - Clear title
+- Use hierarchical tags with slashes (e.g., `ai/language-models/emergence`, `economics/information/scarcity`)
+- 2-4 tags per note, matching existing taxonomy where possible
 
 ## Helper Tools
 
