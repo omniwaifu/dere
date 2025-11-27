@@ -198,6 +198,7 @@ class AppState:
     personality_loader: Any  # PersonalityLoader
     db: Any  # EmotionDBAdapter
     dere_graph: Any  # DereGraph - knowledge graph for context
+    agent_service: Any  # CentralizedAgentService
 
 
 async def _init_database(db_url: str, app_state: AppState) -> None:
@@ -270,6 +271,20 @@ async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
     except Exception as e:
         print(f"Warning: Failed to initialize ambient monitor: {e}")
         app_state.ambient_monitor = None
+
+
+async def _init_agent_service(app_state: AppState) -> None:
+    """Initialize the centralized agent service."""
+    from dere_daemon.agent import CentralizedAgentService
+
+    app_state.agent_service = CentralizedAgentService(
+        session_factory=app_state.session_factory,
+        personality_loader=app_state.personality_loader,
+        emotion_managers=app_state.emotion_managers,
+        dere_graph=app_state.dere_graph,
+        config=app_state.config,
+    )
+    print("Centralized agent service initialized")
 
 
 def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task]:
@@ -363,6 +378,12 @@ async def _shutdown_cleanup(
         except Exception as e:
             errors.append(e)
 
+    if hasattr(app_state, "agent_service") and app_state.agent_service:
+        try:
+            await app_state.agent_service.close_all()
+        except Exception as e:
+            errors.append(e)
+
     if app_state.dere_graph:
         try:
             await app_state.dere_graph.close()
@@ -417,6 +438,7 @@ async def lifespan(app: FastAPI):
     await _init_database(db_url, app.state)
     await _init_dere_graph(config, db_url, app.state)
     await _init_ambient_monitor(data_dir, app.state)
+    await _init_agent_service(app.state)
 
     cleanup_task, emotion_decay_task = _start_background_tasks(app.state)
 
@@ -431,6 +453,7 @@ app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
 
 # Include domain-specific routers
 from dere_daemon.routers import (
+    agent_router,
     context_router,
     emotions_router,
     kg_router,
@@ -441,6 +464,7 @@ from dere_daemon.routers import (
 
 app.include_router(sessions_router)
 app.include_router(emotions_router)
+app.include_router(agent_router)
 app.include_router(notifications_router)
 app.include_router(presence_router)
 app.include_router(kg_router)

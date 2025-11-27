@@ -45,3 +45,20 @@ info:
     @echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
     @echo "Python version: $(uv run python --version 2>/dev/null || echo 'not found')"
     @echo "UV version: $(uv --version 2>/dev/null || echo 'not found')"
+
+# Start FalkorDB (graph database)
+falkordb:
+    @if docker ps -q -f name=falkordb | grep -q .; then \
+        echo "FalkorDB already running"; \
+    elif docker ps -aq -f name=falkordb | grep -q .; then \
+        docker start falkordb; \
+    else \
+        mkdir -p ~/.local/share/dere/falkordb && \
+        docker run -d --name falkordb -p 6379:6379 \
+            -v ~/.local/share/dere/falkordb:/var/lib/falkordb/data \
+            falkordb/falkordb:latest; \
+    fi
+
+# Stop FalkorDB
+falkordb-stop:
+    docker stop falkordb

@@ -130,10 +130,13 @@ def _configure_logging() -> None:
 
 
 async def _run_bot(config: DiscordBotConfig) -> None:
+    from .daemon_agent import DaemonAgentClient
+
     persona_service = PersonaService(config.default_personas)
     daemon = DaemonClient()
+    daemon_agent = DaemonAgentClient()
     sessions = SessionManager(config, daemon, persona_service)
-    agent = DiscordAgent(sessions, context_enabled=config.context_enabled)
+    agent = DiscordAgent(sessions, daemon_agent, context_enabled=config.context_enabled)
     client = DereDiscordClient(
         config=config,
         sessions=sessions,
@@ -147,3 +150,4 @@ async def _run_bot(config: DiscordBotConfig) -> None:
     finally:
         if not client.is_closed():
             await client.close()
+        await daemon_agent.close()

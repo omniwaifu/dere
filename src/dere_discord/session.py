@@ -1,18 +1,18 @@
-"""Session management bridging Discord, Claude SDK, and the dere daemon."""
+"""Session management bridging Discord and the dere daemon.
+
+Sessions no longer manage ClaudeSDKClient directly - that's handled by the
+centralized agent service in the daemon. This module tracks Discord-specific
+state and coordinates with the daemon for session management.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import tempfile
 import time
 from collections import defaultdict
-from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from loguru import logger
 
 from .config import DiscordBotConfig
@@ -29,44 +29,35 @@ def _now() -> float:
 
 @dataclass(slots=True)
 class ChannelSession:
-    """Active Discord conversation bridged to the daemon + Claude SDK."""
+    """Discord channel session state.
+
+    This tracks Discord-specific session information. The actual Claude
+    agent session is managed by the daemon's CentralizedAgentService.
+    """
 
     key: str
-    session_id: int
+    session_id: int  # Daemon session ID
+    daemon_session_id: int | None  # Agent service session ID (may differ)
     personas: tuple[str, ...]
     persona_profile: PersonaProfile
     project_path: str
     created_at: float
     last_activity: float
-    client: ClaudeSDKClient
-    exit_stack: AsyncExitStack
     summary_task: asyncio.Task | None = None
-    needs_session_id_capture: bool = False
-    settings_file: str | None = None
     user_id: str | None = None
+    pending_prompt: str = ""  # Current prompt being processed
 
     def touch(self) -> None:
         self.last_activity = _now()
 
-    async def close_client(self) -> None:
-        if self.summary_task:
-            self.summary_task.cancel()
-            self.summary_task = None
-        try:
-            await self.exit_stack.aclose()
-        except RuntimeError as exc:  # pragma: no cover - defensive guard
-            logger.warning("Error closing Claude session {}: {}", self.key, exc)
-        finally:
-            # Clean up temporary settings file
-            if self.settings_file:
-                try:
-                    Path(self.settings_file).unlink(missing_ok=True)
-                except Exception as exc:
-                    logger.debug("Failed to cleanup settings file {}: {}", self.settings_file, exc)
-
 
 class SessionManager:
-    """Coordinator for channel-scoped sessions."""
+    """Coordinator for channel-scoped sessions.
+
+    Manages Discord session state and coordinates with the daemon for
+    conversation capture and session lifecycle. The actual Claude agent
+    interactions happen through the centralized daemon service.
+    """
 
     def __init__(
         self,
@@ -112,77 +103,30 @@ class SessionManager:
                 user_id=user_id,
             )
             persona_label = ",".join(profile.names)
-            # Pass Discord user_id for cross-medium continuity
             user_id_str = str(user_id) if user_id else None
-            session_id, resumed, claude_session_id = await self._daemon.find_or_create_session(
+
+            session_id, resumed, _ = await self._daemon.find_or_create_session(
                 project_path,
                 persona_label,
                 max_age_hours=self._config.session_expiry_hours,
                 user_id=user_id_str,
             )
 
-            if resumed and claude_session_id:
-                logger.info(
-                    "Resumed session {} (Claude session: {}) for channel {}",
-                    session_id,
-                    claude_session_id,
-                    key,
-                )
-            elif resumed:
-                logger.info(
-                    "Resumed session {} for channel {} (no Claude session yet)", session_id, key
-                )
+            if resumed:
+                logger.info("Resumed session {} for channel {}", session_id, key)
             else:
                 logger.info("Created new session {} for channel {}", session_id, key)
-
-            # Get emotion summary from daemon
-            emotion_summary = ""
-            try:
-                emotion_summary = await self._daemon.get_emotion_summary(session_id)
-                if emotion_summary and emotion_summary != "Currently in a neutral emotional state.":
-                    emotion_summary = f"\n\n## Current Emotional State\n{emotion_summary}"
-            except Exception:
-                pass  # Emotion system optional, don't fail if unavailable
-
-            # Create temporary settings file with output style
-            # Using settings file with setting_sources to enable output styles
-            settings_data = {"outputStyle": "discord"}
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(settings_data, f)
-                settings_path = f.name
-
-            prompt_with_emotion = (profile.prompt or "") + emotion_summary
-
-            options = ClaudeAgentOptions(
-                settings=settings_path,
-                setting_sources=["user", "project", "local"],  # Required for settings to work
-                system_prompt={
-                    "type": "preset",
-                    "preset": "default",
-                    "append": prompt_with_emotion,
-                },  # type: ignore[typeddict-item]
-                allowed_tools=["Read", "Write", "Bash"],
-                permission_mode="acceptEdits",
-                resume=claude_session_id,  # Resume Claude SDK session if available
-            )
-
-            exit_stack = AsyncExitStack()
-            client = ClaudeSDKClient(options=options)
-            await exit_stack.enter_async_context(client)
 
             now = _now()
             session = ChannelSession(
                 key=key,
                 session_id=session_id,
+                daemon_session_id=None,  # Will be set when agent connects
                 personas=profile.names,
                 persona_profile=profile,
                 project_path=project_path,
                 created_at=now,
                 last_activity=now,
-                client=client,
-                exit_stack=exit_stack,
-                needs_session_id_capture=(claude_session_id is None),
-                settings_file=settings_path,
                 user_id=user_id_str,
             )
             self._sessions[key] = session
@@ -222,24 +166,6 @@ class SessionManager:
         await self._daemon.capture_message(payload)
         await self.cancel_summary(session)
         session.touch()
-
-    async def capture_claude_session_id(
-        self,
-        session: ChannelSession,
-        claude_session_id: str,
-    ) -> None:
-        """Capture and store the Claude SDK session ID."""
-
-        if not session.needs_session_id_capture:
-            return
-
-        await self._daemon.update_claude_session_id(session.session_id, claude_session_id)
-        session.needs_session_id_capture = False
-        logger.info(
-            "Captured Claude session ID {} for daemon session {}",
-            claude_session_id,
-            session.session_id,
-        )
 
     async def schedule_summary(
         self,
@@ -304,6 +230,13 @@ class SessionManager:
         if not session:
             return
 
+        if session.summary_task:
+            session.summary_task.cancel()
+            try:
+                await session.summary_task
+            except asyncio.CancelledError:
+                pass
+
         if queue_summary:
             duration = int(max(0, _now() - session.created_at))
             try:
@@ -314,10 +247,8 @@ class SessionManager:
                         "duration_seconds": duration,
                     }
                 )
-            except Exception as exc:  # pragma: no cover - log unexpected daemon failures
+            except Exception as exc:
                 logger.warning("Failed to queue summary for session {}: {}", key, exc)
-
-        await session.close_client()
 
     async def close_all(self) -> None:
         """Close all active sessions."""
@@ -326,5 +257,5 @@ class SessionManager:
         for key in keys:
             try:
                 await self._close_session(key, reason="shutdown")
-            except RuntimeError as exc:  # pragma: no cover - defensive guard
+            except RuntimeError as exc:
                 logger.warning("Failed to close session {} cleanly: {}", key, exc)

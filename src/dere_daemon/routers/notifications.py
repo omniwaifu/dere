@@ -91,6 +91,37 @@ async def notifications_create(req: NotificationCreateRequest, db: AsyncSession 
     return {"notification_id": notification.id, "status": "queued"}
 
 
+@router.get("/recent")
+async def notifications_recent(
+    user_id: str,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get recent notifications for a user (for ambient monitor context)."""
+    stmt = (
+        select(Notification)
+        .where(Notification.user_id == user_id)
+        .order_by(Notification.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    notifications = result.scalars().all()
+
+    return {
+        "notifications": [
+            {
+                "id": n.id,
+                "message": n.message,
+                "priority": n.priority,
+                "status": n.status,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "delivered_at": n.delivered_at.isoformat() if n.delivered_at else None,
+            }
+            for n in notifications
+        ]
+    }
+
+
 @router.get("/pending")
 async def notifications_pending(medium: str, db: AsyncSession = Depends(get_db)):
     """Get pending notifications for a specific medium.

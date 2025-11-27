@@ -1,0 +1,511 @@
+"""Centralized agent service managing ClaudeSDKClient instances."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import tempfile
+import time
+from collections import deque
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlmodel import select
+
+from dere_shared.config import load_dere_config
+from dere_shared.context import get_full_context
+from dere_shared.models import Conversation, Session
+from dere_shared.personalities import PersonalityLoader
+
+from .models import SessionConfig, StreamEvent, StreamEventType
+from .streaming import (
+    cancelled_event,
+    done_event,
+    error_event,
+    extract_events_from_message,
+    is_init_message,
+)
+
+if TYPE_CHECKING:
+    from dere_shared.emotion.manager import OCCEmotionManager
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+EVENT_BUFFER_SIZE = 500
+
+
+@dataclass
+class AgentSession:
+    """Active agent session with Claude SDK client."""
+
+    session_id: int
+    config: SessionConfig
+    client: ClaudeSDKClient
+    exit_stack: AsyncExitStack
+    settings_file: str | None
+    claude_session_id: str | None
+    created_at: float
+    last_activity: float
+    personality_prompt: str = ""
+    needs_session_id_capture: bool = True
+    event_buffer: deque[StreamEvent] = field(
+        default_factory=lambda: deque(maxlen=EVENT_BUFFER_SIZE)
+    )
+    event_seq: int = 0
+
+    def touch(self) -> None:
+        self.last_activity = _now()
+
+    def add_event(self, event: StreamEvent) -> StreamEvent:
+        """Add event to buffer with sequence number."""
+        self.event_seq += 1
+        event.seq = self.event_seq
+        self.event_buffer.append(event)
+        return event
+
+    def get_events_since(self, last_seq: int) -> list[StreamEvent]:
+        """Get all events with seq > last_seq."""
+        return [e for e in self.event_buffer if e.seq is not None and e.seq > last_seq]
+
+
+@dataclass
+class CentralizedAgentService:
+    """Manages Claude SDK sessions centrally in the daemon."""
+
+    session_factory: async_sessionmaker[AsyncSession]
+    personality_loader: PersonalityLoader
+    emotion_managers: dict[int, Any]
+    dere_graph: Any | None = None
+    config: dict[str, Any] = field(default_factory=dict)
+
+    _sessions: dict[int, AgentSession] = field(default_factory=dict)
+    _locks: dict[int, asyncio.Lock] = field(default_factory=dict)
+    _cancel_events: dict[int, asyncio.Event] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.config:
+            self.config = load_dere_config()
+
+    def _get_lock(self, session_id: int) -> asyncio.Lock:
+        if session_id not in self._locks:
+            self._locks[session_id] = asyncio.Lock()
+        return self._locks[session_id]
+
+    def _get_cancel_event(self, session_id: int) -> asyncio.Event:
+        if session_id not in self._cancel_events:
+            self._cancel_events[session_id] = asyncio.Event()
+        return self._cancel_events[session_id]
+
+    async def cancel_query(self, session_id: int) -> bool:
+        """Cancel an active query for a session.
+
+        Returns True if a cancellation was signaled, False if no active query.
+        """
+        if session_id not in self._sessions:
+            return False
+        event = self._get_cancel_event(session_id)
+        if not event.is_set():
+            event.set()
+            return True
+        return False
+
+    def get_missed_events(self, session_id: int, last_seq: int) -> list[StreamEvent]:
+        """Get events missed during disconnect.
+
+        Args:
+            session_id: The session to get events for
+            last_seq: The last sequence number the client received
+
+        Returns:
+            List of events with seq > last_seq, or empty list if session not found
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            return []
+        return session.get_events_since(last_seq)
+
+    async def _get_or_create_emotion_manager(self, session_id: int) -> OCCEmotionManager | None:
+        """Get emotion manager for session, creating if needed."""
+        if session_id in self.emotion_managers:
+            return self.emotion_managers[session_id]
+
+        try:
+            from dere_daemon.main import get_or_create_emotion_manager
+
+            return await get_or_create_emotion_manager(session_id)
+        except Exception as e:
+            logger.debug("Failed to get emotion manager: {}", e)
+            return None
+
+    async def _get_emotion_summary(self, session_id: int) -> str:
+        """Get emotion summary for prompt injection."""
+        try:
+            manager = await self._get_or_create_emotion_manager(session_id)
+            if manager:
+                summary = manager.get_emotional_state_summary()
+                if summary and summary != "Currently in a neutral emotional state.":
+                    return f"\n\n## Current Emotional State\n{summary}"
+        except Exception as e:
+            logger.debug("Failed to get emotion summary: {}", e)
+        return ""
+
+    def _build_personality_prompt(self, config: SessionConfig) -> str:
+        """Build personality prompt from config."""
+        personalities = config.personality
+        if isinstance(personalities, str):
+            personalities = [p.strip() for p in personalities.split(",") if p.strip()]
+        if not personalities:
+            return ""
+
+        prompts: list[str] = []
+        for name in personalities:
+            try:
+                personality = self.personality_loader.load(name)
+                prompts.append(personality.prompt_content)
+            except ValueError as e:
+                logger.warning("Failed to load personality {}: {}", name, e)
+
+        return "\n\n".join(prompts)
+
+    async def _create_db_session(
+        self,
+        config: SessionConfig,
+    ) -> tuple[int, str | None]:
+        """Create or find a daemon session in the database."""
+        async with self.session_factory() as db:
+            stmt = (
+                select(Session)
+                .where(Session.working_dir == config.working_dir)
+                .order_by(Session.start_time.desc())
+            )
+            result = await db.execute(stmt)
+            existing = result.scalars().first()
+
+            if existing:
+                return existing.id, existing.claude_session_id
+
+            personality_str = (
+                config.personality
+                if isinstance(config.personality, str)
+                else ",".join(config.personality)
+            )
+
+            session = Session(
+                working_dir=config.working_dir,
+                start_time=int(time.time()),
+                personality=personality_str,
+                medium="agent_api",
+                user_id=config.user_id,
+            )
+            db.add(session)
+            await db.flush()
+            await db.refresh(session)
+
+            return session.id, None
+
+    async def _update_claude_session_id(self, session_id: int, claude_session_id: str) -> None:
+        """Store Claude session ID in database."""
+        async with self.session_factory() as db:
+            stmt = select(Session).where(Session.id == session_id)
+            result = await db.execute(stmt)
+            session = result.scalar_one_or_none()
+
+            if session:
+                session.claude_session_id = claude_session_id
+                await db.commit()
+                logger.info(
+                    "Stored claude_session_id {} for session {}",
+                    claude_session_id,
+                    session_id,
+                )
+
+    async def _capture_message(
+        self,
+        session_id: int,
+        config: SessionConfig,
+        content: str,
+        role: str,
+    ) -> None:
+        """Capture message to database."""
+        async with self.session_factory() as db:
+            conv = Conversation(
+                session_id=session_id,
+                prompt=content,
+                message_type=role,
+                timestamp=int(time.time()),
+                personality=(
+                    config.personality
+                    if isinstance(config.personality, str)
+                    else ",".join(config.personality)
+                ),
+                project_path=config.working_dir,
+                medium="agent_api",
+                user_id=config.user_id,
+            )
+            db.add(conv)
+            await db.commit()
+
+    async def create_session(self, config: SessionConfig) -> AgentSession:
+        """Create a new agent session with the given configuration."""
+        session_id, claude_session_id = await self._create_db_session(config)
+        lock = self._get_lock(session_id)
+
+        async with lock:
+            if session_id in self._sessions:
+                old_session = self._sessions[session_id]
+                await self._close_session_internal(old_session)
+
+            emotion_summary = ""
+            if config.include_context:
+                emotion_summary = await self._get_emotion_summary(session_id)
+
+            personality_prompt = self._build_personality_prompt(config)
+            full_prompt = personality_prompt + emotion_summary
+
+            settings_data = {"outputStyle": config.output_style}
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+                json.dump(settings_data, f)
+                settings_path = f.name
+
+            allowed_tools = config.allowed_tools
+            if allowed_tools is None:
+                allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep"]
+
+            # Load dere-core plugin for output styles
+            dere_core_plugin_path = str(
+                Path(__file__).parent.parent.parent / "dere_plugins" / "dere_core"
+            )
+
+            options = ClaudeAgentOptions(
+                settings=settings_path,
+                setting_sources=["user", "project", "local"],
+                system_prompt={
+                    "type": "preset",
+                    "preset": "default",
+                    "append": full_prompt,
+                },
+                allowed_tools=allowed_tools,
+                permission_mode="acceptEdits",
+                resume=claude_session_id,
+                plugins=[{"type": "local", "path": dere_core_plugin_path}],
+            )
+
+            exit_stack = AsyncExitStack()
+            client = ClaudeSDKClient(options=options)
+            await exit_stack.enter_async_context(client)
+
+            now = _now()
+            agent_session = AgentSession(
+                session_id=session_id,
+                config=config,
+                client=client,
+                exit_stack=exit_stack,
+                settings_file=settings_path,
+                claude_session_id=claude_session_id,
+                created_at=now,
+                last_activity=now,
+                personality_prompt=personality_prompt,
+                needs_session_id_capture=(claude_session_id is None),
+            )
+
+            self._sessions[session_id] = agent_session
+            logger.info(
+                "Created agent session {} with output_style={}, personality={}",
+                session_id,
+                config.output_style,
+                config.personality,
+            )
+
+            return agent_session
+
+    async def get_session(self, session_id: int) -> AgentSession | None:
+        """Get existing session by ID."""
+        return self._sessions.get(session_id)
+
+    async def resume_session(self, session_id: int) -> AgentSession | None:
+        """Resume an existing session from database."""
+        if session_id in self._sessions:
+            return self._sessions[session_id]
+
+        async with self.session_factory() as db:
+            stmt = select(Session).where(Session.id == session_id)
+            result = await db.execute(stmt)
+            db_session = result.scalar_one_or_none()
+
+            if not db_session:
+                return None
+
+            config = SessionConfig(
+                working_dir=db_session.working_dir,
+                output_style="default",
+                personality=db_session.personality or "",
+                user_id=db_session.user_id,
+            )
+
+            return await self.create_session(config)
+
+    async def update_session_config(
+        self, session_id: int, new_config: SessionConfig
+    ) -> AgentSession | None:
+        """Update session configuration, recreating client if needed."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return None
+
+        lock = self._get_lock(session_id)
+        async with lock:
+            needs_recreate = (
+                session.config.output_style != new_config.output_style
+                or session.config.personality != new_config.personality
+                or session.config.allowed_tools != new_config.allowed_tools
+            )
+
+            if needs_recreate:
+                await self._close_session_internal(session)
+                new_config_with_dir = SessionConfig(
+                    working_dir=new_config.working_dir or session.config.working_dir,
+                    output_style=new_config.output_style,
+                    personality=new_config.personality,
+                    user_id=new_config.user_id or session.config.user_id,
+                    allowed_tools=new_config.allowed_tools,
+                    include_context=new_config.include_context,
+                )
+                return await self.create_session(new_config_with_dir)
+
+            session.config = new_config
+            session.touch()
+            return session
+
+    async def query(
+        self,
+        session: AgentSession,
+        prompt: str,
+    ) -> AsyncIterator[StreamEvent]:
+        """Send a query to Claude and yield streaming events."""
+        session.touch()
+
+        cancel_event = self._get_cancel_event(session.session_id)
+        cancel_event.clear()
+
+        await self._capture_message(session.session_id, session.config, prompt, "user")
+
+        full_prompt = prompt
+        if session.config.include_context:
+            try:
+                context = await get_full_context(
+                    config=self.config,
+                    session_id=session.session_id,
+                    user_id=session.config.user_id,
+                    personality=(
+                        session.config.personality
+                        if isinstance(session.config.personality, str)
+                        else ",".join(session.config.personality)
+                    ),
+                    current_prompt=prompt,
+                )
+                if context:
+                    full_prompt = f"{context}\n\n{prompt}"
+            except Exception as e:
+                logger.debug("Failed to fetch context: {}", e)
+
+        try:
+            await session.client.query(full_prompt)
+        except Exception as e:
+            logger.error("Claude query failed: {}", e)
+            yield session.add_event(error_event(str(e), recoverable=False))
+            return
+
+        response_chunks: list[str] = []
+        tool_count = 0
+        tool_id_to_name: dict[str, str] = {}
+        was_cancelled = False
+
+        try:
+            async for message in session.client.receive_response():
+                if cancel_event.is_set():
+                    was_cancelled = True
+                    break
+
+                is_init, claude_session_id = is_init_message(message)
+                if is_init and claude_session_id:
+                    if session.needs_session_id_capture:
+                        await self._update_claude_session_id(session.session_id, claude_session_id)
+                        session.claude_session_id = claude_session_id
+                        session.needs_session_id_capture = False
+                    continue
+
+                events = extract_events_from_message(message, tool_id_to_name)
+                for event in events:
+                    if event.type == StreamEventType.TEXT:
+                        response_chunks.append(event.data.get("text", ""))
+                    elif event.type in (
+                        StreamEventType.TOOL_USE,
+                        StreamEventType.TOOL_RESULT,
+                    ):
+                        tool_count += 1
+                    yield session.add_event(event)
+
+        except Exception as e:
+            logger.exception("Error streaming response")
+            yield session.add_event(error_event(str(e), recoverable=True))
+
+        if was_cancelled:
+            yield session.add_event(cancelled_event())
+            return
+
+        response_text = "".join(response_chunks)
+        if response_text:
+            await self._capture_message(
+                session.session_id, session.config, response_text, "assistant"
+            )
+
+        yield session.add_event(done_event(response_text, tool_count))
+
+    async def _close_session_internal(self, session: AgentSession) -> None:
+        """Close session without lock (called from within locked context)."""
+        try:
+            await session.exit_stack.aclose()
+        except Exception as e:
+            logger.warning("Error closing session {}: {}", session.session_id, e)
+
+        if session.settings_file:
+            try:
+                Path(session.settings_file).unlink(missing_ok=True)
+            except Exception as e:
+                logger.debug("Failed to cleanup settings file: {}", e)
+
+        self._sessions.pop(session.session_id, None)
+
+    async def close_session(self, session_id: int) -> None:
+        """Close and cleanup a session."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+
+        lock = self._get_lock(session_id)
+        async with lock:
+            await self._close_session_internal(session)
+
+        logger.info("Closed agent session {}", session_id)
+
+    async def list_sessions(self) -> list[tuple[int, SessionConfig]]:
+        """List all active sessions."""
+        return [(sid, s.config) for sid, s in self._sessions.items()]
+
+    async def close_all(self) -> None:
+        """Close all active sessions."""
+        session_ids = list(self._sessions.keys())
+        for session_id in session_ids:
+            try:
+                await self.close_session(session_id)
+            except Exception as e:
+                logger.warning("Failed to close session {}: {}", session_id, e)
