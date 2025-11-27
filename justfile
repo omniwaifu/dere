@@ -62,3 +62,15 @@ falkordb:
 # Stop FalkorDB
 falkordb-stop:
     docker stop falkordb
+
+# Run UI development server
+ui:
+    cd src/dere_ui && bun run dev
+
+# Build UI for production
+ui-build:
+    cd src/dere_ui && bun run build
+
+# Install UI dependencies
+ui-install:
+    cd src/dere_ui && bun install

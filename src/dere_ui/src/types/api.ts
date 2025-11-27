@@ -1,0 +1,121 @@
+export type StreamEventType =
+  | "session_ready"
+  | "text"
+  | "tool_use"
+  | "tool_result"
+  | "thinking"
+  | "error"
+  | "done"
+  | "cancelled";
+
+export interface StreamEvent {
+  type: StreamEventType;
+  data: Record<string, unknown>;
+  timestamp: number;
+  seq?: number;
+}
+
+export interface SessionConfig {
+  working_dir: string;
+  output_style?: string;
+  personality?: string | string[];
+  user_id?: string;
+  allowed_tools?: string[];
+  include_context?: boolean;
+}
+
+export interface SessionResponse {
+  session_id: number;
+  config: SessionConfig;
+  claude_session_id: string | null;
+}
+
+export interface SessionListResponse {
+  sessions: SessionResponse[];
+}
+
+export interface OutputStyleInfo {
+  name: string;
+  description: string;
+}
+
+export interface PersonalityInfo {
+  name: string;
+  description: string | null;
+  color: string | null;
+  icon: string | null;
+}
+
+export interface AvailableOutputStylesResponse {
+  styles: OutputStyleInfo[];
+}
+
+export interface AvailablePersonalitiesResponse {
+  personalities: PersonalityInfo[];
+}
+
+export interface ConversationMessage {
+  id: number;
+  message_type: string;
+  content: string;
+  timestamp: number;
+}
+
+export interface MessageHistoryResponse {
+  messages: ConversationMessage[];
+  has_more: boolean;
+  oldest_timestamp: number | null;
+}
+
+export interface ToolUse {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  status: "pending" | "success" | "error";
+}
+
+export interface ToolResult {
+  toolUseId: string;
+  name: string;
+  output: string;
+  isError: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  toolUses: ToolUse[];
+  toolResults: ToolResult[];
+  timestamp: number;
+  isStreaming?: boolean;
+}
+
+export type ClientMessageType =
+  | "new_session"
+  | "resume_session"
+  | "query"
+  | "update_config"
+  | "cancel"
+  | "close";
+
+export interface ClientMessage {
+  type: ClientMessageType;
+  config?: SessionConfig;
+  session_id?: number;
+  prompt?: string;
+  last_seq?: number;
+}
+
+export interface EmotionStateResponse {
+  has_emotion: boolean;
+  dominant_emotion: string | null;
+  intensity: number;
+  last_updated: number | null;
+  active_emotions: Record<string, { intensity: number; last_updated: number }>;
+}
+
+export interface EmotionSummaryResponse {
+  summary: string;
+}
