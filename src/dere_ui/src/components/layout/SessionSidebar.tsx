@@ -1,8 +1,18 @@
+import { useState, useRef, useEffect } from "react";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
-import { Plus, MessageSquare, Trash2, Loader2, RefreshCw } from "lucide-react";
+import {
+  MessageSquare,
+  Trash2,
+  Loader2,
+  RefreshCw,
+  SquarePen,
+  Search,
+  PanelLeft,
+  PanelLeftClose,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { useSessions, useDeleteSession } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
 
@@ -12,93 +22,227 @@ export function SessionSidebar() {
   const { data, isLoading, isError, refetch } = useSessions();
   const deleteSession = useDeleteSession();
 
+  const [isCollapsed, setIsCollapsed] = useState(() =>
+    localStorage.getItem("sidebar-collapsed") === "true"
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const currentSessionId = sessionId === "new" ? null : Number(sessionId);
 
+  // Persist collapse state
+  useEffect(() => {
+    localStorage.setItem("sidebar-collapsed", String(isCollapsed));
+  }, [isCollapsed]);
+
+  // Focus search input when opening
+  useEffect(() => {
+    if (isSearching && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isSearching]);
+
+  // Handle escape to close search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isSearching) {
+        setIsSearching(false);
+        setSearchQuery("");
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isSearching]);
+
   const handleNewChat = () => {
-    // Just navigate - ChatView handles clearing when it sees /chat/new
     navigate({ to: "/chat/$sessionId", params: { sessionId: "new" } });
   };
 
+  const handleSearchClick = () => {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+    }
+    setIsSearching(true);
+  };
+
+  const filteredSessions = data?.sessions.filter((session) => {
+    if (!searchQuery) return true;
+    const name = session.name || session.config.working_dir;
+    return name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
   return (
-    <aside className="flex w-64 flex-col bg-muted/30">
-      <div className="p-4">
-        <Button className="w-full gap-2" onClick={handleNewChat}>
-          <Plus className="h-4 w-4" />
-          New Chat
+    <aside
+      className={cn(
+        "flex flex-col bg-muted/30 transition-all duration-200",
+        isCollapsed ? "w-14" : "w-64"
+      )}
+    >
+      {/* Header with logo and collapse toggle */}
+      <div className="flex h-12 items-center justify-between px-3">
+        {isCollapsed ? (
+          /* Collapsed: logo that turns into expand icon on hover */
+          <button
+            onClick={() => setIsCollapsed(false)}
+            className="group flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-accent"
+            title="Expand sidebar"
+          >
+            <MessageSquare className="h-5 w-5 text-foreground/80 transition-opacity group-hover:opacity-0" />
+            <PanelLeft className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+          </button>
+        ) : (
+          /* Expanded: logo + name on left (clickable for new chat), collapse button on right */
+          <>
+            <button
+              onClick={handleNewChat}
+              className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-accent"
+              title="New chat"
+            >
+              <MessageSquare className="h-5 w-5 text-foreground/80" />
+              <span className="text-sm font-medium text-foreground/80">dere</span>
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setIsCollapsed(true)}
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      <div className="space-y-1 px-2">
+        {/* New chat button */}
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            isCollapsed && "justify-center px-0"
+          )}
+          onClick={handleNewChat}
+          title="New chat"
+        >
+          <SquarePen className="h-4 w-4" />
+          {!isCollapsed && <span>New chat</span>}
+        </Button>
+
+        {/* Search button */}
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            isCollapsed && "justify-center px-0"
+          )}
+          onClick={handleSearchClick}
+          title="Search chats"
+        >
+          <Search className="h-4 w-4" />
+          {!isCollapsed && <span>Search chats</span>}
         </Button>
       </div>
 
-      <Separator />
-
-      <ScrollArea className="flex-1">
-        <div className="p-2">
-          {isLoading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {isError && !isLoading && (
-            <div className="flex flex-col items-center gap-2 py-8">
-              <p className="text-sm text-muted-foreground">
-                Failed to load sessions
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => refetch()}
-                className="gap-1"
+      {/* Search input (shown when searching) */}
+      {isSearching && !isCollapsed && (
+        <div className="px-2 py-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-8 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                <RefreshCw className="h-3 w-3" />
-                Retry
-              </Button>
-            </div>
-          )}
-
-          {!isError && data?.sessions.length === 0 && !isLoading && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No sessions yet
-            </p>
-          )}
-
-          {data?.sessions.map((session) => (
-            <div
-              key={session.session_id}
-              className={cn(
-                "group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
-                currentSessionId === session.session_id && "bg-accent"
-              )}
-            >
-              <Link
-                to="/chat/$sessionId"
-                params={{ sessionId: String(session.session_id) }}
-                className="flex flex-1 items-center gap-2 overflow-hidden"
-              >
-                <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate text-sm">
-                  {session.name ||
-                    session.config.working_dir.split("/").pop() ||
-                    session.config.working_dir}
-                </span>
-              </Link>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (confirm("Delete this session?")) {
-                    deleteSession.mutate(session.session_id);
-                  }
-                }}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
-      </ScrollArea>
+      )}
+
+      {/* Session list (hidden when collapsed) */}
+      {!isCollapsed && (
+        <ScrollArea className="flex-1">
+          <div className="p-2">
+            {isLoading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {isError && !isLoading && (
+              <div className="flex flex-col items-center gap-2 py-8">
+                <p className="text-sm text-muted-foreground">
+                  Failed to load sessions
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refetch()}
+                  className="gap-1"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Retry
+                </Button>
+              </div>
+            )}
+
+            {!isError && filteredSessions?.length === 0 && !isLoading && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {searchQuery ? "No matches" : "No sessions yet"}
+              </p>
+            )}
+
+            {filteredSessions?.map((session) => (
+              <div
+                key={session.session_id}
+                className={cn(
+                  "group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
+                  currentSessionId === session.session_id && "bg-accent"
+                )}
+              >
+                <Link
+                  to="/chat/$sessionId"
+                  params={{ sessionId: String(session.session_id) }}
+                  className="flex flex-1 items-center gap-2 overflow-hidden"
+                >
+                  <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm">
+                    {session.name ||
+                      session.config.working_dir.split("/").pop() ||
+                      session.config.working_dir}
+                  </span>
+                </Link>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (confirm("Delete this session?")) {
+                      deleteSession.mutate(session.session_id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
     </aside>
   );
 }

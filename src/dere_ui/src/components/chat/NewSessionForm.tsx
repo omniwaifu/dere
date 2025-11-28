@@ -178,7 +178,7 @@ export function NewSessionForm() {
                 <select
                   value={personality}
                   onChange={(e) => setPersonality(e.target.value)}
-                  className="cursor-pointer bg-transparent text-xs focus:outline-none"
+                  className="cursor-pointer bg-transparent text-xs text-foreground focus:outline-none [&>option]:bg-popover [&>option]:text-popover-foreground"
                 >
                   <option value="">Default</option>
                   {personalities?.personalities.map((p) => (
@@ -195,7 +195,7 @@ export function NewSessionForm() {
                 <select
                   value={outputStyle}
                   onChange={(e) => setOutputStyle(e.target.value)}
-                  className="cursor-pointer bg-transparent text-xs focus:outline-none"
+                  className="cursor-pointer bg-transparent text-xs text-foreground focus:outline-none [&>option]:bg-popover [&>option]:text-popover-foreground"
                 >
                   {outputStyles?.styles.map((s) => (
                     <option key={s.name} value={s.name}>
@@ -214,7 +214,7 @@ export function NewSessionForm() {
                 <select
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="cursor-pointer bg-transparent text-xs focus:outline-none"
+                  className="cursor-pointer bg-transparent text-xs text-foreground focus:outline-none [&>option]:bg-popover [&>option]:text-popover-foreground"
                 >
                   <option value="">Default</option>
                   {models?.models.map((m) => (
