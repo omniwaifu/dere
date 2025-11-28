@@ -73,8 +73,11 @@ class AmbientMonitor:
             self.config.idle_threshold_minutes,
         )
 
-        # Validate dependencies before starting
-        await self._validate_dependencies()
+        if self.config.startup_delay_seconds > 0:
+            logger.info(
+                "Ambient monitor will delay {}s before first check",
+                self.config.startup_delay_seconds,
+            )
 
         self._task = asyncio.create_task(self._monitor_loop())
 
@@ -133,6 +136,17 @@ class AmbientMonitor:
 
     async def _monitor_loop(self) -> None:
         """Main monitoring loop that runs periodically."""
+        # Apply startup delay before first check
+        if self.config.startup_delay_seconds > 0:
+            logger.info(
+                "Delaying first ambient check by {}s",
+                self.config.startup_delay_seconds,
+            )
+            await asyncio.sleep(self.config.startup_delay_seconds)
+
+        # Validate dependencies after delay
+        await self._validate_dependencies()
+
         while self._running:
             try:
                 logger.info("Ambient monitor: Running periodic check...")
@@ -144,9 +158,7 @@ class AmbientMonitor:
             if self.fsm:
                 interval_seconds = self.fsm.calculate_next_interval()
                 state = self.fsm.state
-                logger.info(
-                    f"Ambient FSM: {state.value} → sleeping {interval_seconds/60:.1f}m"
-                )
+                logger.info(f"Ambient FSM: {state.value} → sleeping {interval_seconds / 60:.1f}m")
             else:
                 interval_seconds = self.config.check_interval_minutes * 60
                 logger.info(
@@ -158,6 +170,18 @@ class AmbientMonitor:
     async def _check_and_engage(self) -> None:
         """Check context and engage if appropriate."""
         try:
+            # Hard minimum interval check (overrides FSM timing)
+            if self.fsm and self.fsm.last_notification_time is not None:
+                elapsed = asyncio.get_event_loop().time() - self.fsm.last_notification_time
+                min_interval_seconds = self.config.min_notification_interval_minutes * 60
+                if elapsed < min_interval_seconds:
+                    remaining = (min_interval_seconds - elapsed) / 60
+                    logger.info(
+                        "Skipping check: minimum interval not elapsed ({:.0f}m remaining)",
+                        remaining,
+                    )
+                    return
+
             # Evaluate FSM state transitions before engagement decision
             if self.fsm:
                 await self._evaluate_fsm_state()
@@ -202,9 +226,7 @@ class AmbientMonitor:
                             if self.fsm:
                                 from .fsm import AmbientState
 
-                                self.fsm.transition_to(
-                                    AmbientState.ENGAGED, "notification sent"
-                                )
+                                self.fsm.transition_to(AmbientState.ENGAGED, "notification sent")
                                 self.fsm.last_notification_time = asyncio.get_event_loop().time()
                 except Exception as e:
                     logger.error("Failed to queue notification: {}", e)

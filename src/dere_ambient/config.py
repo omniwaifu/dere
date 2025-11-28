@@ -25,6 +25,12 @@ class AmbientConfig:
     escalation_enabled: bool = True
     escalation_lookback_hours: int = 12
 
+    # Hard minimum interval between notifications (overrides FSM)
+    min_notification_interval_minutes: int = 120
+
+    # Startup delay in seconds (useful during testing to avoid immediate engagement)
+    startup_delay_seconds: int = 0
+
     # FSM Configuration
     fsm_enabled: bool = True
 
@@ -66,6 +72,10 @@ def load_ambient_config() -> AmbientConfig:
         personality=ambient_section.get("personality", default_personality),
         escalation_enabled=ambient_section.get("escalation_enabled", True),
         escalation_lookback_hours=ambient_section.get("escalation_lookback_hours", 12),
+        min_notification_interval_minutes=ambient_section.get(
+            "min_notification_interval_minutes", 120
+        ),
+        startup_delay_seconds=ambient_section.get("startup_delay_seconds", 0),
         # FSM config
         fsm_enabled=ambient_section.get("fsm_enabled", True),
         fsm_idle_interval=tuple(ambient_section.get("fsm_idle_interval", [60, 120])),
