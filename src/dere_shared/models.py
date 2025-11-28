@@ -57,13 +57,13 @@ class Session(SQLModel, table=True):
     user_id: str | None = None
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
-    # Relationships
-    conversations: list["Conversation"] = Relationship(back_populates="session")
-    entities: list["Entity"] = Relationship(back_populates="session")
-    session_summaries: list["SessionSummary"] = Relationship(back_populates="session")
-    context_caches: list["ContextCache"] = Relationship(back_populates="session")
-    emotion_states: list["EmotionState"] = Relationship(back_populates="session")
-    stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session")
+    # Relationships (cascade_delete ensures related records are deleted with session)
+    conversations: list["Conversation"] = Relationship(back_populates="session", cascade_delete=True)
+    entities: list["Entity"] = Relationship(back_populates="session", cascade_delete=True)
+    session_summaries: list["SessionSummary"] = Relationship(back_populates="session", cascade_delete=True)
+    context_caches: list["ContextCache"] = Relationship(back_populates="session", cascade_delete=True)
+    emotion_states: list["EmotionState"] = Relationship(back_populates="session", cascade_delete=True)
+    stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session", cascade_delete=True)
 
 
 class Conversation(SQLModel, table=True):

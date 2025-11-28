@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
@@ -214,6 +215,8 @@ async def agent_websocket(websocket: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
+    except asyncio.CancelledError:
+        logger.debug("WebSocket cancelled")
     except Exception as e:
         logger.exception("WebSocket error")
         try:
@@ -225,8 +228,8 @@ async def agent_websocket(websocket: WebSocket):
     finally:
         try:
             await websocket.close()
-        except RuntimeError:
-            pass  # Already closed
+        except (RuntimeError, asyncio.CancelledError):
+            pass  # Already closed or cancelled
 
 
 @router.get("/sessions", response_model=SessionListResponse)

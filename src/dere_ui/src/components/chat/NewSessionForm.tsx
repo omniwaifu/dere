@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import {
@@ -30,8 +31,10 @@ export function NewSessionForm() {
   const dirInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const navigate = useNavigate();
   const status = useChatStore((s) => s.status);
   const newSession = useChatStore((s) => s.newSession);
+  const setOnSessionCreated = useChatStore((s) => s.setOnSessionCreated);
 
   const { data: personalities } = usePersonalities();
   const { data: outputStyles } = useOutputStyles();
@@ -63,6 +66,14 @@ export function NewSessionForm() {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [message]);
+
+  // Navigate to new session when created
+  useEffect(() => {
+    setOnSessionCreated((sessionId) => {
+      navigate({ to: "/chat/$sessionId", params: { sessionId: String(sessionId) } });
+    });
+    return () => setOnSessionCreated(null);
+  }, [navigate, setOnSessionCreated]);
 
   const handleSubmit = () => {
     if (!workingDir.trim() || status !== "connected") return;

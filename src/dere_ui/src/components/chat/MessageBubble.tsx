@@ -26,6 +26,7 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   if (message.role === "user") {
+    if (!message.content?.trim()) return null;
     return (
       <div className="flex justify-end">
         <div className="max-w-[80%] rounded-lg bg-primary px-4 py-2 text-primary-foreground">

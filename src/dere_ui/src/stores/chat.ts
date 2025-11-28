@@ -148,6 +148,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       return;
     }
 
+    // Immediately show loading state and clear old messages
+    set({
+      messages: [],
+      streamingMessage: null,
+      isLoadingMessages: true,
+    });
+
     socket.send(
       JSON.stringify({
         type: "resume_session",
@@ -296,8 +303,8 @@ function handleStreamEvent(event: StreamEvent) {
         ...(isSessionChange && { messages: [], streamingMessage: null }),
       });
 
-      // Load historical messages when switching sessions (but not for new sessions)
-      if (isSessionChange && !isNewSession) {
+      // Load historical messages when switching sessions (but not for newly created sessions)
+      if (isSessionChange && !pendingMessage) {
         useChatStore.getState().loadMessages(data.session_id);
       }
 

@@ -309,7 +309,7 @@ class CentralizedAgentService:
                 setting_sources=["user", "project", "local"],
                 system_prompt={
                     "type": "preset",
-                    "preset": "default",
+                    "preset": config.output_style,
                     "append": full_prompt,
                 },
                 allowed_tools=allowed_tools,
