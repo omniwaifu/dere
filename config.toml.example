@@ -134,6 +134,12 @@ context_change_threshold = 0.7      # Threshold for significant context changes
 escalation_enabled = true           # Enable escalation for prolonged inactivity
 escalation_lookback_hours = 12      # Hours to check for escalation
 
+# Hard minimum interval between notifications (overrides FSM timing)
+min_notification_interval_minutes = 120  # Won't notify more than once per 2 hours
+
+# Startup delay in seconds (useful during testing to avoid immediate engagement)
+startup_delay_seconds = 0           # Delay before ambient monitor starts (0 = no delay)
+
 # FSM (Finite State Machine) Configuration
 fsm_enabled = true                  # Enable state-based notification system
 
