@@ -10,20 +10,25 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dere_shared.models import Conversation
+from dere_shared.models import Conversation, Session
 
 from ..dependencies import get_db
 from .models import (
+    AvailableModelsResponse,
     AvailableOutputStylesResponse,
     AvailablePersonalitiesResponse,
     ClientMessage,
     ConversationMessage,
     MessageHistoryResponse,
+    ModelInfo,
     OutputStyleInfo,
     PersonalityInfo,
+    RecentDirectoriesResponse,
     SessionConfig,
     SessionListResponse,
     SessionResponse,
+    ToolResultData,
+    ToolUseData,
 )
 from .streaming import error_event, session_ready_event
 
@@ -218,19 +223,38 @@ async def agent_websocket(websocket: WebSocket):
         except Exception:
             pass
     finally:
-        await websocket.close()
+        try:
+            await websocket.close()
+        except RuntimeError:
+            pass  # Already closed
 
 
 @router.get("/sessions", response_model=SessionListResponse)
-async def list_sessions(request: Request):
-    """List all active agent sessions."""
-    service = _get_service(request)
-    sessions = await service.list_sessions()
+async def list_sessions(request: Request, db: AsyncSession = Depends(get_db)):
+    """List all sessions from the database."""
+    # Query sessions from database, not in-memory cache
+    result = await db.execute(
+        select(Session)
+        .where(Session.medium == "agent_api")
+        .order_by(Session.start_time.desc())
+        .limit(50)
+    )
+    db_sessions = result.scalars().all()
 
     return SessionListResponse(
         sessions=[
-            SessionResponse(session_id=sid, config=config, claude_session_id=None)
-            for sid, config in sessions
+            SessionResponse(
+                session_id=s.id,
+                config=SessionConfig(
+                    working_dir=s.working_dir,
+                    output_style="default",
+                    personality=s.personality or "",
+                    user_id=s.user_id,
+                ),
+                claude_session_id=s.claude_session_id,
+                name=s.name,
+            )
+            for s in db_sessions
         ]
     )
 
@@ -285,62 +309,116 @@ async def update_session(session_id: int, config: SessionConfig, request: Reques
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: int, request: Request):
-    """Close and delete a session."""
+async def delete_session(
+    session_id: int, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Close and delete a session from both memory and database."""
     service = _get_service(request)
+
+    # Close in-memory session if active
     await service.close_session(session_id)
+
+    # Delete from database
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    if session:
+        # Also delete associated conversations
+        await db.execute(
+            Conversation.__table__.delete().where(Conversation.session_id == session_id)
+        )
+        await db.delete(session)
+        await db.commit()
+
     return {"status": "deleted", "session_id": session_id}
 
 
 @router.get("/sessions/{session_id}/messages", response_model=MessageHistoryResponse)
 async def get_session_messages(
     session_id: int,
-    limit: int = 50,
-    before_timestamp: int | None = None,
+    limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get paginated message history for a session.
+    """Get message history for a session from Claude Code's JSONL storage."""
+    import json
+    from pathlib import Path
 
-    Args:
-        session_id: The session to get messages for
-        limit: Maximum number of messages to return (default 50, max 200)
-        before_timestamp: Only return messages before this timestamp (for pagination)
-    """
-    limit = min(limit, 200)
+    # Get session info from database
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
 
-    query = (
-        select(Conversation)
-        .where(Conversation.session_id == session_id)
-        .order_by(Conversation.timestamp.desc())
-        .limit(limit + 1)
-    )
+    if not session or not session.claude_session_id:
+        return MessageHistoryResponse(messages=[], has_more=False)
 
-    if before_timestamp is not None:
-        query = query.where(Conversation.timestamp < before_timestamp)
+    # Build path to JSONL file (Claude encodes "/" as "-" in path)
+    cwd = session.working_dir
+    if cwd != "/" and cwd.endswith("/"):
+        cwd = cwd.rstrip("/")
+    encoded_cwd = cwd.replace("/", "-")
+    jsonl_path = Path.home() / ".claude" / "projects" / encoded_cwd / f"{session.claude_session_id}.jsonl"
 
-    result = await db.execute(query)
-    rows = result.scalars().all()
+    if not jsonl_path.exists():
+        return MessageHistoryResponse(messages=[], has_more=False)
 
-    has_more = len(rows) > limit
-    messages_data = rows[:limit]
+    messages: list[ConversationMessage] = []
 
-    messages = [
-        ConversationMessage(
-            id=m.id,
-            message_type=m.message_type,
-            content=m.prompt,
-            timestamp=m.timestamp,
-        )
-        for m in reversed(messages_data)
-    ]
+    with jsonl_path.open() as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
-    oldest_timestamp = messages[0].timestamp if messages else None
+            if entry.get("type") not in ("user", "assistant"):
+                continue
 
-    return MessageHistoryResponse(
-        messages=messages,
-        has_more=has_more,
-        oldest_timestamp=oldest_timestamp,
-    )
+            msg_data = entry.get("message", {})
+            content_blocks = msg_data.get("content", [])
+            if isinstance(content_blocks, str):
+                content_blocks = [{"type": "text", "text": content_blocks}]
+
+            text_parts = []
+            tool_uses = []
+            tool_results = []
+
+            for block in content_blocks:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+                elif block.get("type") == "tool_use":
+                    tool_uses.append(ToolUseData(
+                        id=block.get("id", ""),
+                        name=block.get("name", ""),
+                        input=block.get("input", {}),
+                    ))
+                elif block.get("type") == "tool_result":
+                    content = block.get("content", "")
+                    if isinstance(content, list):
+                        content = "\n".join(
+                            c.get("text", "") if isinstance(c, dict) else str(c)
+                            for c in content
+                        )
+                    tool_results.append(ToolResultData(
+                        tool_use_id=block.get("tool_use_id", ""),
+                        name="",  # Not in tool_result block
+                        output=content,
+                        is_error=block.get("is_error", False),
+                    ))
+
+            messages.append(ConversationMessage(
+                id=entry.get("uuid", ""),
+                role=entry.get("type", ""),
+                content="".join(text_parts),
+                timestamp=entry.get("timestamp", ""),
+                tool_uses=tool_uses,
+                tool_results=tool_results,
+            ))
+
+    # Apply limit
+    if len(messages) > limit:
+        messages = messages[-limit:]
+
+    return MessageHistoryResponse(messages=messages, has_more=False)
 
 
 @router.get("/output-styles", response_model=AvailableOutputStylesResponse)
@@ -391,3 +469,166 @@ async def list_personalities(request: Request):
             personalities.append(PersonalityInfo(name=name))
 
     return AvailablePersonalitiesResponse(personalities=personalities)
+
+
+@router.post("/sessions/{session_id}/generate-name")
+async def generate_session_name(session_id: int, db: AsyncSession = Depends(get_db)):
+    """Generate a short descriptive name for a session using Haiku 4.5.
+
+    Fetches the first user message and assistant response from JSONL, then calls Haiku
+    to generate a 2-4 word title for the conversation.
+    """
+    import json
+    from pathlib import Path
+
+    from fastapi import HTTPException
+
+    # Check if session exists and doesn't already have a name
+    session_result = await db.execute(select(Session).where(Session.id == session_id))
+    session = session_result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.name:
+        return {"name": session.name, "generated": False}
+
+    if not session.claude_session_id:
+        raise HTTPException(status_code=400, detail="Session has no claude_session_id")
+
+    # Build path to JSONL file (Claude encodes "/" as "-" in path)
+    cwd = session.working_dir
+    if cwd != "/" and cwd.endswith("/"):
+        cwd = cwd.rstrip("/")
+    encoded_cwd = cwd.replace("/", "-")
+    jsonl_path = (
+        Path.home() / ".claude" / "projects" / encoded_cwd / f"{session.claude_session_id}.jsonl"
+    )
+
+    if not jsonl_path.exists():
+        raise HTTPException(status_code=400, detail="JSONL file not found")
+
+    # Read first user and assistant messages from JSONL
+    first_user_content: str | None = None
+    first_assistant_content: str | None = None
+
+    with jsonl_path.open() as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            msg_type = entry.get("type")
+            if msg_type not in ("user", "assistant"):
+                continue
+
+            msg_data = entry.get("message", {})
+            content_blocks = msg_data.get("content", [])
+            if isinstance(content_blocks, str):
+                content_blocks = [{"type": "text", "text": content_blocks}]
+
+            text_parts = []
+            for block in content_blocks:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+
+            content = "".join(text_parts)
+            if not content:
+                continue
+
+            if msg_type == "user" and first_user_content is None:
+                first_user_content = content
+            elif msg_type == "assistant" and first_assistant_content is None:
+                first_assistant_content = content
+
+            if first_user_content and first_assistant_content:
+                break
+
+    if not first_user_content:
+        raise HTTPException(status_code=400, detail="No user message found")
+
+    # Generate name with Haiku
+    try:
+        from dere_graph.llm_client import ClaudeClient, Message
+
+        client = ClaudeClient(model="claude-haiku-4-5")
+
+        prompt = (
+            "Generate a 2-4 word title for this conversation. "
+            "Output ONLY the title - no explanation, no quotes, no punctuation except spaces.\n\n"
+            f"User message: {first_user_content[:300]}\n"
+        )
+        if first_assistant_content:
+            prompt += f"Assistant response: {first_assistant_content[:200]}\n"
+        prompt += "\nTitle:"
+
+        response = await client.generate_text_response(
+            [Message(role="user", content=prompt)]
+        )
+
+        # Clean up the response - take first line, remove quotes/punctuation
+        name = response.strip().split("\n")[0].strip()
+        name = name.strip('"\'').strip()
+        # Remove common prefixes if model adds them
+        for prefix in ["Title:", "title:", "Title", "title"]:
+            if name.startswith(prefix):
+                name = name[len(prefix):].strip()
+        # Truncate if too long (keep it short)
+        if len(name) > 50:
+            name = name[:47] + "..."
+
+        # Save to database
+        session.name = name
+        await db.commit()
+
+        logger.info("Generated session name '{}' for session {}", name, session_id)
+        return {"name": name, "generated": True}
+
+    except Exception as e:
+        logger.error("Failed to generate session name: {}", e)
+        raise HTTPException(status_code=500, detail=f"Failed to generate name: {e}")
+
+
+@router.get("/models", response_model=AvailableModelsResponse)
+async def list_models():
+    """List available Claude models."""
+    models = [
+        ModelInfo(
+            id="claude-sonnet-4-20250514",
+            name="Sonnet",
+            description="Fast and capable",
+        ),
+        ModelInfo(
+            id="claude-opus-4-20250514",
+            name="Opus",
+            description="Most capable",
+        ),
+        ModelInfo(
+            id="claude-haiku-4-5-latest",
+            name="Haiku",
+            description="Fast and efficient",
+        ),
+    ]
+    return AvailableModelsResponse(models=models)
+
+
+@router.get("/recent-directories", response_model=RecentDirectoriesResponse)
+async def list_recent_directories(
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db),
+):
+    """List recently used working directories from session history."""
+    from sqlalchemy import func
+
+    result = await db.execute(
+        select(Session.working_dir)
+        .where(Session.medium == "agent_api")
+        .group_by(Session.working_dir)
+        .order_by(func.max(Session.start_time).desc())
+        .limit(limit)
+    )
+    directories = [row[0] for row in result.fetchall()]
+    return RecentDirectoriesResponse(directories=directories)

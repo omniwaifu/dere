@@ -49,6 +49,7 @@ class SessionConfig(BaseModel):
     working_dir: str = Field(..., description="Project/working directory")
     output_style: str = Field(default="default", description="Claude output style preset")
     personality: str | list[str] = Field(default="", description="Personality preset name(s)")
+    model: str | None = Field(default=None, description="Claude model to use (e.g., claude-sonnet-4-20250514)")
     user_id: str | None = Field(default=None, description="User identifier")
     allowed_tools: list[str] | None = Field(
         default=None, description="Tool restrictions (None = default)"
@@ -96,6 +97,7 @@ class SessionResponse(BaseModel):
     session_id: int
     config: SessionConfig
     claude_session_id: str | None = None
+    name: str | None = None
 
 
 class SessionListResponse(BaseModel):
@@ -132,13 +134,52 @@ class AvailablePersonalitiesResponse(BaseModel):
     personalities: list[PersonalityInfo]
 
 
+class ModelInfo(BaseModel):
+    """Information about an available Claude model."""
+
+    id: str
+    name: str
+    description: str
+
+
+class AvailableModelsResponse(BaseModel):
+    """List of available Claude models."""
+
+    models: list[ModelInfo]
+
+
+class RecentDirectoriesResponse(BaseModel):
+    """List of recently used working directories."""
+
+    directories: list[str]
+
+
+class ToolUseData(BaseModel):
+    """Tool use in a message."""
+
+    id: str
+    name: str
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolResultData(BaseModel):
+    """Tool result in a message."""
+
+    tool_use_id: str
+    name: str
+    output: str
+    is_error: bool = False
+
+
 class ConversationMessage(BaseModel):
     """A single conversation message for history display."""
 
-    id: int
-    message_type: str
+    id: str
+    role: str  # "user" or "assistant"
     content: str
-    timestamp: int
+    timestamp: str
+    tool_uses: list[ToolUseData] = Field(default_factory=list)
+    tool_results: list[ToolResultData] = Field(default_factory=list)
 
 
 class MessageHistoryResponse(BaseModel):
@@ -146,4 +187,3 @@ class MessageHistoryResponse(BaseModel):
 
     messages: list[ConversationMessage]
     has_more: bool
-    oldest_timestamp: int | None = None

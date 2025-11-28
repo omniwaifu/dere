@@ -19,9 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import select
 
 from dere_shared.config import load_dere_config
-from dere_shared.context import get_full_context
-from dere_shared.models import Conversation, Session
+from dere_shared.context import get_time_context
+from dere_shared.models import Session
 from dere_shared.personalities import PersonalityLoader
+from dere_shared.weather import get_weather_context
 
 from .models import SessionConfig, StreamEvent, StreamEventType
 from .streaming import (
@@ -153,9 +154,36 @@ class CentralizedAgentService:
             if manager:
                 summary = manager.get_emotional_state_summary()
                 if summary and summary != "Currently in a neutral emotional state.":
-                    return f"\n\n## Current Emotional State\n{summary}"
+                    return summary
         except Exception as e:
             logger.debug("Failed to get emotion summary: {}", e)
+        return ""
+
+    def _build_environmental_context(self, session_id: int) -> str:
+        """Build environmental context for system prompt."""
+        parts = []
+
+        try:
+            if self.config.get("context", {}).get("time", True):
+                time_ctx = get_time_context()
+                if time_ctx:
+                    parts.append(f"Current time: {time_ctx['time']}, {time_ctx['date']}")
+        except Exception:
+            pass
+
+        try:
+            if self.config.get("context", {}).get("weather", False):
+                weather_ctx = get_weather_context(self.config)
+                if weather_ctx:
+                    parts.append(
+                        f"Weather in {weather_ctx['location']}: "
+                        f"{weather_ctx['conditions']}, {weather_ctx['temperature']}"
+                    )
+        except Exception:
+            pass
+
+        if parts:
+            return "\n\n## Environmental Context\n" + " | ".join(parts)
         return ""
 
     def _build_personality_prompt(self, config: SessionConfig) -> str:
@@ -180,23 +208,12 @@ class CentralizedAgentService:
         self,
         config: SessionConfig,
     ) -> tuple[int, str | None]:
-        """Create or find a daemon session in the database."""
+        """Create a new session in the database."""
         async with self.session_factory() as db:
-            stmt = (
-                select(Session)
-                .where(Session.working_dir == config.working_dir)
-                .order_by(Session.start_time.desc())
-            )
-            result = await db.execute(stmt)
-            existing = result.scalars().first()
-
-            if existing:
-                return existing.id, existing.claude_session_id
-
             personality_str = (
                 config.personality
                 if isinstance(config.personality, str)
-                else ",".join(config.personality)
+                else ",".join(config.personality) if config.personality else ""
             )
 
             session = Session(
@@ -209,6 +226,7 @@ class CentralizedAgentService:
             db.add(session)
             await db.flush()
             await db.refresh(session)
+            await db.commit()
 
             return session.id, None
 
@@ -228,35 +246,29 @@ class CentralizedAgentService:
                     session_id,
                 )
 
-    async def _capture_message(
+    async def create_session(self, config: SessionConfig) -> AgentSession:
+        """Create a new agent session with the given configuration.
+
+        This creates a new database row and then initializes the Claude SDK client.
+        """
+        session_id, claude_session_id = await self._create_db_session(config)
+        return await self._create_agent_session(
+            session_id=session_id,
+            claude_session_id=claude_session_id,
+            config=config,
+        )
+
+    async def _create_agent_session(
         self,
         session_id: int,
+        claude_session_id: str | None,
         config: SessionConfig,
-        content: str,
-        role: str,
-    ) -> None:
-        """Capture message to database."""
-        async with self.session_factory() as db:
-            conv = Conversation(
-                session_id=session_id,
-                prompt=content,
-                message_type=role,
-                timestamp=int(time.time()),
-                personality=(
-                    config.personality
-                    if isinstance(config.personality, str)
-                    else ",".join(config.personality)
-                ),
-                project_path=config.working_dir,
-                medium="agent_api",
-                user_id=config.user_id,
-            )
-            db.add(conv)
-            await db.commit()
+    ) -> AgentSession:
+        """Create the in-memory AgentSession with Claude SDK client.
 
-    async def create_session(self, config: SessionConfig) -> AgentSession:
-        """Create a new agent session with the given configuration."""
-        session_id, claude_session_id = await self._create_db_session(config)
+        This does NOT create a database row - use create_session for new sessions
+        or resume_session to load existing ones.
+        """
         lock = self._get_lock(session_id)
 
         async with lock:
@@ -264,12 +276,18 @@ class CentralizedAgentService:
                 old_session = self._sessions[session_id]
                 await self._close_session_internal(old_session)
 
-            emotion_summary = ""
-            if config.include_context:
-                emotion_summary = await self._get_emotion_summary(session_id)
-
+            # Build system prompt components
             personality_prompt = self._build_personality_prompt(config)
-            full_prompt = personality_prompt + emotion_summary
+
+            env_context = ""
+            emotion_context = ""
+            if config.include_context:
+                env_context = self._build_environmental_context(session_id)
+                emotion_summary = await self._get_emotion_summary(session_id)
+                if emotion_summary:
+                    emotion_context = f"\n\n## Emotional State\n{emotion_summary}"
+
+            full_prompt = personality_prompt + env_context + emotion_context
 
             settings_data = {"outputStyle": config.output_style}
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -286,6 +304,7 @@ class CentralizedAgentService:
             )
 
             options = ClaudeAgentOptions(
+                cwd=config.working_dir,
                 settings=settings_path,
                 setting_sources=["user", "project", "local"],
                 system_prompt={
@@ -297,6 +316,7 @@ class CentralizedAgentService:
                 permission_mode="acceptEdits",
                 resume=claude_session_id,
                 plugins=[{"type": "local", "path": dere_core_plugin_path}],
+                model=config.model,
             )
 
             exit_stack = AsyncExitStack()
@@ -319,10 +339,11 @@ class CentralizedAgentService:
 
             self._sessions[session_id] = agent_session
             logger.info(
-                "Created agent session {} with output_style={}, personality={}",
+                "Created agent session {} with output_style={}, personality={}, model={}",
                 session_id,
                 config.output_style,
                 config.personality,
+                config.model or "default",
             )
 
             return agent_session
@@ -332,7 +353,11 @@ class CentralizedAgentService:
         return self._sessions.get(session_id)
 
     async def resume_session(self, session_id: int) -> AgentSession | None:
-        """Resume an existing session from database."""
+        """Resume an existing session from database.
+
+        Unlike create_session, this does NOT create a new database row.
+        It loads the existing session and creates a Claude SDK client for it.
+        """
         if session_id in self._sessions:
             return self._sessions[session_id]
 
@@ -351,7 +376,11 @@ class CentralizedAgentService:
                 user_id=db_session.user_id,
             )
 
-            return await self.create_session(config)
+            return await self._create_agent_session(
+                session_id=session_id,
+                claude_session_id=db_session.claude_session_id,
+                config=config,
+            )
 
     async def update_session_config(
         self, session_id: int, new_config: SessionConfig
@@ -396,29 +425,10 @@ class CentralizedAgentService:
         cancel_event = self._get_cancel_event(session.session_id)
         cancel_event.clear()
 
-        await self._capture_message(session.session_id, session.config, prompt, "user")
-
-        full_prompt = prompt
-        if session.config.include_context:
-            try:
-                context = await get_full_context(
-                    config=self.config,
-                    session_id=session.session_id,
-                    user_id=session.config.user_id,
-                    personality=(
-                        session.config.personality
-                        if isinstance(session.config.personality, str)
-                        else ",".join(session.config.personality)
-                    ),
-                    current_prompt=prompt,
-                )
-                if context:
-                    full_prompt = f"{context}\n\n{prompt}"
-            except Exception as e:
-                logger.debug("Failed to fetch context: {}", e)
+        # Environmental context is in system prompt, user message is clean
 
         try:
-            await session.client.query(full_prompt)
+            await session.client.query(prompt)
         except Exception as e:
             logger.error("Claude query failed: {}", e)
             yield session.add_event(error_event(str(e), recoverable=False))
@@ -463,11 +473,6 @@ class CentralizedAgentService:
             return
 
         response_text = "".join(response_chunks)
-        if response_text:
-            await self._capture_message(
-                session.session_id, session.config, response_text, "assistant"
-            )
-
         yield session.add_event(done_event(response_text, tool_count))
 
     async def _close_session_internal(self, session: AgentSession) -> None:
