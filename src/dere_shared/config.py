@@ -107,6 +107,37 @@ class DereGraphConfigFlat(BaseModel):
     idle_threshold_minutes: int = 15
 
 
+class AmbientConfig(BaseModel):
+    """Ambient monitoring configuration."""
+
+    enabled: bool = True
+    check_interval_minutes: int = 30
+    idle_threshold_minutes: int = 60
+    activity_lookback_hours: int = 6
+    embedding_search_limit: int = 20
+    context_change_threshold: float = 0.7
+    notification_method: str = "both"
+    daemon_url: str = "http://localhost:8787"
+    user_id: str | None = None
+    personality: str | None = None
+    escalation_enabled: bool = True
+    escalation_lookback_hours: int = 12
+    min_notification_interval_minutes: int = 120
+    startup_delay_seconds: int = 0
+    fsm_enabled: bool = True
+    fsm_idle_interval: list[int] = Field(default_factory=lambda: [60, 120])
+    fsm_monitoring_interval: list[int] = Field(default_factory=lambda: [15, 30])
+    fsm_engaged_interval: int = 5
+    fsm_cooldown_interval: list[int] = Field(default_factory=lambda: [45, 90])
+    fsm_escalating_interval: list[int] = Field(default_factory=lambda: [30, 60])
+    fsm_suppressed_interval: list[int] = Field(default_factory=lambda: [90, 180])
+    fsm_weight_activity: float = 0.3
+    fsm_weight_emotion: float = 0.25
+    fsm_weight_responsiveness: float = 0.2
+    fsm_weight_temporal: float = 0.15
+    fsm_weight_task: float = 0.1
+
+
 class PluginModeConfig(BaseModel):
     """Plugin mode configuration."""
 
@@ -151,6 +182,7 @@ class DereConfig(BaseModel):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     dere_graph: DereGraphConfigFlat = Field(default_factory=DereGraphConfigFlat)
+    ambient: AmbientConfig = Field(default_factory=AmbientConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     def to_dict(self) -> DereConfigDict:

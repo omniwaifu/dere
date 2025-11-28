@@ -44,6 +44,7 @@ class Session(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
+    name: str | None = None
     working_dir: str
     start_time: int
     end_time: int | None = None

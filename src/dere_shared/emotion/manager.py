@@ -121,7 +121,7 @@ class OCCEmotionManager:
             logger.debug(
                 f"[OCCEmotionManager] {emotion_type.value}: "
                 f"raw={raw_intensity:.1f}, "
-                f"prior={prior_intensity.intensity:.1f if prior_intensity else 0:.1f}, "
+                f"prior={(prior_intensity.intensity if prior_intensity else 0):.1f}, "
                 f"resonance={physics_result.resonance_factor:.2f}, "
                 f"momentum={physics_result.momentum_adjustment:.1f}, "
                 f"final={physics_result.final_intensity:.1f}"

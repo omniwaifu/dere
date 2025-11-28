@@ -123,13 +123,19 @@ async def context_build(
 
             context_text = "\n".join(context_parts) if context_parts else ""
 
-            # Cache the result
-            cache = ContextCache(
-                session_id=req.session_id,
-                context_text=context_text,
-                created_at=datetime.now(),
-            )
-            db.add(cache)
+            # Cache the result (upsert - update if exists, insert if not)
+            existing = await db.get(ContextCache, req.session_id)
+            if existing:
+                existing.context_text = context_text
+                existing.updated_at = datetime.now(UTC)
+            else:
+                cache = ContextCache(
+                    session_id=req.session_id,
+                    context_text=context_text,
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+                db.add(cache)
             await db.commit()
 
             return {"status": "ready", "context": context_text}
