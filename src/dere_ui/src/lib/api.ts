@@ -5,6 +5,8 @@ import type {
   MessageHistoryResponse,
   AvailableOutputStylesResponse,
   AvailablePersonalitiesResponse,
+  AvailableModelsResponse,
+  RecentDirectoriesResponse,
   EmotionStateResponse,
   EmotionSummaryResponse,
 } from "@/types/api";
@@ -65,6 +67,12 @@ export const api = {
         `/agent/sessions/${id}/messages${query ? `?${query}` : ""}`
       );
     },
+
+    generateName: (id: number) =>
+      fetchJson<{ name: string; generated: boolean }>(
+        `/agent/sessions/${id}/generate-name`,
+        { method: "POST" }
+      ),
   },
 
   metadata: {
@@ -73,6 +81,11 @@ export const api = {
 
     personalities: () =>
       fetchJson<AvailablePersonalitiesResponse>("/agent/personalities"),
+
+    models: () => fetchJson<AvailableModelsResponse>("/agent/models"),
+
+    recentDirectories: () =>
+      fetchJson<RecentDirectoriesResponse>("/agent/recent-directories"),
   },
 
   emotion: {

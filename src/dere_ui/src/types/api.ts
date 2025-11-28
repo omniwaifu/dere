@@ -19,6 +19,7 @@ export interface SessionConfig {
   working_dir: string;
   output_style?: string;
   personality?: string | string[];
+  model?: string;
   user_id?: string;
   allowed_tools?: string[];
   include_context?: boolean;
@@ -28,6 +29,7 @@ export interface SessionResponse {
   session_id: number;
   config: SessionConfig;
   claude_session_id: string | null;
+  name: string | null;
 }
 
 export interface SessionListResponse {
@@ -54,17 +56,45 @@ export interface AvailablePersonalitiesResponse {
   personalities: PersonalityInfo[];
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface AvailableModelsResponse {
+  models: ModelInfo[];
+}
+
+export interface RecentDirectoriesResponse {
+  directories: string[];
+}
+
+export interface ApiToolUse {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ApiToolResult {
+  tool_use_id: string;
+  name: string;
+  output: string;
+  is_error: boolean;
+}
+
 export interface ConversationMessage {
-  id: number;
-  message_type: string;
+  id: string;
+  role: string;
   content: string;
-  timestamp: number;
+  timestamp: string;
+  tool_uses?: ApiToolUse[];
+  tool_results?: ApiToolResult[];
 }
 
 export interface MessageHistoryResponse {
   messages: ConversationMessage[];
   has_more: boolean;
-  oldest_timestamp: number | null;
 }
 
 export interface ToolUse {

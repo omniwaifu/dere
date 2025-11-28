@@ -6,6 +6,7 @@ import type {
   ToolResult,
   StreamEvent,
 } from "@/types/api";
+import { api } from "@/lib/api";
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
@@ -24,21 +25,33 @@ interface ChatStore {
   messages: ChatMessage[];
   streamingMessage: ChatMessage | null;
   isQueryInProgress: boolean;
+  isLoadingMessages: boolean;
 
   // Text buffering for streaming
   textBuffer: string;
   flushTimeout: number | null;
 
+  // Callbacks
+  onSessionCreated: ((sessionId: number) => void) | null;
+  onFirstResponse: ((sessionId: number) => void) | null;
+
+  // Pending initial message (sent after session_ready)
+  pendingInitialMessage: string | null;
+
   // Actions
   connect: () => void;
   disconnect: () => void;
-  newSession: (config: SessionConfig) => void;
+  newSession: (config: SessionConfig, initialMessage?: string) => void;
   resumeSession: (id: number, lastSeq?: number) => void;
   sendQuery: (prompt: string) => void;
   cancelQuery: () => void;
   updateConfig: (config: SessionConfig) => void;
   clearMessages: () => void;
+  clearSession: () => void;
   addUserMessage: (content: string) => void;
+  loadMessages: (sessionId: number) => Promise<void>;
+  setOnSessionCreated: (cb: ((sessionId: number) => void) | null) => void;
+  setOnFirstResponse: (cb: ((sessionId: number) => void) | null) => void;
 }
 
 const WS_URL = `ws://${window.location.hostname}:8787/agent/ws`;
@@ -58,8 +71,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: [],
   streamingMessage: null,
   isQueryInProgress: false,
+  isLoadingMessages: false,
   textBuffer: "",
   flushTimeout: null,
+  onSessionCreated: null,
+  onFirstResponse: null,
+  pendingInitialMessage: null,
 
   connect: () => {
     const { socket, status } = get();
@@ -108,7 +125,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
   },
 
-  newSession: (config) => {
+  newSession: (config, initialMessage) => {
     const { socket, status } = get();
     if (!socket || status !== "connected") {
       set({ error: "Not connected" });
@@ -116,7 +133,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
 
     socket.send(JSON.stringify({ type: "new_session", config }));
-    set({ messages: [], streamingMessage: null, isQueryInProgress: false });
+    set({
+      messages: [],
+      streamingMessage: null,
+      isQueryInProgress: false,
+      pendingInitialMessage: initialMessage || null,
+    });
   },
 
   resumeSession: (id, lastSeq) => {
@@ -165,6 +187,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ messages: [], streamingMessage: null });
   },
 
+  clearSession: () => {
+    set({
+      sessionId: null,
+      sessionConfig: null,
+      messages: [],
+      streamingMessage: null,
+      isQueryInProgress: false,
+    });
+  },
+
   addUserMessage: (content) => {
     const userMessage: ChatMessage = {
       id: generateId(),
@@ -175,6 +207,43 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: Date.now(),
     };
     set((state) => ({ messages: [...state.messages, userMessage] }));
+  },
+
+  setOnSessionCreated: (cb) => {
+    set({ onSessionCreated: cb });
+  },
+
+  setOnFirstResponse: (cb) => {
+    set({ onFirstResponse: cb });
+  },
+
+  loadMessages: async (sessionId: number) => {
+    set({ isLoadingMessages: true });
+    try {
+      const response = await api.sessions.messages(sessionId, { limit: 100 });
+      const chatMessages: ChatMessage[] = response.messages.map((msg) => ({
+        id: msg.id,
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+        toolUses: msg.tool_uses?.map((tu) => ({
+          id: tu.id,
+          name: tu.name,
+          input: tu.input,
+          status: "success" as const,
+        })) || [],
+        toolResults: msg.tool_results?.map((tr) => ({
+          toolUseId: tr.tool_use_id,
+          name: tr.name,
+          output: tr.output,
+          isError: tr.is_error,
+        })) || [],
+        timestamp: new Date(msg.timestamp).getTime(),
+      }));
+      set({ messages: chatMessages, isLoadingMessages: false });
+    } catch (error) {
+      console.error("Failed to load messages:", error);
+      set({ isLoadingMessages: false });
+    }
   },
 }));
 
@@ -214,10 +283,34 @@ function handleStreamEvent(event: StreamEvent) {
         session_id: number;
         config: SessionConfig;
       };
+      const currentState = useChatStore.getState();
+      const isSessionChange = currentState.sessionId !== data.session_id;
+      const isNewSession = currentState.sessionId === null;
+      const pendingMessage = currentState.pendingInitialMessage;
+
       useChatStore.setState({
         sessionId: data.session_id,
         sessionConfig: data.config,
+        pendingInitialMessage: null,
+        // Clear messages when switching to a different session
+        ...(isSessionChange && { messages: [], streamingMessage: null }),
       });
+
+      // Load historical messages when switching sessions (but not for new sessions)
+      if (isSessionChange && !isNewSession) {
+        useChatStore.getState().loadMessages(data.session_id);
+      }
+
+      // Send pending initial message if this is a new session
+      if (isNewSession && pendingMessage) {
+        useChatStore.getState().sendQuery(pendingMessage);
+      }
+
+      // Notify listeners (e.g., to invalidate TanStack Query cache)
+      const { onSessionCreated } = useChatStore.getState();
+      if (onSessionCreated) {
+        onSessionCreated(data.session_id);
+      }
       break;
     }
 
@@ -345,6 +438,9 @@ function handleStreamEvent(event: StreamEvent) {
 
     case "done": {
       flushTextBuffer();
+      const currentState = useChatStore.getState();
+      const isFirstResponse = currentState.messages.length === 1; // Only user message so far
+
       useChatStore.setState((s) => {
         if (!s.streamingMessage) return { isQueryInProgress: false };
 
@@ -359,6 +455,14 @@ function handleStreamEvent(event: StreamEvent) {
           isQueryInProgress: false,
         };
       });
+
+      // Trigger name generation after first response
+      if (isFirstResponse) {
+        const { onFirstResponse, sessionId } = useChatStore.getState();
+        if (onFirstResponse && sessionId) {
+          onFirstResponse(sessionId);
+        }
+      }
       break;
     }
 

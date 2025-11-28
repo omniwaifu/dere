@@ -8,6 +8,8 @@ export const queryKeys = {
   sessionMessages: (id: number) => ["sessions", id, "messages"] as const,
   outputStyles: ["outputStyles"] as const,
   personalities: ["personalities"] as const,
+  models: ["models"] as const,
+  recentDirectories: ["recentDirectories"] as const,
   emotionState: (sessionId: number) => ["emotion", sessionId, "state"] as const,
   emotionSummary: (sessionId: number) =>
     ["emotion", sessionId, "summary"] as const,
@@ -71,6 +73,16 @@ export function useDeleteSession() {
   });
 }
 
+export function useGenerateSessionName() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.sessions.generateName(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+    },
+  });
+}
+
 export function useOutputStyles() {
   return useQuery({
     queryKey: queryKeys.outputStyles,
@@ -84,6 +96,22 @@ export function usePersonalities() {
     queryKey: queryKeys.personalities,
     queryFn: () => api.metadata.personalities(),
     staleTime: 1000 * 60 * 60,
+  });
+}
+
+export function useModels() {
+  return useQuery({
+    queryKey: queryKeys.models,
+    queryFn: () => api.metadata.models(),
+    staleTime: 1000 * 60 * 60,
+  });
+}
+
+export function useRecentDirectories() {
+  return useQuery({
+    queryKey: queryKeys.recentDirectories,
+    queryFn: () => api.metadata.recentDirectories(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }
 
