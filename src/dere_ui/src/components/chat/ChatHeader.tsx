@@ -41,7 +41,7 @@ export function ChatHeader() {
           <select
             value={currentPersonality}
             onChange={handlePersonalityChange}
-            className="rounded border-none bg-transparent text-sm focus:outline-none focus:ring-0"
+            className="cursor-pointer rounded border-none bg-transparent text-sm focus:outline-none focus:ring-0 [&>option]:bg-popover [&>option]:text-popover-foreground"
           >
             <option value="">default</option>
             {personalities?.personalities.map((p) => (
@@ -57,7 +57,7 @@ export function ChatHeader() {
           <select
             value={sessionConfig.output_style || "default"}
             onChange={handleOutputStyleChange}
-            className="rounded border-none bg-transparent text-sm focus:outline-none focus:ring-0"
+            className="cursor-pointer rounded border-none bg-transparent text-sm focus:outline-none focus:ring-0 [&>option]:bg-popover [&>option]:text-popover-foreground"
           >
             {outputStyles?.styles.map((s) => (
               <option key={s.name} value={s.name}>

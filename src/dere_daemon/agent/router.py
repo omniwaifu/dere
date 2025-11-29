@@ -426,23 +426,18 @@ async def get_session_messages(
 
 @router.get("/output-styles", response_model=AvailableOutputStylesResponse)
 async def list_output_styles():
-    """List available output styles."""
+    """List available output styles.
+
+    Output styles from plugins need the plugin prefix (e.g., dere-core:discord).
+    """
     styles = [
         OutputStyleInfo(
             name="default",
             description="Default Claude Code output style",
         ),
         OutputStyleInfo(
-            name="discord",
+            name="dere-core:discord",
             description="Optimized for Discord messaging",
-        ),
-        OutputStyleInfo(
-            name="web",
-            description="Optimized for web interfaces",
-        ),
-        OutputStyleInfo(
-            name="minimal",
-            description="Minimal formatting, plain text",
         ),
     ]
     return AvailableOutputStylesResponse(styles=styles)
