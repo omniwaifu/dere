@@ -8,6 +8,7 @@ from .knowledge_graph import router as kg_router
 from .notifications import router as notifications_router
 from .presence import router as presence_router
 from .sessions import router as sessions_router
+from .taskwarrior import router as taskwarrior_router
 
 __all__ = [
     "agent_router",
@@ -17,4 +18,5 @@ __all__ = [
     "notifications_router",
     "presence_router",
     "sessions_router",
+    "taskwarrior_router",
 ]

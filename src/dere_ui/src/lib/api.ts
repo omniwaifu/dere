@@ -9,6 +9,7 @@ import type {
   RecentDirectoriesResponse,
   EmotionStateResponse,
   EmotionSummaryResponse,
+  TasksResponse,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -98,5 +99,17 @@ export const api = {
 
   user: {
     info: () => fetchJson<{ name: string }>("/user/info"),
+  },
+
+  taskwarrior: {
+    tasks: (params?: { status?: string; project?: string; include_completed?: boolean }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set("status", params.status);
+      if (params?.project) searchParams.set("project", params.project);
+      if (params?.include_completed !== undefined)
+        searchParams.set("include_completed", String(params.include_completed));
+      const query = searchParams.toString();
+      return fetchJson<TasksResponse>(`/taskwarrior/tasks${query ? `?${query}` : ""}`);
+    },
   },
 };

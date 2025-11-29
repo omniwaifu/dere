@@ -149,3 +149,22 @@ export interface EmotionStateResponse {
 export interface EmotionSummaryResponse {
   summary: string;
 }
+
+export interface Task {
+  uuid: string;
+  description: string;
+  status: string;
+  project: string | null;
+  tags: string[];
+  entry: string;
+  modified: string | null;
+  end: string | null;
+  due: string | null;
+  urgency: number;
+}
+
+export interface TasksResponse {
+  tasks: Task[];
+  pending_count: number;
+  completed_count: number;
+}

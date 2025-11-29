@@ -14,6 +14,8 @@ export const queryKeys = {
   emotionSummary: (sessionId: number) =>
     ["emotion", sessionId, "summary"] as const,
   userInfo: ["userInfo"] as const,
+  tasks: (params?: { status?: string; project?: string }) =>
+    ["tasks", params] as const,
 };
 
 export function useSessions() {
@@ -138,5 +140,13 @@ export function useUserInfo() {
     queryKey: queryKeys.userInfo,
     queryFn: () => api.user.info(),
     staleTime: Infinity,
+  });
+}
+
+export function useTasks(params?: { status?: string; project?: string; include_completed?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.tasks(params),
+    queryFn: () => api.taskwarrior.tasks(params),
+    refetchInterval: 30_000,
   });
 }

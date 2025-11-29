@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import {
   PanelRight,
   PanelRightClose,
 } from "lucide-react";
+import { useTasks } from "@/hooks/queries";
+import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface WidgetProps {
   title: string;
@@ -121,17 +123,72 @@ export function RightPanel() {
 }
 
 function TasksPreview() {
+  const { data, isLoading, isError } = useTasks({ include_completed: true });
+
+  const completionData = useMemo(() => {
+    if (!data?.tasks) return [];
+
+    const now = new Date();
+    const days: { date: string; count: number }[] = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split("T")[0];
+      days.push({ date: dateStr, count: 0 });
+    }
+
+    for (const task of data.tasks) {
+      if (task.end) {
+        const endDate = task.end.slice(0, 8);
+        const formatted = `${endDate.slice(0, 4)}-${endDate.slice(4, 6)}-${endDate.slice(6, 8)}`;
+        const day = days.find((d) => d.date === formatted);
+        if (day) day.count++;
+      }
+    }
+
+    return days;
+  }, [data?.tasks]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-1.5">
+        <Skeleton className="h-8 w-12" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-xs text-destructive">Failed to load tasks</p>
+    );
+  }
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Skeleton className="h-3 w-3 rounded" />
-        <Skeleton className="h-3 flex-1" />
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold">{data?.pending_count ?? 0}</span>
+        <span className="text-xs text-muted-foreground">pending</span>
       </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Skeleton className="h-3 w-3 rounded" />
-        <Skeleton className="h-3 w-3/4" />
-      </div>
-      <p className="pt-1 text-xs text-muted-foreground/60">Coming soon</p>
+      {completionData.length > 0 && (
+        <div className="h-8">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={completionData}>
+              <Line
+                type="monotone"
+                dataKey="count"
+                stroke="hsl(var(--primary))"
+                strokeWidth={1.5}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {data?.completed_count ?? 0} completed
+      </p>
     </div>
   );
 }

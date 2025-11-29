@@ -460,6 +460,7 @@ from dere_daemon.routers import (
     notifications_router,
     presence_router,
     sessions_router,
+    taskwarrior_router,
 )
 
 app.include_router(sessions_router)
@@ -469,6 +470,7 @@ app.include_router(notifications_router)
 app.include_router(presence_router)
 app.include_router(kg_router)
 app.include_router(context_router)
+app.include_router(taskwarrior_router)
 
 
 # Database session dependency
