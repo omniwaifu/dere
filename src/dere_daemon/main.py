@@ -619,6 +619,13 @@ async def health_check():
     }
 
 
+@app.get("/user/info")
+async def get_user_info():
+    """Get current user info from config."""
+    config = load_dere_config()
+    return {"name": config.user.name}
+
+
 @app.post("/search/similar")
 async def search_similar(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Search for similar conversations using vector similarity"""

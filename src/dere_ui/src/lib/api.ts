@@ -95,4 +95,8 @@ export const api = {
     summary: (sessionId: number) =>
       fetchJson<EmotionSummaryResponse>(`/emotion/summary/${sessionId}`),
   },
+
+  user: {
+    info: () => fetchJson<{ name: string }>("/user/info"),
+  },
 };

@@ -10,10 +10,18 @@ import {
   PanelLeft,
   PanelLeftClose,
   X,
+  User,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useSessions, useDeleteSession } from "@/hooks/queries";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useSessions, useDeleteSession, useUserInfo } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
 
 export function SessionSidebar() {
@@ -21,6 +29,7 @@ export function SessionSidebar() {
   const { sessionId } = useParams({ strict: false });
   const { data, isLoading, isError, refetch } = useSessions();
   const deleteSession = useDeleteSession();
+  const { data: userInfo } = useUserInfo();
 
   const [isCollapsed, setIsCollapsed] = useState(() =>
     localStorage.getItem("sidebar-collapsed") === "true"
@@ -243,6 +252,33 @@ export function SessionSidebar() {
           </div>
         </ScrollArea>
       )}
+
+      {/* User profile section */}
+      <div className="mt-auto border-t border-border p-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
+                isCollapsed && "justify-center"
+              )}
+            >
+              <User className="h-4 w-4 shrink-0" />
+              {!isCollapsed && (
+                <span className="truncate text-sm">
+                  {userInfo?.name || "User"}
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="w-48">
+            <DropdownMenuItem disabled>
+              <Settings className="mr-2 h-4 w-4" />
+              Settings
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </aside>
   );
 }

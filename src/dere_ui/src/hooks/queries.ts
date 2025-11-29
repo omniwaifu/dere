@@ -13,6 +13,7 @@ export const queryKeys = {
   emotionState: (sessionId: number) => ["emotion", sessionId, "state"] as const,
   emotionSummary: (sessionId: number) =>
     ["emotion", sessionId, "summary"] as const,
+  userInfo: ["userInfo"] as const,
 };
 
 export function useSessions() {
@@ -129,5 +130,13 @@ export function useEmotionSummary(sessionId: number) {
     queryKey: queryKeys.emotionSummary(sessionId),
     queryFn: () => api.emotion.summary(sessionId),
     enabled: sessionId > 0,
+  });
+}
+
+export function useUserInfo() {
+  return useQuery({
+    queryKey: queryKeys.userInfo,
+    queryFn: () => api.user.info(),
+    staleTime: Infinity,
   });
 }
