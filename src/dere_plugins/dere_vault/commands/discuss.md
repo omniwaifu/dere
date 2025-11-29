@@ -3,43 +3,56 @@ name: discuss
 description: Discuss paper/concept with Socratic questioning
 ---
 
-Engage in active learning discussion about this paper or concept.
+Engage in active learning discussion about papers, videos, or concepts.
 
-**Usage**: `/discuss <citekey> [optional scope]`
+**Usage**: `/discuss <sources> [optional scope]`
+
+Single source:
 - `/discuss mathewsAntlerIRLBrowser` - discuss whole source
 - `/discuss smithML2023 "chapter 4"` - discuss specific chapter
-- `/discuss jonesStats2020 "the methodology"` - discuss specific section
+- `/discuss https://youtube.com/watch?v=xyz` - discuss YouTube video
 
-**Step 1: Find and Load Source**
+Multiple sources (comma-separated):
+- `/discuss smithML2023, jonesStats2020` - compare two papers
+- `/discuss https://youtu.be/xyz, mathewsAntlerIRLBrowser` - video + paper
+- `/discuss A, B, C` - synthesize multiple sources
 
-1. **Query Zotero** for item metadata:
-   ```
-   search_zotero("<citekey>", search_type="citekey")
-   ```
+**Step 1: Find and Load Sources**
 
-2. **Find literature note** in vault by searching for citekey in frontmatter or filename
+Parse comma-separated inputs. For each source:
 
-3. **Load source content** based on type:
-   - **Webpage/blog**: Use WebFetch on the item URL
-   - **PDF**: Search library.bib for `file = {path}` to find attachment, then Read the PDF
-   - **Large source + scope arg**: Parse scope ("chapter 3", "pages 50-75") and read that section
-   - **Large source, no scope**: Show outline/TOC, ask user what to focus on
+If **YouTube URL** (contains youtube.com or youtu.be):
+- Use `get_youtube_transcript` tool directly
 
-   Source fetching is best-effort - continue with just abstract if source unavailable.
+Otherwise (citekey):
+1. Query Zotero: `search_zotero("<citekey>", search_type="citekey")`
+2. Find literature note in vault
+3. Load content based on type:
+   - **Webpage/blog**: WebFetch on URL
+   - **PDF**: Find attachment path in library.bib, then Read
+   - **Large source**: Summarize key points first to manage context
+
+Source fetching is best-effort - continue with abstract if unavailable.
+
+**For multiple sources**: Load all, then briefly summarize each before deep discussion.
 
 **Step 2: Discuss**
 
-1. **Ask questions to test understanding** - Use Socratic method
-2. **Challenge interpretations** - Explore alternative perspectives
-3. **Connect to existing knowledge** - Link to related concepts
-4. **Capture insights** - Update literature note as insights emerge
-5. **Extract concepts** - End by asking which atomic concepts to extract
-
-**Approach**:
-- Ask questions to test understanding
+**Single source approach**:
+- Ask questions to test understanding (Socratic method)
 - Challenge interpretations
 - Explore alternative perspectives
 - Connect to existing knowledge
+
+**Multi-source approach**:
+- Where do the sources agree? What's the common ground?
+- Where do they contradict or diverge?
+- What does each source contribute that the others don't?
+- How do they build on or inform each other?
+- What synthesis or new insight emerges from combining them?
+
+**Throughout**:
+- Capture insights to literature notes as they emerge
 - Use insight boxes to highlight key reasoning
 
 **Insight Box Format**:
@@ -50,18 +63,25 @@ Engage in active learning discussion about this paper or concept.
 ```
 
 **Discussion Flow**:
-1. Start by asking what they understand about the main concept or argument
+
+Single source:
+1. Start by asking what they understand about the main concept
 2. Probe deeper with "why" and "how" questions
 3. Test with counter-examples or edge cases
 4. Connect to related concepts they already know
 
-**Capture Insights**:
-As key insights emerge during discussion, update the literature note with them:
-* Insight 1
-* Insight 2
-* etc.
+Multiple sources:
+1. Briefly summarize each source's core argument
+2. Ask: "What stands out as similar or different?"
+3. Explore tensions or complementary perspectives
+4. Guide toward synthesis: "What new understanding emerges?"
 
-Don't wait until the end - capture insights as they surface during the conversation.
+**Capture Insights**:
+As insights emerge, update the relevant literature note(s):
+- Single source: add to that note
+- Multiple sources: add comparative insights to each relevant note
+
+Don't wait until the end - capture insights as they surface.
 
 **Extraction Checkpoint**:
 After discussion, ask explicitly: "Which atomic concepts should we extract into permanent notes?"

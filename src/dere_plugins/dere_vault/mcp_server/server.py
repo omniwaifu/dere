@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastmcp import FastMCP
+from youtube_transcript_api import YouTubeTranscriptApi
 
 from .zotero import VaultIntegration, ZoteroClient, build_collection_hierarchy, load_config
+
+
+def _extract_video_id(url_or_id: str) -> str:
+    """Extract YouTube video ID from various URL formats or return as-is if already an ID."""
+    # Common YouTube URL patterns
+    patterns = [
+        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})",
+        r"^([a-zA-Z0-9_-]{11})$",  # Raw video ID
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url_or_id)
+        if match:
+            return match.group(1)
+    raise ValueError(f"Could not extract video ID from: {url_or_id}")
 
 # Create FastMCP server
 mcp = FastMCP("Zotero Library Manager")
@@ -282,6 +298,30 @@ def list_unfiled_items() -> list[dict]:
         }
         for item in items
     ]
+
+
+@mcp.tool()
+def get_youtube_transcript(url_or_video_id: str) -> dict:
+    """
+    Get transcript from a YouTube video.
+
+    Args:
+        url_or_video_id: YouTube URL or video ID
+
+    Returns:
+        Dict with video_id and transcript text
+    """
+    video_id = _extract_video_id(url_or_video_id)
+    ytt_api = YouTubeTranscriptApi()
+    transcript = ytt_api.fetch(video_id)
+
+    # Join segments into plain text
+    text = " ".join(segment.text for segment in transcript)
+
+    return {
+        "video_id": video_id,
+        "transcript": text,
+    }
 
 
 def main():

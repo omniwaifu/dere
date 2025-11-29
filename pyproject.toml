@@ -25,6 +25,7 @@ dependencies = [
     "dere-graph",
     "pyzotero>=1.7.5",
     "fastmcp>=0.1.0",
+    "youtube-transcript-api>=1.2.3",
 ]
 
 [project.optional-dependencies]

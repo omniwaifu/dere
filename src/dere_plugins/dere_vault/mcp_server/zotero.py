@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime
@@ -593,7 +592,6 @@ class VaultIntegration:
         self,
         item: ZoteroItem,
         use_citekey_naming: bool = False,
-        skip_daily_log: bool = False,
         collection_paths: list[str] | None = None,
     ) -> Path:
         """Create literature note from Zotero item.
@@ -601,7 +599,6 @@ class VaultIntegration:
         Args:
             item: ZoteroItem with metadata
             use_citekey_naming: Use @citekey.md naming
-            skip_daily_log: Skip logging to daily note
             collection_paths: List of Zotero collection paths for this item
         """
         # Render template
@@ -625,68 +622,4 @@ class VaultIntegration:
 
         note_path.write_text(content)
 
-        # Log to daily note
-        if not skip_daily_log:
-            note_title = note_path.stem
-            self._log_to_daily_note(note_title)
-
         return note_path
-
-    def _get_daily_note_config(self) -> dict:
-        """Read Obsidian daily notes configuration."""
-        config_path = self.vault_path / ".obsidian" / "daily-notes.json"
-        if config_path.exists():
-            try:
-                return json.loads(config_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # Default fallback
-        return {"folder": "Daily", "format": "YYYY-MM-DD"}
-
-    def _format_daily_note_path(self, date: datetime) -> Path:
-        """Get daily note path based on Obsidian config."""
-        config = self._get_daily_note_config()
-        folder = config.get("folder", "Daily")
-        format_str = config.get("format", "YYYY-MM-DD")
-
-        # Convert moment.js format to Python strftime
-        # YYYY -> %Y, MM -> %m, DD -> %d
-        python_format = format_str.replace("YYYY", "%Y").replace("MM", "%m").replace("DD", "%d")
-
-        relative_path = date.strftime(python_format)
-        return self.vault_path / folder / f"{relative_path}.md"
-
-    def _log_to_daily_note(self, note_title: str) -> None:
-        """Append link to today's daily note under Reading section."""
-        today = datetime.now()
-        daily_note_path = self._format_daily_note_path(today)
-
-        # Ensure parent directory exists
-        daily_note_path.parent.mkdir(parents=True, exist_ok=True)
-
-        link_text = f"- [[{note_title}]]"
-
-        # Check if already logged (duplicate prevention)
-        if daily_note_path.exists():
-            content = daily_note_path.read_text()
-            if link_text in content:
-                return  # Already logged, skip
-
-        # Create or append
-        if not daily_note_path.exists():
-            date_header = today.strftime("%Y-%m-%d")
-            daily_note_path.write_text(f"# {date_header}\n\n## Reading\n{link_text}\n")
-        else:
-            content = daily_note_path.read_text()
-            if "## Reading" not in content:
-                content += f"\n## Reading\n{link_text}\n"
-            else:
-                # Append under existing Reading section
-                lines = content.split("\n")
-                for i, line in enumerate(lines):
-                    if line.startswith("## Reading"):
-                        lines.insert(i + 1, link_text)
-                        break
-                content = "\n".join(lines)
-            daily_note_path.write_text(content)
