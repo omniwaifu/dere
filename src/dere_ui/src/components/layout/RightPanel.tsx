@@ -1,158 +1,166 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState, useEffect } from "react";
+import { Link } from "@tanstack/react-router";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import {
   CheckSquare,
-  Terminal,
   Heart,
   Radio,
+  ExternalLink,
+  PanelRight,
+  PanelRightClose,
 } from "lucide-react";
 
-export function RightPanel() {
+interface WidgetProps {
+  title: string;
+  icon: React.ReactNode;
+  href: string;
+  children: React.ReactNode;
+}
+
+function Widget({ title, icon, href, children }: WidgetProps) {
   return (
-    <aside className="flex w-80 flex-col bg-muted/30">
-      <Tabs defaultValue="tasks" className="flex h-full flex-col">
-        <TabsList className="mx-4 mt-4 grid grid-cols-4">
-          <TabsTrigger value="tasks" className="gap-1 text-xs">
-            <CheckSquare className="h-3 w-3" />
-          </TabsTrigger>
-          <TabsTrigger value="tools" className="gap-1 text-xs">
-            <Terminal className="h-3 w-3" />
-          </TabsTrigger>
-          <TabsTrigger value="emotion" className="gap-1 text-xs">
-            <Heart className="h-3 w-3" />
-          </TabsTrigger>
-          <TabsTrigger value="ambient" className="gap-1 text-xs">
-            <Radio className="h-3 w-3" />
-          </TabsTrigger>
-        </TabsList>
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {icon}
+          <h3 className="text-sm font-medium">{title}</h3>
+        </div>
+        <Link to={href}>
+          <Button variant="ghost" size="icon" className="h-6 w-6">
+            <ExternalLink className="h-3 w-3" />
+          </Button>
+        </Link>
+      </div>
+      {children}
+    </div>
+  );
+}
 
-        <ScrollArea className="flex-1 p-4">
-          <TabsContent value="tasks" className="mt-0">
-            <TasksPanel />
-          </TabsContent>
+export function RightPanel() {
+  const [isCollapsed, setIsCollapsed] = useState(() =>
+    localStorage.getItem("right-panel-collapsed") === "true"
+  );
 
-          <TabsContent value="tools" className="mt-0">
-            <ToolsPanel />
-          </TabsContent>
+  useEffect(() => {
+    localStorage.setItem("right-panel-collapsed", String(isCollapsed));
+  }, [isCollapsed]);
 
-          <TabsContent value="emotion" className="mt-0">
-            <EmotionPanel />
-          </TabsContent>
+  if (isCollapsed) {
+    return (
+      <aside className="flex w-12 flex-col border-l border-border bg-muted/30">
+        <div className="flex h-12 items-center justify-center">
+          <button
+            onClick={() => setIsCollapsed(false)}
+            className="group flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-accent"
+            title="Expand panel"
+          >
+            <PanelRight className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-1 flex-col items-center gap-2 pt-2">
+          <Link to="/tasks" className="rounded-md p-2 hover:bg-accent" title="Tasks">
+            <CheckSquare className="h-4 w-4 text-muted-foreground" />
+          </Link>
+          <Link to="/emotion" className="rounded-md p-2 hover:bg-accent" title="Emotion">
+            <Heart className="h-4 w-4 text-muted-foreground" />
+          </Link>
+          <Link to="/ambient" className="rounded-md p-2 hover:bg-accent" title="Ambient">
+            <Radio className="h-4 w-4 text-muted-foreground" />
+          </Link>
+        </div>
+      </aside>
+    );
+  }
 
-          <TabsContent value="ambient" className="mt-0">
-            <AmbientPanel />
-          </TabsContent>
-        </ScrollArea>
-      </Tabs>
+  return (
+    <aside className="flex w-72 flex-col border-l border-border bg-muted/30">
+      <div className="flex h-12 items-center justify-between px-3">
+        <span className="text-sm font-medium text-foreground/80">Cockpit</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setIsCollapsed(true)}
+          title="Collapse panel"
+        >
+          <PanelRightClose className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <ScrollArea className="flex-1 px-3 pb-3">
+        <div className="space-y-3">
+          <Widget
+            title="Tasks"
+            icon={<CheckSquare className="h-4 w-4 text-muted-foreground" />}
+            href="/tasks"
+          >
+            <TasksPreview />
+          </Widget>
+
+          <Widget
+            title="Emotion"
+            icon={<Heart className="h-4 w-4 text-muted-foreground" />}
+            href="/emotion"
+          >
+            <EmotionPreview />
+          </Widget>
+
+          <Widget
+            title="Ambient"
+            icon={<Radio className="h-4 w-4 text-muted-foreground" />}
+            href="/ambient"
+          >
+            <AmbientPreview />
+          </Widget>
+        </div>
+      </ScrollArea>
     </aside>
   );
 }
 
-function TasksPanel() {
+function TasksPreview() {
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium">Tasks</h3>
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-4 w-4 rounded" />
-          <Skeleton className="h-4 flex-1" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-4 w-4 rounded" />
-          <Skeleton className="h-4 flex-1" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-4 w-4 rounded" />
-          <Skeleton className="h-4 w-3/4" />
-        </div>
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Skeleton className="h-3 w-3 rounded" />
+        <Skeleton className="h-3 flex-1" />
       </div>
-      <p className="text-xs text-muted-foreground">Coming soon</p>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Skeleton className="h-3 w-3 rounded" />
+        <Skeleton className="h-3 w-3/4" />
+      </div>
+      <p className="pt-1 text-xs text-muted-foreground/60">Coming soon</p>
     </div>
   );
 }
 
-function ToolsPanel() {
+function EmotionPreview() {
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium">Tool Activity</h3>
-      <div className="space-y-2">
-        <div className="rounded-md border border-border p-2">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-3 w-16" />
-            <Badge variant="secondary" className="h-5">
-              <Skeleton className="h-2 w-8" />
-            </Badge>
-          </div>
-          <Skeleton className="mt-2 h-8 w-full" />
-        </div>
-        <div className="rounded-md border border-border p-2">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-3 w-12" />
-            <Badge variant="secondary" className="h-5">
-              <Skeleton className="h-2 w-8" />
-            </Badge>
-          </div>
-          <Skeleton className="mt-2 h-8 w-full" />
-        </div>
+    <div className="flex items-center gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+        <Skeleton className="h-6 w-6 rounded-full" />
       </div>
-      <p className="text-xs text-muted-foreground">Coming soon</p>
+      <div className="flex-1">
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="mt-1 h-2 w-24" />
+      </div>
     </div>
   );
 }
 
-function EmotionPanel() {
+function AmbientPreview() {
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium">Emotion State</h3>
-      <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-2xl">
-          <Skeleton className="h-8 w-8 rounded-full" />
-        </div>
-        <div className="flex-1">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="mt-1 h-3 w-32" />
-        </div>
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 rounded-full bg-green-500" />
+        <span className="text-xs">Monitoring</span>
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-sm">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-2 w-24" />
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <Skeleton className="h-3 w-12" />
-          <Skeleton className="h-2 w-20" />
-        </div>
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>State</span>
+        <Skeleton className="h-3 w-12" />
       </div>
-      <p className="text-xs text-muted-foreground">Coming soon</p>
-    </div>
-  );
-}
-
-function AmbientPanel() {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium">Ambient Monitor</h3>
-      <div className="rounded-md border border-border p-3">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-green-500" />
-          <Skeleton className="h-4 w-24" />
-        </div>
-        <Skeleton className="mt-2 h-3 w-full" />
-        <Skeleton className="mt-1 h-3 w-3/4" />
-      </div>
-      <div className="space-y-1 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">State</span>
-          <Skeleton className="h-4 w-16" />
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Last Check</span>
-          <Skeleton className="h-4 w-20" />
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground">Coming soon</p>
     </div>
   );
 }

@@ -9,9 +9,27 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as EmotionRouteImport } from './routes/emotion'
+import { Route as AmbientRouteImport } from './routes/ambient'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatSessionIdRouteImport } from './routes/chat.$sessionId'
 
+const TasksRoute = TasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmotionRoute = EmotionRouteImport.update({
+  id: '/emotion',
+  path: '/emotion',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AmbientRoute = AmbientRouteImport.update({
+  id: '/ambient',
+  path: '/ambient',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -25,32 +43,65 @@ const ChatSessionIdRoute = ChatSessionIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/ambient': typeof AmbientRoute
+  '/emotion': typeof EmotionRoute
+  '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ambient': typeof AmbientRoute
+  '/emotion': typeof EmotionRoute
+  '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/ambient': typeof AmbientRoute
+  '/emotion': typeof EmotionRoute
+  '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/chat/$sessionId'
+  fullPaths: '/' | '/ambient' | '/emotion' | '/tasks' | '/chat/$sessionId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/chat/$sessionId'
-  id: '__root__' | '/' | '/chat/$sessionId'
+  to: '/' | '/ambient' | '/emotion' | '/tasks' | '/chat/$sessionId'
+  id: '__root__' | '/' | '/ambient' | '/emotion' | '/tasks' | '/chat/$sessionId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AmbientRoute: typeof AmbientRoute
+  EmotionRoute: typeof EmotionRoute
+  TasksRoute: typeof TasksRoute
   ChatSessionIdRoute: typeof ChatSessionIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/tasks': {
+      id: '/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/emotion': {
+      id: '/emotion'
+      path: '/emotion'
+      fullPath: '/emotion'
+      preLoaderRoute: typeof EmotionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ambient': {
+      id: '/ambient'
+      path: '/ambient'
+      fullPath: '/ambient'
+      preLoaderRoute: typeof AmbientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -70,6 +121,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AmbientRoute: AmbientRoute,
+  EmotionRoute: EmotionRoute,
+  TasksRoute: TasksRoute,
   ChatSessionIdRoute: ChatSessionIdRoute,
 }
 export const routeTree = rootRouteImport
