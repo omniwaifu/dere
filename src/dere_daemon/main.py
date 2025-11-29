@@ -612,6 +612,21 @@ async def get_or_create_emotion_manager(session_id: int, personality: str | None
     return manager
 
 
+# Global emotion manager singleton (session_id=0 as sentinel for global)
+GLOBAL_EMOTION_SESSION_ID = 0
+_global_emotion_manager_lock = asyncio.Lock()
+
+
+async def get_global_emotion_manager():
+    """Get the global emotion manager (singleton, not tied to any session)."""
+    async with _global_emotion_manager_lock:
+        if GLOBAL_EMOTION_SESSION_ID in app.state.emotion_managers:
+            return app.state.emotion_managers[GLOBAL_EMOTION_SESSION_ID]
+
+        # Reuse the existing creation logic with session_id=0
+        return await get_or_create_emotion_manager(GLOBAL_EMOTION_SESSION_ID)
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""

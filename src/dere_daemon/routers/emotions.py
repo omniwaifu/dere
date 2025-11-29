@@ -2,19 +2,76 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+import json
+from pathlib import Path
+
+from fastapi import APIRouter
 from loguru import logger
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/emotion", tags=["emotions"])
 
 
-@router.get("/state/{session_id}")
-async def emotion_get_state(session_id: int, request: Request):
-    """Get current emotional state for a session"""
-    from dere_daemon.main import get_or_create_emotion_manager
+class EmotionEvent(BaseModel):
+    """A stimulus event that affected emotional state."""
+
+    timestamp: int
+    stimulus_type: str
+    valence: float
+    intensity: float
+    resulting_emotion: str | None = None
+
+
+class EmotionHistoryResponse(BaseModel):
+    """Response containing emotion history."""
+
+    events: list[EmotionEvent]
+    total_count: int
+
+
+class OCCGoalResponse(BaseModel):
+    """OCC Goal display model."""
+
+    id: str
+    description: str
+    importance: int
+    active: bool = True
+
+
+class OCCStandardResponse(BaseModel):
+    """OCC Standard display model."""
+
+    id: str
+    description: str
+    importance: int
+
+
+class OCCAttitudeResponse(BaseModel):
+    """OCC Attitude display model."""
+
+    id: str
+    target_object: str
+    description: str
+    appealingness: int
+
+
+class EmotionProfileResponse(BaseModel):
+    """User's OCC psychological profile."""
+
+    has_profile: bool
+    profile_path: str | None = None
+    goals: list[OCCGoalResponse] = []
+    standards: list[OCCStandardResponse] = []
+    attitudes: list[OCCAttitudeResponse] = []
+
+
+@router.get("/state")
+async def emotion_get_state():
+    """Get current global emotional state."""
+    from dere_daemon.main import get_global_emotion_manager
 
     try:
-        emotion_manager = await get_or_create_emotion_manager(session_id)
+        emotion_manager = await get_global_emotion_manager()
         mood = emotion_manager.get_current_mood()
 
         if not mood:
@@ -32,20 +89,122 @@ async def emotion_get_state(session_id: int, request: Request):
         }
     except Exception as e:
         logger.error(f"[emotion_get_state] Error: {e}")
-        # FIXME(sweep:stack): FastAPI - Tuple return won't set status code; use raise HTTPException(status_code=500, detail=str(e))
-        return {"error": str(e)}, 500
+        return {"has_emotion": False, "state": "neutral", "error": str(e)}
 
 
-@router.get("/summary/{session_id}")
-async def emotion_get_summary(session_id: int, request: Request):
-    """Get human-readable emotion summary for prompt injection"""
-    from dere_daemon.main import get_or_create_emotion_manager
+@router.get("/summary")
+async def emotion_get_summary():
+    """Get human-readable emotion summary for prompt injection."""
+    from dere_daemon.main import get_global_emotion_manager
 
     try:
-        emotion_manager = await get_or_create_emotion_manager(session_id)
+        emotion_manager = await get_global_emotion_manager()
         summary = emotion_manager.get_emotional_state_summary()
 
         return {"summary": summary}
     except Exception as e:
         logger.error(f"[emotion_get_summary] Error: {e}")
         return {"summary": "Currently in a neutral emotional state."}
+
+
+@router.get("/history", response_model=EmotionHistoryResponse)
+async def emotion_get_history(limit: int = 100):
+    """Get emotion stimulus history."""
+    from dere_daemon.main import get_global_emotion_manager
+
+    try:
+        emotion_manager = await get_global_emotion_manager()
+
+        # Get all stimuli from the buffer (last hour by default)
+        recent_stimuli = emotion_manager.stimulus_buffer.get_recent_stimuli(
+            60 * 60 * 1000  # Last hour
+        )
+
+        events = []
+        for stimulus in recent_stimuli[-limit:]:
+            events.append(
+                EmotionEvent(
+                    timestamp=stimulus.timestamp,
+                    stimulus_type=stimulus.type,
+                    valence=stimulus.valence,
+                    intensity=stimulus.intensity,
+                    resulting_emotion=None,
+                )
+            )
+
+        return EmotionHistoryResponse(
+            events=list(reversed(events)),  # Most recent first
+            total_count=len(recent_stimuli),
+        )
+    except Exception as e:
+        logger.error(f"[emotion_get_history] Error: {e}")
+        return EmotionHistoryResponse(events=[], total_count=0)
+
+
+@router.get("/profile", response_model=EmotionProfileResponse)
+async def emotion_get_profile():
+    """Get user's OCC psychological profile."""
+    user_occ_path = Path.home() / ".config" / "dere" / "user_occ.json"
+
+    if not user_occ_path.exists():
+        # Return the default profile that was loaded into the emotion manager
+        try:
+            from dere_daemon.main import get_global_emotion_manager
+
+            emotion_manager = await get_global_emotion_manager()
+            engine = emotion_manager.appraisal_engine
+
+            return EmotionProfileResponse(
+                has_profile=False,
+                profile_path=str(user_occ_path),
+                goals=[
+                    OCCGoalResponse(
+                        id=g.id,
+                        description=g.description,
+                        importance=g.importance,
+                        active=g.active,
+                    )
+                    for g in engine.goals
+                ],
+                standards=[
+                    OCCStandardResponse(
+                        id=s.id,
+                        description=s.description,
+                        importance=s.importance,
+                    )
+                    for s in engine.standards
+                ],
+                attitudes=[
+                    OCCAttitudeResponse(
+                        id=a.id,
+                        target_object=a.target_object,
+                        description=a.description,
+                        appealingness=a.appealingness,
+                    )
+                    for a in engine.attitudes
+                ],
+            )
+        except Exception as e:
+            logger.error(f"[emotion_get_profile] Error getting defaults: {e}")
+            return EmotionProfileResponse(
+                has_profile=False,
+                profile_path=str(user_occ_path),
+            )
+
+    try:
+        with open(user_occ_path) as f:
+            user_occ = json.load(f)
+
+        return EmotionProfileResponse(
+            has_profile=True,
+            profile_path=str(user_occ_path),
+            goals=[OCCGoalResponse(**g) for g in user_occ.get("goals", [])],
+            standards=[OCCStandardResponse(**s) for s in user_occ.get("standards", [])],
+            attitudes=[OCCAttitudeResponse(**a) for a in user_occ.get("attitudes", [])],
+        )
+    except Exception as e:
+        logger.error(f"[emotion_get_profile] Error loading profile: {e}")
+        return EmotionProfileResponse(
+            has_profile=False,
+            profile_path=str(user_occ_path),
+        )

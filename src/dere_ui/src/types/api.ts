@@ -140,14 +140,57 @@ export interface ClientMessage {
 
 export interface EmotionStateResponse {
   has_emotion: boolean;
-  dominant_emotion: string | null;
-  intensity: number;
-  last_updated: number | null;
-  active_emotions: Record<string, { intensity: number; last_updated: number }>;
+  state?: string;
+  dominant_emotion?: string;
+  intensity?: number;
+  last_updated?: number;
+  active_emotions?: Record<string, { intensity: number; last_updated: number }>;
+  error?: string;
 }
 
 export interface EmotionSummaryResponse {
   summary: string;
+}
+
+export interface EmotionEvent {
+  timestamp: number;
+  stimulus_type: string;
+  valence: number;
+  intensity: number;
+  resulting_emotion: string | null;
+}
+
+export interface EmotionHistoryResponse {
+  events: EmotionEvent[];
+  total_count: number;
+}
+
+export interface OCCGoal {
+  id: string;
+  description: string;
+  importance: number;
+  active: boolean;
+}
+
+export interface OCCStandard {
+  id: string;
+  description: string;
+  importance: number;
+}
+
+export interface OCCAttitude {
+  id: string;
+  target_object: string;
+  description: string;
+  appealingness: number;
+}
+
+export interface EmotionProfileResponse {
+  has_profile: boolean;
+  profile_path: string | null;
+  goals: OCCGoal[];
+  standards: OCCStandard[];
+  attitudes: OCCAttitude[];
 }
 
 export interface Task {

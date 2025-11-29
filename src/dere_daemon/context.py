@@ -81,13 +81,13 @@ async def compose_session_context(
             # Personality not found, skip
             pass
 
-        # Add emotional state if requested
+        # Add emotional state if requested (uses global emotion manager)
         if include_emotion and context_parts:
             try:
-                from dere_daemon.main import get_or_create_emotion_manager
+                from dere_daemon.main import get_global_emotion_manager
 
-                emotion_manager = await get_or_create_emotion_manager(session_id, personality_name)
-                emotion_summary = emotion_manager.get_summary()
+                emotion_manager = await get_global_emotion_manager()
+                emotion_summary = emotion_manager.get_emotional_state_summary()
 
                 if emotion_summary and emotion_summary.strip():
                     context_parts.append(f"Current emotional state: {emotion_summary}")

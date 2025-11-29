@@ -10,8 +10,17 @@ import {
   ExternalLink,
   PanelRight,
   PanelRightClose,
+  Smile,
+  Frown,
+  Meh,
+  Star,
+  ThumbsUp,
+  AlertTriangle,
+  CloudRain,
+  Zap,
+  HelpCircle,
 } from "lucide-react";
-import { useTasks } from "@/hooks/queries";
+import { useTasks, useEmotionState } from "@/hooks/queries";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface WidgetProps {
@@ -193,15 +202,120 @@ function TasksPreview() {
   );
 }
 
+// Emotion icon and color mappings based on OCC emotion characteristics
+const EMOTION_CONFIG: Record<
+  string,
+  { icon: React.ElementType; color: string; valence: "positive" | "negative" | "neutral" }
+> = {
+  // Positive emotions
+  JOY: { icon: Smile, color: "#22c55e", valence: "positive" },
+  HOPE: { icon: Star, color: "#3b82f6", valence: "positive" },
+  RELIEF: { icon: ThumbsUp, color: "#22c55e", valence: "positive" },
+  PRIDE: { icon: Star, color: "#f59e0b", valence: "positive" },
+  ADMIRATION: { icon: Heart, color: "#ec4899", valence: "positive" },
+  LOVE: { icon: Heart, color: "#ec4899", valence: "positive" },
+  LIKING: { icon: ThumbsUp, color: "#3b82f6", valence: "positive" },
+  GRATIFICATION: { icon: Smile, color: "#22c55e", valence: "positive" },
+  GRATITUDE: { icon: Heart, color: "#22c55e", valence: "positive" },
+  SATISFACTION: { icon: Smile, color: "#22c55e", valence: "positive" },
+  HAPPY_FOR: { icon: Smile, color: "#22c55e", valence: "positive" },
+  GLOATING: { icon: Smile, color: "#f59e0b", valence: "positive" },
+  INTEREST: { icon: Zap, color: "#8b5cf6", valence: "positive" },
+  // Negative emotions
+  DISTRESS: { icon: Frown, color: "#ef4444", valence: "negative" },
+  FEAR: { icon: AlertTriangle, color: "#f59e0b", valence: "negative" },
+  DISAPPOINTMENT: { icon: Frown, color: "#6b7280", valence: "negative" },
+  SHAME: { icon: Frown, color: "#ef4444", valence: "negative" },
+  REPROACH: { icon: AlertTriangle, color: "#ef4444", valence: "negative" },
+  DISLIKING: { icon: Frown, color: "#6b7280", valence: "negative" },
+  REMORSE: { icon: CloudRain, color: "#6b7280", valence: "negative" },
+  ANGER: { icon: AlertTriangle, color: "#ef4444", valence: "negative" },
+  RESENTMENT: { icon: Frown, color: "#ef4444", valence: "negative" },
+  FEAR_CONFIRMED: { icon: AlertTriangle, color: "#ef4444", valence: "negative" },
+  PITY: { icon: Frown, color: "#6b7280", valence: "negative" },
+  // Neutral
+  NEUTRAL: { icon: Meh, color: "#6b7280", valence: "neutral" },
+};
+
+function getEmotionConfig(emotionType: string) {
+  // Handle both "JOY" and "OCCEmotionType.JOY" formats
+  const key = emotionType.replace("OCCEmotionType.", "").toUpperCase();
+  return EMOTION_CONFIG[key] || { icon: HelpCircle, color: "#6b7280", valence: "neutral" as const };
+}
+
+function formatEmotionName(emotionType: string): string {
+  const key = emotionType.replace("OCCEmotionType.", "");
+  return key
+    .split("_")
+    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function EmotionPreview() {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-        <Skeleton className="h-6 w-6 rounded-full" />
+  const { data, isLoading, isError } = useEmotionState();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+          <Skeleton className="h-6 w-6 rounded-full" />
+        </div>
+        <div className="flex-1">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="mt-1 h-2 w-24" />
+        </div>
       </div>
-      <div className="flex-1">
-        <Skeleton className="h-3 w-16" />
-        <Skeleton className="mt-1 h-2 w-24" />
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-xs text-destructive">Failed to load emotion state</p>
+    );
+  }
+
+  if (!data?.has_emotion || !data.dominant_emotion) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+          <Meh className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium">Neutral</p>
+          <p className="text-xs text-muted-foreground">No strong emotions</p>
+        </div>
+      </div>
+    );
+  }
+
+  const config = getEmotionConfig(data.dominant_emotion);
+  const Icon = config.icon;
+  const intensity = data.intensity ?? 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ backgroundColor: `${config.color}20` }}
+        >
+          <Icon className="h-5 w-5" style={{ color: config.color }} />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium">{formatEmotionName(data.dominant_emotion)}</p>
+          <p className="text-xs text-muted-foreground">
+            Intensity: {intensity.toFixed(0)}%
+          </p>
+        </div>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${Math.min(100, intensity)}%`,
+            backgroundColor: config.color,
+          }}
+        />
       </div>
     </div>
   );

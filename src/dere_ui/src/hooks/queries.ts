@@ -10,9 +10,10 @@ export const queryKeys = {
   personalities: ["personalities"] as const,
   models: ["models"] as const,
   recentDirectories: ["recentDirectories"] as const,
-  emotionState: (sessionId: number) => ["emotion", sessionId, "state"] as const,
-  emotionSummary: (sessionId: number) =>
-    ["emotion", sessionId, "summary"] as const,
+  emotionState: ["emotion", "state"] as const,
+  emotionSummary: ["emotion", "summary"] as const,
+  emotionHistory: ["emotion", "history"] as const,
+  emotionProfile: ["emotion", "profile"] as const,
   userInfo: ["userInfo"] as const,
   tasks: (params?: { status?: string; project?: string }) =>
     ["tasks", params] as const,
@@ -118,20 +119,34 @@ export function useRecentDirectories() {
   });
 }
 
-export function useEmotionState(sessionId: number) {
+export function useEmotionState() {
   return useQuery({
-    queryKey: queryKeys.emotionState(sessionId),
-    queryFn: () => api.emotion.state(sessionId),
-    enabled: sessionId > 0,
+    queryKey: queryKeys.emotionState,
+    queryFn: () => api.emotion.state(),
     refetchInterval: 30000,
   });
 }
 
-export function useEmotionSummary(sessionId: number) {
+export function useEmotionSummary() {
   return useQuery({
-    queryKey: queryKeys.emotionSummary(sessionId),
-    queryFn: () => api.emotion.summary(sessionId),
-    enabled: sessionId > 0,
+    queryKey: queryKeys.emotionSummary,
+    queryFn: () => api.emotion.summary(),
+  });
+}
+
+export function useEmotionHistory(limit?: number) {
+  return useQuery({
+    queryKey: queryKeys.emotionHistory,
+    queryFn: () => api.emotion.history(limit),
+    refetchInterval: 30000,
+  });
+}
+
+export function useEmotionProfile() {
+  return useQuery({
+    queryKey: queryKeys.emotionProfile,
+    queryFn: () => api.emotion.profile(),
+    staleTime: 1000 * 60 * 60, // 1 hour
   });
 }
 

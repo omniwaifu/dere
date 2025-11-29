@@ -134,23 +134,20 @@ class CentralizedAgentService:
             return []
         return session.get_events_since(last_seq)
 
-    async def _get_or_create_emotion_manager(self, session_id: int) -> OCCEmotionManager | None:
-        """Get emotion manager for session, creating if needed."""
-        if session_id in self.emotion_managers:
-            return self.emotion_managers[session_id]
-
+    async def _get_global_emotion_manager(self) -> OCCEmotionManager | None:
+        """Get the global emotion manager."""
         try:
-            from dere_daemon.main import get_or_create_emotion_manager
+            from dere_daemon.main import get_global_emotion_manager
 
-            return await get_or_create_emotion_manager(session_id)
+            return await get_global_emotion_manager()
         except Exception as e:
-            logger.debug("Failed to get emotion manager: {}", e)
+            logger.debug("Failed to get global emotion manager: {}", e)
             return None
 
     async def _get_emotion_summary(self, session_id: int) -> str:
-        """Get emotion summary for prompt injection."""
+        """Get emotion summary for prompt injection (uses global emotions)."""
         try:
-            manager = await self._get_or_create_emotion_manager(session_id)
+            manager = await self._get_global_emotion_manager()
             if manager:
                 summary = manager.get_emotional_state_summary()
                 if summary and summary != "Currently in a neutral emotional state.":

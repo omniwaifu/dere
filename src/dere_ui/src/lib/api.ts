@@ -9,6 +9,8 @@ import type {
   RecentDirectoriesResponse,
   EmotionStateResponse,
   EmotionSummaryResponse,
+  EmotionHistoryResponse,
+  EmotionProfileResponse,
   TasksResponse,
 } from "@/types/api";
 
@@ -90,11 +92,16 @@ export const api = {
   },
 
   emotion: {
-    state: (sessionId: number) =>
-      fetchJson<EmotionStateResponse>(`/emotion/state/${sessionId}`),
+    state: () => fetchJson<EmotionStateResponse>("/emotion/state"),
 
-    summary: (sessionId: number) =>
-      fetchJson<EmotionSummaryResponse>(`/emotion/summary/${sessionId}`),
+    summary: () => fetchJson<EmotionSummaryResponse>("/emotion/summary"),
+
+    history: (limit?: number) => {
+      const params = limit ? `?limit=${limit}` : "";
+      return fetchJson<EmotionHistoryResponse>(`/emotion/history${params}`);
+    },
+
+    profile: () => fetchJson<EmotionProfileResponse>("/emotion/profile"),
   },
 
   user: {
