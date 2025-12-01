@@ -1,6 +1,6 @@
 # dere
 
-Wrapper for Claude Code that adds personality, context awareness, and a plugin system.
+Wrapper for Claude Code that adds personality, plugins, knowledge graph, and prompts for different workflows. The core thesis of this project is 'I pay for a subscription, I might as well wring every dollar of value I can' while utilizing it for things such as task management, note-taking (anki, obsidian, etc.), news analysis, etc. - all in a 'personality' that's less grating than default.
 
 ## What it does
 
@@ -138,6 +138,7 @@ src/
 ├── dere_ambient/      # Proactive monitoring
 ├── dere_graph/        # Knowledge graph (pgvector)
 ├── dere_shared/       # Shared utilities
+├── dere_ui            # React/Vite UI 
 └── dere_plugins/      # Claude Code plugins
     ├── dere_core/         # Core personality (always-on)
     ├── dere_productivity/ # Productivity suite
