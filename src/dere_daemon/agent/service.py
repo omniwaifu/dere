@@ -312,6 +312,7 @@ class CentralizedAgentService:
                 personality=personality_str,
                 medium="agent_api",
                 user_id=config.user_id,
+                thinking_budget=config.thinking_budget,
             )
             db.add(session)
             await db.flush()
@@ -474,6 +475,7 @@ class CentralizedAgentService:
                 output_style="default",
                 personality=db_session.personality or "",
                 user_id=db_session.user_id,
+                thinking_budget=db_session.thinking_budget,
             )
 
             return await self._create_agent_session(
@@ -496,10 +498,17 @@ class CentralizedAgentService:
                 session.config.output_style != new_config.output_style
                 or session.config.personality != new_config.personality
                 or session.config.allowed_tools != new_config.allowed_tools
+                or session.config.thinking_budget != new_config.thinking_budget
             )
 
             if needs_recreate:
+                # Update DB with new config
+                await self._update_session_config_in_db(session_id, new_config)
+
+                # Close old client and recreate with same session ID
+                claude_session_id = session.claude_session_id
                 await self._close_session_internal(session)
+
                 new_config_with_dir = SessionConfig(
                     working_dir=new_config.working_dir or session.config.working_dir,
                     output_style=new_config.output_style,
@@ -507,12 +516,37 @@ class CentralizedAgentService:
                     user_id=new_config.user_id or session.config.user_id,
                     allowed_tools=new_config.allowed_tools,
                     include_context=new_config.include_context,
+                    thinking_budget=new_config.thinking_budget,
                 )
-                return await self.create_session(new_config_with_dir)
+
+                return await self._create_agent_session(
+                    session_id=session_id,
+                    claude_session_id=claude_session_id,
+                    config=new_config_with_dir,
+                )
 
             session.config = new_config
             session.touch()
             return session
+
+    async def _update_session_config_in_db(
+        self, session_id: int, config: SessionConfig
+    ) -> None:
+        """Update session config fields in database."""
+        async with self.session_factory() as db:
+            stmt = select(Session).where(Session.id == session_id)
+            result = await db.execute(stmt)
+            session = result.scalar_one_or_none()
+
+            if session:
+                personality_str = (
+                    config.personality
+                    if isinstance(config.personality, str)
+                    else ",".join(config.personality) if config.personality else ""
+                )
+                session.personality = personality_str
+                session.thinking_budget = config.thinking_budget
+                await db.commit()
 
     async def query(
         self,
@@ -534,6 +568,10 @@ class CentralizedAgentService:
             yield session.add_event(error_event("Session not initialized", recoverable=False))
             return
 
+        # Track timing
+        request_start_time = time.monotonic()
+        first_token_time: float | None = None
+
         try:
             await session.client.query(prompt)
         except Exception as e:
@@ -552,7 +590,7 @@ class CentralizedAgentService:
 
         async def process_sdk_messages() -> None:
             """Process SDK messages and put events on the queue."""
-            nonlocal was_cancelled, tool_count
+            nonlocal was_cancelled, tool_count, first_token_time
             try:
                 async for message in session.client.receive_response():
                     if cancel_event.is_set():
@@ -578,6 +616,8 @@ class CentralizedAgentService:
                             if delta_type == "text_delta":
                                 text = delta.get("text", "")
                                 if text:
+                                    if first_token_time is None:
+                                        first_token_time = time.monotonic()
                                     logger.info("Stream text chunk: {!r}", text)
                                     response_chunks.append(text)
                                     await event_queue.put(
@@ -586,6 +626,8 @@ class CentralizedAgentService:
                             elif delta_type == "thinking_delta":
                                 thinking_text = delta.get("thinking", "")
                                 if thinking_text:
+                                    if first_token_time is None:
+                                        first_token_time = time.monotonic()
                                     logger.info("Stream thinking chunk: {!r}", thinking_text)
                                     await event_queue.put(
                                         session.add_event(thinking_event(thinking_text))
@@ -651,7 +693,14 @@ class CentralizedAgentService:
             return
 
         response_text = "".join(response_chunks)
-        yield session.add_event(done_event(response_text, tool_count))
+        timings: dict[str, float] | None = None
+        if first_token_time is not None:
+            response_end_time = time.monotonic()
+            timings = {
+                "time_to_first_token": (first_token_time - request_start_time) * 1000,
+                "response_time": (response_end_time - request_start_time) * 1000,
+            }
+        yield session.add_event(done_event(response_text, tool_count, timings))
 
     async def _close_session_internal(self, session: AgentSession) -> None:
         """Close session without lock (called from within locked context)."""

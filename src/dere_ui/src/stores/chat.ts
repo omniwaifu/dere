@@ -494,6 +494,11 @@ function handleStreamEvent(event: StreamEvent) {
       flushTextBuffer();
       const currentState = useChatStore.getState();
       const isFirstResponse = currentState.messages.length === 1; // Only user message so far
+      const data = event.data as {
+        response_text: string;
+        tool_count: number;
+        timings?: { time_to_first_token: number; response_time: number };
+      };
 
       useChatStore.setState((s) => {
         if (!s.streamingMessage) return { isQueryInProgress: false, thinkingStartTime: null };
@@ -508,6 +513,7 @@ function handleStreamEvent(event: StreamEvent) {
           ...s.streamingMessage,
           isStreaming: false,
           thinkingDuration,
+          timings: data.timings,
         };
 
         return {

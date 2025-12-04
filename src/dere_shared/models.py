@@ -55,6 +55,7 @@ class Session(SQLModel, table=True):
     personality: str | None = None
     medium: str | None = None
     user_id: str | None = None
+    thinking_budget: int | None = None
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
     # Relationships (cascade_delete ensures related records are deleted with session)

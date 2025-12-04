@@ -20,6 +20,13 @@ import { cn } from "@/lib/utils";
 import type { ChatMessage, ToolUse, ToolResult } from "@/types/api";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
+function formatTiming(ms: number): string {
+  if (ms < 1000) {
+    return `${Math.round(ms).toString().padStart(3, " ")}ms`;
+  }
+  return `${(ms / 1000).toFixed(3)}s`;
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
   isLatest?: boolean;
@@ -87,11 +94,11 @@ export function MessageBubble({ message, isLatest }: MessageBubbleProps) {
           </div>
         )}
 
-        {/* Copy button - always visible for latest, hover for others */}
+        {/* Footer with copy button and timing */}
         {message.content && !message.isStreaming && (
           <div
             className={cn(
-              "flex items-center gap-1 transition-opacity",
+              "flex items-center justify-between transition-opacity",
               isLatest ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
             )}
           >
@@ -106,6 +113,18 @@ export function MessageBubble({ message, isLatest }: MessageBubbleProps) {
                 <Copy className="h-4 w-4" />
               )}
             </button>
+
+            {message.timings && (
+              <div className="group/timing relative">
+                <span className="font-mono text-xs text-muted-foreground">
+                  {formatTiming(message.timings.time_to_first_token)}
+                </span>
+                <div className="absolute bottom-0 left-full ml-2 hidden whitespace-nowrap rounded bg-popover px-2 py-1 font-mono text-xs text-popover-foreground shadow-md group-hover/timing:block">
+                  <div>TTFT: {formatTiming(message.timings.time_to_first_token)}</div>
+                  <div>Total: {formatTiming(message.timings.response_time)}</div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

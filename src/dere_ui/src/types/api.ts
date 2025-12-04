@@ -115,6 +115,11 @@ export interface ToolResult {
   isError: boolean;
 }
 
+export interface ResponseTimings {
+  time_to_first_token: number;
+  response_time: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -125,6 +130,7 @@ export interface ChatMessage {
   toolResults: ToolResult[];
   timestamp: number;
   isStreaming?: boolean;
+  timings?: ResponseTimings;
 }
 
 export type ClientMessageType =

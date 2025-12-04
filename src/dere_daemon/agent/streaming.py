@@ -68,11 +68,26 @@ def error_event(message: str, recoverable: bool = True) -> StreamEvent:
     )
 
 
-def done_event(response_text: str, tool_count: int = 0) -> StreamEvent:
-    """Create a done event."""
+def done_event(
+    response_text: str,
+    tool_count: int = 0,
+    timings: dict[str, float] | None = None,
+) -> StreamEvent:
+    """Create a done event.
+
+    Args:
+        response_text: The full response text
+        tool_count: Number of tools used
+        timings: Optional timing data in milliseconds:
+            - time_to_first_token: Time from request to first token
+            - response_time: Total response time
+    """
+    data: dict[str, Any] = {"response_text": response_text, "tool_count": tool_count}
+    if timings:
+        data["timings"] = timings
     return StreamEvent(
         type=StreamEventType.DONE,
-        data={"response_text": response_text, "tool_count": tool_count},
+        data=data,
     )
 
 
