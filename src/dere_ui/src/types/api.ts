@@ -6,7 +6,8 @@ export type StreamEventType =
   | "thinking"
   | "error"
   | "done"
-  | "cancelled";
+  | "cancelled"
+  | "permission_request";
 
 export interface StreamEvent {
   type: StreamEventType;
@@ -23,6 +24,8 @@ export interface SessionConfig {
   user_id?: string;
   allowed_tools?: string[];
   include_context?: boolean;
+  enable_streaming?: boolean;
+  thinking_budget?: number | null;
 }
 
 export interface SessionResponse {
@@ -88,6 +91,7 @@ export interface ConversationMessage {
   role: string;
   content: string;
   timestamp: string;
+  thinking?: string | null;
   tool_uses?: ApiToolUse[];
   tool_results?: ApiToolResult[];
 }
@@ -116,6 +120,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   thinking?: string;
+  thinkingDuration?: number;
   toolUses: ToolUse[];
   toolResults: ToolResult[];
   timestamp: number;
@@ -128,7 +133,8 @@ export type ClientMessageType =
   | "query"
   | "update_config"
   | "cancel"
-  | "close";
+  | "close"
+  | "permission_response";
 
 export interface ClientMessage {
   type: ClientMessageType;
@@ -136,6 +142,15 @@ export interface ClientMessage {
   session_id?: number;
   prompt?: string;
   last_seq?: number;
+  request_id?: string;
+  allowed?: boolean;
+  deny_message?: string;
+}
+
+export interface PermissionRequest {
+  requestId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
 }
 
 export interface EmotionStateResponse {

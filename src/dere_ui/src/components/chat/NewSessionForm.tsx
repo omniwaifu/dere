@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu } from "lucide-react";
+import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import {
   usePersonalities,
@@ -9,6 +9,7 @@ import {
   useRecentDirectories,
 } from "@/hooks/queries";
 import type { SessionConfig } from "@/types/api";
+import { cn } from "@/lib/utils";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -24,6 +25,7 @@ export function NewSessionForm() {
   const [personality, setPersonality] = useState("");
   const [outputStyle, setOutputStyle] = useState("web");
   const [model, setModel] = useState("");
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [showDirDropdown, setShowDirDropdown] = useState(false);
 
@@ -85,6 +87,8 @@ export function NewSessionForm() {
       personality: personality || undefined,
       model: model || undefined,
       include_context: true,
+      enable_streaming: true,
+      thinking_budget: thinkingEnabled ? 10000 : null,
     };
     newSession(config, message.trim() || undefined);
   };
@@ -215,6 +219,22 @@ export function NewSessionForm() {
                   ))}
                 </select>
               </div>
+
+              {/* Thinking mode toggle */}
+              <button
+                type="button"
+                onClick={() => setThinkingEnabled(!thinkingEnabled)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors",
+                  thinkingEnabled
+                    ? "border-foreground/30 bg-foreground/10 text-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                )}
+                title="Extended thinking mode"
+              >
+                <Brain className="h-3.5 w-3.5" />
+                <span className="text-xs">Think</span>
+              </button>
             </div>
 
             {/* Right side: model, submit */}

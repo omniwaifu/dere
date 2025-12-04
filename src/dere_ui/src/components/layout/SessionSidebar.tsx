@@ -12,6 +12,10 @@ import {
   X,
   User,
   Settings,
+  MoreHorizontal,
+  Share,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useSessions, useDeleteSession, useUserInfo } from "@/hooks/queries";
+import { useSessions, useDeleteSession, useRenameSession, useUserInfo } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
 
 export function SessionSidebar() {
@@ -29,6 +33,7 @@ export function SessionSidebar() {
   const { sessionId } = useParams({ strict: false });
   const { data, isLoading, isError, refetch } = useSessions();
   const deleteSession = useDeleteSession();
+  const renameSession = useRenameSession();
   const { data: userInfo } = useUserInfo();
 
   const [isCollapsed, setIsCollapsed] = useState(() =>
@@ -36,7 +41,10 @@ export function SessionSidebar() {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [renamingSessionId, setRenamingSessionId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const currentSessionId = sessionId === "new" ? null : Number(sessionId);
 
@@ -52,17 +60,31 @@ export function SessionSidebar() {
     }
   }, [isSearching]);
 
-  // Handle escape to close search
+  // Handle escape to close search or cancel rename
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isSearching) {
-        setIsSearching(false);
-        setSearchQuery("");
+      if (e.key === "Escape") {
+        if (isSearching) {
+          setIsSearching(false);
+          setSearchQuery("");
+        }
+        if (renamingSessionId !== null) {
+          setRenamingSessionId(null);
+          setRenameValue("");
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isSearching]);
+  }, [isSearching, renamingSessionId]);
+
+  // Focus rename input when renaming
+  useEffect(() => {
+    if (renamingSessionId !== null && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renamingSessionId]);
 
   const handleNewChat = () => {
     navigate({ to: "/chat/$sessionId", params: { sessionId: "new" } });
@@ -80,6 +102,19 @@ export function SessionSidebar() {
     const name = session.name || session.config.working_dir;
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
+
+  const handleStartRename = (sessionId: number, currentName: string) => {
+    setRenamingSessionId(sessionId);
+    setRenameValue(currentName);
+  };
+
+  const handleSubmitRename = () => {
+    if (renamingSessionId !== null && renameValue.trim()) {
+      renameSession.mutate({ id: renamingSessionId, name: renameValue.trim() });
+    }
+    setRenamingSessionId(null);
+    setRenameValue("");
+  };
 
   return (
     <aside
@@ -182,7 +217,7 @@ export function SessionSidebar() {
 
       {/* Session list (hidden when collapsed) */}
       {!isCollapsed && (
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1" viewportClassName="pr-3">
           <div className="p-2">
             {isLoading && (
               <div className="flex items-center justify-center py-8">
@@ -213,42 +248,86 @@ export function SessionSidebar() {
               </p>
             )}
 
-            {filteredSessions?.map((session) => (
-              <div
-                key={session.session_id}
-                className={cn(
-                  "group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
-                  currentSessionId === session.session_id && "bg-accent"
-                )}
-              >
-                <Link
-                  to="/chat/$sessionId"
-                  params={{ sessionId: String(session.session_id) }}
-                  className="flex flex-1 items-center gap-2 overflow-hidden"
-                >
-                  <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-sm">
-                    {session.name ||
-                      session.config.working_dir.split("/").pop() ||
-                      session.config.working_dir}
-                  </span>
-                </Link>
+            {filteredSessions?.map((session) => {
+              const displayName =
+                session.name ||
+                session.config.working_dir.split("/").pop() ||
+                session.config.working_dir;
+              const isRenaming = renamingSessionId === session.session_id;
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (confirm("Delete this session?")) {
-                      deleteSession.mutate(session.session_id);
-                    }
-                  }}
+              return (
+                <div
+                  key={session.session_id}
+                  className={cn(
+                    "group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
+                    currentSessionId === session.session_id && "bg-accent"
+                  )}
                 >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
+                  {isRenaming ? (
+                    <input
+                      ref={renameInputRef}
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSubmitRename();
+                      }}
+                      onBlur={handleSubmitRename}
+                      className="flex-1 truncate bg-transparent text-sm outline-none"
+                    />
+                  ) : (
+                    <>
+                      <Link
+                        to="/chat/$sessionId"
+                        params={{ sessionId: String(session.session_id) }}
+                        className="flex flex-1 items-center overflow-hidden"
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          handleStartRename(session.session_id, displayName);
+                        }}
+                      >
+                        <span className="truncate text-sm">{displayName}</span>
+                      </Link>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 shrink-0 cursor-pointer opacity-0 group-hover:opacity-100"
+                            onClick={(e) => e.preventDefault()}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-32">
+                          <DropdownMenuItem disabled>
+                            <Share className="mr-2 h-4 w-4" />
+                            Share
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleStartRename(session.session_id, displayName)}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (confirm("Delete this session?")) {
+                                deleteSession.mutate(session.session_id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </ScrollArea>
       )}

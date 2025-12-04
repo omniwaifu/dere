@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Square, Loader2 } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChatStore } from "@/stores/chat";
+import { cn } from "@/lib/utils";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -37,7 +38,7 @@ export function ChatInput() {
 
   return (
     <div className="border-t border-border p-4">
-      <div className="flex gap-2">
+      <div className="relative">
         <Textarea
           ref={textareaRef}
           value={input}
@@ -51,34 +52,28 @@ export function ChatInput() {
                 : "Send a message... (Enter to send, Shift+Enter for newline)"
           }
           disabled={status !== "connected" || !sessionId}
-          className="min-h-[80px] resize-none"
+          className="min-h-[80px] resize-none pr-14"
         />
 
-        <div className="flex flex-col gap-2">
+        <Button
+          size="icon"
+          onClick={isQueryInProgress ? cancelQuery : handleSubmit}
+          disabled={!isQueryInProgress && !canSend}
+          className={cn(
+            "absolute bottom-2 right-2 h-9 w-9 rounded-full transition-all duration-200",
+            isQueryInProgress
+              ? "bg-white/90 text-black hover:bg-white animate-pulse"
+              : canSend
+                ? "bg-orange-500 text-white hover:bg-orange-600"
+                : "bg-muted text-muted-foreground"
+          )}
+        >
           {isQueryInProgress ? (
-            <Button
-              variant="destructive"
-              size="icon"
-              onClick={cancelQuery}
-              className="h-10 w-10"
-            >
-              <Square className="h-4 w-4" />
-            </Button>
+            <Square className="h-4 w-4 fill-current" />
           ) : (
-            <Button
-              size="icon"
-              onClick={handleSubmit}
-              disabled={!canSend}
-              className="h-10 w-10"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+            <ArrowUp className="h-5 w-5" />
           )}
-
-          {isQueryInProgress && (
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          )}
-        </div>
+        </Button>
       </div>
     </div>
   );

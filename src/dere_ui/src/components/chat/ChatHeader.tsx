@@ -1,7 +1,8 @@
-import { FolderOpen, User, Palette } from "lucide-react";
+import { FolderOpen, User, Palette, Brain } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import { usePersonalities, useOutputStyles } from "@/hooks/queries";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export function ChatHeader() {
   const sessionConfig = useChatStore((s) => s.sessionConfig);
@@ -19,6 +20,13 @@ export function ChatHeader() {
   const handleOutputStyleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     updateConfig({ ...sessionConfig, output_style: e.target.value });
   };
+
+  const handleThinkingToggle = () => {
+    const newBudget = sessionConfig.thinking_budget ? null : 10000;
+    updateConfig({ ...sessionConfig, thinking_budget: newBudget });
+  };
+
+  const thinkingEnabled = !!sessionConfig.thinking_budget;
 
   const currentPersonality = Array.isArray(sessionConfig.personality)
     ? sessionConfig.personality.join(", ")
@@ -66,6 +74,20 @@ export function ChatHeader() {
             ))}
           </select>
         </div>
+
+        <button
+          type="button"
+          onClick={handleThinkingToggle}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm transition-colors",
+            thinkingEnabled
+              ? "border-foreground/30 bg-foreground/10 text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+          title="Extended thinking mode"
+        >
+          <Brain className="h-4 w-4" />
+        </button>
 
         {sessionConfig.include_context && (
           <Badge variant="secondary" className="text-xs">

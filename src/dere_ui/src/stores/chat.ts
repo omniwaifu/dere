@@ -5,6 +5,7 @@ import type {
   ToolUse,
   ToolResult,
   StreamEvent,
+  PermissionRequest,
 } from "@/types/api";
 import { api } from "@/lib/api";
 
@@ -31,12 +32,18 @@ interface ChatStore {
   textBuffer: string;
   flushTimeout: number | null;
 
+  // Thinking timing
+  thinkingStartTime: number | null;
+
   // Callbacks
   onSessionCreated: ((sessionId: number) => void) | null;
   onFirstResponse: ((sessionId: number) => void) | null;
 
   // Pending initial message (sent after session_ready)
   pendingInitialMessage: string | null;
+
+  // Permission requests
+  pendingPermission: PermissionRequest | null;
 
   // Actions
   connect: () => void;
@@ -52,6 +59,7 @@ interface ChatStore {
   loadMessages: (sessionId: number) => Promise<void>;
   setOnSessionCreated: (cb: ((sessionId: number) => void) | null) => void;
   setOnFirstResponse: (cb: ((sessionId: number) => void) | null) => void;
+  respondToPermission: (allowed: boolean, denyMessage?: string) => void;
 }
 
 const WS_URL = `ws://${window.location.hostname}:8787/agent/ws`;
@@ -74,9 +82,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   isLoadingMessages: false,
   textBuffer: "",
   flushTimeout: null,
+  thinkingStartTime: null,
   onSessionCreated: null,
   onFirstResponse: null,
   pendingInitialMessage: null,
+  pendingPermission: null,
 
   connect: () => {
     const { socket, status } = get();
@@ -188,6 +198,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (!socket || status !== "connected") return;
 
     socket.send(JSON.stringify({ type: "update_config", config }));
+    set({ sessionConfig: config });
   },
 
   clearMessages: () => {
@@ -224,6 +235,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ onFirstResponse: cb });
   },
 
+  respondToPermission: (allowed, denyMessage) => {
+    const { socket, status, pendingPermission } = get();
+    if (!socket || status !== "connected" || !pendingPermission) {
+      return;
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: "permission_response",
+        request_id: pendingPermission.requestId,
+        allowed,
+        deny_message: denyMessage,
+      })
+    );
+    set({ pendingPermission: null });
+  },
+
   loadMessages: async (sessionId: number) => {
     set({ isLoadingMessages: true });
     try {
@@ -232,6 +260,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         id: msg.id,
         role: msg.role as "user" | "assistant",
         content: msg.content,
+        thinking: msg.thinking ?? undefined,
         toolUses: msg.tool_uses?.map((tu) => ({
           id: tu.id,
           name: tu.name,
@@ -278,8 +307,6 @@ function bufferText(text: string) {
 }
 
 function handleStreamEvent(event: StreamEvent) {
-  const state = useChatStore.getState();
-
   if (event.seq !== undefined) {
     useChatStore.setState({ lastSeq: event.seq });
   }
@@ -324,18 +351,35 @@ function handleStreamEvent(event: StreamEvent) {
     case "text": {
       const data = event.data as { text: string };
 
-      if (!state.streamingMessage) {
-        const newMessage: ChatMessage = {
-          id: generateId(),
-          role: "assistant",
-          content: "",
-          toolUses: [],
-          toolResults: [],
-          timestamp: Date.now(),
-          isStreaming: true,
-        };
-        useChatStore.setState({ streamingMessage: newMessage });
-      }
+      useChatStore.setState((s) => {
+        if (!s.streamingMessage) {
+          return {
+            streamingMessage: {
+              id: generateId(),
+              role: "assistant",
+              content: "",
+              toolUses: [],
+              toolResults: [],
+              timestamp: Date.now(),
+              isStreaming: true,
+            },
+          };
+        }
+
+        // Calculate thinking duration when first text arrives (if thinking happened)
+        if (s.thinkingStartTime && !s.streamingMessage.thinkingDuration) {
+          const duration = (Date.now() - s.thinkingStartTime) / 1000;
+          return {
+            thinkingStartTime: null,
+            streamingMessage: {
+              ...s.streamingMessage,
+              thinkingDuration: duration,
+            },
+          };
+        }
+
+        return {};
+      });
 
       bufferText(data.text);
       break;
@@ -345,8 +389,10 @@ function handleStreamEvent(event: StreamEvent) {
       const data = event.data as { text: string };
 
       useChatStore.setState((s) => {
+        const isFirstThinking = !s.streamingMessage?.thinking;
         if (!s.streamingMessage) {
           return {
+            thinkingStartTime: Date.now(),
             streamingMessage: {
               id: generateId(),
               role: "assistant",
@@ -360,6 +406,7 @@ function handleStreamEvent(event: StreamEvent) {
           };
         }
         return {
+          thinkingStartTime: isFirstThinking ? Date.now() : s.thinkingStartTime,
           streamingMessage: {
             ...s.streamingMessage,
             thinking: (s.streamingMessage.thinking || "") + data.text,
@@ -449,17 +496,25 @@ function handleStreamEvent(event: StreamEvent) {
       const isFirstResponse = currentState.messages.length === 1; // Only user message so far
 
       useChatStore.setState((s) => {
-        if (!s.streamingMessage) return { isQueryInProgress: false };
+        if (!s.streamingMessage) return { isQueryInProgress: false, thinkingStartTime: null };
+
+        // Calculate thinking duration if not already set
+        let thinkingDuration = s.streamingMessage.thinkingDuration;
+        if (s.thinkingStartTime && !thinkingDuration) {
+          thinkingDuration = (Date.now() - s.thinkingStartTime) / 1000;
+        }
 
         const finalMessage: ChatMessage = {
           ...s.streamingMessage,
           isStreaming: false,
+          thinkingDuration,
         };
 
         return {
           messages: [...s.messages, finalMessage],
           streamingMessage: null,
           isQueryInProgress: false,
+          thinkingStartTime: null,
         };
       });
 
@@ -499,6 +554,22 @@ function handleStreamEvent(event: StreamEvent) {
       useChatStore.setState({
         error: data.message,
         isQueryInProgress: false,
+      });
+      break;
+    }
+
+    case "permission_request": {
+      const data = event.data as {
+        request_id: string;
+        tool_name: string;
+        tool_input: Record<string, unknown>;
+      };
+      useChatStore.setState({
+        pendingPermission: {
+          requestId: data.request_id,
+          toolName: data.tool_name,
+          toolInput: data.tool_input,
+        },
       });
       break;
     }

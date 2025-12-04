@@ -84,6 +84,20 @@ def cancelled_event() -> StreamEvent:
     )
 
 
+def permission_request_event(
+    request_id: str, tool_name: str, tool_input: dict[str, Any]
+) -> StreamEvent:
+    """Create a permission request event."""
+    return StreamEvent(
+        type=StreamEventType.PERMISSION_REQUEST,
+        data={
+            "request_id": request_id,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+        },
+    )
+
+
 def extract_text_from_block(block: object) -> str | None:
     """Extract text from a message block if it contains text."""
     if isinstance(block, TextBlock | ThinkingBlock):

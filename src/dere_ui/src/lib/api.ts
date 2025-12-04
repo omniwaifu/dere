@@ -76,6 +76,12 @@ export const api = {
         `/agent/sessions/${id}/generate-name`,
         { method: "POST" }
       ),
+
+    rename: (id: number, name: string) =>
+      fetchJson<{ name: string }>(`/agent/sessions/${id}/name`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
   },
 
   metadata: {

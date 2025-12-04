@@ -23,6 +23,8 @@ class StreamEventType(str, Enum):
     THINKING = "thinking"
     ERROR = "error"
     DONE = "done"
+    CANCELLED = "cancelled"
+    PERMISSION_REQUEST = "permission_request"
 
 
 @dataclass
@@ -32,6 +34,7 @@ class StreamEvent:
     type: StreamEventType
     data: dict[str, Any]
     timestamp: float = field(default_factory=time.time)
+    seq: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> StreamEvent:
@@ -42,11 +45,14 @@ class StreamEvent:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "type": self.type.value,
             "data": self.data,
             "timestamp": self.timestamp,
         }
+        if self.seq is not None:
+            result["seq"] = self.seq
+        return result
 
 
 class SessionConfig(BaseModel):
@@ -57,12 +63,22 @@ class SessionConfig(BaseModel):
     personality: str | list[str] = Field(
         default="", description="Personality preset name(s)"
     )
+    model: str | None = Field(
+        default=None, description="Claude model to use (e.g., claude-sonnet-4-20250514)"
+    )
     user_id: str | None = Field(default=None, description="User identifier")
     allowed_tools: list[str] | None = Field(
         default=None, description="Tool restrictions (None = default)"
     )
     include_context: bool = Field(
         default=True, description="Whether to inject emotion/KG context"
+    )
+    enable_streaming: bool = Field(
+        default=False, description="Enable token-level streaming (dere_ui only)"
+    )
+    thinking_budget: int | None = Field(
+        default=None,
+        description="Extended thinking token budget (None = disabled, e.g. 10000 for moderate thinking)",
     )
 
 

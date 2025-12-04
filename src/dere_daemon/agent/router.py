@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,8 @@ async def agent_websocket(websocket: WebSocket):
         - {"type": "query", "prompt": "..."} - Send query to current session
         - {"type": "update_config", "config": {...}} - Update session config
         - {"type": "cancel"} - Cancel the current query
+        - {"type": "permission_response", "request_id": "...", "allowed": true/false,
+            "deny_message": "..."} - Respond to a permission request
         - {"type": "close"} - Close connection
 
         Server sends JSON events (all include "seq" for reconnection support):
@@ -64,6 +66,8 @@ async def agent_websocket(websocket: WebSocket):
         - {"type": "tool_use", "data": {"name": "...", "input": {...}}, "seq": N}
         - {"type": "tool_result", "data": {"name": "...", "output": "...", "is_error": false}, "seq": N}
         - {"type": "thinking", "data": {"text": "..."}, "seq": N}
+        - {"type": "permission_request", "data": {"request_id": "...", "tool_name": "...",
+            "tool_input": {...}}, "seq": N}
         - {"type": "done", "data": {"response_text": "...", "tool_count": 0}, "seq": N}
         - {"type": "cancelled", "data": {"message": "..."}, "seq": N}
         - {"type": "error", "data": {"message": "...", "recoverable": true}, "seq": N}
@@ -91,6 +95,8 @@ async def agent_websocket(websocket: WebSocket):
                         error_event("new_session requires config", recoverable=True).to_dict()
                     )
                     continue
+
+                logger.info("new_session config: {}", msg.config.model_dump())
 
                 try:
                     current_session = await service.create_session(msg.config)
@@ -203,6 +209,41 @@ async def agent_websocket(websocket: WebSocket):
                 if not cancelled:
                     await websocket.send_json(
                         error_event("No active query to cancel", recoverable=True).to_dict()
+                    )
+
+            elif msg.type == "permission_response":
+                if not current_session:
+                    await websocket.send_json(
+                        error_event(
+                            "No active session for permission response", recoverable=True
+                        ).to_dict()
+                    )
+                    continue
+
+                if not msg.request_id:
+                    await websocket.send_json(
+                        error_event(
+                            "permission_response requires request_id", recoverable=True
+                        ).to_dict()
+                    )
+                    continue
+
+                if msg.allowed is None:
+                    await websocket.send_json(
+                        error_event(
+                            "permission_response requires allowed field", recoverable=True
+                        ).to_dict()
+                    )
+                    continue
+
+                resolved = current_session.resolve_permission(
+                    msg.request_id, msg.allowed, msg.deny_message or ""
+                )
+                if not resolved:
+                    await websocket.send_json(
+                        error_event(
+                            f"Unknown permission request: {msg.request_id}", recoverable=True
+                        ).to_dict()
                     )
 
             elif msg.type == "close":
@@ -380,6 +421,7 @@ async def get_session_messages(
                 content_blocks = [{"type": "text", "text": content_blocks}]
 
             text_parts = []
+            thinking_parts = []
             tool_uses = []
             tool_results = []
 
@@ -388,6 +430,8 @@ async def get_session_messages(
                     text_parts.append(block)
                 elif block.get("type") == "text":
                     text_parts.append(block.get("text", ""))
+                elif block.get("type") == "thinking":
+                    thinking_parts.append(block.get("thinking", ""))
                 elif block.get("type") == "tool_use":
                     tool_uses.append(ToolUseData(
                         id=block.get("id", ""),
@@ -413,6 +457,7 @@ async def get_session_messages(
                 role=entry.get("type", ""),
                 content="".join(text_parts),
                 timestamp=entry.get("timestamp", ""),
+                thinking="".join(thinking_parts) if thinking_parts else None,
                 tool_uses=tool_uses,
                 tool_results=tool_results,
             ))
@@ -467,6 +512,27 @@ async def list_personalities(request: Request):
             personalities.append(PersonalityInfo(name=name))
 
     return AvailablePersonalitiesResponse(personalities=personalities)
+
+
+class RenameSessionRequest(BaseModel):
+    """Request to rename a session."""
+
+    name: str
+
+
+@router.patch("/sessions/{session_id}/name")
+async def rename_session(
+    session_id: int, request: RenameSessionRequest, db: AsyncSession = Depends(get_db)
+):
+    """Rename a session."""
+    session = await db.get(Session, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.name = request.name.strip()[:50]  # Truncate to 50 chars
+    await db.commit()
+
+    return {"name": session.name}
 
 
 @router.post("/sessions/{session_id}/generate-name")

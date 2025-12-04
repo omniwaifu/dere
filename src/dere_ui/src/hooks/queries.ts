@@ -87,6 +87,17 @@ export function useGenerateSessionName() {
   });
 }
 
+export function useRenameSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) =>
+      api.sessions.rename(id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+    },
+  });
+}
+
 export function useOutputStyles() {
   return useQuery({
     queryKey: queryKeys.outputStyles,

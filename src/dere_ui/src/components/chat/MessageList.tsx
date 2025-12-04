@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useChatStore } from "@/stores/chat";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageBubble } from "./MessageBubble";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 import { MessageSquare, Loader2 } from "lucide-react";
 
 export function MessageList() {
@@ -9,7 +10,7 @@ export function MessageList() {
   const streamingMessage = useChatStore((s) => s.streamingMessage);
   const isQueryInProgress = useChatStore((s) => s.isQueryInProgress);
   const isLoadingMessages = useChatStore((s) => s.isLoadingMessages);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   const isWaitingForResponse = isQueryInProgress && !streamingMessage;
 
@@ -18,8 +19,8 @@ export function MessageList() {
     : messages;
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (viewportRef.current) {
+      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [allMessages.length, streamingMessage?.content]);
 
@@ -46,15 +47,20 @@ export function MessageList() {
   }
 
   return (
-    <ScrollArea className="flex-1" ref={scrollRef}>
+    <ScrollArea className="flex-1" viewportRef={viewportRef}>
       <div className="space-y-4 p-4">
-        {allMessages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+        {allMessages.map((message, index) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
+            isLatest={index === allMessages.length - 1}
+          />
         ))}
         {isWaitingForResponse && (
-          <div className="flex items-center gap-2 px-4 py-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Thinking...</span>
+          <div className="flex justify-start">
+            <div className="max-w-[85%]">
+              <ThinkingIndicator isStreaming />
+            </div>
           </div>
         )}
       </div>
