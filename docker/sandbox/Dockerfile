@@ -25,7 +25,10 @@ RUN pip install /app/dere/src/dere_graph && pip install /app/dere
 COPY docker/sandbox/entrypoint.py /app/entrypoint.py
 RUN chmod 755 /app/entrypoint.py && chmod -R a+rX /app
 
-# Working directory for user projects (writable by any UID for keep-id mode)
+# Create home directory writable by any UID (for --user mode)
+RUN mkdir -p /home/user && chmod 777 /home/user
+
+# Working directory for user projects (writable by any UID for --user mode)
 RUN mkdir -p /workspace && chmod 777 /workspace
 WORKDIR /workspace
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import tempfile
 from collections.abc import AsyncIterator
@@ -67,9 +68,10 @@ class DockerSessionRunner(SessionRunner):
         working_dir = "/workspace"
 
         # Mount Claude config directory (needs write access for debug logs, session state)
+        # Mount to /home/user since container runs as non-root
         claude_dir = Path.home() / ".claude"
         if claude_dir.exists():
-            binds.append(f"{claude_dir}:/root/.claude:rw")
+            binds.append(f"{claude_dir}:/home/user/.claude:rw")
 
         # Handle working directory mount based on mount_type
         if self._config.working_dir and self._mount_type != "none":
@@ -85,6 +87,7 @@ class DockerSessionRunner(SessionRunner):
 
         # Environment variables for the entrypoint
         env = [
+            "HOME=/home/user",
             f"SANDBOX_WORKING_DIR={working_dir}",
             f"SANDBOX_OUTPUT_STYLE={self._config.output_style}",
         ]
@@ -99,10 +102,15 @@ class DockerSessionRunner(SessionRunner):
         if self._resume_session_id:
             env.append(f"SANDBOX_RESUME_SESSION_ID={self._resume_session_id}")
 
+        # Run as host user so files are owned correctly
+        uid = os.getuid()
+        gid = os.getgid()
+
         container_config = {
             "Image": self._image,
             "Env": env,
             "WorkingDir": working_dir,
+            "User": f"{uid}:{gid}",
             "HostConfig": {
                 "Binds": binds,
                 "Memory": self._parse_memory_limit(self._memory_limit),
