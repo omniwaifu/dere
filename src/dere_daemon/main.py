@@ -284,6 +284,8 @@ async def _init_agent_service(app_state: AppState) -> None:
         dere_graph=app_state.dere_graph,
         config=app_state.config,
     )
+    # Start the sandbox cleanup background task
+    app_state.agent_service.start_cleanup_task()
     print("Centralized agent service initialized")
 
 

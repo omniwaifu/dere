@@ -1,20 +1,16 @@
-"""Centralized agent service managing ClaudeSDKClient instances."""
+"""Centralized agent service managing session runners."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import tempfile
 import time
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk.types import (
     PermissionResultAllow,
     PermissionResultDeny,
@@ -34,6 +30,7 @@ from dere_shared.personalities import PersonalityLoader
 from dere_shared.weather import get_weather_context
 
 from .models import SessionConfig, StreamEvent, StreamEventType
+from .runners import DockerSessionRunner, LocalSessionRunner, SessionRunner
 from .streaming import (
     cancelled_event,
     done_event,
@@ -55,6 +52,8 @@ def _now() -> float:
 
 EVENT_BUFFER_SIZE = 500
 PERMISSION_TIMEOUT = 300  # 5 minutes to respond to permission request
+SANDBOX_IDLE_TIMEOUT = 1800  # 30 minutes before auto-closing idle sandbox sessions
+SANDBOX_CLEANUP_INTERVAL = 60  # Check for idle sandboxes every minute
 
 
 @dataclass
@@ -71,18 +70,17 @@ class PendingPermission:
 
 @dataclass
 class AgentSession:
-    """Active agent session with Claude SDK client."""
+    """Active agent session with a session runner."""
 
     session_id: int
     config: SessionConfig
-    client: ClaudeSDKClient | None
-    exit_stack: AsyncExitStack
-    settings_file: str | None
+    runner: SessionRunner | None
     claude_session_id: str | None
     created_at: float
     last_activity: float
     personality_prompt: str = ""
     needs_session_id_capture: bool = True
+    is_locked: bool = False  # Locked sandbox sessions can't accept new queries
     event_buffer: deque[StreamEvent] = field(
         default_factory=lambda: deque(maxlen=EVENT_BUFFER_SIZE)
     )
@@ -92,6 +90,9 @@ class AgentSession:
     permission_event_queue: asyncio.Queue[StreamEvent] = field(
         default_factory=asyncio.Queue
     )
+    # Store initial prompt for name generation (especially for sandbox sessions)
+    initial_prompt: str | None = None
+    first_response_text: str | None = None
 
     def touch(self) -> None:
         self.last_activity = _now()
@@ -133,6 +134,7 @@ class CentralizedAgentService:
     _sessions: dict[int, AgentSession] = field(default_factory=dict)
     _locks: dict[int, asyncio.Lock] = field(default_factory=dict)
     _cancel_events: dict[int, asyncio.Event] = field(default_factory=dict)
+    _cleanup_task: asyncio.Task | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         if not self.config:
@@ -313,6 +315,7 @@ class CentralizedAgentService:
                 medium="agent_api",
                 user_id=config.user_id,
                 thinking_budget=config.thinking_budget,
+                sandbox_mode=config.sandbox_mode,
             )
             db.add(session)
             await db.flush()
@@ -337,6 +340,18 @@ class CentralizedAgentService:
                     session_id,
                 )
 
+    async def _lock_session(self, session_id: int) -> None:
+        """Mark a session as locked (sandbox container stopped)."""
+        async with self.session_factory() as db:
+            stmt = select(Session).where(Session.id == session_id)
+            result = await db.execute(stmt)
+            session = result.scalar_one_or_none()
+
+            if session:
+                session.is_locked = True
+                await db.commit()
+                logger.info("Locked sandbox session {}", session_id)
+
     async def create_session(self, config: SessionConfig) -> AgentSession:
         """Create a new agent session with the given configuration.
 
@@ -355,7 +370,7 @@ class CentralizedAgentService:
         claude_session_id: str | None,
         config: SessionConfig,
     ) -> AgentSession:
-        """Create the in-memory AgentSession with Claude SDK client.
+        """Create the in-memory AgentSession with a session runner.
 
         This does NOT create a database row - use create_session for new sessions
         or resume_session to load existing ones.
@@ -380,30 +395,18 @@ class CentralizedAgentService:
 
             full_prompt = personality_prompt + env_context + emotion_context
 
-            settings_data = {"outputStyle": config.output_style}
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(settings_data, f)
-                settings_path = f.name
-
-            allowed_tools = config.allowed_tools
-            if allowed_tools is None:
-                allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep"]
-
             # Load dere-core plugin for output styles
             dere_core_plugin_path = str(
                 Path(__file__).parent.parent.parent / "dere_plugins" / "dere_core"
             )
 
             now = _now()
-            exit_stack = AsyncExitStack()
 
-            # Create session first (without client) so callback can reference it
+            # Create session first (without runner) so callback can reference it
             agent_session = AgentSession(
                 session_id=session_id,
                 config=config,
-                client=None,  # Set after creating ClaudeSDKClient with permission callback
-                exit_stack=exit_stack,
-                settings_file=settings_path,
+                runner=None,  # Set after creating runner with permission callback
                 claude_session_id=claude_session_id,
                 created_at=now,
                 last_activity=now,
@@ -414,28 +417,25 @@ class CentralizedAgentService:
             # Create permission callback that references the session
             permission_callback = self._make_permission_callback(agent_session)
 
-            options = ClaudeAgentOptions(
-                cwd=config.working_dir,
-                settings=settings_path,
-                setting_sources=["user", "project", "local"],
-                system_prompt={
-                    "type": "preset",
-                    "preset": config.output_style,
-                    "append": full_prompt,
-                },
-                allowed_tools=allowed_tools,
-                permission_mode="acceptEdits",
-                resume=claude_session_id,
-                plugins=[{"type": "local", "path": dere_core_plugin_path}],
-                model=config.model,
-                include_partial_messages=config.enable_streaming,
-                can_use_tool=permission_callback,
-                max_thinking_tokens=config.thinking_budget,
-            )
-
-            client = ClaudeSDKClient(options=options)
-            await exit_stack.enter_async_context(client)
-            agent_session.client = client
+            # Create and start the session runner
+            runner: SessionRunner
+            if config.sandbox_mode:
+                runner = DockerSessionRunner(
+                    config=config,
+                    system_prompt=full_prompt,
+                    resume_session_id=claude_session_id,
+                    mount_type=config.sandbox_mount_type,
+                )
+            else:
+                runner = LocalSessionRunner(
+                    config=config,
+                    system_prompt=full_prompt,
+                    permission_callback=permission_callback,
+                    resume_session_id=claude_session_id,
+                    dere_core_plugin_path=dere_core_plugin_path,
+                )
+            await runner.start()
+            agent_session.runner = runner
 
             self._sessions[session_id] = agent_session
             logger.info(
@@ -458,6 +458,9 @@ class CentralizedAgentService:
 
         Unlike create_session, this does NOT create a new database row.
         It loads the existing session and creates a Claude SDK client for it.
+
+        For locked sessions (sandbox container stopped), returns a read-only session
+        without a runner - history can be viewed but no new queries accepted.
         """
         if session_id in self._sessions:
             return self._sessions[session_id]
@@ -476,7 +479,23 @@ class CentralizedAgentService:
                 personality=db_session.personality or "",
                 user_id=db_session.user_id,
                 thinking_budget=db_session.thinking_budget,
+                sandbox_mode=db_session.sandbox_mode,
             )
+
+            # Locked sessions (dead sandbox containers) are read-only
+            if db_session.is_locked:
+                now = _now()
+                session = AgentSession(
+                    session_id=session_id,
+                    config=config,
+                    runner=None,
+                    claude_session_id=db_session.claude_session_id,
+                    created_at=now,
+                    last_activity=now,
+                    is_locked=True,
+                )
+                self._sessions[session_id] = session
+                return session
 
             return await self._create_agent_session(
                 session_id=session_id,
@@ -561,10 +580,14 @@ class CentralizedAgentService:
         """
         session.touch()
 
+        # Store initial prompt for name generation (first query only)
+        if session.initial_prompt is None:
+            session.initial_prompt = prompt
+
         cancel_event = self._get_cancel_event(session.session_id)
         cancel_event.clear()
 
-        if session.client is None:
+        if session.runner is None:
             yield session.add_event(error_event("Session not initialized", recoverable=False))
             return
 
@@ -573,7 +596,7 @@ class CentralizedAgentService:
         first_token_time: float | None = None
 
         try:
-            await session.client.query(prompt)
+            await session.runner.query(prompt)
         except Exception as e:
             logger.error("Claude query failed: {}", e)
             yield session.add_event(error_event(str(e), recoverable=False))
@@ -592,7 +615,7 @@ class CentralizedAgentService:
             """Process SDK messages and put events on the queue."""
             nonlocal was_cancelled, tool_count, first_token_time
             try:
-                async for message in session.client.receive_response():
+                async for message in session.runner.receive_response():
                     if cancel_event.is_set():
                         was_cancelled = True
                         break
@@ -632,6 +655,23 @@ class CentralizedAgentService:
                                     await event_queue.put(
                                         session.add_event(thinking_event(thinking_text))
                                     )
+                        continue
+
+                    # Handle StreamEvent directly (from Docker runner)
+                    if isinstance(message, StreamEvent):
+                        event = message
+                        if event.type == StreamEventType.TEXT:
+                            text = event.data.get("text", "")
+                            if text:
+                                if first_token_time is None:
+                                    first_token_time = time.monotonic()
+                                response_chunks.append(text)
+                        elif event.type in (
+                            StreamEventType.TOOL_USE,
+                            StreamEventType.TOOL_RESULT,
+                        ):
+                            tool_count += 1
+                        await event_queue.put(session.add_event(event))
                         continue
 
                     events = extract_events_from_message(message, tool_id_to_name)
@@ -693,6 +733,11 @@ class CentralizedAgentService:
             return
 
         response_text = "".join(response_chunks)
+
+        # Store first response for name generation
+        if session.first_response_text is None and response_text:
+            session.first_response_text = response_text
+
         timings: dict[str, float] | None = None
         if first_token_time is not None:
             response_end_time = time.monotonic()
@@ -704,16 +749,15 @@ class CentralizedAgentService:
 
     async def _close_session_internal(self, session: AgentSession) -> None:
         """Close session without lock (called from within locked context)."""
-        try:
-            await session.exit_stack.aclose()
-        except Exception as e:
-            logger.warning("Error closing session {}: {}", session.session_id, e)
-
-        if session.settings_file:
+        if session.runner:
             try:
-                Path(session.settings_file).unlink(missing_ok=True)
+                await session.runner.close()
             except Exception as e:
-                logger.debug("Failed to cleanup settings file: {}", e)
+                logger.warning("Error closing session {}: {}", session.session_id, e)
+
+        # Lock sandbox sessions in database (container is dead, can't continue)
+        if session.config.sandbox_mode:
+            await self._lock_session(session.session_id)
 
         self._sessions.pop(session.session_id, None)
 
@@ -735,9 +779,65 @@ class CentralizedAgentService:
 
     async def close_all(self) -> None:
         """Close all active sessions."""
+        # Stop the cleanup task first
+        await self.stop_cleanup_task()
+
         session_ids = list(self._sessions.keys())
         for session_id in session_ids:
             try:
                 await self.close_session(session_id)
             except Exception as e:
                 logger.warning("Failed to close session {}: {}", session_id, e)
+
+    def start_cleanup_task(self) -> None:
+        """Start the background task that cleans up idle sandbox sessions."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._sandbox_cleanup_loop())
+            logger.info("Started sandbox cleanup task (idle timeout: {}s)", SANDBOX_IDLE_TIMEOUT)
+
+    async def stop_cleanup_task(self) -> None:
+        """Stop the sandbox cleanup background task."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            self._cleanup_task = None
+            logger.info("Stopped sandbox cleanup task")
+
+    async def _sandbox_cleanup_loop(self) -> None:
+        """Background loop that closes idle sandbox sessions."""
+        while True:
+            try:
+                await asyncio.sleep(SANDBOX_CLEANUP_INTERVAL)
+                await self._cleanup_idle_sandboxes()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("Error in sandbox cleanup loop: {}", e)
+
+    async def _cleanup_idle_sandboxes(self) -> None:
+        """Check for and close sandbox sessions that have been idle too long."""
+        now = _now()
+        sessions_to_close: list[int] = []
+
+        for session_id, session in self._sessions.items():
+            if not session.config.sandbox_mode:
+                continue
+
+            idle_time = now - session.last_activity
+            if idle_time > SANDBOX_IDLE_TIMEOUT:
+                sessions_to_close.append(session_id)
+                logger.info(
+                    "Sandbox session {} idle for {:.0f}s, marking for cleanup",
+                    session_id,
+                    idle_time,
+                )
+
+        for session_id in sessions_to_close:
+            try:
+                await self.close_session(session_id)
+                logger.info("Auto-closed idle sandbox session {}", session_id)
+            except Exception as e:
+                logger.warning("Failed to auto-close sandbox session {}: {}", session_id, e)

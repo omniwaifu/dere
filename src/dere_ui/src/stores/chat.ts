@@ -21,6 +21,7 @@ interface ChatStore {
   // Session
   sessionId: number | null;
   sessionConfig: SessionConfig | null;
+  isLocked: boolean;
 
   // Chat
   messages: ChatMessage[];
@@ -35,9 +36,9 @@ interface ChatStore {
   // Thinking timing
   thinkingStartTime: number | null;
 
-  // Callbacks
-  onSessionCreated: ((sessionId: number) => void) | null;
-  onFirstResponse: ((sessionId: number) => void) | null;
+  // Callbacks (arrays to allow multiple listeners)
+  onSessionCreatedCallbacks: Set<(sessionId: number) => void>;
+  onFirstResponseCallbacks: Set<(sessionId: number) => void>;
 
   // Pending initial message (sent after session_ready)
   pendingInitialMessage: string | null;
@@ -57,8 +58,8 @@ interface ChatStore {
   clearSession: () => void;
   addUserMessage: (content: string) => void;
   loadMessages: (sessionId: number) => Promise<void>;
-  setOnSessionCreated: (cb: ((sessionId: number) => void) | null) => void;
-  setOnFirstResponse: (cb: ((sessionId: number) => void) | null) => void;
+  addOnSessionCreated: (cb: (sessionId: number) => void) => () => void;
+  addOnFirstResponse: (cb: (sessionId: number) => void) => () => void;
   respondToPermission: (allowed: boolean, denyMessage?: string) => void;
 }
 
@@ -76,6 +77,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   error: null,
   sessionId: null,
   sessionConfig: null,
+  isLocked: false,
   messages: [],
   streamingMessage: null,
   isQueryInProgress: false,
@@ -83,8 +85,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   textBuffer: "",
   flushTimeout: null,
   thinkingStartTime: null,
-  onSessionCreated: null,
-  onFirstResponse: null,
+  onSessionCreatedCallbacks: new Set(),
+  onFirstResponseCallbacks: new Set(),
   pendingInitialMessage: null,
   pendingPermission: null,
 
@@ -131,6 +133,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       socket: null,
       sessionId: null,
       sessionConfig: null,
+      isLocked: false,
       flushTimeout: null,
     });
   },
@@ -209,6 +212,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({
       sessionId: null,
       sessionConfig: null,
+      isLocked: false,
       messages: [],
       streamingMessage: null,
       isQueryInProgress: false,
@@ -227,12 +231,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((state) => ({ messages: [...state.messages, userMessage] }));
   },
 
-  setOnSessionCreated: (cb) => {
-    set({ onSessionCreated: cb });
+  addOnSessionCreated: (cb) => {
+    const { onSessionCreatedCallbacks } = get();
+    onSessionCreatedCallbacks.add(cb);
+    // Return cleanup function
+    return () => {
+      onSessionCreatedCallbacks.delete(cb);
+    };
   },
 
-  setOnFirstResponse: (cb) => {
-    set({ onFirstResponse: cb });
+  addOnFirstResponse: (cb) => {
+    const { onFirstResponseCallbacks } = get();
+    onFirstResponseCallbacks.add(cb);
+    // Return cleanup function
+    return () => {
+      onFirstResponseCallbacks.delete(cb);
+    };
   },
 
   respondToPermission: (allowed, denyMessage) => {
@@ -316,6 +330,7 @@ function handleStreamEvent(event: StreamEvent) {
       const data = event.data as {
         session_id: number;
         config: SessionConfig;
+        is_locked?: boolean;
       };
       const currentState = useChatStore.getState();
       const isSessionChange = currentState.sessionId !== data.session_id;
@@ -325,7 +340,10 @@ function handleStreamEvent(event: StreamEvent) {
       useChatStore.setState({
         sessionId: data.session_id,
         sessionConfig: data.config,
+        isLocked: data.is_locked ?? false,
         pendingInitialMessage: null,
+        // Always reset loading state when session is ready
+        isLoadingMessages: false,
         // Clear messages when switching to a different session
         ...(isSessionChange && { messages: [], streamingMessage: null }),
       });
@@ -340,10 +358,14 @@ function handleStreamEvent(event: StreamEvent) {
         useChatStore.getState().sendQuery(pendingMessage);
       }
 
-      // Notify listeners (e.g., to invalidate TanStack Query cache)
-      const { onSessionCreated } = useChatStore.getState();
-      if (onSessionCreated) {
-        onSessionCreated(data.session_id);
+      // Notify all listeners (e.g., to invalidate TanStack Query cache, navigate)
+      const { onSessionCreatedCallbacks } = useChatStore.getState();
+      for (const cb of onSessionCreatedCallbacks) {
+        try {
+          cb(data.session_id);
+        } catch (e) {
+          console.error("onSessionCreated callback error:", e);
+        }
       }
       break;
     }
@@ -526,9 +548,15 @@ function handleStreamEvent(event: StreamEvent) {
 
       // Trigger name generation after first response
       if (isFirstResponse) {
-        const { onFirstResponse, sessionId } = useChatStore.getState();
-        if (onFirstResponse && sessionId) {
-          onFirstResponse(sessionId);
+        const { onFirstResponseCallbacks, sessionId } = useChatStore.getState();
+        if (sessionId) {
+          for (const cb of onFirstResponseCallbacks) {
+            try {
+              cb(sessionId);
+            } catch (e) {
+              console.error("onFirstResponse callback error:", e);
+            }
+          }
         }
       }
       break;

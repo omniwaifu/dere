@@ -26,6 +26,7 @@ dependencies = [
     "pyzotero>=1.7.5",
     "fastmcp>=0.1.0",
     "youtube-transcript-api>=1.2.3",
+    "aiodocker>=0.23.0",
 ]
 
 [project.optional-dependencies]

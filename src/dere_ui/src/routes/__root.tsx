@@ -13,19 +13,19 @@ export const Route = createRootRoute({
 function RootLayout() {
   const queryClient = useQueryClient();
   const connect = useChatStore((s) => s.connect);
-  const setOnSessionCreated = useChatStore((s) => s.setOnSessionCreated);
-  const setOnFirstResponse = useChatStore((s) => s.setOnFirstResponse);
+  const addOnSessionCreated = useChatStore((s) => s.addOnSessionCreated);
+  const addOnFirstResponse = useChatStore((s) => s.addOnFirstResponse);
 
   useEffect(() => {
     connect();
 
     // When a session is created via WebSocket, invalidate the sessions list
-    setOnSessionCreated(() => {
+    const removeSessionCreated = addOnSessionCreated(() => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
     });
 
     // When first response completes, generate session name
-    setOnFirstResponse(async (sessionId) => {
+    const removeFirstResponse = addOnFirstResponse(async (sessionId) => {
       try {
         await api.sessions.generateName(sessionId);
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
@@ -35,10 +35,10 @@ function RootLayout() {
     });
 
     return () => {
-      setOnSessionCreated(null);
-      setOnFirstResponse(null);
+      removeSessionCreated();
+      removeFirstResponse();
     };
-  }, [connect, setOnSessionCreated, setOnFirstResponse, queryClient]);
+  }, [connect, addOnSessionCreated, addOnFirstResponse, queryClient]);
 
   return (
     <AppLayout>

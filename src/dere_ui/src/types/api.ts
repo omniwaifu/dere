@@ -26,6 +26,8 @@ export interface SessionConfig {
   include_context?: boolean;
   enable_streaming?: boolean;
   thinking_budget?: number | null;
+  sandbox_mode?: boolean;
+  sandbox_mount_type?: "direct" | "copy" | "none";
 }
 
 export interface SessionResponse {
@@ -33,6 +35,8 @@ export interface SessionResponse {
   config: SessionConfig;
   claude_session_id: string | null;
   name: string | null;
+  sandbox_mode: boolean;
+  is_locked: boolean;
 }
 
 export interface SessionListResponse {

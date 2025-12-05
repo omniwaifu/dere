@@ -12,10 +12,11 @@ export function ChatInput() {
   const status = useChatStore((s) => s.status);
   const sessionId = useChatStore((s) => s.sessionId);
   const isQueryInProgress = useChatStore((s) => s.isQueryInProgress);
+  const isLocked = useChatStore((s) => s.isLocked);
   const sendQuery = useChatStore((s) => s.sendQuery);
   const cancelQuery = useChatStore((s) => s.cancelQuery);
 
-  const canSend = status === "connected" && sessionId && input.trim() && !isQueryInProgress;
+  const canSend = status === "connected" && sessionId && input.trim() && !isQueryInProgress && !isLocked;
 
   const handleSubmit = () => {
     if (!canSend) return;
@@ -49,9 +50,11 @@ export function ChatInput() {
               ? "Connecting..."
               : !sessionId
                 ? "Select or create a session"
-                : "Send a message... (Enter to send, Shift+Enter for newline)"
+                : isLocked
+                  ? "Session locked (sandbox container stopped)"
+                  : "Send a message... (Enter to send, Shift+Enter for newline)"
           }
-          disabled={status !== "connected" || !sessionId}
+          disabled={status !== "connected" || !sessionId || isLocked}
           className="min-h-[80px] resize-none pr-14"
         />
 

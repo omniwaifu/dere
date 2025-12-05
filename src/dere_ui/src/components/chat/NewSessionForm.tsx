@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain } from "lucide-react";
+import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain, Shield } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import {
   usePersonalities,
@@ -26,6 +26,8 @@ export function NewSessionForm() {
   const [outputStyle, setOutputStyle] = useState("web");
   const [model, setModel] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  const [sandboxMountType, setSandboxMountType] = useState<"direct" | "copy" | "none">("copy");
   const [isCreating, setIsCreating] = useState(false);
   const [showDirDropdown, setShowDirDropdown] = useState(false);
 
@@ -36,7 +38,7 @@ export function NewSessionForm() {
   const navigate = useNavigate();
   const status = useChatStore((s) => s.status);
   const newSession = useChatStore((s) => s.newSession);
-  const setOnSessionCreated = useChatStore((s) => s.setOnSessionCreated);
+  const addOnSessionCreated = useChatStore((s) => s.addOnSessionCreated);
 
   const { data: personalities } = usePersonalities();
   const { data: outputStyles } = useOutputStyles();
@@ -71,14 +73,22 @@ export function NewSessionForm() {
 
   // Navigate to new session when created
   useEffect(() => {
-    setOnSessionCreated((sessionId) => {
+    const remove = addOnSessionCreated((sessionId) => {
       navigate({ to: "/chat/$sessionId", params: { sessionId: String(sessionId) } });
     });
-    return () => setOnSessionCreated(null);
-  }, [navigate, setOnSessionCreated]);
+    return remove;
+  }, [navigate, addOnSessionCreated]);
+
+  // Derived state for validation
+  const isEmptySandbox = sandboxEnabled && sandboxMountType === "none";
+  const dangerousCopyPaths = ["/", "/home", "/usr", "/var", "/etc", "/opt", "/root"];
+  const isCopyMode = sandboxEnabled && sandboxMountType === "copy";
+  const normalizedDir = workingDir.trim().replace(/\/+$/, "") || "/";
+  const isDangerousCopy = isCopyMode && dangerousCopyPaths.includes(normalizedDir);
+  const canSubmit = (isEmptySandbox || workingDir.trim()) && status === "connected" && !isCreating && !isDangerousCopy;
 
   const handleSubmit = () => {
-    if (!workingDir.trim() || status !== "connected") return;
+    if (!canSubmit) return;
 
     setIsCreating(true);
     const config: SessionConfig = {
@@ -89,6 +99,8 @@ export function NewSessionForm() {
       include_context: true,
       enable_streaming: true,
       thinking_budget: thinkingEnabled ? 10000 : null,
+      sandbox_mode: sandboxEnabled || undefined,
+      sandbox_mount_type: sandboxEnabled ? sandboxMountType : undefined,
     };
     newSession(config, message.trim() || undefined);
   };
@@ -106,8 +118,6 @@ export function NewSessionForm() {
     textareaRef.current?.focus();
   };
 
-  const canSubmit = workingDir.trim() && status === "connected" && !isCreating;
-
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-8">
       <div className="w-full max-w-2xl space-y-8">
@@ -121,17 +131,60 @@ export function NewSessionForm() {
           {/* Working directory section */}
           <div className="relative border-b border-border p-3">
             <div className="flex items-center gap-2">
-              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              {/* Sandbox mode selector */}
+              <div
+                className={cn(
+                  "group relative flex items-center gap-1 rounded-md border px-1.5 py-0.5 transition-colors",
+                  sandboxEnabled
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    : "border-border text-muted-foreground"
+                )}
+              >
+                <Shield className="h-3.5 w-3.5" />
+                <select
+                  value={sandboxEnabled ? sandboxMountType : "off"}
+                  onChange={(e) => {
+                    if (e.target.value === "off") {
+                      setSandboxEnabled(false);
+                    } else {
+                      setSandboxEnabled(true);
+                      setSandboxMountType(e.target.value as "direct" | "copy" | "none");
+                    }
+                  }}
+                  className="cursor-pointer bg-transparent text-xs focus:outline-none [&>option]:bg-popover [&>option]:text-popover-foreground"
+                >
+                  <option value="off">Off</option>
+                  <option value="copy">Copy</option>
+                  <option value="direct">Direct</option>
+                  <option value="none">Empty</option>
+                </select>
+                {/* Hover tooltip */}
+                <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-md border border-border bg-popover p-2 text-xs text-popover-foreground shadow-lg group-hover:block">
+                  <div className="font-medium mb-1">Sandbox Mode</div>
+                  <div className="space-y-1 text-muted-foreground">
+                    <div><span className="text-foreground">Off:</span> Run locally, full access</div>
+                    <div><span className="text-foreground">Copy:</span> Copy files to temp container</div>
+                    <div><span className="text-foreground">Direct:</span> Mount directory in container</div>
+                    <div><span className="text-foreground">Empty:</span> Empty container, no files</div>
+                  </div>
+                </div>
+              </div>
+
+              <FolderOpen className={cn("h-4 w-4", isEmptySandbox ? "text-muted-foreground/50" : "text-muted-foreground")} />
               <input
                 ref={dirInputRef}
                 type="text"
                 value={workingDir}
                 onChange={(e) => setWorkingDir(e.target.value)}
-                onFocus={() => setShowDirDropdown(true)}
-                placeholder="Working directory"
-                className="flex-1 bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+                onFocus={() => !isEmptySandbox && setShowDirDropdown(true)}
+                disabled={isEmptySandbox}
+                placeholder={isEmptySandbox ? "Not used in empty sandbox" : "Working directory"}
+                className={cn(
+                  "flex-1 bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none",
+                  isEmptySandbox && "cursor-not-allowed opacity-50"
+                )}
               />
-              {recentDirs?.directories && recentDirs.directories.length > 0 && (
+              {recentDirs?.directories && recentDirs.directories.length > 0 && !isEmptySandbox && (
                 <button
                   type="button"
                   onClick={() => setShowDirDropdown(!showDirDropdown)}
@@ -272,6 +325,13 @@ export function NewSessionForm() {
             </div>
           </div>
         </div>
+
+        {/* Warning messages */}
+        {isDangerousCopy && (
+          <p className="text-center text-sm text-amber-600 dark:text-amber-400">
+            Copy mode with "{normalizedDir}" would copy too much data. Use Direct or Empty instead.
+          </p>
+        )}
 
         {/* Connection status hint */}
         {status !== "connected" && (

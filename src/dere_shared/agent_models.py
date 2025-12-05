@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -79,6 +79,13 @@ class SessionConfig(BaseModel):
     thinking_budget: int | None = Field(
         default=None,
         description="Extended thinking token budget (None = disabled, e.g. 10000 for moderate thinking)",
+    )
+    sandbox_mode: bool = Field(
+        default=False, description="Run in Docker sandbox for isolation"
+    )
+    sandbox_mount_type: Literal["direct", "copy", "none"] = Field(
+        default="copy",
+        description="How to mount working directory: direct (rw), copy (temp), none (empty)",
     )
 
 

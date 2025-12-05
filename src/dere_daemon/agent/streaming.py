@@ -17,13 +17,16 @@ from claude_agent_sdk import (
 from .models import SessionConfig, StreamEvent, StreamEventType
 
 
-def session_ready_event(session_id: int, config: SessionConfig) -> StreamEvent:
+def session_ready_event(
+    session_id: int, config: SessionConfig, *, is_locked: bool = False
+) -> StreamEvent:
     """Create a session_ready event."""
     return StreamEvent(
         type=StreamEventType.SESSION_READY,
         data={
             "session_id": session_id,
             "config": config.model_dump(),
+            "is_locked": is_locked,
         },
     )
 
@@ -154,6 +157,9 @@ def is_init_message(message: object) -> tuple[bool, str | None]:
         if subtype == "init":
             claude_session_id = message.data.get("session_id")
             return True, claude_session_id
+    # Handle Docker init message (duck-typed)
+    if getattr(message, "type", None) == "init" and hasattr(message, "session_id"):
+        return True, message.session_id
     return False, None
 
 

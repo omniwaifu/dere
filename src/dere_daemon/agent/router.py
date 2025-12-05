@@ -102,7 +102,9 @@ async def agent_websocket(websocket: WebSocket):
                     current_session = await service.create_session(msg.config)
                     await websocket.send_json(
                         session_ready_event(
-                            current_session.session_id, current_session.config
+                            current_session.session_id,
+                            current_session.config,
+                            is_locked=current_session.is_locked,
                         ).to_dict()
                     )
                 except Exception as e:
@@ -125,7 +127,9 @@ async def agent_websocket(websocket: WebSocket):
                     if current_session:
                         await websocket.send_json(
                             session_ready_event(
-                                current_session.session_id, current_session.config
+                                current_session.session_id,
+                                current_session.config,
+                                is_locked=current_session.is_locked,
                             ).to_dict()
                         )
                         if msg.last_seq is not None:
@@ -189,7 +193,9 @@ async def agent_websocket(websocket: WebSocket):
                     if current_session:
                         await websocket.send_json(
                             session_ready_event(
-                                current_session.session_id, current_session.config
+                                current_session.session_id,
+                                current_session.config,
+                                is_locked=current_session.is_locked,
                             ).to_dict()
                         )
                 except Exception as e:
@@ -297,6 +303,8 @@ async def list_sessions(request: Request, db: AsyncSession = Depends(get_db)):
                 ),
                 claude_session_id=s.claude_session_id,
                 name=s.name,
+                sandbox_mode=s.sandbox_mode,
+                is_locked=s.is_locked,
             )
             for s in db_sessions
         ]
@@ -313,6 +321,7 @@ async def create_session(config: SessionConfig, request: Request):
         session_id=session.session_id,
         config=session.config,
         claude_session_id=session.claude_session_id,
+        sandbox_mode=session.config.sandbox_mode,
     )
 
 
@@ -331,6 +340,7 @@ async def get_session(session_id: int, request: Request):
         session_id=session.session_id,
         config=session.config,
         claude_session_id=session.claude_session_id,
+        sandbox_mode=session.config.sandbox_mode,
     )
 
 
@@ -349,6 +359,7 @@ async def update_session(session_id: int, config: SessionConfig, request: Reques
         session_id=session.session_id,
         config=session.config,
         claude_session_id=session.claude_session_id,
+        sandbox_mode=session.config.sandbox_mode,
     )
 
 
@@ -394,7 +405,11 @@ async def get_session_messages(
         return MessageHistoryResponse(messages=[], has_more=False)
 
     # Build path to JSONL file (Claude encodes "/" as "-" in path)
-    cwd = session.working_dir
+    # For sandbox sessions, the container uses /workspace as cwd regardless of config
+    if session.sandbox_mode:
+        cwd = "/workspace"
+    else:
+        cwd = session.working_dir
     if cwd != "/" and cwd.endswith("/"):
         cwd = cwd.rstrip("/")
     encoded_cwd = cwd.replace("/", "-")
@@ -536,11 +551,15 @@ async def rename_session(
 
 
 @router.post("/sessions/{session_id}/generate-name")
-async def generate_session_name(session_id: int, db: AsyncSession = Depends(get_db)):
+async def generate_session_name(
+    session_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """Generate a short descriptive name for a session using Haiku 4.5.
 
-    Fetches the first user message and assistant response from JSONL, then calls Haiku
-    to generate a 2-4 word title for the conversation.
+    Fetches the first user message and assistant response from JSONL (or in-memory
+    for sandbox sessions), then calls Haiku to generate a 2-4 word title.
     """
     import json
     from pathlib import Path
@@ -557,59 +576,71 @@ async def generate_session_name(session_id: int, db: AsyncSession = Depends(get_
     if session.name:
         return {"name": session.name, "generated": False}
 
-    if not session.claude_session_id:
-        raise HTTPException(status_code=400, detail="Session has no claude_session_id")
-
-    # Build path to JSONL file (Claude encodes "/" as "-" in path)
-    cwd = session.working_dir
-    if cwd != "/" and cwd.endswith("/"):
-        cwd = cwd.rstrip("/")
-    encoded_cwd = cwd.replace("/", "-")
-    jsonl_path = (
-        Path.home() / ".claude" / "projects" / encoded_cwd / f"{session.claude_session_id}.jsonl"
-    )
-
-    if not jsonl_path.exists():
-        raise HTTPException(status_code=400, detail="JSONL file not found")
-
-    # Read first user and assistant messages from JSONL
     first_user_content: str | None = None
     first_assistant_content: str | None = None
 
-    with jsonl_path.open() as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+    # For active sandbox sessions, try in-memory state first
+    if session.sandbox_mode and not session.is_locked:
+        service = _get_service(request)
+        agent_session = await service.get_session(session_id)
+        if agent_session:
+            first_user_content = agent_session.initial_prompt
+            first_assistant_content = agent_session.first_response_text
 
-            msg_type = entry.get("type")
-            if msg_type not in ("user", "assistant"):
-                continue
+    # Fall back to JSONL file (for non-sandbox, or locked sandbox sessions)
+    if first_user_content is None:
+        if not session.claude_session_id:
+            raise HTTPException(status_code=400, detail="Session has no claude_session_id")
 
-            msg_data = entry.get("message", {})
-            content_blocks = msg_data.get("content", [])
-            if isinstance(content_blocks, str):
-                content_blocks = [{"type": "text", "text": content_blocks}]
+        # For sandbox sessions, container uses /workspace as cwd
+        if session.sandbox_mode:
+            cwd = "/workspace"
+        else:
+            cwd = session.working_dir
+        if cwd != "/" and cwd.endswith("/"):
+            cwd = cwd.rstrip("/")
+        encoded_cwd = cwd.replace("/", "-")
+        jsonl_path = (
+            Path.home() / ".claude" / "projects" / encoded_cwd / f"{session.claude_session_id}.jsonl"
+        )
 
-            text_parts = []
-            for block in content_blocks:
-                if isinstance(block, str):
-                    text_parts.append(block)
-                elif block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
+        if not jsonl_path.exists():
+            raise HTTPException(status_code=400, detail="JSONL file not found")
 
-            content = "".join(text_parts)
-            if not content:
-                continue
+        with jsonl_path.open() as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-            if msg_type == "user" and first_user_content is None:
-                first_user_content = content
-            elif msg_type == "assistant" and first_assistant_content is None:
-                first_assistant_content = content
+                msg_type = entry.get("type")
+                if msg_type not in ("user", "assistant"):
+                    continue
 
-            if first_user_content and first_assistant_content:
-                break
+                msg_data = entry.get("message", {})
+                content_blocks = msg_data.get("content", [])
+                if isinstance(content_blocks, str):
+                    content_blocks = [{"type": "text", "text": content_blocks}]
+
+                text_parts = []
+                for block in content_blocks:
+                    if isinstance(block, str):
+                        text_parts.append(block)
+                    elif block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+
+                content = "".join(text_parts)
+                if not content:
+                    continue
+
+                if msg_type == "user" and first_user_content is None:
+                    first_user_content = content
+                elif msg_type == "assistant" and first_assistant_content is None:
+                    first_assistant_content = content
+
+                if first_user_content and first_assistant_content:
+                    break
 
     if not first_user_content:
         raise HTTPException(status_code=400, detail="No user message found")

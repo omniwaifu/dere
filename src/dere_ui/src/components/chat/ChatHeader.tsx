@@ -1,4 +1,4 @@
-import { FolderOpen, User, Palette, Brain } from "lucide-react";
+import { FolderOpen, User, Palette, Brain, Shield } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import { usePersonalities, useOutputStyles } from "@/hooks/queries";
 import { Badge } from "@/components/ui/badge";
@@ -78,13 +78,19 @@ export function ChatHeader() {
         <button
           type="button"
           onClick={handleThinkingToggle}
+          disabled={sessionConfig.sandbox_mode}
           className={cn(
             "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm transition-colors",
             thinkingEnabled
               ? "border-foreground/30 bg-foreground/10 text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+              : "border-transparent text-muted-foreground",
+            sessionConfig.sandbox_mode
+              ? "cursor-not-allowed"
+              : "hover:text-foreground"
           )}
-          title="Extended thinking mode"
+          title={sessionConfig.sandbox_mode
+            ? "Thinking mode cannot be changed in sandbox sessions"
+            : "Extended thinking mode"}
         >
           <Brain className="h-4 w-4" />
         </button>
@@ -92,6 +98,13 @@ export function ChatHeader() {
         {sessionConfig.include_context && (
           <Badge variant="secondary" className="text-xs">
             context
+          </Badge>
+        )}
+
+        {sessionConfig.sandbox_mode && (
+          <Badge variant="outline" className="gap-1 border-amber-500/50 text-amber-600 dark:text-amber-400">
+            <Shield className="h-3 w-3" />
+            sandbox
           </Badge>
         )}
       </div>

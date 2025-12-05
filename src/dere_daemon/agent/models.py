@@ -56,6 +56,8 @@ class SessionResponse(BaseModel):
     config: SessionConfig
     claude_session_id: str | None = None
     name: str | None = None
+    sandbox_mode: bool = False
+    is_locked: bool = False
 
 
 class SessionListResponse(BaseModel):

@@ -63,6 +63,10 @@ falkordb:
 falkordb-stop:
     docker stop falkordb
 
+# Build sandbox image
+sandbox-build:
+    docker build -t dere-sandbox:latest -f docker/sandbox/Dockerfile .
+
 # Run UI development server
 ui:
     cd src/dere_ui && bun run dev

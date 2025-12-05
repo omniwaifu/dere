@@ -15,6 +15,7 @@ import {
   MoreHorizontal,
   Share,
   Pencil,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -276,10 +277,16 @@ export function SessionSidebar() {
                     />
                   ) : (
                     <>
+                      {session.is_locked && (
+                        <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" title="Session locked (sandbox container stopped)" />
+                      )}
                       <Link
                         to="/chat/$sessionId"
                         params={{ sessionId: String(session.session_id) }}
-                        className="flex flex-1 items-center overflow-hidden"
+                        className={cn(
+                          "flex flex-1 items-center overflow-hidden",
+                          session.is_locked && "text-muted-foreground"
+                        )}
                         onDoubleClick={(e) => {
                           e.preventDefault();
                           handleStartRename(session.session_id, displayName);
