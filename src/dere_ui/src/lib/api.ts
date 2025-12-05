@@ -12,6 +12,7 @@ import type {
   EmotionHistoryResponse,
   EmotionProfileResponse,
   TasksResponse,
+  DereConfig,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -112,6 +113,15 @@ export const api = {
 
   user: {
     info: () => fetchJson<{ name: string }>("/user/info"),
+  },
+
+  config: {
+    get: () => fetchJson<DereConfig>("/config"),
+    update: (updates: Partial<DereConfig>) =>
+      fetchJson<DereConfig>("/config", {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      }),
   },
 
   taskwarrior: {

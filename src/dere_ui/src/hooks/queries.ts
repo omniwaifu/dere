@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { SessionConfig } from "@/types/api";
+import type { SessionConfig, DereConfig } from "@/types/api";
 
 export const queryKeys = {
   sessions: ["sessions"] as const,
@@ -17,6 +17,7 @@ export const queryKeys = {
   userInfo: ["userInfo"] as const,
   tasks: (params?: { status?: string; project?: string }) =>
     ["tasks", params] as const,
+  config: ["config"] as const,
 };
 
 export function useSessions() {
@@ -174,5 +175,24 @@ export function useTasks(params?: { status?: string; project?: string; include_c
     queryKey: queryKeys.tasks(params),
     queryFn: () => api.taskwarrior.tasks(params),
     refetchInterval: 30_000,
+  });
+}
+
+export function useConfig() {
+  return useQuery({
+    queryKey: queryKeys.config,
+    queryFn: () => api.config.get(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
+export function useUpdateConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (updates: Partial<DereConfig>) => api.config.update(updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.userInfo });
+    },
   });
 }

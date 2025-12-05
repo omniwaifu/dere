@@ -233,6 +233,57 @@ def load_dere_config() -> DereConfigDict:
         return DereConfig().to_dict()
 
 
+def save_dere_config(updates: dict[str, Any]) -> DereConfigDict:
+    """Save configuration updates to ~/.config/dere/config.toml.
+
+    Uses tomlkit to preserve comments and formatting.
+    Deep-merges updates with existing config, validates, and writes.
+
+    Args:
+        updates: Partial config dict to merge with existing config.
+
+    Returns:
+        The validated, saved configuration.
+
+    Raises:
+        ValueError: If the merged config fails validation.
+    """
+    import tomlkit
+
+    config_path = os.path.expanduser("~/.config/dere/config.toml")
+
+    # Load existing TOML (preserves comments) or create new document
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            doc = tomlkit.load(f)
+    else:
+        doc = tomlkit.document()
+        # Create config directory if needed
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+    # Deep merge updates into document
+    def deep_merge(base: tomlkit.TOMLDocument | tomlkit.items.Table, updates: dict[str, Any]) -> None:
+        for key, value in updates.items():
+            if isinstance(value, dict):
+                if key not in base:
+                    base[key] = tomlkit.table()
+                deep_merge(base[key], value)
+            else:
+                base[key] = value
+
+    deep_merge(doc, updates)
+
+    # Validate the merged config
+    merged_data = dict(doc)
+    validated_config = DereConfig(**merged_data)
+
+    # Write back to file
+    with open(config_path, "w") as f:
+        tomlkit.dump(doc, f)
+
+    return validated_config.to_dict()
+
+
 def _parse_simple_toml(content: str) -> dict[str, Any]:
     """Simple TOML parser for basic key=value pairs.
 

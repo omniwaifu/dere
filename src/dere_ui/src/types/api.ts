@@ -236,3 +236,123 @@ export interface TasksResponse {
   pending_count: number;
   completed_count: number;
 }
+
+export interface UserConfig {
+  name: string;
+}
+
+export interface ContextConfig {
+  time: boolean;
+  weather: boolean;
+  recent_files: boolean;
+  knowledge_graph: boolean;
+  activity: boolean;
+  media_player: boolean;
+  tasks: boolean;
+  calendar: boolean;
+  activity_lookback_minutes: number;
+  activity_differential_enabled: boolean;
+  activity_min_lookback_minutes: number;
+  activity_full_lookback_threshold_minutes: number;
+  activity_max_duration_hours: number;
+  recent_files_timeframe: string;
+  recent_files_base_path: string;
+  recent_files_max_depth: number;
+  show_inactive_items: boolean;
+  format: string;
+  max_title_length: number;
+  show_duration_for_short: boolean;
+  update_interval_seconds: number;
+  weather_cache_minutes: number;
+}
+
+export interface WeatherConfig {
+  enabled: boolean;
+  city: string | null;
+  units: string;
+}
+
+export interface ActivityWatchConfig {
+  enabled: boolean;
+  url: string;
+}
+
+export interface DiscordConfig {
+  token: string;
+  default_persona: string;
+  allowed_guilds: string;
+  allowed_channels: string;
+  idle_timeout_seconds: number;
+  summary_grace_seconds: number;
+  context_enabled: boolean;
+}
+
+export interface DatabaseConfig {
+  url: string;
+}
+
+export interface DereGraphConfig {
+  enabled: boolean;
+  falkor_host: string;
+  falkor_port: number;
+  falkor_database: string;
+  claude_model: string;
+  embedding_dim: number;
+  enable_reflection: boolean;
+  idle_threshold_minutes: number;
+}
+
+export interface AmbientConfig {
+  enabled: boolean;
+  check_interval_minutes: number;
+  idle_threshold_minutes: number;
+  activity_lookback_hours: number;
+  embedding_search_limit: number;
+  context_change_threshold: number;
+  notification_method: string;
+  daemon_url: string;
+  user_id: string | null;
+  personality: string | null;
+  escalation_enabled: boolean;
+  escalation_lookback_hours: number;
+  min_notification_interval_minutes: number;
+  startup_delay_seconds: number;
+  fsm_enabled: boolean;
+  fsm_idle_interval: number[];
+  fsm_monitoring_interval: number[];
+  fsm_engaged_interval: number;
+  fsm_cooldown_interval: number[];
+  fsm_escalating_interval: number[];
+  fsm_suppressed_interval: number[];
+  fsm_weight_activity: number;
+  fsm_weight_emotion: number;
+  fsm_weight_responsiveness: number;
+  fsm_weight_temporal: number;
+  fsm_weight_task: number;
+}
+
+export interface PluginModeConfig {
+  mode: "always" | "never" | "auto";
+  directories: string[];
+}
+
+export interface PluginsConfig {
+  dere_core: PluginModeConfig;
+  dere_productivity: PluginModeConfig;
+  dere_code: PluginModeConfig;
+  dere_vault: PluginModeConfig;
+}
+
+export interface DereConfig {
+  default_personality: string;
+  user_id: string;
+  user: UserConfig;
+  context: ContextConfig;
+  weather: WeatherConfig;
+  activitywatch: ActivityWatchConfig;
+  discord: DiscordConfig;
+  database: DatabaseConfig;
+  dere_graph: DereGraphConfig;
+  ambient: AmbientConfig;
+  plugins: PluginsConfig;
+}

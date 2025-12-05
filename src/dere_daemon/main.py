@@ -11,13 +11,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlmodel import select
 
-from dere_shared.config import load_dere_config
+from dere_shared.config import load_dere_config, save_dere_config
 from dere_shared.database import create_engine, create_session_factory, get_session
 from dere_shared.models import (
     Conversation,
@@ -643,6 +643,26 @@ async def get_user_info():
     """Get current user info from config."""
     config = load_dere_config()
     return {"name": config.user.name}
+
+
+@app.get("/config")
+async def get_config():
+    """Get current configuration."""
+    return load_dere_config()
+
+
+@app.put("/config")
+async def update_config(updates: dict[str, Any]):
+    """Update configuration and persist to config file.
+
+    Deep-merges the provided updates with existing config,
+    validates, and saves to ~/.config/dere/config.toml.
+    """
+    try:
+        updated_config = save_dere_config(updates)
+        return updated_config
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/search/similar")
