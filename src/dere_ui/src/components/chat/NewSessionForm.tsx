@@ -10,6 +10,8 @@ import {
 } from "@/hooks/queries";
 import type { SessionConfig } from "@/types/api";
 import { cn } from "@/lib/utils";
+import { ShootingStars } from "@/components/ui/shooting-stars";
+import { StarsBackground } from "@/components/ui/stars-background";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -119,8 +121,14 @@ export function NewSessionForm() {
   };
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center p-8">
-      <div className="w-full max-w-2xl space-y-8">
+    <div className="flex flex-1 flex-col items-center justify-center p-8 relative overflow-hidden">
+      <StarsBackground className="z-0" />
+      <ShootingStars
+        starColor="hsl(240 5% 84%)"
+        trailColor="hsl(240 5% 65%)"
+        className="z-0"
+      />
+      <div className="w-full max-w-2xl space-y-8 relative z-10">
         {/* Greeting */}
         <h1 className="text-center text-3xl font-light text-foreground/80">
           {greeting}
