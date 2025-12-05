@@ -320,7 +320,14 @@ export function SessionSidebar() {
                           <DropdownMenuItem
                             onClick={() => {
                               if (confirm("Delete this session?")) {
-                                deleteSession.mutate(session.session_id);
+                                const isCurrentSession = currentSessionId === session.session_id;
+                                deleteSession.mutate(session.session_id, {
+                                  onSuccess: () => {
+                                    if (isCurrentSession) {
+                                      navigate({ to: "/" });
+                                    }
+                                  },
+                                });
                               }
                             }}
                           >
