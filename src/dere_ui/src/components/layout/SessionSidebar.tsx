@@ -278,7 +278,9 @@ export function SessionSidebar() {
                   ) : (
                     <>
                       {session.is_locked && (
-                        <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" title="Session locked (sandbox container stopped)" />
+                        <span title="Session locked (sandbox container stopped)">
+                          <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        </span>
                       )}
                       <Link
                         to="/chat/$sessionId"

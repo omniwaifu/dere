@@ -78,6 +78,8 @@ export function MessageBubble({ message, isLatest }: MessageBubbleProps) {
                 components={{
                   code: CodeBlock,
                   pre: ({ children }) => <>{children}</>,
+                  em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+                  strong: ({ children }) => <strong className="font-bold">{children}</strong>,
                   p: ({ children }) => (
                     <p>
                       {children}
