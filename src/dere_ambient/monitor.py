@@ -13,7 +13,6 @@ from .config import AmbientConfig
 from .fsm import AmbientFSM, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
-    from dere_graph.llm_client import ClaudeClient
     from dere_shared.personalities import PersonalityLoader
 
 
@@ -23,13 +22,10 @@ class AmbientMonitor:
     def __init__(
         self,
         config: AmbientConfig,
-        llm_client: ClaudeClient | None = None,
         personality_loader: PersonalityLoader | None = None,
     ):
         self.config = config
-        self.analyzer = ContextAnalyzer(
-            config, llm_client=llm_client, personality_loader=personality_loader
-        )
+        self.analyzer = ContextAnalyzer(config, personality_loader=personality_loader)
         self._running = False
         self._task: asyncio.Task[Any] | None = None
 
@@ -98,12 +94,6 @@ class AmbientMonitor:
     async def _validate_dependencies(self) -> None:
         """Validate dependencies and log warnings for any missing components."""
         warnings = []
-
-        # Check LLM client
-        if not self.analyzer.llm_client:
-            warnings.append("LLM client not configured - engagement evaluation will be disabled")
-        else:
-            logger.info("LLM client configured")
 
         # Check ActivityWatch connectivity
         try:

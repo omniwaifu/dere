@@ -11,13 +11,13 @@ import httpx
 from loguru import logger
 
 from dere_shared.activitywatch import ActivityWatchClient, detect_continuous_activities
+from dere_shared.llm_client import ClaudeClient
 from dere_shared.models import AmbientEngagementDecision
 from dere_shared.tasks import get_task_context
 
 from .config import AmbientConfig
 
 if TYPE_CHECKING:
-    from dere_graph.llm_client import ClaudeClient
     from dere_shared.personalities import PersonalityLoader
 
 
@@ -27,13 +27,12 @@ class ContextAnalyzer:
     def __init__(
         self,
         config: AmbientConfig,
-        llm_client: ClaudeClient | None = None,
         personality_loader: PersonalityLoader | None = None,
     ):
         self.config = config
         self.daemon_url = config.daemon_url
         self.aw_client = ActivityWatchClient()
-        self.llm_client = llm_client
+        self.llm_client = ClaudeClient(model="claude-haiku-4-5")
         self.personality_loader = personality_loader
 
 
@@ -483,12 +482,8 @@ class ContextAnalyzer:
         prompt_parts.append("\nIf there are overdue tasks, upcoming deadlines, or relevant context worth mentioning, engage. Otherwise don't.")
         prompt = "\n".join(prompt_parts)
 
-        if not self.llm_client:
-            logger.error("LLM client not configured for ambient analyzer")
-            return None
-
         try:
-            from dere_graph.llm_client import Message
+            from dere_shared.llm_client import Message
 
             messages = []
             if self.personality_loader:

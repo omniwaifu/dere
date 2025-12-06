@@ -266,9 +266,8 @@ async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
         from dere_ambient import AmbientMonitor, load_ambient_config
 
         ambient_config = load_ambient_config()
-        llm_client = app_state.dere_graph.llm_client if app_state.dere_graph else None
         app_state.ambient_monitor = AmbientMonitor(
-            ambient_config, llm_client=llm_client, personality_loader=app_state.personality_loader
+            ambient_config, personality_loader=app_state.personality_loader
         )
         await app_state.ambient_monitor.start()
     except Exception as e:
