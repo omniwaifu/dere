@@ -201,6 +201,7 @@ class AppState:
     agent_service: Any  # CentralizedAgentService
     mission_executor: Any  # MissionExecutor
     mission_scheduler: Any  # MissionScheduler
+    rare_event_generator: Any  # RareEventGenerator
 
 
 async def _init_database(db_url: str, app_state: AppState) -> None:
@@ -304,6 +305,17 @@ async def _init_agent_service(app_state: AppState) -> None:
     print("Mission scheduler started")
 
 
+async def _init_rare_event_generator(app_state: AppState) -> None:
+    """Initialize the rare event generator."""
+    from dere_daemon.events import RareEventGenerator
+
+    app_state.rare_event_generator = RareEventGenerator(
+        session_factory=app_state.session_factory,
+    )
+    app_state.rare_event_generator.start()
+    print("Rare event generator started")
+
+
 def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task]:
     """Start background tasks for presence cleanup and emotion decay."""
 
@@ -396,6 +408,13 @@ async def _shutdown_cleanup(
         except Exception as e:
             errors.append(e)
 
+    # Stop rare event generator
+    if hasattr(app_state, "rare_event_generator") and app_state.rare_event_generator:
+        try:
+            await app_state.rare_event_generator.stop()
+        except Exception as e:
+            errors.append(e)
+
     if app_state.ambient_monitor:
         try:
             await app_state.ambient_monitor.shutdown()
@@ -463,6 +482,7 @@ async def lifespan(app: FastAPI):
     await _init_dere_graph(config, db_url, app.state)
     await _init_ambient_monitor(data_dir, app.state)
     await _init_agent_service(app.state)
+    await _init_rare_event_generator(app.state)
 
     cleanup_task, emotion_decay_task = _start_background_tasks(app.state)
 
@@ -479,13 +499,16 @@ app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
 from dere_daemon.routers import (
     agent_router,
     context_router,
+    dashboard_router,
     emotions_router,
     kg_router,
     missions_router,
     notifications_router,
     presence_router,
+    rare_events_router,
     sessions_router,
     taskwarrior_router,
+    ui_preferences_router,
 )
 
 app.include_router(sessions_router)
@@ -497,6 +520,9 @@ app.include_router(kg_router)
 app.include_router(context_router)
 app.include_router(taskwarrior_router)
 app.include_router(missions_router)
+app.include_router(dashboard_router)
+app.include_router(ui_preferences_router)
+app.include_router(rare_events_router)
 
 
 # Database session dependency
@@ -620,8 +646,10 @@ async def get_or_create_emotion_manager(session_id: int, personality: str | None
             ),
         ]
 
-    # Get LLM client from dere_graph if available
-    llm_client = app.state.dere_graph.llm_client if app.state.dere_graph else None
+    # Create LLM client for emotion appraisal
+    from dere_shared.llm_client import ClaudeClient
+
+    llm_client = ClaudeClient(model="claude-haiku-4-5")
 
     manager = OCCEmotionManager(
         goals=goals,
@@ -1323,7 +1351,7 @@ def main():
     import uvicorn
 
     _configure_logging()
-    uvicorn.run(app, host="127.0.0.1", port=8787, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8787, log_level="warning", access_log=False)
 
 
 if __name__ == "__main__":

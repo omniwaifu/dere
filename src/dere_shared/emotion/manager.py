@@ -122,8 +122,7 @@ class OCCEmotionManager:
                 f"[OCCEmotionManager] {emotion_type.value}: "
                 f"raw={raw_intensity:.1f}, "
                 f"prior={(prior_intensity.intensity if prior_intensity else 0):.1f}, "
-                f"resonance={physics_result.resonance_factor:.2f}, "
-                f"momentum={physics_result.momentum_adjustment:.1f}, "
+                f"momentum_resistance={physics_result.momentum_resistance:.2f}, "
                 f"final={physics_result.final_intensity:.1f}"
             )
 
@@ -396,9 +395,10 @@ class OCCEmotionManager:
 
         self.stimulus_buffer.add_stimulus(stimulus_record)
 
-        # Also persist to database
+        # Persist to database (session_id=None for global state)
         try:
-            await self.db.store_stimulus(self.session_id, stimulus_record)
+            persist_session_id = None if self.session_id == 0 else self.session_id
+            await self.db.store_stimulus(persist_session_id, stimulus_record)
         except Exception as e:
             logger.error(f"[OCCEmotionManager] Failed to persist stimulus: {e}")
 
@@ -428,10 +428,11 @@ class OCCEmotionManager:
             return "night"
 
     async def _persist_state(self) -> None:
-        """Persist current emotional state to database"""
+        """Persist current emotional state to database (session_id=None for global state)"""
         try:
+            persist_session_id = None if self.session_id == 0 else self.session_id
             await self.db.store_emotion_state(
-                self.session_id, self.active_emotions, self.last_decay_time
+                persist_session_id, self.active_emotions, self.last_decay_time
             )
             logger.debug(
                 f"[OCCEmotionManager] Persisted state: {len(self.active_emotions)} emotions"

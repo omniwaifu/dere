@@ -34,11 +34,12 @@ class StateIntervals:
 class SignalWeights:
     """Weights for signal evaluation in transitions."""
 
-    activity: float = 0.3
-    emotion: float = 0.25
-    responsiveness: float = 0.2
+    activity: float = 0.25
+    emotion: float = 0.20
+    responsiveness: float = 0.15
     temporal: float = 0.15
-    task: float = 0.1
+    task: float = 0.10
+    bond: float = 0.15  # Her affection level affects engagement eagerness
 
 
 class AmbientFSM:
@@ -212,6 +213,50 @@ class AmbientFSM:
 
         return 0.0
 
+    def evaluate_bond_signal(self, bond_data: dict) -> float:
+        """Evaluate her bond/affection level with user.
+
+        Higher bond = more willing to engage, more initiative.
+        Lower bond = withdrawn, less proactive, protective.
+
+        Returns: -1 (suppress) to +1 (engage)
+        """
+        affection = bond_data.get("affection_level", 50.0)
+        trend = bond_data.get("trend", "stable")
+        streak = bond_data.get("streak_days", 0)
+
+        # Base signal from affection level
+        # High affection (>70) = eager to engage
+        # Low affection (<30) = withdrawn, less initiative
+        if affection >= 80:
+            base_signal = 0.7  # Very eager
+        elif affection >= 65:
+            base_signal = 0.4  # Warm and willing
+        elif affection >= 50:
+            base_signal = 0.1  # Neutral, normal behavior
+        elif affection >= 35:
+            base_signal = -0.2  # Slightly withdrawn
+        elif affection >= 20:
+            base_signal = -0.5  # Notably distant
+        else:
+            base_signal = -0.8  # Very withdrawn, protective
+
+        # Trend modifier
+        if trend == "rising":
+            base_signal += 0.15  # Encouraged by improvement
+        elif trend == "falling":
+            base_signal -= 0.1  # Discouraged by decline
+        elif trend == "distant":
+            base_signal -= 0.2  # Emotionally guarded
+
+        # Streak bonus (consistency rewards)
+        if streak >= 7:
+            base_signal += 0.1  # Strong connection feeling
+        elif streak >= 3:
+            base_signal += 0.05
+
+        return max(-1.0, min(1.0, base_signal))
+
     def should_transition(
         self,
         activity_data: dict,
@@ -219,6 +264,7 @@ class AmbientFSM:
         notification_history: list[dict],
         task_data: dict,
         current_hour: int,
+        bond_data: dict | None = None,
     ) -> AmbientState | None:
         """Evaluate signals and determine if state should change.
 
@@ -230,6 +276,7 @@ class AmbientFSM:
         responsiveness_signal = self.evaluate_responsiveness_signal(notification_history)
         temporal_signal = self.evaluate_temporal_signal(current_hour)
         task_signal = self.evaluate_task_signal(task_data)
+        bond_signal = self.evaluate_bond_signal(bond_data or {})
 
         # Weighted score
         transition_score = (
@@ -238,6 +285,7 @@ class AmbientFSM:
             + self.weights.responsiveness * responsiveness_signal
             + self.weights.temporal * temporal_signal
             + self.weights.task * task_signal
+            + self.weights.bond * bond_signal
         )
 
         # State-specific transition logic

@@ -23,6 +23,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import select
 
+from dere_shared.bond import BondManager, InteractionQuality
 from dere_shared.config import load_dere_config
 from dere_shared.context import get_time_context
 from dere_shared.models import Session
@@ -136,10 +137,12 @@ class CentralizedAgentService:
     _locks: dict[int, asyncio.Lock] = field(default_factory=dict)
     _cancel_events: dict[int, asyncio.Event] = field(default_factory=dict)
     _cleanup_task: asyncio.Task | None = field(default=None, init=False)
+    _bond_manager: BondManager | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         if not self.config:
             self.config = load_dere_config()
+        self._bond_manager = BondManager(self.session_factory)
 
     def _get_lock(self, session_id: int) -> asyncio.Lock:
         if session_id not in self._locks:
@@ -257,6 +260,137 @@ class CentralizedAgentService:
         except Exception as e:
             logger.debug("Failed to get emotion summary: {}", e)
         return ""
+
+    def _assess_interaction_quality(
+        self,
+        prompt: str,
+        response_text: str,
+        tool_count: int,
+        response_time_ms: float | None,
+    ) -> InteractionQuality:
+        """Assess the quality of an interaction for bond calculation.
+
+        Factors:
+        - Length of user prompt (shows engagement)
+        - Length of assistant response (shows effort)
+        - Tool usage (shows collaborative work)
+        - Response time (longer = more thoughtful, but has limits)
+        """
+        prompt_len = len(prompt)
+        response_len = len(response_text)
+
+        # Score components
+        score = 0
+
+        # Prompt length contribution (user engagement)
+        if prompt_len > 500:
+            score += 2  # Detailed request
+        elif prompt_len > 100:
+            score += 1  # Reasonable request
+
+        # Response length contribution (assistant effort)
+        if response_len > 2000:
+            score += 2  # Detailed response
+        elif response_len > 500:
+            score += 1  # Substantive response
+
+        # Tool usage (collaborative work)
+        if tool_count >= 3:
+            score += 2  # Significant tool work
+        elif tool_count >= 1:
+            score += 1  # Some tool usage
+
+        # Map score to quality
+        if score >= 5:
+            return InteractionQuality.EXCEPTIONAL
+        elif score >= 3:
+            return InteractionQuality.MEANINGFUL
+        elif score >= 1:
+            return InteractionQuality.STANDARD
+        else:
+            return InteractionQuality.MINIMAL
+
+    async def _process_interaction_complete(
+        self,
+        session: AgentSession,
+        prompt: str,
+        response_text: str,
+        tool_count: int,
+        response_time_ms: float | None,
+    ) -> None:
+        """Process completed interaction for bond and emotion systems.
+
+        Called after each successful query completion. Runs in background
+        to not block the response stream.
+        """
+        async def process_background() -> None:
+            try:
+                # Assess quality
+                quality = self._assess_interaction_quality(
+                    prompt, response_text, tool_count, response_time_ms
+                )
+                logger.debug(
+                    f"[interaction] Session {session.session_id}: "
+                    f"quality={quality.value}, tools={tool_count}"
+                )
+
+                # Record bond interaction
+                if self._bond_manager:
+                    try:
+                        update = await self._bond_manager.record_interaction(quality)
+                        logger.info(
+                            f"[bond] Recorded interaction: "
+                            f"{update.old_affection:.1f} -> {update.new_affection:.1f} "
+                            f"({quality.value})"
+                        )
+                    except Exception as e:
+                        logger.error(f"[bond] Failed to record interaction: {e}")
+
+                # Process emotion stimulus
+                emotion_manager = await self._get_global_emotion_manager()
+                if emotion_manager:
+                    try:
+                        from datetime import UTC, datetime
+
+                        now = datetime.now(UTC)
+
+                        # Build stimulus from both user prompt and response
+                        stimulus = {
+                            "role": "user",
+                            "message": prompt,
+                            "response": response_text[:500] if response_text else "",
+                            "interaction_quality": quality.value,
+                            "tool_usage": tool_count > 0,
+                        }
+
+                        context = {
+                            "conversation_id": str(session.session_id),
+                            "personality": session.config.personality,
+                            "temporal": {
+                                "hour": now.hour,
+                                "day_of_week": now.strftime("%A"),
+                            },
+                            "session": {
+                                "working_dir": session.config.working_dir,
+                            },
+                        }
+
+                        personality_name = session.config.personality
+                        if isinstance(personality_name, list):
+                            personality_name = personality_name[0] if personality_name else "AI"
+
+                        await emotion_manager.process_stimulus(
+                            stimulus, context, personality_name or "AI"
+                        )
+                        logger.debug("[emotion] Processed interaction stimulus")
+                    except Exception as e:
+                        logger.error(f"[emotion] Failed to process stimulus: {e}")
+
+            except Exception as e:
+                logger.error(f"[interaction] Background processing failed: {e}")
+
+        # Fire and forget
+        asyncio.create_task(process_background())
 
     def _build_environmental_context(self, session_id: int) -> str:
         """Build environmental context for system prompt."""
@@ -751,12 +885,20 @@ class CentralizedAgentService:
             session.first_response_text = response_text
 
         timings: dict[str, float] | None = None
+        response_time_ms: float | None = None
         if first_token_time is not None:
             response_end_time = time.monotonic()
+            response_time_ms = (response_end_time - request_start_time) * 1000
             timings = {
                 "time_to_first_token": (first_token_time - request_start_time) * 1000,
-                "response_time": (response_end_time - request_start_time) * 1000,
+                "response_time": response_time_ms,
             }
+
+        # Process interaction for bond and emotion systems (fire and forget)
+        await self._process_interaction_complete(
+            session, prompt, response_text, tool_count, response_time_ms
+        )
+
         yield session.add_event(done_event(response_text, tool_count, timings))
 
     async def _close_session_internal(self, session: AgentSession) -> None:

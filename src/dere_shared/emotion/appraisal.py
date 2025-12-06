@@ -14,11 +14,11 @@ from dere_shared.emotion.models import (
 )
 
 if TYPE_CHECKING:
-    from dere_graph.llm_client import ClaudeClient
+    from dere_shared.llm_client import ClaudeClient
 
 
 class AppraisalEngine:
-    """OCC appraisal engine using dere_graph LLM client"""
+    """OCC appraisal engine using LLM for semantic understanding."""
 
     def __init__(
         self,
@@ -39,7 +39,7 @@ class AppraisalEngine:
         context: dict | None = None,
         persona_name: str = "AI",
     ) -> AppraisalOutput | None:
-        """Appraise a stimulus using dere_graph LLM client"""
+        """Appraise a stimulus using LLM for semantic understanding."""
 
         if not self.llm_client:
             logger.error("[AppraisalEngine] No LLM client provided")
@@ -53,8 +53,7 @@ class AppraisalEngine:
 
             logger.debug("[AppraisalEngine] Calling LLM client")
 
-            # Import here to avoid circular import at module level
-            from dere_graph.llm_client import Message
+            from dere_shared.llm_client import Message
 
             # Call LLM client with structured output
             messages = [Message(role="user", content=prompt)]

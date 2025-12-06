@@ -292,6 +292,24 @@ class AmbientMonitor:
                 # Get task data (simplified)
                 task_data = {"overdue_count": 0, "due_soon_count": 0}
 
+                # Get bond data
+                bond_data = {"affection_level": 50.0, "trend": "stable", "streak_days": 0}
+                try:
+                    response = await client.get(
+                        f"{self.config.daemon_url}/dashboard/state",
+                        timeout=2.0,
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("bond"):
+                            bond_data = {
+                                "affection_level": data["bond"].get("affection_level", 50.0),
+                                "trend": data["bond"].get("trend", "stable"),
+                                "streak_days": data["bond"].get("streak_days", 0),
+                            }
+                except Exception:
+                    pass
+
                 # Current hour for temporal signal (use local timezone, not UTC)
                 current_hour = datetime.now().hour
 
@@ -302,6 +320,7 @@ class AmbientMonitor:
                     notification_history=notification_history,
                     task_data=task_data,
                     current_hour=current_hour,
+                    bond_data=bond_data,
                 )
 
                 if new_state:

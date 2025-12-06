@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { SessionSidebar } from "./SessionSidebar";
 import { RightPanel } from "./RightPanel";
+import { RareEventToast } from "@/components/RareEventToast";
 import { useChatStore } from "@/stores/chat";
 import { AlertCircle } from "lucide-react";
 
@@ -32,6 +33,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
         <RightPanel />
       </div>
+
+      <RareEventToast />
     </div>
   );
 }

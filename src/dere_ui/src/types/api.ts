@@ -436,3 +436,77 @@ export interface UpdateMissionRequest {
   sandbox_mount_type?: string;
   run_once?: boolean;
 }
+
+// Dashboard state
+export interface DashboardEmotionState {
+  type: string;
+  intensity: number;
+  hue: number;
+  last_updated: number | null;
+}
+
+export interface DashboardActivityState {
+  current_app: string | null;
+  current_title: string | null;
+  is_idle: boolean;
+  idle_duration_seconds: number;
+  activity_category: "productive" | "neutral" | "distracted" | "absent";
+}
+
+export interface DashboardAmbientState {
+  fsm_state: string;
+  next_check_at: string | null;
+  is_enabled: boolean;
+}
+
+export interface DashboardBondState {
+  affection_level: number;
+  trend: "rising" | "stable" | "falling" | "distant";
+  streak_days: number;
+  last_interaction_at: string | null;
+  context_summary: string;
+}
+
+export interface DashboardStateResponse {
+  emotion: DashboardEmotionState;
+  activity: DashboardActivityState;
+  ambient: DashboardAmbientState;
+  bond: DashboardBondState | null;
+  attention_cue: string;
+  timestamp: string;
+}
+
+// UI Preferences
+export interface UIPreferencesResponse {
+  theme: string;
+  custom_accent_hue: number | null;
+  right_panel_state: "expanded" | "collapsed" | "hidden";
+  left_panel_state: "expanded" | "collapsed" | "hidden";
+  hidden_widgets: string[];
+  set_by: "user" | "assistant";
+  last_rearranged_at: string | null;
+  last_change_reason: string | null;
+}
+
+export interface UpdateUIPreferencesRequest {
+  theme?: string;
+  custom_accent_hue?: number | null;
+  right_panel_state?: "expanded" | "collapsed" | "hidden";
+  left_panel_state?: "expanded" | "collapsed" | "hidden";
+  hidden_widgets?: string[];
+}
+
+// Rare Events
+export type RareEventType = "note" | "mood_shift" | "observation" | "memory" | "greeting";
+
+export interface RareEvent {
+  id: number;
+  user_id: string;
+  event_type: RareEventType;
+  content: Record<string, unknown> | null;
+  trigger_reason: string;
+  trigger_context: Record<string, unknown> | null;
+  shown_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+}

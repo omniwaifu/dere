@@ -21,11 +21,12 @@ export function ThinkingIndicator({
   const [expanded, setExpanded] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
-  const isThinking = isStreaming && !thinkingDuration;
+  // Actively thinking = streaming but no duration calculated yet AND has thinking content
+  const isActivelyThinking = isStreaming && !thinkingDuration && !!thinking;
 
   // Live timer while thinking
   useEffect(() => {
-    if (!isThinking) return;
+    if (!isActivelyThinking) return;
 
     const start = Date.now();
     const interval = setInterval(() => {
@@ -33,10 +34,10 @@ export function ThinkingIndicator({
     }, 100);
 
     return () => clearInterval(interval);
-  }, [isThinking]);
+  }, [isActivelyThinking]);
 
-  // Don't render if no thinking content and not actively thinking
-  if (!thinking && !isThinking) return null;
+  // Only render if we have thinking content
+  if (!thinking) return null;
 
   const displayDuration = thinkingDuration ?? elapsed;
   const formattedDuration = displayDuration.toFixed(1);
@@ -51,7 +52,7 @@ export function ThinkingIndicator({
           )}
         />
 
-        {isThinking ? (
+        {isActivelyThinking ? (
           <>
             <ThinkingDots />
             <span>Thinking...</span>

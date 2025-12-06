@@ -1,14 +1,17 @@
 import { useEffect } from "react";
 import { FolderOpen, User, Palette, Brain, Shield } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
+import { useDashboardStore } from "@/stores/dashboard";
 import { usePersonalities, useOutputStyles } from "@/hooks/queries";
 import { Badge } from "@/components/ui/badge";
+import { PresenceOrb } from "@/components/PresenceOrb";
 import { cn } from "@/lib/utils";
 
 export function ChatHeader() {
   const sessionConfig = useChatStore((s) => s.sessionConfig);
   const sessionName = useChatStore((s) => s.sessionName);
   const updateConfig = useChatStore((s) => s.updateConfig);
+  const attentionCue = useDashboardStore((s) => s.attentionCue);
 
   // Update document title based on session name
   useEffect(() => {
@@ -43,11 +46,21 @@ export function ChatHeader() {
     : sessionConfig.personality || "default";
 
   return (
-    <header className="flex items-center gap-4 border-b border-border px-4 py-2">
+    <header className="mood-transition flex items-center gap-4 border-b border-border/50 px-4 py-2">
+      {/* Presence orb */}
+      <PresenceOrb size="sm" showTooltip={true} />
+
       {sessionName && (
         <h1 className="text-sm font-medium truncate max-w-[200px]">
           {sessionName}
         </h1>
+      )}
+
+      {/* Attention cue - subtle status line */}
+      {attentionCue && (
+        <span className="text-xs italic text-muted-foreground mood-accent">
+          {attentionCue}
+        </span>
       )}
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
