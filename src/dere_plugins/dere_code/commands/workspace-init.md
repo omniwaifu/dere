@@ -7,10 +7,9 @@ Initialize workspace and activate Serena for current project.
 
 Execute these steps:
 
-1. Update .gitignore:
+1. Update .gitignore (idempotent):
    ```bash
-   echo "" >> .gitignore
-   echo ".serena/" >> .gitignore
+   grep -qxF '.serena/' .gitignore || echo '.serena/' >> .gitignore
    ```
 
 2. Activate Serena:
