@@ -7,6 +7,7 @@ import {
   CheckSquare,
   Heart,
   Radio,
+  Rocket,
   ExternalLink,
   PanelRight,
   PanelRightClose,
@@ -20,7 +21,7 @@ import {
   Zap,
   HelpCircle,
 } from "lucide-react";
-import { useTasks, useEmotionState } from "@/hooks/queries";
+import { useTasks, useEmotionState, useMissions } from "@/hooks/queries";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface WidgetProps {
@@ -74,6 +75,9 @@ export function RightPanel() {
           <Link to="/tasks" className="rounded-md p-2 hover:bg-accent" title="Tasks">
             <CheckSquare className="h-4 w-4 text-muted-foreground" />
           </Link>
+          <Link to="/missions" className="rounded-md p-2 hover:bg-accent" title="Missions">
+            <Rocket className="h-4 w-4 text-muted-foreground" />
+          </Link>
           <Link to="/emotion" className="rounded-md p-2 hover:bg-accent" title="Emotion">
             <Heart className="h-4 w-4 text-muted-foreground" />
           </Link>
@@ -108,6 +112,14 @@ export function RightPanel() {
             href="/tasks"
           >
             <TasksPreview />
+          </Widget>
+
+          <Widget
+            title="Missions"
+            icon={<Rocket className="h-4 w-4 text-muted-foreground" />}
+            href="/missions"
+          >
+            <MissionsPreview />
           </Widget>
 
           <Widget
@@ -317,6 +329,61 @@ function EmotionPreview() {
           }}
         />
       </div>
+    </div>
+  );
+}
+
+function MissionsPreview() {
+  const { data: missions, isLoading, isError } = useMissions();
+
+  if (isLoading) {
+    return (
+      <div className="space-y-1.5">
+        <Skeleton className="h-8 w-12" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-xs text-destructive">Failed to load missions</p>
+    );
+  }
+
+  const active = missions?.filter((m) => m.status === "active").length ?? 0;
+  const paused = missions?.filter((m) => m.status === "paused").length ?? 0;
+  const nextMission = missions
+    ?.filter((m) => m.status === "active" && m.next_execution_at)
+    .sort((a, b) =>
+      new Date(a.next_execution_at!).getTime() - new Date(b.next_execution_at!).getTime()
+    )[0];
+
+  const formatNextRun = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = date.getTime() - now.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold">{active}</span>
+        <span className="text-xs text-muted-foreground">active</span>
+        {paused > 0 && (
+          <span className="text-xs text-muted-foreground">({paused} paused)</span>
+        )}
+      </div>
+      {nextMission && (
+        <p className="text-xs text-muted-foreground">
+          Next: {nextMission.name} in {formatNextRun(nextMission.next_execution_at!)}
+        </p>
+      )}
     </div>
   );
 }

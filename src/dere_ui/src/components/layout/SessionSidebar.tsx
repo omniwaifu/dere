@@ -16,6 +16,7 @@ import {
   Share,
   Pencil,
   Lock,
+  Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -188,6 +189,20 @@ export function SessionSidebar() {
           <Search className="h-4 w-4" />
           {!isCollapsed && <span>Search chats</span>}
         </Button>
+
+        {/* Missions link */}
+        <Button
+          variant="ghost"
+          className={cn(
+            "w-full justify-start gap-2",
+            isCollapsed && "justify-center px-0"
+          )}
+          onClick={() => navigate({ to: "/missions" })}
+          title="Missions"
+        >
+          <Rocket className="h-4 w-4" />
+          {!isCollapsed && <span>Missions</span>}
+        </Button>
       </div>
 
       {/* Search input (shown when searching) */}
@@ -277,6 +292,11 @@ export function SessionSidebar() {
                     />
                   ) : (
                     <>
+                      {session.mission_id && (
+                        <span title="Mission-spawned session">
+                          <Rocket className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+                        </span>
+                      )}
                       {session.is_locked && (
                         <span title="Session locked (sandbox container stopped)">
                           <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

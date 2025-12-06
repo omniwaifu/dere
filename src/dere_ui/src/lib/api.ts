@@ -13,6 +13,10 @@ import type {
   EmotionProfileResponse,
   TasksResponse,
   DereConfig,
+  Mission,
+  MissionExecution,
+  CreateMissionRequest,
+  UpdateMissionRequest,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -134,5 +138,50 @@ export const api = {
       const query = searchParams.toString();
       return fetchJson<TasksResponse>(`/taskwarrior/tasks${query ? `?${query}` : ""}`);
     },
+  },
+
+  missions: {
+    list: (status?: string) => {
+      const params = status ? `?status=${status}` : "";
+      return fetchJson<Mission[]>(`/missions${params}`);
+    },
+
+    get: (id: number) => fetchJson<Mission>(`/missions/${id}`),
+
+    create: (data: CreateMissionRequest) =>
+      fetchJson<Mission>("/missions", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    update: (id: number, data: UpdateMissionRequest) =>
+      fetchJson<Mission>(`/missions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: number) =>
+      fetchJson<{ status: string; id: number }>(`/missions/${id}`, {
+        method: "DELETE",
+      }),
+
+    pause: (id: number) =>
+      fetchJson<Mission>(`/missions/${id}/pause`, { method: "POST" }),
+
+    resume: (id: number) =>
+      fetchJson<Mission>(`/missions/${id}/resume`, { method: "POST" }),
+
+    execute: (id: number) =>
+      fetchJson<{ status: string; mission_id: number }>(`/missions/${id}/execute`, {
+        method: "POST",
+      }),
+
+    executions: (id: number, limit?: number) => {
+      const params = limit ? `?limit=${limit}` : "";
+      return fetchJson<MissionExecution[]>(`/missions/${id}/executions${params}`);
+    },
+
+    execution: (missionId: number, executionId: number) =>
+      fetchJson<MissionExecution>(`/missions/${missionId}/executions/${executionId}`),
   },
 };

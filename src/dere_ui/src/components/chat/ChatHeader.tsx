@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { FolderOpen, User, Palette, Brain, Shield } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import { usePersonalities, useOutputStyles } from "@/hooks/queries";
@@ -6,7 +7,16 @@ import { cn } from "@/lib/utils";
 
 export function ChatHeader() {
   const sessionConfig = useChatStore((s) => s.sessionConfig);
+  const sessionName = useChatStore((s) => s.sessionName);
   const updateConfig = useChatStore((s) => s.updateConfig);
+
+  // Update document title based on session name
+  useEffect(() => {
+    document.title = sessionName ? `${sessionName} - dere` : "dere";
+    return () => {
+      document.title = "dere";
+    };
+  }, [sessionName]);
 
   const { data: personalities } = usePersonalities();
   const { data: outputStyles } = useOutputStyles();
@@ -34,6 +44,12 @@ export function ChatHeader() {
 
   return (
     <header className="flex items-center gap-4 border-b border-border px-4 py-2">
+      {sessionName && (
+        <h1 className="text-sm font-medium truncate max-w-[200px]">
+          {sessionName}
+        </h1>
+      )}
+
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <FolderOpen className="h-4 w-4" />
         <span className="truncate max-w-[200px]">

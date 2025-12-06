@@ -60,6 +60,9 @@ class LocalSessionRunner(SessionRunner):
         if self._dere_core_plugin_path:
             plugins.append({"type": "local", "path": self._dere_core_plugin_path})
 
+        # Use bypassPermissions for auto-approve sessions (e.g., missions)
+        permission_mode = "bypassPermissions" if self._config.auto_approve else "acceptEdits"
+
         options = ClaudeAgentOptions(
             cwd=self._config.working_dir,
             settings=self._settings_file,
@@ -70,12 +73,12 @@ class LocalSessionRunner(SessionRunner):
                 "append": self._system_prompt,
             },
             allowed_tools=allowed_tools,
-            permission_mode="acceptEdits",
+            permission_mode=permission_mode,
             resume=self._resume_session_id,
             plugins=plugins if plugins else None,
             model=self._config.model,
             include_partial_messages=self._config.enable_streaming,
-            can_use_tool=self._permission_callback,
+            can_use_tool=self._permission_callback if not self._config.auto_approve else None,
             max_thinking_tokens=self._config.thinking_budget,
         )
 

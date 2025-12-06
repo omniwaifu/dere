@@ -89,6 +89,9 @@ class MissionExecutor:
                 sandbox_mount_type=mission.sandbox_mount_type,
                 model=mission.model,
                 include_context=False,  # Missions don't need emotion/KG context
+                mission_id=mission.id,  # Link session to mission
+                session_name=mission.name,  # Use mission name as session name
+                auto_approve=True,  # Missions run autonomously without permission prompts
             )
 
             # Create agent session

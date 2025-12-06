@@ -99,25 +99,36 @@ class MissionScheduler:
                 # Continue with next mission even if one fails
 
     async def _update_next_execution(self, mission: Mission) -> None:
-        """Calculate and update next execution time using croniter."""
+        """Calculate and update next execution time using croniter.
+
+        If mission.run_once is True, archive it instead of scheduling next run.
+        """
         try:
             now = datetime.now(UTC)
-            cron = croniter(mission.cron_expression, now)
-            next_run = cron.get_next(datetime)
 
             async with self.session_factory() as db:
                 db_mission = await db.get(Mission, mission.id)
                 if db_mission:
                     db_mission.last_execution_at = now
-                    db_mission.next_execution_at = next_run
                     db_mission.updated_at = now
-                    await db.commit()
 
-            logger.debug(
-                "Mission {} next execution: {}",
-                mission.name,
-                next_run.isoformat(),
-            )
+                    if db_mission.run_once:
+                        # One-off mission: archive it
+                        db_mission.status = MissionStatus.ARCHIVED.value
+                        db_mission.next_execution_at = None
+                        logger.info("Archived one-off mission {}: {}", mission.id, mission.name)
+                    else:
+                        # Recurring mission: schedule next run
+                        cron = croniter(mission.cron_expression, now)
+                        next_run = cron.get_next(datetime)
+                        db_mission.next_execution_at = next_run
+                        logger.debug(
+                            "Mission {} next execution: {}",
+                            mission.name,
+                            next_run.isoformat(),
+                        )
+
+                    await db.commit()
 
         except Exception as e:
             logger.error(

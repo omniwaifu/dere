@@ -37,6 +37,7 @@ export interface SessionResponse {
   name: string | null;
   sandbox_mode: boolean;
   is_locked: boolean;
+  mission_id: number | null;
 }
 
 export interface SessionListResponse {
@@ -355,4 +356,83 @@ export interface DereConfig {
   dere_graph: DereGraphConfig;
   ambient: AmbientConfig;
   plugins: PluginsConfig;
+}
+
+// Missions
+export type MissionStatus = "active" | "paused" | "archived";
+export type MissionExecutionStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type MissionTriggerType = "scheduled" | "manual";
+
+export interface Mission {
+  id: number;
+  name: string;
+  description: string | null;
+  prompt: string;
+  cron_expression: string;
+  natural_language_schedule: string | null;
+  timezone: string;
+  status: MissionStatus;
+  next_execution_at: string | null;
+  last_execution_at: string | null;
+  personality: string | null;
+  allowed_tools: string[] | null;
+  mcp_servers: string[] | null;
+  plugins: string[] | null;
+  thinking_budget: number | null;
+  model: string;
+  working_dir: string;
+  sandbox_mode: boolean;
+  sandbox_mount_type: string;
+  run_once: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MissionExecution {
+  id: number;
+  mission_id: number;
+  status: MissionExecutionStatus;
+  trigger_type: MissionTriggerType;
+  triggered_by: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  output_text: string | null;
+  output_summary: string | null;
+  tool_count: number;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface CreateMissionRequest {
+  name: string;
+  description?: string;
+  prompt: string;
+  schedule: string;
+  personality?: string;
+  allowed_tools?: string[];
+  mcp_servers?: string[];
+  plugins?: string[];
+  thinking_budget?: number;
+  model?: string;
+  working_dir?: string;
+  sandbox_mode?: boolean;
+  sandbox_mount_type?: string;
+  run_once?: boolean;
+}
+
+export interface UpdateMissionRequest {
+  name?: string;
+  description?: string;
+  prompt?: string;
+  schedule?: string;
+  personality?: string;
+  allowed_tools?: string[];
+  mcp_servers?: string[];
+  plugins?: string[];
+  thinking_budget?: number;
+  model?: string;
+  working_dir?: string;
+  sandbox_mode?: boolean;
+  sandbox_mount_type?: string;
+  run_once?: boolean;
 }

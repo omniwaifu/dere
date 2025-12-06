@@ -18,7 +18,11 @@ from .models import SessionConfig, StreamEvent, StreamEventType
 
 
 def session_ready_event(
-    session_id: int, config: SessionConfig, *, is_locked: bool = False
+    session_id: int,
+    config: SessionConfig,
+    *,
+    is_locked: bool = False,
+    name: str | None = None,
 ) -> StreamEvent:
     """Create a session_ready event."""
     return StreamEvent(
@@ -27,6 +31,7 @@ def session_ready_event(
             "session_id": session_id,
             "config": config.model_dump(),
             "is_locked": is_locked,
+            "name": name,
         },
     )
 

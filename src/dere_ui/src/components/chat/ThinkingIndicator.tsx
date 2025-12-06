@@ -65,7 +65,7 @@ export function ThinkingIndicator({
 
       {thinking && (
         <CollapsibleContent>
-          <div className="mt-2 rounded-md border border-border bg-muted/50 p-3">
+          <div className="mt-1 rounded border border-border bg-muted/50 p-2">
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">
               {thinking}
             </p>

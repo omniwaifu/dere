@@ -80,6 +80,16 @@ export function MessageBubble({ message, isLatest }: MessageBubbleProps) {
                   pre: ({ children }) => <>{children}</>,
                   em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
                   strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                  a: ({ href, children }) => (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 underline hover:text-blue-300"
+                    >
+                      {children}
+                    </a>
+                  ),
                   p: ({ children }) => (
                     <p>
                       {children}

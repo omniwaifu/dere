@@ -58,6 +58,7 @@ class SessionResponse(BaseModel):
     name: str | None = None
     sandbox_mode: bool = False
     is_locked: bool = False
+    mission_id: int | None = None
 
 
 class SessionListResponse(BaseModel):

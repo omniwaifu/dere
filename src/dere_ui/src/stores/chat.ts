@@ -21,6 +21,7 @@ interface ChatStore {
   // Session
   sessionId: number | null;
   sessionConfig: SessionConfig | null;
+  sessionName: string | null;
   isLocked: boolean;
 
   // Chat
@@ -77,6 +78,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   error: null,
   sessionId: null,
   sessionConfig: null,
+  sessionName: null,
   isLocked: false,
   messages: [],
   streamingMessage: null,
@@ -133,6 +135,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       socket: null,
       sessionId: null,
       sessionConfig: null,
+      sessionName: null,
       isLocked: false,
       flushTimeout: null,
     });
@@ -212,6 +215,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({
       sessionId: null,
       sessionConfig: null,
+      sessionName: null,
       isLocked: false,
       messages: [],
       streamingMessage: null,
@@ -331,6 +335,7 @@ function handleStreamEvent(event: StreamEvent) {
         session_id: number;
         config: SessionConfig;
         is_locked?: boolean;
+        name?: string | null;
       };
       const currentState = useChatStore.getState();
       const isSessionChange = currentState.sessionId !== data.session_id;
@@ -340,6 +345,7 @@ function handleStreamEvent(event: StreamEvent) {
       useChatStore.setState({
         sessionId: data.session_id,
         sessionConfig: data.config,
+        sessionName: data.name ?? null,
         isLocked: data.is_locked ?? false,
         pendingInitialMessage: null,
         // Always reset loading state when session is ready

@@ -59,6 +59,10 @@ class SandboxRunner:
         # Fork session ID for continuing previous conversations
         fork_session_id = os.environ.get("SANDBOX_RESUME_SESSION_ID") or None
 
+        # Auto-approve mode for autonomous missions
+        auto_approve = os.environ.get("SANDBOX_AUTO_APPROVE") == "1"
+        permission_mode = "bypassPermissions" if auto_approve else "acceptEdits"
+
         # Create settings file
         settings_data = {"outputStyle": output_style}
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -81,7 +85,7 @@ class SandboxRunner:
                 "append": system_prompt,
             } if system_prompt else None,
             allowed_tools=allowed_tools,
-            permission_mode="acceptEdits",
+            permission_mode=permission_mode,
             plugins=plugins if plugins else None,
             model=model,
             include_partial_messages=True,

@@ -48,7 +48,7 @@ export function MessageList() {
 
   return (
     <ScrollArea className="flex-1" viewportRef={viewportRef}>
-      <div className="space-y-4 p-4">
+      <div className="space-y-2 p-3">
         {allMessages.map((message, index) => (
           <MessageBubble
             key={message.id}

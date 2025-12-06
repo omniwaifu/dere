@@ -87,6 +87,15 @@ class SessionConfig(BaseModel):
         default="copy",
         description="How to mount working directory: direct (rw), copy (temp), none (empty)",
     )
+    mission_id: int | None = Field(
+        default=None, description="Mission ID if spawned by a mission"
+    )
+    session_name: str | None = Field(
+        default=None, description="Optional session name (e.g., mission name)"
+    )
+    auto_approve: bool = Field(
+        default=False, description="Auto-approve all tool permissions (for autonomous missions)"
+    )
 
 
 class ClientMessageType(str, Enum):

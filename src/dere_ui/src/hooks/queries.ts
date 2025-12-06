@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { SessionConfig, DereConfig } from "@/types/api";
+import type { SessionConfig, DereConfig, CreateMissionRequest, UpdateMissionRequest } from "@/types/api";
 
 export const queryKeys = {
   sessions: ["sessions"] as const,
@@ -18,6 +18,9 @@ export const queryKeys = {
   tasks: (params?: { status?: string; project?: string }) =>
     ["tasks", params] as const,
   config: ["config"] as const,
+  missions: ["missions"] as const,
+  mission: (id: number) => ["missions", id] as const,
+  missionExecutions: (id: number) => ["missions", id, "executions"] as const,
 };
 
 export function useSessions() {
@@ -193,6 +196,95 @@ export function useUpdateConfig() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.config });
       queryClient.invalidateQueries({ queryKey: queryKeys.userInfo });
+    },
+  });
+}
+
+// Missions
+export function useMissions(status?: string) {
+  return useQuery({
+    queryKey: queryKeys.missions,
+    queryFn: () => api.missions.list(status),
+  });
+}
+
+export function useMission(id: number) {
+  return useQuery({
+    queryKey: queryKeys.mission(id),
+    queryFn: () => api.missions.get(id),
+    enabled: id > 0,
+  });
+}
+
+export function useMissionExecutions(id: number, limit?: number) {
+  return useQuery({
+    queryKey: queryKeys.missionExecutions(id),
+    queryFn: () => api.missions.executions(id, limit),
+    enabled: id > 0,
+    refetchInterval: 10000,
+  });
+}
+
+export function useCreateMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateMissionRequest) => api.missions.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
+export function useUpdateMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateMissionRequest }) =>
+      api.missions.update(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mission(id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
+export function useDeleteMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.missions.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
+export function usePauseMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.missions.pause(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mission(id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
+export function useResumeMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.missions.resume(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mission(id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
+export function useExecuteMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.missions.execute(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.missionExecutions(id) });
     },
   });
 }

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as MissionsRouteImport } from './routes/missions'
 import { Route as EmotionRouteImport } from './routes/emotion'
 import { Route as AmbientRouteImport } from './routes/ambient'
 import { Route as IndexRouteImport } from './routes/index'
@@ -24,6 +25,11 @@ const TasksRoute = TasksRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MissionsRoute = MissionsRouteImport.update({
+  id: '/missions',
+  path: '/missions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EmotionRoute = EmotionRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ambient': typeof AmbientRoute
   '/emotion': typeof EmotionRoute
+  '/missions': typeof MissionsRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ambient': typeof AmbientRoute
   '/emotion': typeof EmotionRoute
+  '/missions': typeof MissionsRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/ambient': typeof AmbientRoute
   '/emotion': typeof EmotionRoute
+  '/missions': typeof MissionsRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ambient'
     | '/emotion'
+    | '/missions'
     | '/settings'
     | '/tasks'
     | '/chat/$sessionId'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ambient'
     | '/emotion'
+    | '/missions'
     | '/settings'
     | '/tasks'
     | '/chat/$sessionId'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ambient'
     | '/emotion'
+    | '/missions'
     | '/settings'
     | '/tasks'
     | '/chat/$sessionId'
@@ -103,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AmbientRoute: typeof AmbientRoute
   EmotionRoute: typeof EmotionRoute
+  MissionsRoute: typeof MissionsRoute
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRoute
   ChatSessionIdRoute: typeof ChatSessionIdRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/missions': {
+      id: '/missions'
+      path: '/missions'
+      fullPath: '/missions'
+      preLoaderRoute: typeof MissionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/emotion': {
@@ -159,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AmbientRoute: AmbientRoute,
   EmotionRoute: EmotionRoute,
+  MissionsRoute: MissionsRoute,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRoute,
   ChatSessionIdRoute: ChatSessionIdRoute,

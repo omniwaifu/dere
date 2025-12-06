@@ -78,6 +78,7 @@ class AgentSession:
     claude_session_id: str | None
     created_at: float
     last_activity: float
+    name: str | None = None  # Session display name
     personality_prompt: str = ""
     needs_session_id_capture: bool = True
     is_locked: bool = False  # Locked sandbox sessions can't accept new queries
@@ -156,6 +157,7 @@ class CentralizedAgentService:
         """Create a can_use_tool callback for a session.
 
         The callback emits a permission request event and waits for user response.
+        If session.config.auto_approve is True, all permissions are automatically granted.
         """
 
         async def can_use_tool(
@@ -163,6 +165,11 @@ class CentralizedAgentService:
             tool_input: dict[str, Any],
             context: ToolPermissionContext,
         ) -> PermissionResultAllow | PermissionResultDeny:
+            # Auto-approve for autonomous sessions (e.g., missions)
+            if session.config.auto_approve:
+                logger.debug("Auto-approving tool {} for autonomous session", tool_name)
+                return PermissionResultAllow()
+
             request_id = str(uuid.uuid4())
 
             # Create pending permission
@@ -309,6 +316,7 @@ class CentralizedAgentService:
             )
 
             session = Session(
+                name=config.session_name,
                 working_dir=config.working_dir,
                 start_time=int(time.time()),
                 personality=personality_str,
@@ -316,6 +324,7 @@ class CentralizedAgentService:
                 user_id=config.user_id,
                 thinking_budget=config.thinking_budget,
                 sandbox_mode=config.sandbox_mode,
+                mission_id=config.mission_id,
             )
             db.add(session)
             await db.flush()
@@ -410,6 +419,7 @@ class CentralizedAgentService:
                 claude_session_id=claude_session_id,
                 created_at=now,
                 last_activity=now,
+                name=config.session_name,  # From config for new sessions
                 personality_prompt=personality_prompt,
                 needs_session_id_capture=(claude_session_id is None),
             )
@@ -480,6 +490,7 @@ class CentralizedAgentService:
                 user_id=db_session.user_id,
                 thinking_budget=db_session.thinking_budget,
                 sandbox_mode=db_session.sandbox_mode,
+                session_name=db_session.name,  # Restore name from DB
             )
 
             # Locked sessions (dead sandbox containers) are read-only
@@ -492,6 +503,7 @@ class CentralizedAgentService:
                     claude_session_id=db_session.claude_session_id,
                     created_at=now,
                     last_activity=now,
+                    name=db_session.name,  # From database
                     is_locked=True,
                 )
                 self._sessions[session_id] = session

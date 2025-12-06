@@ -58,6 +58,7 @@ class Session(SQLModel, table=True):
     thinking_budget: int | None = None
     sandbox_mode: bool = Field(default=False)
     is_locked: bool = Field(default=False)
+    mission_id: int | None = Field(default=None, foreign_key="missions.id")
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
     # Relationships (cascade_delete ensures related records are deleted with session)
@@ -348,6 +349,7 @@ class Mission(SQLModel, table=True):
     cron_expression: str
     natural_language_schedule: str | None = None
     timezone: str = Field(default="UTC")
+    run_once: bool = Field(default=False)  # Archive after first execution
 
     # Execution config
     personality: str | None = None
@@ -355,7 +357,7 @@ class Mission(SQLModel, table=True):
     mcp_servers: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
     plugins: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
     thinking_budget: int | None = None
-    model: str = Field(default="claude-sonnet-4-20250514")
+    model: str = Field(default="claude-opus-4-5")
     working_dir: str = Field(default="/workspace")
     sandbox_mode: bool = Field(default=True)
     sandbox_mount_type: str = Field(default="none")

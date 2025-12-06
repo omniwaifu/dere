@@ -101,6 +101,8 @@ class DockerSessionRunner(SessionRunner):
             env.append(f"SANDBOX_ALLOWED_TOOLS={','.join(self._config.allowed_tools)}")
         if self._resume_session_id:
             env.append(f"SANDBOX_RESUME_SESSION_ID={self._resume_session_id}")
+        if self._config.auto_approve:
+            env.append("SANDBOX_AUTO_APPROVE=1")
 
         # Run as host user so files are owned correctly
         uid = os.getuid()

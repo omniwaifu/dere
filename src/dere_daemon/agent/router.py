@@ -105,6 +105,7 @@ async def agent_websocket(websocket: WebSocket):
                             current_session.session_id,
                             current_session.config,
                             is_locked=current_session.is_locked,
+                            name=current_session.name,
                         ).to_dict()
                     )
                 except Exception as e:
@@ -130,6 +131,7 @@ async def agent_websocket(websocket: WebSocket):
                                 current_session.session_id,
                                 current_session.config,
                                 is_locked=current_session.is_locked,
+                                name=current_session.name,
                             ).to_dict()
                         )
                         if msg.last_seq is not None:
@@ -196,6 +198,7 @@ async def agent_websocket(websocket: WebSocket):
                                 current_session.session_id,
                                 current_session.config,
                                 is_locked=current_session.is_locked,
+                                name=current_session.name,
                             ).to_dict()
                         )
                 except Exception as e:
@@ -305,6 +308,7 @@ async def list_sessions(request: Request, db: AsyncSession = Depends(get_db)):
                 name=s.name,
                 sandbox_mode=s.sandbox_mode,
                 is_locked=s.is_locked,
+                mission_id=s.mission_id,
             )
             for s in db_sessions
         ]
@@ -692,19 +696,19 @@ async def list_models():
     """List available Claude models."""
     models = [
         ModelInfo(
-            id="claude-sonnet-4-20250514",
-            name="Sonnet",
-            description="Fast and capable",
+            id="claude-opus-4-5",
+            name="Opus 4.5",
+            description="Premium model with maximum intelligence",
         ),
         ModelInfo(
-            id="claude-opus-4-20250514",
-            name="Opus",
-            description="Most capable",
+            id="claude-sonnet-4-5",
+            name="Sonnet 4.5",
+            description="Smart model for complex agents and coding",
         ),
         ModelInfo(
-            id="claude-haiku-4-5-latest",
-            name="Haiku",
-            description="Fast and efficient",
+            id="claude-haiku-4-5",
+            name="Haiku 4.5",
+            description="Fastest model with near-frontier intelligence",
         ),
     ]
     return AvailableModelsResponse(models=models)
