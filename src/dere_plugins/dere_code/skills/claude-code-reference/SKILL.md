@@ -1,241 +1,98 @@
 ---
 name: claude-code-reference
-description: Technical reference for Claude Code plugin system (hooks, skills, agents, commands, MCP). Triggers when working with plugin architecture or debugging plugin behavior.
+description: Technical reference for Claude Code plugin system (hooks, skills, agents, commands, MCP). Triggers when working with plugin architecture.
 ---
 
-# Claude Code Plugin System Reference
+# Claude Code Plugin Reference
 
-## Plugin Manifest (plugin.json)
+**Debug:** `claude --debug` shows plugin loading
 
-**Location:** `.claude-plugin/plugin.json` (required)
+## Hooks
 
-**Environment vars:**
-- `${CLAUDE_PLUGIN_ROOT}` - absolute path to plugin dir
-- `${CLAUDE_PROJECT_DIR}` - absolute path to project root
+Automated actions at lifecycle events. Input via stdin JSON, 60s timeout.
 
-**Debug:** `claude --debug` shows plugin loading, validation, registration
-
----
-
-## 1. HOOKS
-
-**What:** Automated actions at lifecycle events; run in parallel, 60s timeout
-
-**Input:** JSON via stdin with tool_name, tool_input, tool_response
-**Output:** Exit codes (0=success, 2=blocking error, other=non-blocking)
-**Scripts:** Must be executable (`chmod +x`)
-
-### Hook Types
-
-**Command-based (script execution):**
-```json
-{
-  "type": "command",
-  "command": "./path/to/script.sh",
-  "description": "What this hook does",
-  "timeout": 60
-}
-```
-
-**Prompt-based (LLM evaluation):**
-```json
-{
-  "type": "prompt",
-  "prompt": "Evaluate if condition is met...",
-  "model": "haiku",
-  "timeout": 30
-}
-```
-
-**Model parameter (v2.0.41+):** Specify which model evaluates prompt-based stop hooks (default: haiku)
-
-### Events & Matchers
+**Exit codes:** 0=success, 2=blocking (stderr to Claude), other=non-blocking
 
 | Event | When | Matcher |
 |-------|------|---------|
-| PreToolUse | Before tool execution | Tool name regex |
-| PostToolUse | After tool completes | Tool name regex |
-| PostCustomToolCall | After MCP tool | MCP tool only |
-| UserPromptSubmit | Before Claude processes | No matcher |
+| PreToolUse | Before tool | Tool name regex |
+| PostToolUse | After tool | Tool name regex |
+| PostCustomToolCall | After MCP tool | MCP only |
+| UserPromptSubmit | Before Claude | None |
 | SessionStart | Init/resume | startup/resume/clear/compact |
-| SessionEnd | Termination | No matcher |
-| Stop | Main agent done | No matcher |
-| SubagentStart | Subagent starts (v2.0.43+) | No matcher |
-| SubagentStop | Subagent done | No matcher |
+| SessionEnd | Termination | None |
+| Stop | Main agent done | None |
+| SubagentStart/Stop | Subagent lifecycle | None |
 
-### Exit Codes
-- `0`: Success, stdout shown
-- `2`: Blocking, stderr to Claude
-- Other: Non-blocking, stderr to user
+```json
+{"type": "command", "command": "./script.sh", "timeout": 60}
+{"type": "prompt", "prompt": "Evaluate...", "model": "haiku"}
+```
 
-### Constraints
-- 60s timeout (configurable)
-- Full filesystem access
-- Config snapshot at startup (changes need `/hooks` review)
-- Multiple hooks modifying same MCP output = conflict
+## Skills
 
-### When to Use
-- PreToolUse: validate/block before execution
-- PostToolUse: log/analyze after execution
-- PostCustomToolCall: transform MCP outputs
-- SessionStart: inject context, set env vars
+Directory-based capabilities Claude auto-activates based on description.
 
----
-
-## 2. SKILLS
-
-**What:** Directory-based capabilities Claude auto-activates based on task context
-
-**How:** Claude reads descriptions, decides when to use (no user invocation)
-
-### Structure
 ```
 skill-name/
-├── SKILL.md           (required: frontmatter + instructions)
-├── reference.md       (optional)
-└── examples.md        (optional)
+├── SKILL.md       # frontmatter + instructions (required)
+└── *.md           # optional references
 ```
 
-### Frontmatter
 ```yaml
 ---
-name: skill-id  # lowercase, hyphens, max 64 chars
-description: "What and when"  # max 1024 chars, critical for discovery
-allowed-tools: ["Bash", "Read"]  # optional, Claude Code only
+name: lowercase-hyphens-max64
+description: "WHAT it does and WHEN to activate"  # max 1024 chars
+allowed-tools: ["Bash", "Read"]
 ---
 ```
 
-### Constraints
-- Name: lowercase, numbers, hyphens only
-- Description must specify WHAT and WHEN for auto-discovery
-- External dependencies must be pre-installed
+## Slash Commands
 
-### When to Use
-- Complex, multi-file workflows
-- Team-distributed capabilities
-- Auto-discovery context
-
-**vs Commands:** Skills = auto-invoked, directory; Commands = user-invoked, single file
-**vs Agents:** Skills = main thread; Agents = separate context with tool restrictions
-
----
-
-## 3. SLASH COMMANDS
-
-**What:** User-invoked prompts via `/command-name [args]`
+User-invoked prompts via `/command-name [args]`
 
 **Location:** `.claude/commands/` (project) or `~/.claude/commands/` (user)
 
-### Format
 ```yaml
 ---
 description: "Brief summary"
 allowed-tools: ["Bash"]
-argument-hint: "<arg1>"
+argument-hint: "<arg>"
 model: "sonnet"
-disable-model-invocation: true  # prevent auto-trigger
 ---
-
-Command content with $ARGUMENTS, $1, $2 variables
+Content with $ARGUMENTS, $1, $2, @filename, !command
 ```
 
-### Features
-- `$ARGUMENTS`: all args as string
-- `$1`, `$2`: positional params
-- `@filename`: embed file contents
-- `!command`: execute bash (requires allowed-tools)
+## Subagents
 
-### Constraints
-- No name conflicts between user/project levels
-- SlashCommand tool: only custom commands with descriptions
+Separate context windows with tool restrictions.
 
-### When to Use
-- Quick prompt templates
-- Manual invocation patterns
-- Single-file use cases
-
----
-
-## 4. SUBAGENTS
-
-**What:** AI personalities with independent context windows, delegatable for specialized tasks
-
-**How:** Claude auto-delegates OR user explicitly invokes; runs in separate context, returns results
-
-### Format
 ```yaml
 ---
 name: agent-id
-description: "Natural language purpose"
-tools: "Read,Edit,Bash"  # omit = all tools
-model: "sonnet"  # or 'inherit'
-skills: skill-name-1, skill-name-2  # optional: auto-load skills for agent (v2.0.43+)
-permissionMode: plan  # optional: default | acceptEdits | plan (v2.0.43+)
+description: "Purpose"
+tools: "Read,Edit,Bash"  # omit = all
+model: "sonnet"
+skills: skill-1, skill-2
+permissionMode: plan  # default | acceptEdits | plan
 ---
-
-System prompt with instructions
+System prompt
 ```
 
-### Permission Modes (v2.0.43+)
+**permissionMode:**
+- `default`: normal approval prompts
+- `acceptEdits`: auto-accept edits
+- `plan`: read-only, no modifications
 
-- **default**: Standard approval prompts
-- **acceptEdits**: Auto-accept file edits
-- **plan**: Read-only analysis mode (no modifications allowed)
+**Constraint:** Subagents cannot spawn other subagents.
 
-Use `plan` for read-only agents like archeologists/analyzers.
+## MCP
 
-### Constraints
-- **Cannot spawn other subagents**
-- Separate context window per invocation
-- Initial context-gathering latency
-- Explicit tool list restricts access
+External tools via Model Context Protocol.
 
-### When to Use
-- Domain-specific expertise
-- Independent context preservation
-- Tool access restrictions
-- Complex multi-step workflows (chain multiple)
-
-**vs Skills:** Agents = separate context, tool restrictions; Skills = main thread, auto-discovery
-
----
-
-## 5. MCP (Model Context Protocol)
-
-**What:** Open standard connecting Claude to external tools/databases/APIs
-
-**How:** Server exposes tools/resources/prompts; Claude invokes directly
-
-### Transport Types
-1. **HTTP:** Remote cloud services (recommended)
-2. **Stdio:** Local processes
-3. **SSE:** Deprecated
-
-### Configuration Scopes
-- **Local** (default): Project-specific
-- **Project:** Team-shared via `.mcp.json`
-- **User:** Cross-project
-
-**Precedence:** local > project > user
-
-### Interaction
-- **Direct tools:** Claude invokes functions
-- **Resources:** `@mentions` inject context
-- **Slash commands:** `/mcp__<server>__<prompt>`
-
-### Constraints
-- 10k token output warning (configurable)
-- Security: third-party servers unverified
-- Prompt injection risk
-- Windows: requires `cmd /c` wrapper for npx
-
-### When to Use
-- External data integration
-- API/database connectivity
-- Custom tool development
-- Team infrastructure
-
----
+**Transport:** HTTP (recommended), Stdio, SSE (deprecated)
+**Scopes:** local > project (.mcp.json) > user
+**Invoke:** `mcp__<server>__<tool>`, resources via `@mentions`
 
 ## Decision Matrix
 
@@ -243,21 +100,16 @@ Use `plan` for read-only agents like archeologists/analyzers.
 |------|-----|
 | Auto-trigger on lifecycle | Hooks |
 | Validate/block tool calls | Hooks (PreToolUse) |
-| Auto-discovered workflows | Skills |
+| Auto-discovered capabilities | Skills |
 | User-invoked templates | Slash Commands |
-| Separate context for tasks | Subagents |
-| External tool/API | MCP |
-| Tool access restrictions | Subagents |
-| Team-distributed capabilities | Skills or Plugins |
-| Transform MCP outputs | Hooks (PostCustomToolCall) |
+| Separate context + tool restrictions | Subagents |
+| External API/database | MCP |
 
----
+## Gotchas
 
-## Common Gotchas
-
-1. Hooks: scripts must be executable; config changes need `/hooks` review
-2. Skills: description must specify WHAT and WHEN
-3. Commands: name conflicts fail between user/project
-4. Subagents: cannot spawn other subagents; initial latency
-5. MCP: third-party servers unverified; prompt injection risk
-6. Paths: all relative paths in plugin.json start with `./`
+- Hooks: scripts must be `chmod +x`; config changes need `/hooks` review
+- Skills: description must say WHAT and WHEN
+- Commands: name conflicts fail between user/project
+- Subagents: cannot spawn subagents; initial latency
+- MCP: third-party servers unverified
+- Paths: relative paths in plugin.json start with `./`

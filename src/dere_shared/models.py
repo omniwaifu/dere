@@ -234,8 +234,8 @@ class EmotionState(SQLModel, table=True):
     last_update: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
-    # Relationships (optional since session_id is nullable for global state)
-    session: "Session | None" = Relationship(back_populates="emotion_states")
+    # Relationship (optional since session_id is nullable for global state)
+    session: "Session" = Relationship(back_populates="emotion_states", sa_relationship_kwargs={"foreign_keys": "[EmotionState.session_id]"})
 
 
 class StimulusHistory(SQLModel, table=True):
@@ -254,8 +254,8 @@ class StimulusHistory(SQLModel, table=True):
     context: dict[str, Any] | None = Field(default=None, sa_column=Column("context", JSONB))
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
-    # Relationships (optional since session_id is nullable for global state)
-    session: "Session | None" = Relationship(back_populates="stimulus_histories")
+    # Relationship (optional since session_id is nullable for global state)
+    session: "Session" = Relationship(back_populates="stimulus_histories", sa_relationship_kwargs={"foreign_keys": "[StimulusHistory.session_id]"})
 
 
 class Notification(SQLModel, table=True):

@@ -1,56 +1,32 @@
 ---
 name: task-breakdown-specialist
-description: Break complex multi-step tasks into focused subtasks with clear dependencies. Triggers when handling large features, complex refactorings, or multi-file changes.
+description: Break complex tasks into focused subtasks with dependencies. Triggers for large features or multi-file changes.
 ---
 
-# Task Breakdown Specialist
+# Task Decomposition
 
-## When to Decompose Tasks
+## When to Decompose
 
-- Implementing features touching >3 files
-- Refactorings with multiple dependencies
-- Complex workflows requiring specific order
-- Tasks that will take >10 tool calls
+- >3 files affected
+- Multiple dependencies
+- >10 tool calls expected
 
-## Decomposition Pattern
+## Pattern
 
-**1. Analyze Dependencies**
-```
-# What needs to happen first?
-# What can run in parallel?
-# What blocks other steps?
-```
+1. **Analyze dependencies:** What first? What parallel? What blocks?
+2. **Create subtasks:** Clear input/output, testable, <10 tool calls each
+3. **Execute in order:** Handle deps first, verify each step
 
-**2. Create Focused Subtasks**
-```
-# Each subtask should:
-# - Have clear input/output
-# - Be testable independently
-# - Take <10 tool calls
-```
+## Example
 
-**3. Execute in Order**
-```
-# Handle dependencies first
-# Verify each subtask before next
-# Document progress
-```
+**Bad:** "Add authentication to the app"
 
-## Example: Adding Authentication
-
-**Bad (monolithic):**
-"Add authentication to the app"
-
-**Good (decomposed):**
+**Good:**
 1. Find existing auth patterns (`find_symbol("auth")`)
 2. Create user model/schema
 3. Implement login endpoint
 4. Add middleware for protected routes
-5. Update frontend to use auth
-6. Test authentication flow
+5. Update frontend
+6. Test flow
 
-## Remember
-
-- Smaller tasks = easier debugging
-- Clear dependencies = correct order
-- Verification between steps = catch errors early
+Smaller tasks = easier debugging. Clear deps = correct order.

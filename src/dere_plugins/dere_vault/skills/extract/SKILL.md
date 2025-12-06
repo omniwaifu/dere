@@ -7,10 +7,6 @@ description: Extract atomic concepts with thickness enforcement
 
 Create permanent notes with **thickness enforcement** - notes must be testable, productive, and bounded before finalization.
 
-## Philosophy
-
-From Wolfram: Ideas become permanent when they're precise enough to test and derive from, not just articulately stated. The test: "Can you derive consequences you didn't put in? Can you find where it breaks?"
-
 ## Workflow
 
 ### Phase 0: Transformation Check
@@ -54,11 +50,21 @@ Identify the domain(s) this concept belongs to. Ask the user if unclear:
 For cross-domain concepts: Apply universal criteria + primary domain's specific requirements.
 
 ### Phase 3: Initial Extraction
-Draft the note with explicit structure:
-- **Core claim** in one sentence
-- **Supporting elaboration** in own words
-- **Key terms defined** precisely
-- **Examples provided** (2+ concrete instances)
+
+**Target: 150-300 words** (not counting frontmatter/wikilinks)
+
+Structure:
+1. **Core claim** - 1 sentence, max 30 words
+2. **Why it matters** - 1-2 sentences connecting to other concepts
+3. **Boundaries** - when this doesn't apply
+4. **Example** - 1 concrete instance (not a restatement of the claim)
+
+**DO NOT:**
+- Restate the claim in different words
+- Use "In other words..." or "Put simply..."
+- List obvious implications
+- Define terms already clear from context
+- Pad with hedge words or qualifications
 
 ### Phase 4: Thickness Interrogation
 Load the domain template from `domains/[domain].md`. Apply both:
@@ -124,23 +130,6 @@ derived_from:
 derivations: []
 ---
 ```
-
-## Failure Response Examples
-
-**Fails transformation check**:
-> "This is interesting, but what does it actually change? If I asked you 'how does this rewire your understanding of something else?', what would you say? If nothing comes to mind, this might be reference material rather than insight - worth bookmarking but not a permanent note yet."
-
-**Missing testability**:
-> "This note claims '[X]' but I can't see what would falsify it. What observation would prove you wrong? Without that, we're in unfalsifiable territory."
-
-**Missing precision**:
-> "The term '[Y]' is doing a lot of work here but isn't defined. What exactly is in and out of this concept?"
-
-**Missing boundaries**:
-> "This sounds plausible in the general case, but where does it break down? Every useful concept has edges."
-
-**Missing derivation**:
-> "If this concept is correct, what non-obvious thing follows from it? If nothing follows, maybe we haven't captured the real insight yet."
 
 ## Helper Tools
 

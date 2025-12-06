@@ -1,57 +1,23 @@
 ---
 name: safe-refactoring-workflow
-description: Execute safe, verified refactorings using Serena's symbol tools. Enforces Find → Verify → Refactor → Test pattern. Triggers when renaming symbols, restructuring code, or making breaking changes.
+description: Execute safe refactorings using Serena symbol tools. Enforces Find → Verify → Refactor → Test pattern.
 ---
 
-# Safe Refactoring Workflow
+# Safe Refactoring
 
-## The Pattern: Find → Verify → Refactor → Test
+## Pattern: Find → Verify → Refactor → Test
 
-**1. Find the Symbol**
-```
-find_symbol("OldClassName", include_body=False)
-# Verify you found the right symbol before proceeding
-```
+1. `find_symbol("OldName", include_body=False)` - locate target
+2. `find_referencing_symbols("OldName", "file.py")` - understand blast radius
+3. Execute refactor:
+   - `rename_symbol("OldName", "file.py", "NewName")`
+   - `replace_symbol_body("Class/method", "file.py", new_body)`
+   - `insert_after_symbol("Class", "file.py", new_code)`
+4. Run tests to verify
 
-**2. Verify Impact**
-```
-find_referencing_symbols("OldClassName", "path/to/file.py")
-# See ALL places that will be affected
-# Understand the blast radius
-```
+## Rules
 
-**3. Execute Refactor**
-```
-# For renames:
-rename_symbol("OldClassName", "path/to/file.py", "NewClassName")
-
-# For body changes:
-replace_symbol_body("ClassName/method", "path/to/file.py", new_body)
-
-# For insertions:
-insert_after_symbol("ClassName", "path/to/file.py", new_method_code)
-```
-
-**4. Verify Success**
-```
-# Run tests if available
-# Check that references updated correctly
-```
-
-## Available Refactoring Tools
-
-- `rename_symbol` - Renames across entire codebase
-- `replace_symbol_body` - Replace method/function/class body
-- `insert_after_symbol` - Add new symbol after existing one
-- `insert_before_symbol` - Add new symbol before existing one
-
-## Safety Rules
-
-- ALWAYS check references before renaming
-- NEVER refactor without verification
+- Check references before renaming
+- Never refactor without verification
 - Symbol tools are reliable - trust them
-- Test after refactoring when possible
-
-## Remember
-
-Serena's symbolic refactoring is safer than regex-based Edit tool for code structure changes.
+- Serena refactoring > regex-based Edit for structure changes
