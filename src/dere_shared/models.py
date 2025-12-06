@@ -311,6 +311,107 @@ class Presence(SQLModel, table=True):
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
 
+class MissionStatus(str, Enum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ARCHIVED = "archived"
+
+
+class MissionExecutionStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class MissionTriggerType(str, Enum):
+    SCHEDULED = "scheduled"
+    MANUAL = "manual"
+
+
+class Mission(SQLModel, table=True):
+    """Scheduled autonomous agent execution."""
+
+    __tablename__ = "missions"
+    __table_args__ = (
+        Index("missions_status_next_exec_idx", "status", "next_execution_at"),
+        Index("missions_created_idx", "created_at", postgresql_ops={"created_at": "DESC"}),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    description: str | None = None
+    prompt: str
+
+    # Scheduling
+    cron_expression: str
+    natural_language_schedule: str | None = None
+    timezone: str = Field(default="UTC")
+
+    # Execution config
+    personality: str | None = None
+    allowed_tools: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    mcp_servers: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    plugins: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    thinking_budget: int | None = None
+    model: str = Field(default="claude-sonnet-4-20250514")
+    working_dir: str = Field(default="/workspace")
+    sandbox_mode: bool = Field(default=True)
+    sandbox_mount_type: str = Field(default="none")
+
+    # State
+    status: str = Field(default=MissionStatus.ACTIVE.value)
+    next_execution_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    last_execution_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+    # Metadata
+    user_id: str | None = None
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    updated_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+    # Relationships
+    executions: list["MissionExecution"] = Relationship(
+        back_populates="mission", cascade_delete=True
+    )
+
+
+class MissionExecution(SQLModel, table=True):
+    """Record of a single mission execution."""
+
+    __tablename__ = "mission_executions"
+    __table_args__ = (
+        Index("mission_executions_mission_idx", "mission_id"),
+        Index(
+            "mission_executions_started_idx", "started_at", postgresql_ops={"started_at": "DESC"}
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    mission_id: int = Field(foreign_key="missions.id")
+
+    # Execution details
+    status: str = Field(default=MissionExecutionStatus.PENDING.value)
+    trigger_type: str = Field(default=MissionTriggerType.SCHEDULED.value)
+    triggered_by: str | None = None
+
+    started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    completed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+    # Output
+    output_text: str | None = None
+    output_summary: str | None = None
+    tool_count: int = Field(default=0)
+    error_message: str | None = None
+
+    # Metadata
+    execution_metadata: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+    # Relationships
+    mission: "Mission" = Relationship(back_populates="executions")
+
+
 class Personality(SQLModel):
     """Personality configuration loaded from TOML (not a database table)"""
 

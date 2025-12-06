@@ -199,6 +199,8 @@ class AppState:
     db: Any  # EmotionDBAdapter
     dere_graph: Any  # DereGraph - knowledge graph for context
     agent_service: Any  # CentralizedAgentService
+    mission_executor: Any  # MissionExecutor
+    mission_scheduler: Any  # MissionScheduler
 
 
 async def _init_database(db_url: str, app_state: AppState) -> None:
@@ -274,8 +276,9 @@ async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
 
 
 async def _init_agent_service(app_state: AppState) -> None:
-    """Initialize the centralized agent service."""
+    """Initialize the centralized agent service and mission scheduler."""
     from dere_daemon.agent import CentralizedAgentService
+    from dere_daemon.missions import MissionExecutor, MissionScheduler
 
     app_state.agent_service = CentralizedAgentService(
         session_factory=app_state.session_factory,
@@ -287,6 +290,18 @@ async def _init_agent_service(app_state: AppState) -> None:
     # Start the sandbox cleanup background task
     app_state.agent_service.start_cleanup_task()
     print("Centralized agent service initialized")
+
+    # Initialize mission executor and scheduler
+    app_state.mission_executor = MissionExecutor(
+        agent_service=app_state.agent_service,
+        session_factory=app_state.session_factory,
+    )
+    app_state.mission_scheduler = MissionScheduler(
+        session_factory=app_state.session_factory,
+        executor=app_state.mission_executor,
+    )
+    app_state.mission_scheduler.start()
+    print("Mission scheduler started")
 
 
 def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task]:
@@ -374,6 +389,13 @@ async def _shutdown_cleanup(
     except asyncio.CancelledError:
         pass
 
+    # Stop mission scheduler
+    if hasattr(app_state, "mission_scheduler") and app_state.mission_scheduler:
+        try:
+            await app_state.mission_scheduler.stop()
+        except Exception as e:
+            errors.append(e)
+
     if app_state.ambient_monitor:
         try:
             await app_state.ambient_monitor.shutdown()
@@ -459,6 +481,7 @@ from dere_daemon.routers import (
     context_router,
     emotions_router,
     kg_router,
+    missions_router,
     notifications_router,
     presence_router,
     sessions_router,
@@ -473,6 +496,7 @@ app.include_router(presence_router)
 app.include_router(kg_router)
 app.include_router(context_router)
 app.include_router(taskwarrior_router)
+app.include_router(missions_router)
 
 
 # Database session dependency
