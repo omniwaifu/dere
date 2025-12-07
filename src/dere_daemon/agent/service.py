@@ -356,6 +356,7 @@ class CentralizedAgentService:
 
                         # Build stimulus from both user prompt and response
                         stimulus = {
+                            "type": "agent_interaction",
                             "role": "user",
                             "message": prompt,
                             "response": response_text[:500] if response_text else "",

@@ -365,9 +365,15 @@ class OCCEmotionManager:
             return
 
         # Determine stimulus characteristics
-        stimulus_type = "unknown"
+        stimulus_type = "text_input"
         if isinstance(stimulus, dict):
-            stimulus_type = stimulus.get("type", "unknown")
+            # Try common type field names
+            stimulus_type = (
+                stimulus.get("type")
+                or stimulus.get("stimulus_type")
+                or stimulus.get("message_type")
+                or stimulus.get("role", "interaction")
+            )
 
         # Calculate valence and intensity from resulting emotions
         valence = 0.0
