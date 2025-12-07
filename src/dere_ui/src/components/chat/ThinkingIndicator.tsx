@@ -59,7 +59,7 @@ export function ThinkingIndicator({
           </>
         ) : (
           <span>
-            {thinkingDuration ? `Thought for ${formattedDuration}s` : "Thought process"}
+            {thinkingDuration !== undefined ? `Thought for ${formattedDuration}s` : "Thought process"}
           </span>
         )}
       </CollapsibleTrigger>

@@ -625,6 +625,7 @@ class CentralizedAgentService:
                 thinking_budget=db_session.thinking_budget,
                 sandbox_mode=db_session.sandbox_mode,
                 session_name=db_session.name,  # Restore name from DB
+                enable_streaming=True,  # Always enable for UI sessions
             )
 
             # Locked sessions (dead sandbox containers) are read-only

@@ -169,6 +169,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: [],
       streamingMessage: null,
       isLoadingMessages: true,
+      thinkingStartTime: null,
     });
 
     socket.send(
@@ -220,6 +221,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: [],
       streamingMessage: null,
       isQueryInProgress: false,
+      thinkingStartTime: null,
     });
   },
 
@@ -417,7 +419,6 @@ function handleStreamEvent(event: StreamEvent) {
       const data = event.data as { text: string };
 
       useChatStore.setState((s) => {
-        const isFirstThinking = !s.streamingMessage?.thinking;
         if (!s.streamingMessage) {
           return {
             thinkingStartTime: Date.now(),
@@ -433,8 +434,10 @@ function handleStreamEvent(event: StreamEvent) {
             },
           };
         }
+        // Ensure thinkingStartTime is set if this is the first thinking for this message
+        const needsStartTime = !s.streamingMessage.thinking && !s.thinkingStartTime;
         return {
-          thinkingStartTime: isFirstThinking ? Date.now() : s.thinkingStartTime,
+          thinkingStartTime: needsStartTime ? Date.now() : s.thinkingStartTime,
           streamingMessage: {
             ...s.streamingMessage,
             thinking: (s.streamingMessage.thinking || "") + data.text,
@@ -533,8 +536,12 @@ function handleStreamEvent(event: StreamEvent) {
 
         // Calculate thinking duration if not already set
         let thinkingDuration = s.streamingMessage.thinkingDuration;
-        if (s.thinkingStartTime && !thinkingDuration) {
+        if (s.thinkingStartTime && thinkingDuration === undefined) {
           thinkingDuration = (Date.now() - s.thinkingStartTime) / 1000;
+        }
+        // If thinking content exists but no duration (edge case), default to 0
+        if (s.streamingMessage.thinking && thinkingDuration === undefined) {
+          thinkingDuration = 0;
         }
 
         const finalMessage: ChatMessage = {
