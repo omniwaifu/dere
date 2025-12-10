@@ -20,12 +20,6 @@ import {
   CloudRain,
   Zap,
   HelpCircle,
-  Sparkles,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  HeartCrack,
-  Flame,
   Brain,
 } from "lucide-react";
 import { useTasks, useEmotionState, useMissions, useKGStats } from "@/hooks/queries";
@@ -135,14 +129,6 @@ export function RightPanel() {
             href="/missions"
           >
             <MissionsPreview />
-          </Widget>
-
-          <Widget
-            title="Bond"
-            icon={<Sparkles className="h-4 w-4 text-muted-foreground" />}
-            href="/emotion"
-          >
-            <BondPreview />
           </Widget>
 
           <Widget
@@ -432,125 +418,16 @@ const FSM_STATE_CONFIG: Record<string, { label: string; color: string }> = {
 
 function AmbientPreview() {
   const ambient = useDashboardStore((s) => s.ambient);
-  const attentionCue = useDashboardStore((s) => s.attentionCue);
 
   const fsmState = ambient?.fsm_state ?? "unknown";
   const config = FSM_STATE_CONFIG[fsmState] ?? FSM_STATE_CONFIG.unknown;
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <div className={`h-2 w-2 rounded-full ${config.color}`} />
-        <span className="text-xs">{config.label}</span>
-        {!ambient?.is_enabled && (
-          <span className="text-xs text-muted-foreground">(disabled)</span>
-        )}
-      </div>
-      {attentionCue && (
-        <p className="text-xs italic text-muted-foreground mood-accent">
-          {attentionCue}
-        </p>
-      )}
-    </div>
-  );
-}
-
-// Bond trend icons and colors
-const BOND_TREND_CONFIG: Record<
-  string,
-  { icon: React.ElementType; color: string; label: string }
-> = {
-  rising: { icon: TrendingUp, color: "text-green-500", label: "Growing closer" },
-  stable: { icon: Minus, color: "text-blue-400", label: "Stable" },
-  falling: { icon: TrendingDown, color: "text-amber-500", label: "Drifting" },
-  distant: { icon: HeartCrack, color: "text-red-400", label: "Distant" },
-};
-
-function getBondLevelInfo(level: number): {
-  label: string;
-  color: string;
-  bgColor: string;
-} {
-  if (level >= 85) {
-    return { label: "Devoted", color: "text-pink-400", bgColor: "bg-pink-500/20" };
-  }
-  if (level >= 70) {
-    return { label: "Close", color: "text-rose-400", bgColor: "bg-rose-500/20" };
-  }
-  if (level >= 55) {
-    return { label: "Friendly", color: "text-blue-400", bgColor: "bg-blue-500/20" };
-  }
-  if (level >= 40) {
-    return { label: "Neutral", color: "text-slate-400", bgColor: "bg-slate-500/20" };
-  }
-  if (level >= 25) {
-    return { label: "Distant", color: "text-amber-400", bgColor: "bg-amber-500/20" };
-  }
-  return { label: "Cold", color: "text-red-400", bgColor: "bg-red-500/20" };
-}
-
-function BondPreview() {
-  const bond = useDashboardStore((s) => s.bond);
-
-  if (!bond) {
-    return (
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-          <Skeleton className="h-6 w-6 rounded-full" />
-        </div>
-        <div className="flex-1">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="mt-1 h-2 w-24" />
-        </div>
-      </div>
-    );
-  }
-
-  const levelInfo = getBondLevelInfo(bond.affection_level);
-  const trendConfig = BOND_TREND_CONFIG[bond.trend] ?? BOND_TREND_CONFIG.stable;
-  const TrendIcon = trendConfig.icon;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-3">
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-full ${levelInfo.bgColor}`}
-        >
-          <Sparkles className={`h-5 w-5 ${levelInfo.color}`} />
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className={`text-sm font-medium ${levelInfo.color}`}>
-              {levelInfo.label}
-            </p>
-            <TrendIcon className={`h-3 w-3 ${trendConfig.color}`} />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {bond.affection_level.toFixed(0)}% affection
-          </p>
-        </div>
-      </div>
-
-      {/* Affection bar */}
-      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${Math.min(100, bond.affection_level)}%`,
-            background: `linear-gradient(90deg,
-              hsl(350, 70%, 50%) 0%,
-              hsl(340, 80%, 60%) 50%,
-              hsl(330, 90%, 70%) 100%)`,
-          }}
-        />
-      </div>
-
-      {/* Streak indicator */}
-      {bond.streak_days > 0 && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Flame className="h-3 w-3 text-orange-400" />
-          <span>{bond.streak_days}-day streak</span>
-        </div>
+    <div className="flex items-center gap-2">
+      <div className={`h-2 w-2 rounded-full ${config.color}`} />
+      <span className="text-xs">{config.label}</span>
+      {!ambient?.is_enabled && (
+        <span className="text-xs text-muted-foreground">(disabled)</span>
       )}
     </div>
   );

@@ -23,22 +23,6 @@
   --radius: 0.5rem;
 }
 
-/* Mood-reactive CSS variables (set dynamically by dashboard store) */
-:root {
-  /* Base hue from current emotion (default: neutral gray-blue) */
-  --mood-hue: 220;
-
-  /* Pre-computed mood colors at different saturations */
-  --mood-primary: hsl(var(--mood-hue), 70%, 50%);
-  --mood-muted: hsl(var(--mood-hue), 40%, 40%);
-  --mood-glow: hsl(var(--mood-hue), 80%, 60%);
-  --mood-bg: hsl(var(--mood-hue), 30%, 10%);
-
-  /* Intensity-based values (0.2 to 0.8) */
-  --mood-glow-opacity: 0.3;
-  --mood-intensity: 0%;
-}
-
 @layer base {
   * {
     @apply border-border;
@@ -47,88 +31,6 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
-}
-
-/* Mood transition effects for smooth color changes */
-.mood-transition {
-  transition: border-color 1s ease-out, background-color 1s ease-out, box-shadow 1s ease-out;
-}
-
-/* Mood-aware glow effect */
-.mood-glow {
-  box-shadow: 0 0 20px hsl(var(--mood-hue), 80%, 60% / var(--mood-glow-opacity));
-}
-
-/* Mood-aware border */
-.mood-border {
-  border-color: hsl(var(--mood-hue), 50%, 40%);
-}
-
-/* Mood accent text */
-.mood-accent {
-  color: var(--mood-primary);
-}
-
-/* Presence orb animations */
-@keyframes pulse-slow {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(0.98);
-  }
-}
-
-@keyframes pulse-fast {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(0.95);
-  }
-}
-
-@keyframes ping-slow {
-  0% {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  75%, 100% {
-    transform: scale(1.5);
-    opacity: 0;
-  }
-}
-
-.animate-pulse-slow {
-  animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.animate-pulse-fast {
-  animation: pulse-fast 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.animate-ping-slow {
-  animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-/* Breathing animation for widgets - subtle scale and opacity */
-@keyframes breathe {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.98;
-    transform: scale(1.002);
-  }
-}
-
-.animate-breathe {
-  animation: breathe 4s ease-in-out infinite;
 }
 
 /* Gentle fade-in for content */
@@ -160,86 +62,10 @@
 .animate-shimmer {
   background: linear-gradient(
     90deg,
-    hsl(var(--mood-hue), 20%, 15%) 0%,
-    hsl(var(--mood-hue), 30%, 25%) 50%,
-    hsl(var(--mood-hue), 20%, 15%) 100%
+    hsl(240, 10%, 15%) 0%,
+    hsl(240, 15%, 25%) 50%,
+    hsl(240, 10%, 15%) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2s infinite linear;
-}
-
-/* Star twinkle for ambient effects */
-@keyframes twinkle {
-  0%, 100% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.animate-twinkle {
-  animation: twinkle 3s ease-in-out infinite;
-}
-
-/* Shooting star animation */
-@keyframes shooting-star {
-  0% {
-    opacity: 0;
-    transform: translateX(-100px) translateY(-100px) rotate(-45deg);
-  }
-  10% {
-    opacity: 1;
-  }
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(300px) translateY(300px) rotate(-45deg);
-  }
-}
-
-.animate-shooting-star {
-  animation: shooting-star 2s ease-out forwards;
-}
-
-/* Widget hover lift effect */
-.widget-hover {
-  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
-}
-
-.widget-hover:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 4px 12px hsl(var(--mood-hue), 40%, 20% / 0.2),
-    0 0 20px hsl(var(--mood-hue), 60%, 50% / 0.1);
-}
-
-/* Soft focus ring for interactive elements */
-.mood-focus:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px hsl(var(--mood-hue), 60%, 50% / 0.3),
-    0 0 0 4px hsl(var(--mood-hue), 40%, 30% / 0.2);
-}
-
-/* Mood-aware card styling */
-.mood-card {
-  background: linear-gradient(
-    135deg,
-    hsl(240, 10%, 5%) 0%,
-    hsl(var(--mood-hue), 15%, 7%) 100%
-  );
-  border: 1px solid hsl(var(--mood-hue), 30%, 20%);
-  transition: all 0.5s ease-out;
-}
-
-.mood-card:hover {
-  border-color: hsl(var(--mood-hue), 40%, 30%);
-  background: linear-gradient(
-    135deg,
-    hsl(240, 10%, 6%) 0%,
-    hsl(var(--mood-hue), 18%, 9%) 100%
-  );
 }

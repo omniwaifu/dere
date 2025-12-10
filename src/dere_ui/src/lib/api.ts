@@ -18,9 +18,6 @@ import type {
   CreateMissionRequest,
   UpdateMissionRequest,
   DashboardStateResponse,
-  UIPreferencesResponse,
-  UpdateUIPreferencesRequest,
-  RareEvent,
   KGEntityListResponse,
   KGSearchResultsResponse,
   KGFactsTimelineResponse,
@@ -197,36 +194,6 @@ export const api = {
 
   dashboard: {
     state: () => fetchJson<DashboardStateResponse>("/dashboard/state"),
-  },
-
-  uiPreferences: {
-    get: () => fetchJson<UIPreferencesResponse>("/ui-preferences"),
-
-    update: (prefs: UpdateUIPreferencesRequest) =>
-      fetchJson<UIPreferencesResponse>("/ui-preferences", {
-        method: "PATCH",
-        body: JSON.stringify(prefs),
-      }),
-  },
-
-  rareEvents: {
-    list: (limit?: number, unshownOnly?: boolean) => {
-      const params = new URLSearchParams();
-      if (limit) params.set("limit", String(limit));
-      if (unshownOnly) params.set("unshown_only", "true");
-      const query = params.toString();
-      return fetchJson<RareEvent[]>(`/rare-events${query ? `?${query}` : ""}`);
-    },
-
-    pending: () => fetchJson<RareEvent | null>("/rare-events/pending"),
-
-    get: (id: number) => fetchJson<RareEvent>(`/rare-events/${id}`),
-
-    markShown: (id: number) =>
-      fetchJson<RareEvent>(`/rare-events/${id}/shown`, { method: "POST" }),
-
-    dismiss: (id: number) =>
-      fetchJson<RareEvent>(`/rare-events/${id}/dismiss`, { method: "POST" }),
   },
 
   knowledge: {
