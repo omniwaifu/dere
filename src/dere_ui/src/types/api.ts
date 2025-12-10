@@ -479,6 +479,13 @@ export interface DashboardStateResponse {
   timestamp: string;
 }
 
+// Summary Context
+export interface SummaryContextResponse {
+  summary: string | null;
+  session_ids: number[];
+  created_at: string | null;
+}
+
 // Knowledge Graph
 export interface KGEntitySummary {
   uuid: string;

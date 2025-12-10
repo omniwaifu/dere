@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel
-from sqlalchemy import BigInteger, Column, DateTime, Index, Integer, String, text
+from sqlalchemy import BigInteger, Column, DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -60,11 +60,12 @@ class Session(SQLModel, table=True):
     is_locked: bool = Field(default=False)
     mission_id: int | None = Field(default=None, foreign_key="missions.id")
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    summary: str | None = None
+    summary_updated_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
 
     # Relationships (cascade_delete ensures related records are deleted with session)
     conversations: list["Conversation"] = Relationship(back_populates="session", cascade_delete=True)
     entities: list["Entity"] = Relationship(back_populates="session", cascade_delete=True)
-    session_summaries: list["SessionSummary"] = Relationship(back_populates="session", cascade_delete=True)
     context_caches: list["ContextCache"] = Relationship(back_populates="session", cascade_delete=True)
     emotion_states: list["EmotionState"] = Relationship(back_populates="session", cascade_delete=True)
     stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session", cascade_delete=True)
@@ -171,29 +172,6 @@ class Entity(SQLModel, table=True):
     conversation: "Conversation" = Relationship(back_populates="entities")
 
 
-class SessionSummary(SQLModel, table=True):
-    __tablename__ = "session_summaries"
-
-    id: int | None = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="sessions.id")
-    summary_type: str
-    summary: str
-    key_topics: list[str] | None = Field(
-        default=None, sa_column=Column("key_topics", ARRAY(String()))
-    )
-    key_entities: list[int] | None = Field(
-        default=None, sa_column=Column("key_entities", ARRAY(Integer))
-    )
-    task_status: dict[str, Any] | None = Field(default=None, sa_column=Column("task_status", JSONB))
-    next_steps: str | None = None
-    model_used: str | None = None
-    processing_time_ms: int | None = None
-    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
-
-    # Relationships
-    session: "Session" = Relationship(back_populates="session_summaries")
-
-
 class ContextCache(SQLModel, table=True):
     __tablename__ = "context_cache"
 
@@ -207,6 +185,19 @@ class ContextCache(SQLModel, table=True):
 
     # Relationships
     session: "Session" = Relationship(back_populates="context_caches")
+
+
+class SummaryContext(SQLModel, table=True):
+    """Global roll-up of session summaries. Append-only for history."""
+
+    __tablename__ = "summary_context"
+
+    id: int | None = Field(default=None, primary_key=True)
+    summary: str
+    session_ids: list[int] | None = Field(
+        default=None, sa_column=Column("session_ids", ARRAY(BigInteger))
+    )
+    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
 
 class EmotionState(SQLModel, table=True):

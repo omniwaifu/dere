@@ -28,10 +28,8 @@ class ConversationCapturePayload(TypedDict, total=False):
     user_id: str | None
 
 
-class SessionEndPayload(TypedDict, total=False):
+class SessionEndPayload(TypedDict):
     session_id: int
-    exit_reason: str
-    duration_seconds: int
 
 
 @dataclass(slots=True)
@@ -203,16 +201,12 @@ class DaemonClient:
         resp.raise_for_status()
 
     async def end_session(self, payload: SessionEndPayload) -> dict[str, Any]:
-        resp = await self._client.post("/session/end", json=payload)
+        resp = await self._client.post("/sessions/end", json=payload)
         resp.raise_for_status()
         return resp.json()
 
     async def queue_summary(self, session_id: int) -> dict[str, Any]:
-        payload: SessionEndPayload = {
-            "session_id": session_id,
-            "exit_reason": "idle_timeout",
-            "duration_seconds": 0,
-        }
+        payload: SessionEndPayload = {"session_id": session_id}
         return await self.end_session(payload)
 
     async def get_emotion_summary(self, session_id: int) -> str:

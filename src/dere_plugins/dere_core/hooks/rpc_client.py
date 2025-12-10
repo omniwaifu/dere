@@ -64,7 +64,7 @@ class RPCClient:
         )
 
     def end_session(self, session_id: int, exit_reason: str = "normal") -> Any:
-        return self.call("/session/end", {"session_id": session_id, "exit_reason": exit_reason})
+        return self.call("/sessions/end", {"session_id": session_id})
 
     def get_status(
         self, personality: str = "", mcp_servers: list = None, context: bool = False

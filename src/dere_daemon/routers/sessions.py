@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Request
 from loguru import logger
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -207,3 +209,129 @@ async def get_last_message_time(session_id: int, db: AsyncSession = Depends(get_
     if timestamp:
         return {"session_id": session_id, "last_message_time": int(timestamp.timestamp())}
     return {"session_id": session_id, "last_message_time": None}
+
+
+class EndSessionRequest(BaseModel):
+    session_id: int
+
+
+class EndSessionResponse(BaseModel):
+    status: str
+    summary_generated: bool = False
+    reason: str | None = None
+
+
+async def _generate_session_summary(content: str) -> str | None:
+    """Generate a summary of session content using LLM."""
+    from dere_shared.llm_client import ClaudeClient, Message
+
+    prompt = f"""Summarize this conversation in 1-2 concise sentences. Focus on what was discussed and any outcomes.
+
+{content[:2000]}"""
+
+    try:
+        client = ClaudeClient()
+        messages = [Message(role="user", content=prompt)]
+        summary = await client.generate_text_response(messages)
+        return summary.strip()
+    except Exception as e:
+        logger.error(f"[sessions] Summary generation failed: {e}")
+        return None
+
+
+@router.post("/end", response_model=EndSessionResponse)
+async def end_session(
+    req: EndSessionRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """End a session and generate summary.
+
+    Flushes pending emotion appraisals and generates a rolling summary
+    of recent conversation content.
+    """
+    # Flush pending emotion appraisal if manager exists
+    app_state = request.app.state
+    if hasattr(app_state, "emotion_managers"):
+        # Check for global emotion manager (session_id=0)
+        if 0 in app_state.emotion_managers:
+            manager = app_state.emotion_managers[0]
+            if manager.has_pending_stimuli():
+                logger.info("[sessions] Flushing pending emotion appraisal on session end")
+                try:
+                    await manager.flush_batch_appraisal()
+                except Exception as e:
+                    logger.error(f"[sessions] Failed to flush emotion appraisal: {e}")
+
+    # Get recent messages (last 30 min or last 50 messages)
+    thirty_minutes_ago = int(time.time()) - 1800
+    stmt = (
+        select(Conversation.prompt, Conversation.message_type)
+        .where(Conversation.session_id == req.session_id)
+        .where(Conversation.timestamp >= thirty_minutes_ago)
+        .order_by(Conversation.timestamp.desc())
+        .limit(50)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    if not rows:
+        # Mark as ended even with no content
+        stmt = (
+            update(Session)
+            .where(Session.id == req.session_id)
+            .values(end_time=int(time.time()))
+        )
+        await db.execute(stmt)
+        await db.commit()
+        return EndSessionResponse(status="ended", reason="no_content")
+
+    # Build content for summarization
+    content = "\n".join([f"{row.message_type}: {row.prompt}" for row in reversed(rows)])
+
+    # Generate summary
+    summary = await _generate_session_summary(content)
+
+    # Update session
+    update_values: dict = {"end_time": int(time.time())}
+    if summary:
+        update_values["summary"] = summary
+        update_values["summary_updated_at"] = datetime.now(UTC)
+
+    stmt = update(Session).where(Session.id == req.session_id).values(**update_values)
+    await db.execute(stmt)
+    await db.commit()
+
+    if summary:
+        logger.info(f"[sessions] Generated summary for session {req.session_id}")
+
+    return EndSessionResponse(status="ended", summary_generated=summary is not None)
+
+
+class SummaryContextResponse(BaseModel):
+    summary: str | None = None
+    session_ids: list[int] = []
+    created_at: str | None = None
+
+
+@router.get("/context", response_model=SummaryContextResponse)
+async def get_summary_context(db: AsyncSession = Depends(get_db)):
+    """Get the latest global summary context."""
+    from dere_shared.models import SummaryContext
+
+    stmt = (
+        select(SummaryContext)
+        .order_by(SummaryContext.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    context = result.scalar_one_or_none()
+
+    if not context:
+        return SummaryContextResponse()
+
+    return SummaryContextResponse(
+        summary=context.summary,
+        session_ids=context.session_ids or [],
+        created_at=context.created_at.isoformat() if context.created_at else None,
+    )

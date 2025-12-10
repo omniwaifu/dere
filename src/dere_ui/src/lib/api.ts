@@ -19,6 +19,7 @@ import type {
   CreateMissionRequest,
   UpdateMissionRequest,
   DashboardStateResponse,
+  SummaryContextResponse,
   KGEntityListResponse,
   KGSearchResultsResponse,
   KGFactsTimelineResponse,
@@ -51,6 +52,8 @@ export const api = {
     list: () => fetchJson<SessionListResponse>("/agent/sessions"),
 
     get: (id: number) => fetchJson<SessionResponse>(`/agent/sessions/${id}`),
+
+    context: () => fetchJson<SummaryContextResponse>("/sessions/context"),
 
     create: (config: SessionConfig) =>
       fetchJson<SessionResponse>("/agent/sessions", {

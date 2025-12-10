@@ -25,7 +25,6 @@ from dere_shared.models import (
     MessageType,
     Presence,
     Session,
-    SessionSummary,
     StimulusHistory,
     TaskQueue,
     TaskStatus,
@@ -46,12 +45,6 @@ class ConversationCaptureRequest(BaseModel):
     medium: str | None = None
     user_id: str | None = None
     speaker_name: str | None = None
-
-
-class SessionEndRequest(BaseModel):
-    session_id: int
-    exit_reason: str
-    duration_seconds: int = 0
 
 
 class StatusRequest(BaseModel):
@@ -351,9 +344,86 @@ async def _init_agent_service(app_state: AppState) -> None:
 EMOTION_IDLE_TIMEOUT = 600  # 10 minutes in seconds
 EMOTION_CHECK_INTERVAL = 60  # Check every 60 seconds
 
+# Session summary settings
+SUMMARY_IDLE_TIMEOUT = 1800  # 30 minutes in seconds
+SUMMARY_CHECK_INTERVAL = 300  # Check every 5 minutes
+SUMMARY_MIN_MESSAGES = 5  # Minimum messages before generating summary
 
-def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task]:
-    """Start background tasks for presence cleanup and emotion decay."""
+
+async def _update_summary_context(session_factory) -> None:
+    """Update global summary context from recent session summaries."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from dere_shared.llm_client import ClaudeClient, Message
+    from dere_shared.models import SummaryContext
+
+    try:
+        async with session_factory() as db:
+            now = datetime.now(UTC)
+            recent_threshold = now - timedelta(hours=24)
+
+            # Get sessions with recent summaries
+            stmt = (
+                select(Session)
+                .where(Session.summary.isnot(None))
+                .where(Session.summary_updated_at >= recent_threshold)
+                .order_by(Session.summary_updated_at.desc())
+                .limit(10)
+            )
+            result = await db.execute(stmt)
+            sessions = result.scalars().all()
+
+            if not sessions:
+                return
+
+            # Get previous global summary
+            prev_stmt = (
+                select(SummaryContext)
+                .order_by(SummaryContext.created_at.desc())
+                .limit(1)
+            )
+            prev_result = await db.execute(prev_stmt)
+            prev_context = prev_result.scalar_one_or_none()
+            prev_summary = prev_context.summary if prev_context else None
+
+            # Build session summaries for prompt
+            session_summaries = "\n".join(
+                [f"- {s.summary}" for s in sessions if s.summary]
+            )
+            session_ids = [s.id for s in sessions]
+
+            prompt = f"""Update the global context summary based on recent session activity.
+
+Previous context: {prev_summary or "None"}
+
+Recent session summaries:
+{session_summaries}
+
+Write a 1-2 sentence summary of what the user is currently focused on. Drop completed or stale items. Be concise."""
+
+            client = ClaudeClient()
+            messages = [Message(role="user", content=prompt)]
+            new_summary = await client.generate_text_response(messages)
+            new_summary = new_summary.strip()
+
+            # Insert new summary context
+            context = SummaryContext(
+                summary=new_summary,
+                session_ids=session_ids,
+            )
+            db.add(context)
+            await db.commit()
+
+            logger.info(f"[SummaryContext] Updated global context: {new_summary[:100]}...")
+
+    except Exception as e:
+        logger.error(f"[SummaryContext] Failed to update: {e}")
+
+
+def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task, asyncio.Task]:
+    """Start background tasks for presence cleanup, emotion decay, and session summaries."""
 
     async def cleanup_presence_loop():
         """Background task placeholder for future presence maintenance."""
@@ -430,10 +500,110 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
             except Exception as e:
                 logger.error("Periodic emotion decay failed: {}", e)
 
+    async def periodic_session_summary_loop():
+        """Background task to generate rolling summaries for idle sessions."""
+        from datetime import timedelta
+
+        from sqlalchemy import func, select, update
+
+        from dere_shared.llm_client import ClaudeClient, Message
+
+        while True:
+            try:
+                await asyncio.sleep(SUMMARY_CHECK_INTERVAL)
+
+                now = datetime.now(UTC)
+                idle_threshold = now - timedelta(seconds=SUMMARY_IDLE_TIMEOUT)
+
+                async with app_state.session_factory() as db:
+                    # Find sessions that:
+                    # 1. Have recent activity (last 24h)
+                    # 2. Are idle (no activity in SUMMARY_IDLE_TIMEOUT)
+                    # 3. Have no summary OR summary is older than last_activity
+                    recent_threshold = now - timedelta(hours=24)
+
+                    stmt = (
+                        select(Session)
+                        .where(Session.last_activity >= recent_threshold)
+                        .where(Session.last_activity <= idle_threshold)
+                        .where(Session.end_time.is_(None))  # Not ended
+                        .where(
+                            (Session.summary.is_(None))
+                            | (Session.summary_updated_at < Session.last_activity)
+                        )
+                    )
+                    result = await db.execute(stmt)
+                    sessions = result.scalars().all()
+
+                    if not sessions:
+                        continue
+
+                    logger.info(f"[Summary] Found {len(sessions)} sessions needing summaries")
+
+                    for session in sessions:
+                        # Get message count
+                        count_stmt = (
+                            select(func.count())
+                            .select_from(Conversation)
+                            .where(Conversation.session_id == session.id)
+                        )
+                        count_result = await db.execute(count_stmt)
+                        msg_count = count_result.scalar() or 0
+
+                        if msg_count < SUMMARY_MIN_MESSAGES:
+                            continue
+
+                        # Get recent messages for summary
+                        msg_stmt = (
+                            select(Conversation.prompt, Conversation.message_type)
+                            .where(Conversation.session_id == session.id)
+                            .order_by(Conversation.timestamp.desc())
+                            .limit(50)
+                        )
+                        msg_result = await db.execute(msg_stmt)
+                        rows = msg_result.all()
+
+                        if not rows:
+                            continue
+
+                        content = "\n".join(
+                            [f"{row.message_type}: {row.prompt}" for row in reversed(rows)]
+                        )
+
+                        # Generate summary
+                        try:
+                            prompt = f"""Summarize this conversation in 1-2 concise sentences. Focus on what was discussed and any outcomes.
+
+{content[:2000]}"""
+                            client = ClaudeClient()
+                            messages = [Message(role="user", content=prompt)]
+                            summary = await client.generate_text_response(messages)
+                            summary = summary.strip()
+
+                            # Update session
+                            update_stmt = (
+                                update(Session)
+                                .where(Session.id == session.id)
+                                .values(summary=summary, summary_updated_at=now)
+                            )
+                            await db.execute(update_stmt)
+                            await db.commit()
+
+                            logger.info(f"[Summary] Generated summary for session {session.id}")
+                        except Exception as e:
+                            logger.error(f"[Summary] Failed for session {session.id}: {e}")
+
+                    # After processing sessions, update global summary context
+                    await _update_summary_context(app_state.session_factory)
+
+            except Exception as e:
+                logger.error(f"[Summary] Periodic summary loop failed: {e}")
+
     cleanup_task = asyncio.create_task(cleanup_presence_loop())
     emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
+    summary_task = asyncio.create_task(periodic_session_summary_loop())
 
-    return cleanup_task, emotion_decay_task
+    return cleanup_task, emotion_decay_task, summary_task
 
 
 async def _shutdown_cleanup(
@@ -441,21 +611,17 @@ async def _shutdown_cleanup(
     pid_file: Path,
     cleanup_task: asyncio.Task,
     emotion_decay_task: asyncio.Task,
+    summary_task: asyncio.Task,
 ) -> None:
     """Shutdown all services and cleanup resources."""
     errors = []
 
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-
-    emotion_decay_task.cancel()
-    try:
-        await emotion_decay_task
-    except asyncio.CancelledError:
-        pass
+    for task in [cleanup_task, emotion_decay_task, summary_task]:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     # Stop mission scheduler
     if hasattr(app_state, "mission_scheduler") and app_state.mission_scheduler:
@@ -532,13 +698,13 @@ async def lifespan(app: FastAPI):
     await _init_ambient_monitor(data_dir, app.state)
     await _init_agent_service(app.state)
 
-    cleanup_task, emotion_decay_task = _start_background_tasks(app.state)
+    cleanup_task, emotion_decay_task, summary_task = _start_background_tasks(app.state)
 
     print(f"Dere daemon started - database: {db_path}")
 
     yield
 
-    await _shutdown_cleanup(app.state, pid_file, cleanup_task, emotion_decay_task)
+    await _shutdown_cleanup(app.state, pid_file, cleanup_task, emotion_decay_task, summary_task)
 
 
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
@@ -1018,84 +1184,6 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
         asyncio.create_task(process_background())
 
     return {"status": "stored"}
-
-
-@app.post("/session/end")
-async def session_end(req: SessionEndRequest, db: AsyncSession = Depends(get_db)):
-    """Handle session end and queue summarization"""
-    from sqlalchemy import select, update
-
-    # Flush any pending global emotion appraisal before session ends
-    if GLOBAL_EMOTION_SESSION_ID in app.state.emotion_managers:
-        manager = app.state.emotion_managers[GLOBAL_EMOTION_SESSION_ID]
-        if manager.has_pending_stimuli():
-            logger.info("[Emotion] Flushing pending appraisal on session end")
-            try:
-                await manager.flush_batch_appraisal()
-            except Exception as e:
-                logger.error(f"[Emotion] Failed to flush on session end: {e}")
-
-    # Get recent session content (last 30 minutes or last 50 messages)
-    thirty_minutes_ago = int(time.time()) - 1800
-
-    stmt = (
-        select(Conversation.prompt, Conversation.message_type)
-        .where(Conversation.session_id == req.session_id)
-        .where(Conversation.timestamp >= thirty_minutes_ago)
-        .order_by(Conversation.timestamp.desc())
-        .limit(50)
-    )
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    if not rows:
-        return {"status": "skipped", "reason": "no_content"}
-
-    # Build content from messages
-    content = "\n".join([f"{row.message_type}: {row.prompt}" for row in reversed(rows)])
-
-    # Mark session as ended first
-    stmt = update(Session).where(Session.id == req.session_id).values(end_time=int(time.time()))
-    await db.execute(stmt)
-
-    # Generate summary directly if dere_graph available
-    if app.state.dere_graph:
-        try:
-            from dere_graph.llm_client import Message
-
-            summary_prompt = f"""Summarize this conversation session in 2-3 concise sentences:
-
-{content[:2000]}
-
-Focus on:
-1. Main topics discussed
-2. Key outcomes or decisions
-3. What should be followed up on
-
-Summary:"""
-
-            messages = [Message(role="user", content=summary_prompt)]
-            summary = await app.state.dere_graph.llm_client.generate_text_response(messages)
-            summary = summary.strip()
-            if summary.startswith("Summary:"):
-                summary = summary.replace("Summary:", "").strip()
-
-            # Store in SessionSummary table
-            session_summary = SessionSummary(
-                session_id=req.session_id,
-                summary_type="session_end",
-                summary=summary,
-                model_used=app.state.dere_graph.llm_client.model,
-            )
-            db.add(session_summary)
-            await db.flush()
-
-            logger.info(f"Generated session summary for session {req.session_id}")
-        except Exception as e:
-            logger.error(f"Failed to generate session summary: {e}")
-            # Continue anyway - summary is nice-to-have
-
-    return {"status": "ended", "summary_generated": app.state.dere_graph is not None}
 
 
 @app.post("/status/get")

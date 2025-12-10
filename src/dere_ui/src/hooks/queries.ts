@@ -6,6 +6,7 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   session: (id: number) => ["sessions", id] as const,
   sessionMessages: (id: number) => ["sessions", id, "messages"] as const,
+  summaryContext: ["summaryContext"] as const,
   outputStyles: ["outputStyles"] as const,
   personalities: ["personalities"] as const,
   models: ["models"] as const,
@@ -56,6 +57,15 @@ export function useSessionMessages(
     queryKey: queryKeys.sessionMessages(id),
     queryFn: () => api.sessions.messages(id, params),
     enabled: id > 0,
+  });
+}
+
+export function useSummaryContext() {
+  return useQuery({
+    queryKey: queryKeys.summaryContext,
+    queryFn: () => api.sessions.context(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    refetchInterval: 1000 * 60 * 5, // refresh every 5 minutes
   });
 }
 

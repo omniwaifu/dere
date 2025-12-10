@@ -21,8 +21,9 @@ import {
   Zap,
   HelpCircle,
   Brain,
+  MessageSquare,
 } from "lucide-react";
-import { useTasks, useEmotionState, useMissions, useKGStats } from "@/hooks/queries";
+import { useTasks, useEmotionState, useMissions, useKGStats, useSummaryContext } from "@/hooks/queries";
 import { useDashboardStore } from "@/stores/dashboard";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
@@ -115,6 +116,8 @@ export function RightPanel() {
 
       <ScrollArea className="flex-1 px-3 pb-3 pt-3">
         <div className="space-y-3">
+          <SummaryContextCard />
+
           <Widget
             title="Tasks"
             icon={<CheckSquare className="h-4 w-4 text-muted-foreground" />}
@@ -468,6 +471,54 @@ function KnowledgePreview() {
           Top: {topEntity.name}
         </p>
       )}
+    </div>
+  );
+}
+
+function SummaryContextCard() {
+  const { data, isLoading } = useSummaryContext();
+
+  if (isLoading) {
+    return (
+      <div className="rounded-xl p-3.5 bg-card/50 border border-border/50">
+        <div className="flex items-center gap-2 mb-2">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <Skeleton className="h-12 w-full" />
+      </div>
+    );
+  }
+
+  if (!data?.summary) {
+    return null;
+  }
+
+  const formatTime = (isoString: string) => {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div className="rounded-xl p-3.5 animate-fade-in-up bg-card/50 border border-border/50">
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquare className="h-4 w-4 text-primary" />
+        <span className="text-sm font-medium text-foreground/90">Context</span>
+        {data.created_at && (
+          <span className="text-xs text-muted-foreground ml-auto">
+            {formatTime(data.created_at)}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">
+        {data.summary}
+      </p>
     </div>
   );
 }
