@@ -32,42 +32,6 @@ def generate_session_id() -> int:
     return int(time.time_ns() % (1 << 31))
 
 
-def get_session_tracking_file() -> Path:
-    """Get session tracking JSON file."""
-    data_dir = get_data_dir()
-    return data_dir / "sessions.json"
-
-
-def load_session_map() -> dict:
-    """Load session tracking map."""
-    file = get_session_tracking_file()
-    if not file.exists():
-        return {}
-    with open(file) as f:
-        return json.load(f)
-
-
-def save_session_map(sessions: dict):
-    """Save session tracking map."""
-    file = get_session_tracking_file()
-    file.parent.mkdir(parents=True, exist_ok=True)
-    with open(file, "w") as f:
-        json.dump(sessions, f, indent=2)
-
-
-def get_last_session_for_dir(cwd: str) -> str | None:
-    """Get last session ID for directory."""
-    sessions = load_session_map()
-    return sessions.get(cwd, {}).get("last_session_id")
-
-
-def save_session_for_dir(cwd: str, session_id: str):
-    """Save session ID for directory."""
-    sessions = load_session_map()
-    sessions[cwd] = {"last_session_id": session_id, "timestamp": int(time.time())}
-    save_session_map(sessions)
-
-
 class SettingsBuilder:
     """Build Claude settings JSON for interactive mode"""
 
@@ -441,9 +405,8 @@ def _configure_settings(
 def _handle_session_tracking(
     continue_conv: bool,
     resume: str | None,
-    cwd: str,
 ) -> list[str]:
-    """Handle session tracking (continue/resume/new)
+    """Handle session tracking (continue/resume)
 
     Returns:
         List of command arguments for session handling
@@ -451,24 +414,9 @@ def _handle_session_tracking(
     cmd_args = []
 
     if continue_conv:
-        # Continue: resume specific dere session for this directory
-        last_session = get_last_session_for_dir(cwd)
-        if last_session:
-            cmd_args.extend(["--resume", last_session])
-        else:
-            print("Error: No previous dere session in this directory", file=sys.stderr)
-            print("Start a new session with: dere", file=sys.stderr)
-            sys.exit(1)
+        cmd_args.append("--continue")
     elif resume:
-        # Explicit resume: use provided session ID
         cmd_args.extend(["-r", resume])
-    else:
-        # New session: generate UUID and track it
-        import uuid
-
-        session_uuid = str(uuid.uuid4())
-        cmd_args.extend(["--session-id", session_uuid])
-        save_session_for_dir(cwd, session_uuid)
 
     return cmd_args
 
@@ -681,8 +629,7 @@ def cli(
             system_prompt = compose_system_prompt(personalities_list)
 
         # Handle session tracking
-        cwd = os.getcwd()
-        session_args = _handle_session_tracking(continue_conv, resume, cwd)
+        session_args = _handle_session_tracking(continue_conv, resume)
 
         # Build claude command
         cmd, mcp_config_path = _build_claude_command(
