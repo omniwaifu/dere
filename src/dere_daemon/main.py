@@ -394,14 +394,12 @@ async def _update_summary_context(session_factory) -> None:
             )
             session_ids = [s.id for s in sessions]
 
-            prompt = f"""Update the global context summary based on recent session activity.
+            prompt = f"""Previous: {prev_summary or "None"}
 
-Previous context: {prev_summary or "None"}
-
-Recent session summaries:
+Recent:
 {session_summaries}
 
-Write a 1-2 sentence summary of what the user is currently focused on. Drop completed or stale items. Be concise."""
+Merge into 1-2 sentences. No headers, no preambles."""
 
             client = ClaudeClient()
             messages = [Message(role="user", content=prompt)]

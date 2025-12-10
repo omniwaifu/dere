@@ -225,7 +225,7 @@ async def _generate_session_summary(content: str) -> str | None:
     """Generate a summary of session content using LLM."""
     from dere_shared.llm_client import ClaudeClient, Message
 
-    prompt = f"""Summarize this conversation in 1-2 concise sentences. Focus on what was discussed and any outcomes.
+    prompt = f"""Summarize in 1-2 sentences. No headers or preambles, just the summary.
 
 {content[:2000]}"""
 
