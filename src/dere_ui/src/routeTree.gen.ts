@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MissionsRouteImport } from './routes/missions'
+import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as EmotionRouteImport } from './routes/emotion'
 import { Route as AmbientRouteImport } from './routes/ambient'
 import { Route as IndexRouteImport } from './routes/index'
@@ -30,6 +31,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const MissionsRoute = MissionsRouteImport.update({
   id: '/missions',
   path: '/missions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KnowledgeRoute = KnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EmotionRoute = EmotionRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ambient': typeof AmbientRoute
   '/emotion': typeof EmotionRoute
+  '/knowledge': typeof KnowledgeRoute
   '/missions': typeof MissionsRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ambient': typeof AmbientRoute
   '/emotion': typeof EmotionRoute
+  '/knowledge': typeof KnowledgeRoute
   '/missions': typeof MissionsRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/ambient': typeof AmbientRoute
   '/emotion': typeof EmotionRoute
+  '/knowledge': typeof KnowledgeRoute
   '/missions': typeof MissionsRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ambient'
     | '/emotion'
+    | '/knowledge'
     | '/missions'
     | '/settings'
     | '/tasks'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ambient'
     | '/emotion'
+    | '/knowledge'
     | '/missions'
     | '/settings'
     | '/tasks'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ambient'
     | '/emotion'
+    | '/knowledge'
     | '/missions'
     | '/settings'
     | '/tasks'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AmbientRoute: typeof AmbientRoute
   EmotionRoute: typeof EmotionRoute
+  KnowledgeRoute: typeof KnowledgeRoute
   MissionsRoute: typeof MissionsRoute
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/missions'
       fullPath: '/missions'
       preLoaderRoute: typeof MissionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/knowledge': {
+      id: '/knowledge'
+      path: '/knowledge'
+      fullPath: '/knowledge'
+      preLoaderRoute: typeof KnowledgeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/emotion': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AmbientRoute: AmbientRoute,
   EmotionRoute: EmotionRoute,
+  KnowledgeRoute: KnowledgeRoute,
   MissionsRoute: MissionsRoute,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRoute,

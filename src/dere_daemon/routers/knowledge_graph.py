@@ -2,10 +2,567 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from datetime import datetime
+
+from fastapi import APIRouter, Query, Request
 from loguru import logger
+from pydantic import BaseModel
+
+
+# Response Models
+class EntitySummary(BaseModel):
+    """Summary of a knowledge graph entity."""
+
+    uuid: str
+    name: str
+    labels: list[str]
+    summary: str
+    mention_count: int
+    retrieval_quality: float
+    last_mentioned: str | None
+    created_at: str
+
+
+class EdgeSummary(BaseModel):
+    """Summary of a knowledge graph edge/fact."""
+
+    uuid: str
+    source_uuid: str
+    source_name: str
+    target_uuid: str
+    target_name: str
+    relation: str
+    fact: str
+    strength: float | None
+    valid_at: str | None
+    invalid_at: str | None
+    created_at: str
+
+
+class EntityListResponse(BaseModel):
+    """Paginated list of entities."""
+
+    entities: list[EntitySummary]
+    total: int
+    offset: int
+    limit: int
+
+
+class SearchResultsResponse(BaseModel):
+    """Search results with entities and edges."""
+
+    entities: list[EntitySummary]
+    edges: list[EdgeSummary]
+    query: str
+
+
+class TimelineFact(BaseModel):
+    """A fact with temporal status."""
+
+    edge: EdgeSummary
+    temporal_status: str  # "valid", "expired", "future"
+
+
+class FactsTimelineResponse(BaseModel):
+    """Timeline of facts."""
+
+    facts: list[TimelineFact]
+    total: int
+    offset: int
+
+
+class TopEntity(BaseModel):
+    """Entity with ranking metrics."""
+
+    uuid: str
+    name: str
+    labels: list[str]
+    mention_count: int
+    retrieval_quality: float
+
+
+class KGStatsResponse(BaseModel):
+    """Knowledge graph statistics."""
+
+    total_entities: int
+    total_edges: int
+    total_communities: int
+    top_mentioned: list[TopEntity]
+    top_quality: list[TopEntity]
+    label_distribution: dict[str, int]
+
+
+class CommunityInfo(BaseModel):
+    """Community cluster information."""
+
+    name: str
+    summary: str
+    member_count: int
+
+
+class CommunitiesResponse(BaseModel):
+    """List of communities."""
+
+    communities: list[CommunityInfo]
+
+
+class LabelsResponse(BaseModel):
+    """Available entity labels."""
+
+    labels: list[str]
+
 
 router = APIRouter(prefix="/kg", tags=["knowledge_graph"])
+
+
+def _entity_to_summary(node) -> EntitySummary:
+    """Convert EntityNode to EntitySummary."""
+    return EntitySummary(
+        uuid=node.uuid,
+        name=node.name,
+        labels=node.labels,
+        summary=node.summary or "",
+        mention_count=node.mention_count,
+        retrieval_quality=node.retrieval_quality,
+        last_mentioned=node.last_mentioned.isoformat() if node.last_mentioned else None,
+        created_at=node.created_at.isoformat() if node.created_at else "",
+    )
+
+
+def _edge_to_summary(edge, source_name: str = "", target_name: str = "") -> EdgeSummary:
+    """Convert EntityEdge to EdgeSummary."""
+    return EdgeSummary(
+        uuid=edge.uuid,
+        source_uuid=edge.source_node_uuid,
+        source_name=source_name,
+        target_uuid=edge.target_node_uuid,
+        target_name=target_name,
+        relation=edge.name,
+        fact=edge.fact,
+        strength=edge.strength,
+        valid_at=edge.valid_at.isoformat() if edge.valid_at else None,
+        invalid_at=edge.invalid_at.isoformat() if edge.invalid_at else None,
+        created_at=edge.created_at.isoformat() if edge.created_at else "",
+    )
+
+
+@router.get("/stats", response_model=KGStatsResponse)
+async def get_kg_stats(request: Request, user_id: str | None = None):
+    """Get knowledge graph statistics."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return KGStatsResponse(
+            total_entities=0,
+            total_edges=0,
+            total_communities=0,
+            top_mentioned=[],
+            top_quality=[],
+            label_distribution={},
+        )
+
+    try:
+        driver = app_state.dere_graph.driver
+
+        # Count entities
+        entity_count_result = await driver.execute_query(
+            "MATCH (n:Entity {group_id: $group_id}) RETURN count(n) as count",
+            group_id=group_id,
+        )
+        total_entities = entity_count_result[0]["count"] if entity_count_result else 0
+
+        # Count edges
+        edge_count_result = await driver.execute_query(
+            "MATCH ()-[r:RELATES_TO {group_id: $group_id}]->() RETURN count(r) as count",
+            group_id=group_id,
+        )
+        total_edges = edge_count_result[0]["count"] if edge_count_result else 0
+
+        # Get top mentioned entities
+        top_mentioned_result = await driver.execute_query(
+            """
+            MATCH (n:Entity {group_id: $group_id})
+            RETURN n
+            ORDER BY n.mention_count DESC
+            LIMIT 5
+            """,
+            group_id=group_id,
+        )
+        top_mentioned = [
+            TopEntity(
+                uuid=r["n"]["uuid"],
+                name=r["n"]["name"],
+                labels=r["n"].get("labels", []),
+                mention_count=r["n"].get("mention_count", 1),
+                retrieval_quality=r["n"].get("retrieval_quality", 1.0),
+            )
+            for r in top_mentioned_result
+        ]
+
+        # Get top quality entities (with at least some retrievals)
+        top_quality_result = await driver.execute_query(
+            """
+            MATCH (n:Entity {group_id: $group_id})
+            WHERE n.retrieval_count > 0
+            RETURN n
+            ORDER BY n.retrieval_quality DESC, n.citation_count DESC
+            LIMIT 5
+            """,
+            group_id=group_id,
+        )
+        top_quality = [
+            TopEntity(
+                uuid=r["n"]["uuid"],
+                name=r["n"]["name"],
+                labels=r["n"].get("labels", []),
+                mention_count=r["n"].get("mention_count", 1),
+                retrieval_quality=r["n"].get("retrieval_quality", 1.0),
+            )
+            for r in top_quality_result
+        ]
+
+        # Get label distribution
+        label_result = await driver.execute_query(
+            """
+            MATCH (n:Entity {group_id: $group_id})
+            UNWIND n.labels AS label
+            RETURN label, count(*) as count
+            ORDER BY count DESC
+            """,
+            group_id=group_id,
+        )
+        label_distribution = {r["label"]: r["count"] for r in label_result}
+
+        # Count communities (if available)
+        total_communities = 0
+        try:
+            community_count_result = await driver.execute_query(
+                "MATCH (c:Community {group_id: $group_id}) RETURN count(c) as count",
+                group_id=group_id,
+            )
+            total_communities = (
+                community_count_result[0]["count"] if community_count_result else 0
+            )
+        except Exception:
+            pass  # Communities may not exist yet
+
+        return KGStatsResponse(
+            total_entities=total_entities,
+            total_edges=total_edges,
+            total_communities=total_communities,
+            top_mentioned=top_mentioned,
+            top_quality=top_quality,
+            label_distribution=label_distribution,
+        )
+    except Exception as e:
+        logger.error(f"KG stats retrieval failed: {e}")
+        return KGStatsResponse(
+            total_entities=0,
+            total_edges=0,
+            total_communities=0,
+            top_mentioned=[],
+            top_quality=[],
+            label_distribution={},
+        )
+
+
+@router.get("/labels", response_model=LabelsResponse)
+async def get_entity_labels(request: Request, user_id: str | None = None):
+    """Get all unique entity labels for filtering."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return LabelsResponse(labels=[])
+
+    try:
+        driver = app_state.dere_graph.driver
+        result = await driver.execute_query(
+            """
+            MATCH (n:Entity {group_id: $group_id})
+            UNWIND n.labels AS label
+            RETURN DISTINCT label
+            ORDER BY label
+            """,
+            group_id=group_id,
+        )
+        labels = [r["label"] for r in result]
+        return LabelsResponse(labels=labels)
+    except Exception as e:
+        logger.error(f"Labels retrieval failed: {e}")
+        return LabelsResponse(labels=[])
+
+
+@router.get("/entities", response_model=EntityListResponse)
+async def list_entities(
+    request: Request,
+    user_id: str | None = None,
+    labels: list[str] | None = Query(None),
+    sort_by: str = "mention_count",
+    sort_order: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List entities with filtering and pagination."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return EntityListResponse(entities=[], total=0, offset=offset, limit=limit)
+
+    try:
+        driver = app_state.dere_graph.driver
+
+        # Build query with optional label filter
+        label_filter = ""
+        if labels:
+            label_filter = "AND ANY(l IN n.labels WHERE l IN $labels)"
+
+        # Validate sort_by
+        valid_sorts = ["mention_count", "retrieval_quality", "last_mentioned", "created_at", "name"]
+        if sort_by not in valid_sorts:
+            sort_by = "mention_count"
+
+        order_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
+
+        # Count total
+        count_query = f"""
+            MATCH (n:Entity {{group_id: $group_id}})
+            WHERE true {label_filter}
+            RETURN count(n) as total
+        """
+        count_result = await driver.execute_query(
+            count_query, group_id=group_id, labels=labels or []
+        )
+        total = count_result[0]["total"] if count_result else 0
+
+        # Fetch entities
+        query = f"""
+            MATCH (n:Entity {{group_id: $group_id}})
+            WHERE true {label_filter}
+            RETURN n
+            ORDER BY n.{sort_by} {order_dir}
+            SKIP $offset
+            LIMIT $limit
+        """
+        result = await driver.execute_query(
+            query, group_id=group_id, labels=labels or [], offset=offset, limit=limit
+        )
+
+        entities = []
+        for r in result:
+            node_data = r["n"]
+            entities.append(
+                EntitySummary(
+                    uuid=node_data["uuid"],
+                    name=node_data["name"],
+                    labels=node_data.get("labels", []),
+                    summary=node_data.get("summary", ""),
+                    mention_count=node_data.get("mention_count", 1),
+                    retrieval_quality=node_data.get("retrieval_quality", 1.0),
+                    last_mentioned=node_data.get("last_mentioned"),
+                    created_at=node_data.get("created_at", ""),
+                )
+            )
+
+        return EntityListResponse(
+            entities=entities, total=total, offset=offset, limit=limit
+        )
+    except Exception as e:
+        logger.error(f"Entity listing failed: {e}")
+        return EntityListResponse(entities=[], total=0, offset=offset, limit=limit)
+
+
+@router.get("/search", response_model=SearchResultsResponse)
+async def search_knowledge(
+    request: Request,
+    query: str,
+    user_id: str | None = None,
+    limit: int = 20,
+    include_edges: bool = True,
+    rerank_method: str | None = None,
+    labels: list[str] | None = Query(None),
+):
+    """Search knowledge graph with context (entities and their relationships)."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return SearchResultsResponse(entities=[], edges=[], query=query)
+
+    try:
+        # Use dere_graph search
+        results = await app_state.dere_graph.search(
+            query=query,
+            group_id=group_id,
+            limit=limit,
+        )
+
+        # Filter by labels if provided
+        nodes = results.nodes
+        if labels:
+            nodes = [n for n in nodes if any(lbl in n.labels for lbl in labels)]
+
+        entities = [_entity_to_summary(n) for n in nodes]
+
+        # Build name lookup for edges
+        name_lookup = {n.uuid: n.name for n in nodes}
+
+        edges = []
+        if include_edges and results.edges:
+            for e in results.edges:
+                edges.append(
+                    _edge_to_summary(
+                        e,
+                        source_name=name_lookup.get(e.source_node_uuid, ""),
+                        target_name=name_lookup.get(e.target_node_uuid, ""),
+                    )
+                )
+
+        return SearchResultsResponse(entities=entities, edges=edges, query=query)
+    except Exception as e:
+        logger.error(f"Knowledge search failed: {e}")
+        return SearchResultsResponse(entities=[], edges=[], query=query)
+
+
+@router.get("/facts/timeline", response_model=FactsTimelineResponse)
+async def get_facts_timeline(
+    request: Request,
+    user_id: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    entity_uuid: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Get chronological timeline of facts/edges."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return FactsTimelineResponse(facts=[], total=0, offset=offset)
+
+    try:
+        driver = app_state.dere_graph.driver
+        now = datetime.utcnow()
+
+        # Build filters
+        filters = []
+        params = {"group_id": group_id, "offset": offset, "limit": limit}
+
+        if start_date:
+            filters.append("r.created_at >= $start_date")
+            params["start_date"] = start_date.isoformat()
+        if end_date:
+            filters.append("r.created_at <= $end_date")
+            params["end_date"] = end_date.isoformat()
+        if entity_uuid:
+            filters.append("(src.uuid = $entity_uuid OR tgt.uuid = $entity_uuid)")
+            params["entity_uuid"] = entity_uuid
+
+        where_clause = " AND ".join(filters) if filters else "true"
+
+        # Count total
+        count_query = f"""
+            MATCH (src:Entity)-[r:RELATES_TO {{group_id: $group_id}}]->(tgt:Entity)
+            WHERE {where_clause}
+            RETURN count(r) as total
+        """
+        count_result = await driver.execute_query(count_query, **params)
+        total = count_result[0]["total"] if count_result else 0
+
+        # Fetch edges with source/target names
+        query = f"""
+            MATCH (src:Entity)-[r:RELATES_TO {{group_id: $group_id}}]->(tgt:Entity)
+            WHERE {where_clause}
+            RETURN r, src.uuid as source_uuid, src.name as source_name,
+                   tgt.uuid as target_uuid, tgt.name as target_name
+            ORDER BY r.created_at DESC
+            SKIP $offset
+            LIMIT $limit
+        """
+        result = await driver.execute_query(query, **params)
+
+        facts = []
+        for row in result:
+            edge_data = row["r"]
+
+            # Determine temporal status
+            valid_at = edge_data.get("valid_at")
+            invalid_at = edge_data.get("invalid_at")
+            expired_at = edge_data.get("expired_at")
+
+            if expired_at:
+                temporal_status = "expired"
+            elif invalid_at and datetime.fromisoformat(invalid_at) < now:
+                temporal_status = "expired"
+            elif valid_at and datetime.fromisoformat(valid_at) > now:
+                temporal_status = "future"
+            else:
+                temporal_status = "valid"
+
+            edge_summary = EdgeSummary(
+                uuid=edge_data["uuid"],
+                source_uuid=row["source_uuid"],
+                source_name=row["source_name"],
+                target_uuid=row["target_uuid"],
+                target_name=row["target_name"],
+                relation=edge_data.get("name", ""),
+                fact=edge_data.get("fact", ""),
+                strength=edge_data.get("strength"),
+                valid_at=edge_data.get("valid_at"),
+                invalid_at=edge_data.get("invalid_at"),
+                created_at=edge_data.get("created_at", ""),
+            )
+            facts.append(TimelineFact(edge=edge_summary, temporal_status=temporal_status))
+
+        return FactsTimelineResponse(facts=facts, total=total, offset=offset)
+    except Exception as e:
+        logger.error(f"Facts timeline retrieval failed: {e}")
+        return FactsTimelineResponse(facts=[], total=0, offset=offset)
+
+
+@router.get("/communities", response_model=CommunitiesResponse)
+async def list_communities(
+    request: Request, user_id: str | None = None, limit: int = 20
+):
+    """List entity communities/clusters."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return CommunitiesResponse(communities=[])
+
+    try:
+        driver = app_state.dere_graph.driver
+
+        # Query communities with member counts
+        result = await driver.execute_query(
+            """
+            MATCH (c:Community {group_id: $group_id})
+            OPTIONAL MATCH (c)-[:HAS_MEMBER]->(e:Entity)
+            RETURN c.name as name, c.summary as summary, count(e) as member_count
+            ORDER BY member_count DESC
+            LIMIT $limit
+            """,
+            group_id=group_id,
+            limit=limit,
+        )
+
+        communities = [
+            CommunityInfo(
+                name=r["name"] or "",
+                summary=r["summary"] or "",
+                member_count=r["member_count"],
+            )
+            for r in result
+        ]
+
+        return CommunitiesResponse(communities=communities)
+    except Exception as e:
+        logger.error(f"Communities retrieval failed: {e}")
+        return CommunitiesResponse(communities=[])
 
 
 @router.get("/entity/{entity_name}")

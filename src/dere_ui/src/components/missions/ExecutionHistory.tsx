@@ -13,7 +13,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useMissionExecutions } from "@/hooks/queries";
 import type { MissionExecution } from "@/types/api";
-import { cn } from "@/lib/utils";
 
 interface ExecutionHistoryProps {
   missionId: number;

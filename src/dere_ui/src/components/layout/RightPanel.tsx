@@ -26,8 +26,9 @@ import {
   Minus,
   HeartCrack,
   Flame,
+  Brain,
 } from "lucide-react";
-import { useTasks, useEmotionState, useMissions } from "@/hooks/queries";
+import { useTasks, useEmotionState, useMissions, useKGStats } from "@/hooks/queries";
 import { useDashboardStore } from "@/stores/dashboard";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
@@ -95,6 +96,9 @@ export function RightPanel() {
           <Link to="/ambient" className="rounded-md p-2 hover:bg-accent" title="Ambient">
             <Radio className="h-4 w-4 text-muted-foreground" />
           </Link>
+          <Link to="/knowledge" className="rounded-md p-2 hover:bg-accent" title="Knowledge">
+            <Brain className="h-4 w-4 text-muted-foreground" />
+          </Link>
         </div>
       </aside>
     );
@@ -155,6 +159,14 @@ export function RightPanel() {
             href="/ambient"
           >
             <AmbientPreview />
+          </Widget>
+
+          <Widget
+            title="Knowledge"
+            icon={<Brain className="h-4 w-4 text-muted-foreground" />}
+            href="/knowledge"
+          >
+            <KnowledgePreview />
           </Widget>
         </div>
       </ScrollArea>
@@ -539,6 +551,45 @@ function BondPreview() {
           <Flame className="h-3 w-3 text-orange-400" />
           <span>{bond.streak_days}-day streak</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+function KnowledgePreview() {
+  const { data, isLoading, isError } = useKGStats();
+
+  if (isLoading) {
+    return (
+      <div className="space-y-1.5">
+        <Skeleton className="h-8 w-12" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-xs text-destructive">Failed to load knowledge stats</p>
+    );
+  }
+
+  const topEntity = data?.top_mentioned?.[0];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold">{data?.total_entities ?? 0}</span>
+        <span className="text-xs text-muted-foreground">entities</span>
+      </div>
+      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <span>{data?.total_edges ?? 0} facts</span>
+        <span>{data?.total_communities ?? 0} clusters</span>
+      </div>
+      {topEntity && (
+        <p className="text-xs text-muted-foreground truncate">
+          Top: {topEntity.name}
+        </p>
       )}
     </div>
   );

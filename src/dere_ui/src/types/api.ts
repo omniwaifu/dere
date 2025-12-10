@@ -510,3 +510,84 @@ export interface RareEvent {
   dismissed_at: string | null;
   created_at: string;
 }
+
+// Knowledge Graph
+export interface KGEntitySummary {
+  uuid: string;
+  name: string;
+  labels: string[];
+  summary: string;
+  mention_count: number;
+  retrieval_quality: number;
+  last_mentioned: string | null;
+  created_at: string;
+}
+
+export interface KGEdgeSummary {
+  uuid: string;
+  source_uuid: string;
+  source_name: string;
+  target_uuid: string;
+  target_name: string;
+  relation: string;
+  fact: string;
+  strength: number | null;
+  valid_at: string | null;
+  invalid_at: string | null;
+  created_at: string;
+}
+
+export interface KGEntityListResponse {
+  entities: KGEntitySummary[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface KGSearchResultsResponse {
+  entities: KGEntitySummary[];
+  edges: KGEdgeSummary[];
+  query: string;
+}
+
+export interface KGTimelineFact {
+  edge: KGEdgeSummary;
+  temporal_status: "valid" | "expired" | "future";
+}
+
+export interface KGFactsTimelineResponse {
+  facts: KGTimelineFact[];
+  total: number;
+  offset: number;
+}
+
+export interface KGTopEntity {
+  uuid: string;
+  name: string;
+  labels: string[];
+  mention_count: number;
+  retrieval_quality: number;
+}
+
+export interface KGStatsResponse {
+  total_entities: number;
+  total_edges: number;
+  total_communities: number;
+  top_mentioned: KGTopEntity[];
+  top_quality: KGTopEntity[];
+  label_distribution: Record<string, number>;
+}
+
+export interface KGCommunityInfo {
+  name: string;
+  summary: string;
+  member_count: number;
+}
+
+export interface KGCommunitiesResponse {
+  communities: KGCommunityInfo[];
+}
+
+export interface KGLabelsResponse {
+  labels: string[];
+}

@@ -21,6 +21,14 @@ export const queryKeys = {
   missions: ["missions"] as const,
   mission: (id: number) => ["missions", id] as const,
   missionExecutions: (id: number) => ["missions", id, "executions"] as const,
+  // Knowledge Graph
+  kgEntities: (params?: { labels?: string[]; sort_by?: string; offset?: number }) =>
+    ["kg", "entities", params] as const,
+  kgSearch: (query: string, params?: object) => ["kg", "search", query, params] as const,
+  kgFactsTimeline: (params?: object) => ["kg", "facts", "timeline", params] as const,
+  kgStats: ["kg", "stats"] as const,
+  kgCommunities: ["kg", "communities"] as const,
+  kgLabels: ["kg", "labels"] as const,
 };
 
 export function useSessions() {
@@ -286,5 +294,73 @@ export function useExecuteMission() {
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.missionExecutions(id) });
     },
+  });
+}
+
+// Knowledge Graph
+export function useKGStats() {
+  return useQuery({
+    queryKey: queryKeys.kgStats,
+    queryFn: () => api.knowledge.stats(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
+export function useKGLabels() {
+  return useQuery({
+    queryKey: queryKeys.kgLabels,
+    queryFn: () => api.knowledge.labels(),
+    staleTime: 1000 * 60 * 60, // 1 hour
+  });
+}
+
+export function useKGEntities(params?: {
+  labels?: string[];
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: queryKeys.kgEntities(params),
+    queryFn: () => api.knowledge.entities(params),
+  });
+}
+
+export function useKGSearch(
+  query: string,
+  params?: {
+    limit?: number;
+    include_edges?: boolean;
+    rerank_method?: string;
+    labels?: string[];
+  },
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.kgSearch(query, params),
+    queryFn: () => api.knowledge.search({ query, ...params }),
+    enabled: options?.enabled ?? query.length > 0,
+  });
+}
+
+export function useKGFactsTimeline(params?: {
+  start_date?: string;
+  end_date?: string;
+  entity_uuid?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: queryKeys.kgFactsTimeline(params),
+    queryFn: () => api.knowledge.factsTimeline(params),
+  });
+}
+
+export function useKGCommunities(limit?: number) {
+  return useQuery({
+    queryKey: queryKeys.kgCommunities,
+    queryFn: () => api.knowledge.communities(limit),
+    staleTime: 1000 * 60 * 10, // 10 minutes
   });
 }

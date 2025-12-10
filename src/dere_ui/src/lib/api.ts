@@ -21,6 +21,12 @@ import type {
   UIPreferencesResponse,
   UpdateUIPreferencesRequest,
   RareEvent,
+  KGEntityListResponse,
+  KGSearchResultsResponse,
+  KGFactsTimelineResponse,
+  KGStatsResponse,
+  KGCommunitiesResponse,
+  KGLabelsResponse,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -221,5 +227,67 @@ export const api = {
 
     dismiss: (id: number) =>
       fetchJson<RareEvent>(`/rare-events/${id}/dismiss`, { method: "POST" }),
+  },
+
+  knowledge: {
+    entities: (params?: {
+      labels?: string[];
+      sort_by?: string;
+      sort_order?: "asc" | "desc";
+      limit?: number;
+      offset?: number;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.labels) params.labels.forEach((l) => searchParams.append("labels", l));
+      if (params?.sort_by) searchParams.set("sort_by", params.sort_by);
+      if (params?.sort_order) searchParams.set("sort_order", params.sort_order);
+      if (params?.limit) searchParams.set("limit", String(params.limit));
+      if (params?.offset) searchParams.set("offset", String(params.offset));
+      const query = searchParams.toString();
+      return fetchJson<KGEntityListResponse>(`/kg/entities${query ? `?${query}` : ""}`);
+    },
+
+    search: (params: {
+      query: string;
+      limit?: number;
+      include_edges?: boolean;
+      rerank_method?: string;
+      labels?: string[];
+    }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set("query", params.query);
+      if (params.limit) searchParams.set("limit", String(params.limit));
+      if (params.include_edges !== undefined)
+        searchParams.set("include_edges", String(params.include_edges));
+      if (params.rerank_method) searchParams.set("rerank_method", params.rerank_method);
+      if (params.labels) params.labels.forEach((l) => searchParams.append("labels", l));
+      return fetchJson<KGSearchResultsResponse>(`/kg/search?${searchParams.toString()}`);
+    },
+
+    factsTimeline: (params?: {
+      start_date?: string;
+      end_date?: string;
+      entity_uuid?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.start_date) searchParams.set("start_date", params.start_date);
+      if (params?.end_date) searchParams.set("end_date", params.end_date);
+      if (params?.entity_uuid) searchParams.set("entity_uuid", params.entity_uuid);
+      if (params?.limit) searchParams.set("limit", String(params.limit));
+      if (params?.offset) searchParams.set("offset", String(params.offset));
+      const query = searchParams.toString();
+      return fetchJson<KGFactsTimelineResponse>(`/kg/facts/timeline${query ? `?${query}` : ""}`);
+    },
+
+    stats: () => fetchJson<KGStatsResponse>("/kg/stats"),
+
+    communities: (limit?: number) => {
+      const params = limit ? `?limit=${limit}` : "";
+      return fetchJson<KGCommunitiesResponse>(`/kg/communities${params}`);
+    },
+
+    labels: () => fetchJson<KGLabelsResponse>("/kg/labels"),
   },
 };
