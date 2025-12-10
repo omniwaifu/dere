@@ -535,10 +535,9 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
                     if not sessions:
                         continue
 
-                    logger.info(f"[Summary] Found {len(sessions)} sessions needing summaries")
-
+                    # Filter to sessions with enough messages
+                    sessions_to_summarize = []
                     for session in sessions:
-                        # Get message count
                         count_stmt = (
                             select(func.count())
                             .select_from(Conversation)
@@ -547,8 +546,15 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
                         count_result = await db.execute(count_stmt)
                         msg_count = count_result.scalar() or 0
 
-                        if msg_count < SUMMARY_MIN_MESSAGES:
-                            continue
+                        if msg_count >= SUMMARY_MIN_MESSAGES:
+                            sessions_to_summarize.append(session)
+
+                    if not sessions_to_summarize:
+                        continue
+
+                    logger.info(f"[Summary] Generating summaries for {len(sessions_to_summarize)} sessions")
+
+                    for session in sessions_to_summarize:
 
                         # Get recent messages for summary
                         msg_stmt = (
