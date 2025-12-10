@@ -13,6 +13,8 @@ export const queryKeys = {
   emotionState: ["emotion", "state"] as const,
   emotionSummary: ["emotion", "summary"] as const,
   emotionHistory: ["emotion", "history"] as const,
+  emotionHistoryDB: (startTime?: number, endTime?: number) =>
+    ["emotion", "history", "db", startTime, endTime] as const,
   emotionProfile: ["emotion", "profile"] as const,
   userInfo: ["userInfo"] as const,
   tasks: (params?: { status?: string; project?: string }) =>
@@ -162,6 +164,18 @@ export function useEmotionHistory(limit?: number) {
     queryKey: queryKeys.emotionHistory,
     queryFn: () => api.emotion.history(limit),
     refetchInterval: 30000,
+  });
+}
+
+export function useEmotionHistoryDB(
+  startTime?: number,
+  endTime?: number,
+  limit?: number
+) {
+  return useQuery({
+    queryKey: queryKeys.emotionHistoryDB(startTime, endTime),
+    queryFn: () => api.emotion.historyDB(startTime, endTime, limit),
+    refetchInterval: 60000,
   });
 }
 

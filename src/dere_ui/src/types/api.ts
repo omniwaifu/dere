@@ -178,17 +178,31 @@ export interface EmotionSummaryResponse {
   summary: string;
 }
 
+export interface ResultingEmotion {
+  name: string;
+  type: string;
+  intensity: number;
+}
+
 export interface EmotionEvent {
   timestamp: number;
   stimulus_type: string;
   valence: number;
   intensity: number;
-  resulting_emotion: string | null;
+  resulting_emotions: ResultingEmotion[];
+  reasoning: string | null;
 }
 
 export interface EmotionHistoryResponse {
   events: EmotionEvent[];
   total_count: number;
+}
+
+export interface EmotionHistoryDBResponse {
+  events: EmotionEvent[];
+  total_count: number;
+  start_time: number;
+  end_time: number;
 }
 
 export interface OCCGoal {

@@ -12,6 +12,14 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/emotion", tags=["emotions"])
 
 
+class ResultingEmotion(BaseModel):
+    """An emotion that resulted from appraisal."""
+
+    name: str
+    type: str
+    intensity: float
+
+
 class EmotionEvent(BaseModel):
     """A stimulus event that affected emotional state."""
 
@@ -19,7 +27,8 @@ class EmotionEvent(BaseModel):
     stimulus_type: str
     valence: float
     intensity: float
-    resulting_emotion: str | None = None
+    resulting_emotions: list[ResultingEmotion] = []
+    reasoning: str | None = None
 
 
 class EmotionHistoryResponse(BaseModel):
@@ -27,6 +36,15 @@ class EmotionHistoryResponse(BaseModel):
 
     events: list[EmotionEvent]
     total_count: int
+
+
+class EmotionHistoryDBResponse(BaseModel):
+    """Response containing emotion history from database with time range."""
+
+    events: list[EmotionEvent]
+    total_count: int
+    start_time: int
+    end_time: int
 
 
 class OCCGoalResponse(BaseModel):
@@ -109,7 +127,7 @@ async def emotion_get_summary():
 
 @router.get("/history", response_model=EmotionHistoryResponse)
 async def emotion_get_history(limit: int = 100):
-    """Get emotion stimulus history."""
+    """Get emotion stimulus history from in-memory buffer (last hour)."""
     from dere_daemon.main import get_global_emotion_manager
 
     try:
@@ -122,13 +140,17 @@ async def emotion_get_history(limit: int = 100):
 
         events = []
         for stimulus in recent_stimuli[-limit:]:
+            ctx = stimulus.context or {}
             events.append(
                 EmotionEvent(
                     timestamp=stimulus.timestamp,
                     stimulus_type=stimulus.type,
                     valence=stimulus.valence,
                     intensity=stimulus.intensity,
-                    resulting_emotion=None,
+                    resulting_emotions=[
+                        ResultingEmotion(**e) for e in ctx.get("resulting_emotions", [])
+                    ],
+                    reasoning=ctx.get("reasoning"),
                 )
             )
 
@@ -139,6 +161,68 @@ async def emotion_get_history(limit: int = 100):
     except Exception as e:
         logger.error(f"[emotion_get_history] Error: {e}")
         return EmotionHistoryResponse(events=[], total_count=0)
+
+
+@router.get("/history/db", response_model=EmotionHistoryDBResponse)
+async def emotion_get_history_db(
+    start_time: int | None = None,
+    end_time: int | None = None,
+    limit: int = 500,
+):
+    """Get emotion stimulus history from database with time range.
+
+    Args:
+        start_time: Start timestamp in ms (default: 24 hours ago)
+        end_time: End timestamp in ms (default: now)
+        limit: Max events to return (default: 500)
+    """
+    import time
+
+    from dere_daemon.main import app
+
+    now_ms = int(time.time() * 1000)
+    if end_time is None:
+        end_time = now_ms
+    if start_time is None:
+        start_time = now_ms - (24 * 60 * 60 * 1000)  # 24 hours ago
+
+    try:
+        # Query DB directly for global emotion history (session_id=0 -> NULL)
+        history = await app.state.db.load_stimulus_history(0, start_time)
+
+        # Filter by end_time and limit
+        filtered = [h for h in history if h["timestamp"] <= end_time][:limit]
+
+        events = []
+        for h in filtered:
+            ctx = h.get("context") or {}
+            events.append(
+                EmotionEvent(
+                    timestamp=h["timestamp"],
+                    stimulus_type=h["type"],
+                    valence=h["valence"],
+                    intensity=h["intensity"],
+                    resulting_emotions=[
+                        ResultingEmotion(**e) for e in ctx.get("resulting_emotions", [])
+                    ],
+                    reasoning=ctx.get("reasoning"),
+                )
+            )
+
+        return EmotionHistoryDBResponse(
+            events=events,
+            total_count=len(filtered),
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except Exception as e:
+        logger.error(f"[emotion_get_history_db] Error: {e}")
+        return EmotionHistoryDBResponse(
+            events=[],
+            total_count=0,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
 
 @router.get("/profile", response_model=EmotionProfileResponse)

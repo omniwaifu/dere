@@ -56,8 +56,12 @@ class OCCEmotionManager:
         self.last_decay_time: int = int(time.time() * 1000)
         self.last_major_emotional_change: int = int(time.time() * 1000)
 
+        # Batch appraisal state
+        self._pending_stimuli: list[dict] = []
+        self._last_stimulus_time: float = 0.0  # monotonic time
+
     async def initialize(self) -> None:
-        """Load emotion state from database"""
+        """Load emotion state and stimulus history from database"""
         logger.info(f"[OCCEmotionManager] Initializing for session {self.session_id}")
 
         try:
@@ -74,6 +78,25 @@ class OCCEmotionManager:
             logger.error(f"[OCCEmotionManager] Error loading state: {e}")
             self.active_emotions = {}
             self.last_decay_time = int(time.time() * 1000)
+
+        # Load stimulus history (last hour)
+        try:
+            since_ms = int(time.time() * 1000) - (60 * 60 * 1000)
+            history = await self.db.load_stimulus_history(self.session_id, since_ms)
+            for record in history:
+                self.stimulus_buffer.add_stimulus(
+                    StimulusRecord(
+                        type=record["type"],
+                        valence=record["valence"],
+                        intensity=record["intensity"],
+                        timestamp=record["timestamp"],
+                        context=record["context"],
+                    )
+                )
+            if history:
+                logger.info(f"[OCCEmotionManager] Loaded {len(history)} stimuli from DB")
+        except Exception as e:
+            logger.error(f"[OCCEmotionManager] Error loading stimulus history: {e}")
 
     async def _apply_decay_stage(self, start_time: int) -> None:
         """Pipeline Stage 1: Apply emotion decay based on time elapsed."""
@@ -174,12 +197,112 @@ class OCCEmotionManager:
         await self._persist_state()
         self.last_major_emotional_change = start_time
 
+    def buffer_stimulus(
+        self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
+    ) -> None:
+        """
+        Buffer a stimulus for later batch appraisal.
+        Call flush_batch_appraisal() to process all buffered stimuli.
+        """
+        import time as time_module
+
+        self._pending_stimuli.append({
+            "stimulus": stimulus,
+            "context": context or {},
+            "persona_name": persona_name,
+            "timestamp": int(time.time() * 1000),
+        })
+        self._last_stimulus_time = time_module.monotonic()
+        logger.debug(
+            f"[OCCEmotionManager] Buffered stimulus, {len(self._pending_stimuli)} pending"
+        )
+
+    def has_pending_stimuli(self) -> bool:
+        """Check if there are pending stimuli to process."""
+        return len(self._pending_stimuli) > 0
+
+    def get_last_stimulus_time(self) -> float:
+        """Get monotonic time of last buffered stimulus."""
+        return self._last_stimulus_time
+
+    async def flush_batch_appraisal(self) -> dict[OCCEmotionType | str, EmotionInstance]:
+        """
+        Process all buffered stimuli in a single batch appraisal.
+        Returns current active emotions after processing.
+        """
+        if not self._pending_stimuli:
+            return self.active_emotions
+
+        logger.info(
+            f"[OCCEmotionManager] Flushing batch appraisal: {len(self._pending_stimuli)} stimuli"
+        )
+
+        start_time = int(time.time() * 1000)
+
+        # Stage 1: Apply decay
+        await self._apply_decay_stage(start_time)
+
+        # Combine stimuli into batch
+        combined_stimulus = self._combine_stimuli_for_batch()
+        context = self._pending_stimuli[-1]["context"]  # Use most recent context
+        persona_name = self._pending_stimuli[-1]["persona_name"]
+
+        # Stage 2: Run batch appraisal
+        appraisal_output = await self._appraisal_stage(combined_stimulus, context, persona_name)
+
+        # Clear buffer regardless of appraisal result
+        self._pending_stimuli = []
+
+        if not appraisal_output:
+            return self.active_emotions
+
+        # Stage 3: Apply physics
+        physics_results = await self._physics_stage(appraisal_output, context, start_time)
+
+        # Stage 4: Persist if changed
+        if physics_results:
+            await self._persistence_stage(appraisal_output, combined_stimulus, context, start_time)
+            logger.info(
+                f"[OCCEmotionManager] Batch appraisal complete: "
+                f"{len(physics_results)} emotions changed, "
+                f"{len(self.active_emotions)} total active"
+            )
+
+        return self.active_emotions
+
+    def _combine_stimuli_for_batch(self) -> dict:
+        """Combine buffered stimuli into a single batch stimulus."""
+        messages = []
+        for item in self._pending_stimuli:
+            stimulus = item["stimulus"]
+            if isinstance(stimulus, dict):
+                content = stimulus.get("content") or stimulus.get("message") or str(stimulus)
+                msg_type = stimulus.get("type") or stimulus.get("message_type") or "message"
+            else:
+                content = str(stimulus)
+                msg_type = "message"
+            messages.append({"type": msg_type, "content": content})
+
+        return {
+            "type": "batch_conversation",
+            "message_count": len(messages),
+            "messages": messages,
+            "time_span_ms": (
+                self._pending_stimuli[-1]["timestamp"] - self._pending_stimuli[0]["timestamp"]
+                if len(self._pending_stimuli) > 1
+                else 0
+            ),
+        }
+
     async def process_stimulus(
         self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
     ) -> dict[OCCEmotionType | str, EmotionInstance]:
         """
         Process a stimulus through the complete pipeline:
         decay → appraise → physics → persist
+
+        NOTE: Consider using buffer_stimulus() + flush_batch_appraisal() for
+        more efficient batch processing on idle timeout.
         """
         start_time = int(time.time() * 1000)
         context = context or {}
@@ -391,20 +514,29 @@ class OCCEmotionManager:
 
         valence = max(-10.0, min(10.0, valence))
 
+        # Enrich context with resulting emotions for history display
+        enriched_context = {
+            **context,
+            "resulting_emotions": [
+                {"name": e.name, "type": e.type, "intensity": e.intensity}
+                for e in appraisal_output.resulting_emotions
+            ],
+            "reasoning": appraisal_output.reasoning[:200] if appraisal_output.reasoning else None,
+        }
+
         stimulus_record = StimulusRecord(
             type=stimulus_type,
             valence=valence,
             intensity=intensity,
             timestamp=int(time.time() * 1000),
-            context=context,
+            context=enriched_context,
         )
 
         self.stimulus_buffer.add_stimulus(stimulus_record)
 
-        # Persist to database (session_id=None for global state)
+        # Persist to database (DB adapter handles 0 -> NULL conversion)
         try:
-            persist_session_id = None if self.session_id == 0 else self.session_id
-            await self.db.store_stimulus(persist_session_id, stimulus_record)
+            await self.db.store_stimulus(self.session_id, stimulus_record)
         except Exception as e:
             logger.error(f"[OCCEmotionManager] Failed to persist stimulus: {e}")
 
@@ -434,11 +566,10 @@ class OCCEmotionManager:
             return "night"
 
     async def _persist_state(self) -> None:
-        """Persist current emotional state to database (session_id=None for global state)"""
+        """Persist current emotional state to database (DB adapter handles 0 -> NULL)"""
         try:
-            persist_session_id = None if self.session_id == 0 else self.session_id
             await self.db.store_emotion_state(
-                persist_session_id, self.active_emotions, self.last_decay_time
+                self.session_id, self.active_emotions, self.last_decay_time
             )
             logger.debug(
                 f"[OCCEmotionManager] Persisted state: {len(self.active_emotions)} emotions"

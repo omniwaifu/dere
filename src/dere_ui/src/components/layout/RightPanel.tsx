@@ -35,17 +35,17 @@ interface WidgetProps {
 
 function Widget({ title, icon, href, children }: WidgetProps) {
   return (
-    <div className="mood-card widget-hover rounded-xl p-3.5 animate-fade-in-up">
+    <div className="rounded-xl p-3.5 animate-fade-in-up bg-card/50 border border-border/50 hover:border-border transition-colors">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="mood-accent">{icon}</span>
+          <span className="text-primary">{icon}</span>
           <h3 className="text-sm font-medium text-foreground/90">{title}</h3>
         </div>
         <Link to={href}>
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 mood-focus opacity-60 hover:opacity-100 transition-opacity"
+            className="h-6 w-6 opacity-60 hover:opacity-100 transition-opacity"
           >
             <ExternalLink className="h-3 w-3" />
           </Button>

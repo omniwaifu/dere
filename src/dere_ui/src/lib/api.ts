@@ -10,6 +10,7 @@ import type {
   EmotionStateResponse,
   EmotionSummaryResponse,
   EmotionHistoryResponse,
+  EmotionHistoryDBResponse,
   EmotionProfileResponse,
   TasksResponse,
   DereConfig,
@@ -117,6 +118,17 @@ export const api = {
     history: (limit?: number) => {
       const params = limit ? `?limit=${limit}` : "";
       return fetchJson<EmotionHistoryResponse>(`/emotion/history${params}`);
+    },
+
+    historyDB: (startTime?: number, endTime?: number, limit?: number) => {
+      const params = new URLSearchParams();
+      if (startTime) params.set("start_time", startTime.toString());
+      if (endTime) params.set("end_time", endTime.toString());
+      if (limit) params.set("limit", limit.toString());
+      const queryString = params.toString();
+      return fetchJson<EmotionHistoryDBResponse>(
+        `/emotion/history/db${queryString ? `?${queryString}` : ""}`
+      );
     },
 
     profile: () => fetchJson<EmotionProfileResponse>("/emotion/profile"),

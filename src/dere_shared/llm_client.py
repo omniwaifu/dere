@@ -18,6 +18,29 @@ from pydantic import BaseModel, ValidationError
 T = TypeVar("T", bound=BaseModel)
 
 
+def _extract_json_from_text(text: str) -> dict[str, Any] | None:
+    """Try to extract JSON from text, handling markdown code fences."""
+    import json
+    import re
+
+    # Try to extract from markdown code fence
+    code_fence_pattern = r"```(?:json)?\s*\n?(.*?)\n?```"
+    match = re.search(code_fence_pattern, text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Try to parse the whole text as JSON
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError:
+        pass
+
+    return None
+
+
 class Message(BaseModel):
     role: str
     content: str
@@ -120,14 +143,18 @@ class ClaudeClient:
             format_messages(messages) + f"\n\nUse the {model_name} tool to provide your response."
         )
 
+        text_content: list[str] = []
         try:
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(prompt)
                 async for msg in client.receive_response():
+                    logger.info(f"[LLMClient] {type(msg).__name__}: {msg}")
                     if isinstance(msg, AssistantMessage):
                         for block in msg.content:
                             if isinstance(block, ToolUseBlock):
                                 return block.input
+                            if hasattr(block, "text"):
+                                text_content.append(block.text)
         finally:
             import os
 
@@ -135,6 +162,13 @@ class ClaudeClient:
                 os.unlink(settings_path)
             except Exception:
                 pass
+
+        # Fallback: try to parse JSON from text response
+        for text in text_content:
+            extracted = _extract_json_from_text(text)
+            if extracted is not None:
+                logger.info("[LLMClient] Extracted JSON from TextBlock fallback")
+                return extracted
 
         raise ValueError("No tool use block found in response")
 

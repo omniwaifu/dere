@@ -129,9 +129,15 @@ class EmotionDBAdapter:
         async with self.session_factory() as db:
             from dere_shared.emotion.models import EmotionInstance, OCCEmotionType
 
+            # session_id=0 is stored as NULL in DB
+            if session_id == 0:
+                session_filter = EmotionState.session_id.is_(None)
+            else:
+                session_filter = EmotionState.session_id == session_id
+
             stmt = (
                 select(EmotionState)
-                .where(EmotionState.session_id == session_id)
+                .where(session_filter)
                 .order_by(EmotionState.last_update.desc())
                 .limit(1)
             )
@@ -153,16 +159,49 @@ class EmotionDBAdapter:
     async def store_stimulus(self, session_id: int, stimulus_record) -> None:
         """Store stimulus record in database."""
         async with self.session_factory() as db:
+            # session_id=0 is stored as NULL in DB
+            db_session_id = None if session_id == 0 else session_id
+
             stimulus = StimulusHistory(
-                session_id=session_id,
+                session_id=db_session_id,
                 stimulus_type=stimulus_record.type,
                 valence=stimulus_record.valence,
                 intensity=stimulus_record.intensity,
                 timestamp=stimulus_record.timestamp,
-                context_data=stimulus_record.context,
+                context=stimulus_record.context,
             )
             db.add(stimulus)
             await db.commit()
+
+    async def load_stimulus_history(self, session_id: int, since_ms: int) -> list[dict]:
+        """Load stimulus history from database since given timestamp."""
+        from sqlalchemy import select
+
+        async with self.session_factory() as db:
+            # session_id=0 is stored as NULL in DB
+            if session_id == 0:
+                session_filter = StimulusHistory.session_id.is_(None)
+            else:
+                session_filter = StimulusHistory.session_id == session_id
+
+            query = (
+                select(StimulusHistory)
+                .where(session_filter)
+                .where(StimulusHistory.timestamp >= since_ms)
+                .order_by(StimulusHistory.timestamp.asc())
+            )
+            result = await db.execute(query)
+            rows = result.scalars().all()
+            return [
+                {
+                    "type": row.stimulus_type,
+                    "valence": row.valence,
+                    "intensity": row.intensity,
+                    "timestamp": row.timestamp,
+                    "context": row.context or {},
+                }
+                for row in rows
+            ]
 
     async def store_emotion_state(
         self, session_id: int, active_emotions: dict, last_decay_time: int
@@ -177,8 +216,11 @@ class EmotionDBAdapter:
                 for emotion_type, emotion_instance in active_emotions.items()
             }
 
+            # session_id=0 is stored as NULL in DB
+            db_session_id = None if session_id == 0 else session_id
+
             state = EmotionState(
-                session_id=session_id,
+                session_id=db_session_id,
                 appraisal_data={
                     "active_emotions": serialized_emotions,
                     "last_decay_time": last_decay_time,
@@ -305,6 +347,11 @@ async def _init_agent_service(app_state: AppState) -> None:
 
 
 
+# Emotion batch appraisal settings
+EMOTION_IDLE_TIMEOUT = 600  # 10 minutes in seconds
+EMOTION_CHECK_INTERVAL = 60  # Check every 60 seconds
+
+
 def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task]:
     """Start background tasks for presence cleanup and emotion decay."""
 
@@ -318,19 +365,20 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
                 logger.error("Presence cleanup failed: {}", e)
 
     async def periodic_emotion_decay_loop():
-        """Background task to apply decay to emotions during idle time and cleanup stale managers."""
+        """Background task to apply decay to emotions during idle time, cleanup stale managers, and flush batch appraisals."""
         from datetime import timedelta
 
         from sqlalchemy import select
 
         while True:
             try:
-                await asyncio.sleep(60)
+                await asyncio.sleep(EMOTION_CHECK_INTERVAL)
 
                 if not app_state.emotion_managers:
                     continue
 
                 current_time = int(time.time() * 1000)
+                current_monotonic = time.monotonic()
                 ttl_threshold = datetime.now(UTC) - timedelta(days=7)
 
                 async with app_state.session_factory() as db:
@@ -351,6 +399,25 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
                         del app_state.emotion_managers[session_id]
                         continue
 
+                    # Check for batch appraisal flush on idle
+                    if manager.has_pending_stimuli():
+                        idle_time = current_monotonic - manager.get_last_stimulus_time()
+                        if idle_time >= EMOTION_IDLE_TIMEOUT:
+                            logger.info(
+                                "[Emotion] Flushing batch appraisal for session {} after {:.0f}s idle",
+                                session_id,
+                                idle_time,
+                            )
+                            try:
+                                await manager.flush_batch_appraisal()
+                            except Exception as e:
+                                logger.error(
+                                    "[Emotion] Batch appraisal failed for session {}: {}",
+                                    session_id,
+                                    e,
+                                )
+
+                    # Apply decay if needed
                     if not manager.active_emotions:
                         continue
 
@@ -900,17 +967,16 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                 except Exception:
                     logger.exception("Failed to add episode to knowledge graph")
 
-            # Process emotion
+            # Process emotion (global state, session tracked in context)
             try:
-                emotion_manager = await get_or_create_emotion_manager(
-                    req.session_id, req.personality
-                )
+                emotion_manager = await get_global_emotion_manager()
 
-                # Build stimulus from conversation
+                # Build stimulus from conversation (include session_id for tracking)
                 stimulus = {
                     "type": "user_message",
                     "content": req.prompt,
                     "message_type": req.message_type,
+                    "session_id": req.session_id,
                 }
 
                 # Enrich context with temporal and session information
@@ -942,8 +1008,8 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                     },
                 }
 
-                # Process stimulus through emotion system
-                await emotion_manager.process_stimulus(stimulus, context, req.personality or "AI")
+                # Buffer stimulus for batch appraisal (will flush on idle timeout or session end)
+                emotion_manager.buffer_stimulus(stimulus, context, req.personality or "AI")
 
             except Exception as e:
                 logger.error(f"[conversation_capture] Emotion processing failed: {e}")
@@ -958,6 +1024,16 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
 async def session_end(req: SessionEndRequest, db: AsyncSession = Depends(get_db)):
     """Handle session end and queue summarization"""
     from sqlalchemy import select, update
+
+    # Flush any pending global emotion appraisal before session ends
+    if GLOBAL_EMOTION_SESSION_ID in app.state.emotion_managers:
+        manager = app.state.emotion_managers[GLOBAL_EMOTION_SESSION_ID]
+        if manager.has_pending_stimuli():
+            logger.info("[Emotion] Flushing pending appraisal on session end")
+            try:
+                await manager.flush_batch_appraisal()
+            except Exception as e:
+                logger.error(f"[Emotion] Failed to flush on session end: {e}")
 
     # Get recent session content (last 30 minutes or last 50 messages)
     thirty_minutes_ago = int(time.time()) - 1800

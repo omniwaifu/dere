@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Heart,
@@ -15,13 +16,21 @@ import {
   ThumbsDown,
   Clock,
   FileEdit,
+  Calendar,
 } from "lucide-react";
-import { useEmotionState, useEmotionHistory, useEmotionProfile } from "@/hooks/queries";
+import { useEmotionState, useEmotionHistoryDB, useEmotionProfile } from "@/hooks/queries";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { EmotionEvent, OCCGoal, OCCStandard, OCCAttitude } from "@/types/api";
 
 export const Route = createFileRoute("/emotion")({
@@ -205,63 +214,116 @@ function CurrentStateSection() {
   );
 }
 
+type TimeRange = "1h" | "24h" | "7d" | "30d";
+
+const TIME_RANGES: Record<TimeRange, { label: string; ms: number }> = {
+  "1h": { label: "Last Hour", ms: 60 * 60 * 1000 },
+  "24h": { label: "Last 24 Hours", ms: 24 * 60 * 60 * 1000 },
+  "7d": { label: "Last 7 Days", ms: 7 * 24 * 60 * 60 * 1000 },
+  "30d": { label: "Last 30 Days", ms: 30 * 24 * 60 * 60 * 1000 },
+};
+
 function HistorySection() {
-  const { data, isLoading, isError } = useEmotionHistory(50);
+  const [timeRange, setTimeRange] = useState<TimeRange>("24h");
 
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
-      </div>
-    );
-  }
+  // Memoize to prevent query key changing every render
+  const startTime = useMemo(
+    () => Date.now() - TIME_RANGES[timeRange].ms,
+    [timeRange]
+  );
 
-  if (isError) {
-    return (
-      <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-        <p className="text-destructive">Failed to load emotion history</p>
-      </div>
-    );
-  }
-
-  if (!data?.events || data.events.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <Clock className="h-12 w-12 text-muted-foreground/50" />
-        <p className="mt-4 text-muted-foreground">No emotion history yet</p>
-        <p className="text-sm text-muted-foreground">Stimulus events will appear here</p>
-      </div>
-    );
-  }
+  const { data, isLoading, isError } = useEmotionHistoryDB(startTime, undefined, 500);
 
   return (
-    <ScrollArea className="h-[calc(100vh-20rem)]">
-      <div className="space-y-2 pr-4">
-        {data.events.map((event: EmotionEvent, idx: number) => (
-          <div
-            key={`${event.timestamp}-${idx}`}
-            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
-          >
-            <div
-              className={`h-3 w-3 rounded-full ${
-                event.valence > 0 ? "bg-green-500" : event.valence < 0 ? "bg-red-500" : "bg-gray-500"
-              }`}
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{event.stimulus_type}</p>
-              <p className="text-xs text-muted-foreground">
-                Valence: {event.valence > 0 ? "+" : ""}{event.valence.toFixed(1)} | Intensity: {event.intensity.toFixed(0)}
-              </p>
-            </div>
-            <span className="text-xs text-muted-foreground shrink-0">
-              {formatTimestamp(event.timestamp)}
-            </span>
-          </div>
-        ))}
+    <div className="space-y-4">
+      {/* Time range selector */}
+      <div className="flex items-center gap-3">
+        <Calendar className="h-4 w-4 text-muted-foreground" />
+        <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(TIME_RANGES).map(([key, { label }]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {data && (
+          <span className="text-sm text-muted-foreground">
+            {data.total_count} events
+          </span>
+        )}
       </div>
-    </ScrollArea>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full" />
+          ))}
+        </div>
+      ) : isError ? (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+          <p className="text-destructive">Failed to load emotion history</p>
+        </div>
+      ) : !data?.events || data.events.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Clock className="h-12 w-12 text-muted-foreground/50" />
+          <p className="mt-4 text-muted-foreground">No emotion history yet</p>
+          <p className="text-sm text-muted-foreground">Stimulus events will appear here</p>
+        </div>
+      ) : (
+        <ScrollArea className="h-[calc(100vh-22rem)]">
+          <div className="space-y-2 pr-4">
+            {data.events.slice().reverse().map((event: EmotionEvent, idx: number) => (
+              <div
+                key={`${event.timestamp}-${idx}`}
+                className="rounded-lg border border-border bg-card p-3"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`h-3 w-3 rounded-full shrink-0 ${
+                      event.valence > 0 ? "bg-green-500" : event.valence < 0 ? "bg-red-500" : "bg-gray-500"
+                    }`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    {event.resulting_emotions.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {event.resulting_emotions.map((e, i) => {
+                          const config = getEmotionConfig(e.type);
+                          return (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              className="text-xs"
+                              style={{ borderColor: config.color, borderWidth: 1 }}
+                            >
+                              {e.name} ({e.intensity.toFixed(0)})
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">{event.stimulus_type}</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {formatTimestamp(event.timestamp)}
+                  </span>
+                </div>
+                {event.reasoning && (
+                  <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
+                    {event.reasoning}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
   );
 }
 

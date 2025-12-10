@@ -304,10 +304,10 @@ class CentralizedAgentService:
                         if isinstance(personality_name, list):
                             personality_name = personality_name[0] if personality_name else "AI"
 
-                        await emotion_manager.process_stimulus(
+                        emotion_manager.buffer_stimulus(
                             stimulus, context, personality_name or "AI"
                         )
-                        logger.debug("[emotion] Processed interaction stimulus")
+                        logger.debug("[emotion] Buffered interaction stimulus")
                     except Exception as e:
                         logger.error(f"[emotion] Failed to process stimulus: {e}")
 
