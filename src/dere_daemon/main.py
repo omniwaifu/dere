@@ -352,8 +352,6 @@ SUMMARY_MIN_MESSAGES = 5  # Minimum messages before generating summary
 
 async def _update_summary_context(session_factory) -> None:
     """Update global summary context from recent session summaries."""
-    from datetime import timedelta
-
     from sqlalchemy import select
 
     from dere_shared.llm_client import ClaudeClient, Message
@@ -361,24 +359,7 @@ async def _update_summary_context(session_factory) -> None:
 
     try:
         async with session_factory() as db:
-            now = datetime.now(UTC)
-            recent_threshold = now - timedelta(hours=24)
-
-            # Get sessions with recent summaries
-            stmt = (
-                select(Session)
-                .where(Session.summary.isnot(None))
-                .where(Session.summary_updated_at >= recent_threshold)
-                .order_by(Session.summary_updated_at.desc())
-                .limit(10)
-            )
-            result = await db.execute(stmt)
-            sessions = result.scalars().all()
-
-            if not sessions:
-                return
-
-            # Get previous global summary
+            # Get previous global summary to find already-processed sessions
             prev_stmt = (
                 select(SummaryContext)
                 .order_by(SummaryContext.created_at.desc())
@@ -387,12 +368,29 @@ async def _update_summary_context(session_factory) -> None:
             prev_result = await db.execute(prev_stmt)
             prev_context = prev_result.scalar_one_or_none()
             prev_summary = prev_context.summary if prev_context else None
+            prev_session_ids = set(prev_context.session_ids or []) if prev_context else set()
+
+            # Get sessions with summaries that haven't been rolled up yet
+            stmt = (
+                select(Session)
+                .where(Session.summary.isnot(None))
+                .order_by(Session.summary_updated_at.desc())
+                .limit(20)
+            )
+            result = await db.execute(stmt)
+            all_sessions = result.scalars().all()
+
+            # Filter to only new sessions
+            new_sessions = [s for s in all_sessions if s.id not in prev_session_ids]
+
+            if not new_sessions:
+                return
 
             # Build session summaries for prompt
             session_summaries = "\n".join(
-                [f"- {s.summary}" for s in sessions if s.summary]
+                [f"- {s.summary}" for s in new_sessions if s.summary]
             )
-            session_ids = [s.id for s in sessions]
+            new_session_ids = [s.id for s in new_sessions]
 
             prompt = f"""Previous: {prev_summary or "None"}
 
@@ -406,10 +404,11 @@ Merge into 1-2 sentences. No headers, no preambles."""
             new_summary = await client.generate_text_response(messages)
             new_summary = new_summary.strip()
 
-            # Insert new summary context
+            # Insert new summary context with all session IDs (old + new)
+            all_session_ids = list(prev_session_ids | set(new_session_ids))
             context = SummaryContext(
                 summary=new_summary,
-                session_ids=session_ids,
+                session_ids=all_session_ids,
             )
             db.add(context)
             await db.commit()

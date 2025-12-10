@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TypeVar
 
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, query
+from loguru import logger
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -52,8 +53,11 @@ class ClaudeClient:
         )
 
         async for msg in query(prompt=prompt, options=options):
-            if isinstance(msg, ResultMessage) and msg.structured_output:
-                return response_model.model_validate(msg.structured_output)
+            logger.debug(f"[LLMClient] Received message type: {type(msg).__name__}")
+            if isinstance(msg, ResultMessage):
+                logger.debug(f"[LLMClient] ResultMessage subtype={msg.subtype}, has_output={msg.structured_output is not None}")
+                if msg.structured_output:
+                    return response_model.model_validate(msg.structured_output)
 
         raise ValueError("No structured output in response")
 
