@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Session Start: Serena Activation & Context Loading
-# Automatically activates Serena and loads previous session context
+# Session Start: Knowledge Loading (Rules + Serena)
+# Reports both knowledge sources and guides activation
 
 set -euo pipefail
 
@@ -16,7 +16,6 @@ elif [ -f "go.mod" ]; then
 elif [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
   DETECTED_LANGUAGE="python"
 elif [ -f "package.json" ]; then
-  # TypeScript is used for both TS and JS projects (JS uses typescript LSP)
   if [ -f "tsconfig.json" ] || [ -f "deno.json" ] || [ -f "deno.jsonc" ]; then
     DETECTED_LANGUAGE="typescript"
   else
@@ -35,33 +34,68 @@ elif [ -f "mix.exs" ]; then
 elif compgen -G "*.cabal" > /dev/null 2>&1 || [ -f "stack.yaml" ]; then
   DETECTED_LANGUAGE="haskell"
 elif [ -f "CMakeLists.txt" ] || [ -f "Makefile" ]; then
-  # C/C++ both use cpp LSP in Serena
   DETECTED_LANGUAGE="cpp"
 fi
 
-# Only activate for code projects
+# Check for Claude Code rules (always reliable)
+RULES_COUNT=0
+if [ -d ".claude/rules" ]; then
+  RULES_COUNT=$(find .claude/rules -name "*.md" 2>/dev/null | wc -l)
+fi
+
+# Check for Serena project markers
+SERENA_AVAILABLE=""
 if [ -d ".serena" ] || [ -f "package.json" ] || [ -f "pyproject.toml" ] || [ -f "Cargo.toml" ] || [ -f "go.mod" ]; then
-  cat << 'PROMPT'
-🔧 Code Project Detected - Serena Available
+  SERENA_AVAILABLE="yes"
+fi
 
-IMPORTANT: Before ANY code operations:
-1. Project automatically activates via Serena MCP
-2. check_onboarding_performed()
-   → If NOT done: Run onboarding() workflow
-   → If done: list_memories() and load relevant ones
+# Output based on what's available
+if [ "$RULES_COUNT" -gt 0 ] && [ -n "$SERENA_AVAILABLE" ]; then
+  cat << PROMPT
+Code Project - Dual Knowledge System
 
-Previous session knowledge persists in .serena/memories/
-Claude Code 1.0.52+ automatically loads Serena instructions.
+RULES (auto-loaded, ${RULES_COUNT} files):
+- Static conventions in .claude/rules/ already active
+- Path-scoped rules apply to matching directories
+
+SERENA (dynamic memories):
+- check_onboarding_performed()
+  -> If NOT done: Run onboarding()
+  -> If done: list_memories() and load relevant ones
+
+Rules = reliable foundation | Serena = session discoveries
 PROMPT
 
-  # Add language hint if detected
-  if [ -n "$DETECTED_LANGUAGE" ]; then
-    cat << LANGUAGE_HINT
+elif [ "$RULES_COUNT" -gt 0 ]; then
+  cat << PROMPT
+Code Project - Rules Available
 
-⚠️  LANGUAGE DETECTION HINT:
-Project marker files suggest this is a $DETECTED_LANGUAGE project.
-After onboarding completes, verify the 'languages:' field in .serena/project.yml
-is set to [$DETECTED_LANGUAGE] (not typescript or another incorrect language).
+${RULES_COUNT} rule files in .claude/rules/ are loaded.
+Static conventions are active.
+
+No Serena project detected. Dynamic memory unavailable.
+(To enable: /workspace-init will set up Serena)
+PROMPT
+
+elif [ -n "$SERENA_AVAILABLE" ]; then
+  cat << 'PROMPT'
+Code Project - Serena Available
+
+IMPORTANT: Before ANY code operations:
+1. check_onboarding_performed()
+   -> If NOT done: Run onboarding()
+   -> If done: list_memories() and load relevant ones
+
+Tip: Consider adding static conventions to .claude/rules/ for reliability.
+Previous session knowledge persists in .serena/memories/
+PROMPT
+fi
+
+# Add language hint if detected
+if [ -n "$DETECTED_LANGUAGE" ] && [ -n "$SERENA_AVAILABLE" ]; then
+  cat << LANGUAGE_HINT
+
+LANGUAGE HINT: Project markers suggest $DETECTED_LANGUAGE.
+After onboarding, verify 'languages:' in .serena/project.yml is correct.
 LANGUAGE_HINT
-  fi
 fi

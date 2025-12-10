@@ -2,21 +2,16 @@
 """
 Dynamic context injection hook for dere.
 Injects fresh time, weather, and activity context with every user message.
+Uses HTTP API to daemon - no local imports needed.
 """
 
-import asyncio
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
-# Add src directory to path to find dere_shared
-src_dir = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(src_dir))
-
-from dere_shared.constants import DEFAULT_DAEMON_URL
-from dere_shared.context import get_full_context
+DEFAULT_DAEMON_URL = "http://localhost:6969/api"
 
 
 def log_error(message):
@@ -26,20 +21,18 @@ def log_error(message):
         with open("/tmp/dere_context_hook.log", "a") as f:
             f.write(f"[{timestamp}] {message}\n")
     except Exception:
-        pass  # Don't let logging errors break the hook
+        pass
 
 
-def _load_initial_documents(session_id: int | None) -> None:
+def _load_initial_documents(session_id: int | None, daemon_url: str) -> None:
     """Load documents specified via CLI flags on session start."""
     if not session_id:
         return
 
-    # Check if we've already loaded documents for this session
     state_file = Path(f"/tmp/dere_docs_loaded_{session_id}")
     if state_file.exists():
         return
 
-    # Check for document IDs to load
     with_docs = os.getenv("DERE_WITH_DOCS", "")
     with_tags = os.getenv("DERE_WITH_TAGS", "")
 
@@ -49,10 +42,8 @@ def _load_initial_documents(session_id: int | None) -> None:
     try:
         import requests
 
-        daemon_url = DEFAULT_DAEMON_URL
         user_id = os.getenv("USER") or os.getenv("USERNAME") or "default"
 
-        # Prepare load request
         request_data = {}
         if with_docs:
             doc_ids = [int(d.strip()) for d in with_docs.split(",") if d.strip()]
@@ -61,7 +52,6 @@ def _load_initial_documents(session_id: int | None) -> None:
             tags = [t.strip() for t in with_tags.split(",") if t.strip()]
             request_data["tags"] = tags
 
-        # Load documents
         response = requests.post(
             f"{daemon_url}/sessions/{session_id}/documents/load",
             params={"user_id": user_id},
@@ -70,7 +60,6 @@ def _load_initial_documents(session_id: int | None) -> None:
         )
         response.raise_for_status()
 
-        # Mark as loaded
         with open(state_file, "w") as f:
             f.write("")
 
@@ -79,15 +68,34 @@ def _load_initial_documents(session_id: int | None) -> None:
         log_error(f"Failed to load initial documents: {e}")
 
 
+def get_context_from_daemon(daemon_url: str, session_id: int | None) -> str | None:
+    """Fetch context from daemon API instead of importing local modules."""
+    try:
+        import requests
+
+        params = {}
+        if session_id:
+            params["session_id"] = session_id
+
+        response = requests.get(
+            f"{daemon_url}/context",
+            params=params,
+            timeout=5,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("context")
+    except Exception as e:
+        log_error(f"Failed to get context from daemon: {e}")
+        return None
+
+
 def main():
-    # Core context is always injected (time, weather, emotion, KG, etc.)
-    # No need to check DERE_CONTEXT flag - it's controlled by plugin enablement
     try:
         stdin_data = sys.stdin.read()
         if not stdin_data:
             sys.exit(0)
-
-        json.loads(stdin_data)  # Validate JSON but don't need the data
+        json.loads(stdin_data)
     except json.JSONDecodeError as e:
         log_error(f"JSON decode error from stdin: {e}")
         sys.exit(0)
@@ -96,16 +104,14 @@ def main():
         sys.exit(0)
 
     try:
-        # Get session ID from environment
+        daemon_url = os.getenv("DERE_DAEMON_URL", DEFAULT_DAEMON_URL)
         session_id_str = os.getenv("DERE_SESSION_ID")
         session_id = int(session_id_str) if session_id_str else None
 
-        # Load documents on first message (if specified)
-        _load_initial_documents(session_id)
+        _load_initial_documents(session_id, daemon_url)
 
-        context_str = asyncio.run(get_full_context(session_id=session_id))
+        context_str = get_context_from_daemon(daemon_url, session_id)
         if context_str:
-            # Output JSON with additionalContext to inject context silently
             output = {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
@@ -115,11 +121,9 @@ def main():
             }
             print(json.dumps(output))
         else:
-            # No context to add, just suppress output
             print(json.dumps({"suppressOutput": True}))
     except Exception as e:
         log_error(f"Context gathering error: {e}")
-        # Suppress output even on error
         print(json.dumps({"suppressOutput": True}))
 
     sys.exit(0)

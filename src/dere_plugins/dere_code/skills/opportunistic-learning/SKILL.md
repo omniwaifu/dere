@@ -5,23 +5,52 @@ description: Auto-captures project knowledge when trigger events occur (correcti
 
 # Opportunistic Learning
 
-Trigger event → write_memory() immediately. No deliberation.
+Trigger event → evaluate → write_memory() OR suggest rule
 
-## Triggers
+## Decision: Memory or Rule?
 
-**User Correction:**
-- "We use tailwind not vanilla CSS" → `write_memory('stack'): 'styling: tailwind only'`
-- "Check src/auth/middleware.ts" → `write_memory('pattern-auth'): 'JWT middleware in src/auth/middleware.ts'`
+**Write memory immediately:**
+- Bug/footgun discovered during work
+- Pattern found exploring code
+- Decision made with user rationale
+- Session-specific learning
+
+**Suggest rule to user (don't auto-create):**
+- User states a permanent convention
+- Static coding standard mentioned
+- "We always do X" / "Never do Y" statements
+
+## Triggers → Memory
 
 **Bug Discovery:**
-- vLLM rope_scaling breaks KV cache → `write_memory('footgun-vllm'): 'rope_scaling breaks kv cache offloading'`
-- Prisma batch bypasses hooks → `write_memory('footgun-prisma'): 'updateMany bypasses row hooks'`
-
-**Architecture Decision:**
-- "Zustand for simplicity" → `write_memory('decision-state'): 'zustand, no redux (team decision)'`
+```
+write_memory('footgun-vllm'): 'rope_scaling breaks kv cache offloading'
+write_memory('footgun-prisma'): 'updateMany bypasses row hooks'
+```
 
 **Pattern Discovery:**
-- After exploring auth → `write_memory('pattern-auth'): 'JWT in middleware, 1hr expiry, refresh via /api/refresh'`
+```
+write_memory('pattern-auth'): 'JWT in middleware, 1hr expiry, refresh via /api/refresh'
+```
+
+**Architecture Decision:**
+```
+write_memory('decision-state'): 'zustand, no redux (team decision)'
+```
+
+## Triggers → Suggest Rule
+
+**User states convention:**
+- "We use tailwind not vanilla CSS"
+  → Suggest: "Consider adding to `.claude/rules/styling.md`: 'Use Tailwind only'"
+
+**Permanent antipattern:**
+- "Never use any in TypeScript here"
+  → Suggest: "Consider adding to `.claude/rules/typescript.md`"
+
+**Build/test command:**
+- "Always run just lint before committing"
+  → Suggest: "Consider adding to `.claude/rules/commands.md`"
 
 ## Categories
 
@@ -34,6 +63,12 @@ Trigger event → write_memory() immediately. No deliberation.
 ## When NOT to Write
 
 - General best practices (already in training)
-- Obvious conventions
+- Obvious conventions (already in rules)
 - Temporary decisions
 - One-time fixes
+
+## When NOT to Suggest Rules
+
+- Bug discoveries (too specific, use memory)
+- Session-specific context
+- Evolving understanding

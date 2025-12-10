@@ -5,44 +5,73 @@ description: Activates Serena LSP server and runs onboarding workflow for codeba
 
 # Serena Project Activator
 
+## Knowledge Sources
+
+This project may have TWO knowledge sources:
+
+1. **Claude Code Rules** (`.claude/rules/*.md`)
+   - Auto-loaded at startup - always available
+   - Static project conventions, coding standards
+   - Path-scoped rules for different areas
+   - No MCP dependency - very reliable
+
+2. **Serena Memories** (`.serena/memories/*.md`)
+   - Loaded after onboarding - requires MCP
+   - Dynamic discoveries, session-specific context
+   - Built up over time through development
+
+**Rules = reliable foundation | Serena = session discoveries**
+
 ## Activation Sequence
 
-When working with a codebase project:
+### Step 1: Rules Load Automatically
 
-1. **Project Activates Automatically**
-   ```
-   # Serena MCP auto-activates for current directory
-   # (Auto-detects language and starts appropriate LSP)
-   # Claude Code 1.0.52+ automatically loads Serena instructions
-   ```
+Claude Code rules in `.claude/rules/` are already loaded at startup.
+No action needed - static conventions are active.
 
-2. **Check Onboarding Status**
+### Step 2: Activate Serena (if available)
+
+1. **Check Onboarding Status**
    ```
-   mcp__plugin_workforce-assistant_serena__check_onboarding_performed()
+   mcp__plugin_dere-code_serena__check_onboarding_performed()
    ```
 
-3. **If Not Onboarded - Run Onboarding**
+2. **If Not Onboarded - Run Onboarding**
    ```
-   mcp__plugin_workforce-assistant_serena__onboarding()
-   # Follow the onboarding prompt - it will guide you through:
-   # - Creating architecture_overview memory
-   # - Documenting code_style conventions
-   # - Recording suggested_commands for build/test
+   mcp__plugin_dere-code_serena__onboarding()
+   # Creates: architecture_overview, code_style, suggested_commands
    ```
 
-4. **If Already Onboarded - Load Memories**
+3. **If Already Onboarded - Load Memories**
    ```
-   mcp__plugin_workforce-assistant_serena__list_memories()
-   # Then read relevant ones:
-   mcp__plugin_workforce-assistant_serena__read_memory("architecture_overview")
+   mcp__plugin_dere-code_serena__list_memories()
+   mcp__plugin_dere-code_serena__read_memory("architecture_overview")
    ```
+
+### Step 3: If Serena Fails
+
+If MCP unavailable or onboarding fails:
+- Rules still provide baseline project knowledge
+- Session can proceed without dynamic context
+- Note: Discoveries won't persist this session
+
+## After Onboarding
+
+Consider migrating static content to rules for reliability:
+- `code_style` → `.claude/rules/code-style.md`
+- `suggested_commands` → `.claude/rules/commands.md`
+
+Keep in Serena:
+- `architecture_overview` (may evolve)
+- `footgun-*`, `pattern-*`, `decision-*` (dynamic)
 
 ## Performance Tip
 
-If symbol tools are slow on first use, Serena is parsing the codebase. This only happens once per project. Be patient on first activation.
+If symbol tools are slow on first use, Serena is parsing the codebase. This only happens once per project.
 
 ## Remember
 
-- Onboarding creates foundational knowledge - don't skip it
-- Memories persist across sessions - use them
-- Symbol tools (get_symbols_overview, find_symbol) are faster than Read/Grep for code
+- Rules always load, Serena may not
+- Onboarding creates foundational knowledge
+- Memories persist across sessions
+- Symbol tools are faster than Read/Grep for code

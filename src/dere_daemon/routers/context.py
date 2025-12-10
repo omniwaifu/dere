@@ -166,3 +166,12 @@ async def context_get(req: ContextGetRequest, db: AsyncSession = Depends(get_db)
     context = result.scalar_one_or_none()
 
     return {"found": context is not None, "context": context or ""}
+
+
+@router.get("")
+async def context_full(session_id: int | None = None):
+    """Get full context string for hook injection."""
+    from dere_shared.context import get_full_context
+
+    context = await get_full_context(session_id=session_id)
+    return {"context": context}
