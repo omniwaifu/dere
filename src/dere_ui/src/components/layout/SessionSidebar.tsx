@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import {
-  MessageSquare,
   Trash2,
   Loader2,
   RefreshCw,
@@ -19,6 +18,7 @@ import {
   Rocket,
   Palette,
 } from "lucide-react";
+import logoImg from "@/assets/logo.png";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -134,7 +134,7 @@ export function SessionSidebar() {
             className="group flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-accent"
             title="Expand sidebar"
           >
-            <MessageSquare className="h-5 w-5 text-foreground/80 transition-opacity group-hover:opacity-0" />
+            <img src={logoImg} alt="dere" className="h-5 w-5 transition-opacity group-hover:opacity-0" />
             <PanelLeft className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
           </button>
         ) : (
@@ -145,7 +145,7 @@ export function SessionSidebar() {
               className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-accent"
               title="New chat"
             >
-              <MessageSquare className="h-5 w-5 text-foreground/80" />
+              <img src={logoImg} alt="dere" className="h-5 w-5" />
               <span className="text-sm font-medium text-foreground/80">dere</span>
             </button>
             <Button
