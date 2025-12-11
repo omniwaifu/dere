@@ -210,6 +210,7 @@ async def notification_delivered(notification_id: int, db: AsyncSession = Depend
         )
     )
     await db.execute(stmt)
+    await db.commit()
 
     logger.info("Notification {} marked as delivered", notification_id)
     return {"status": "delivered"}
@@ -255,6 +256,7 @@ async def notification_failed(
         )
     )
     await db.execute(stmt)
+    await db.commit()
 
     logger.warning("Notification {} failed: {}", notification_id, req.error_message)
     return {"status": "failed"}

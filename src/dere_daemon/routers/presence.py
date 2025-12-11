@@ -85,6 +85,7 @@ async def presence_register(req: PresenceRegisterRequest, db: AsyncSession = Dep
         )
         db.add(presence)
 
+    await db.commit()
     return {"status": "registered"}
 
 
@@ -100,6 +101,7 @@ async def presence_heartbeat(req: PresenceHeartbeatRequest, db: AsyncSession = D
         .values(last_heartbeat=datetime.now(UTC))
     )
     await db.execute(stmt)
+    await db.commit()
     return {"status": "ok"}
 
 
@@ -113,6 +115,7 @@ async def presence_unregister(req: PresenceUnregisterRequest, db: AsyncSession =
         Presence.user_id == req.user_id,
     )
     await db.execute(stmt)
+    await db.commit()
     return {"status": "unregistered"}
 
 

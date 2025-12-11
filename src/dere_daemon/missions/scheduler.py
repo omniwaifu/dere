@@ -79,6 +79,7 @@ class MissionScheduler:
             )
             result = await db.execute(stmt)
             due_missions = list(result.scalars().all())
+            await db.commit()
 
         if not due_missions:
             return

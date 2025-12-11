@@ -136,6 +136,7 @@ class EmotionDBAdapter:
             )
             result = await db.execute(stmt)
             state = result.scalar_one_or_none()
+            await db.commit()
             if state and state.appraisal_data:
                 # Deserialize: strings → enum keys, dict → EmotionInstance
                 loaded_data = state.appraisal_data
@@ -185,6 +186,7 @@ class EmotionDBAdapter:
             )
             result = await db.execute(query)
             rows = result.scalars().all()
+            await db.commit()
             return [
                 {
                     "type": row.stimulus_type,
@@ -454,6 +456,7 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
                     )
                     result = await db.execute(stmt)
                     session_activities = {row[0]: row[1] for row in result}
+                    await db.commit()
 
                 for session_id, manager in list(app_state.emotion_managers.items()):
                     last_activity = session_activities.get(session_id)
@@ -1258,6 +1261,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                     result = await bg_session.execute(stmt)
                     session_obj = result.scalar_one_or_none()
                     session_start = session_obj.start_time if session_obj else None
+                    await bg_session.commit()
 
                 # Calculate session duration
                 session_duration_minutes = 0
