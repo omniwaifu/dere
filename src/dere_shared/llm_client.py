@@ -67,9 +67,11 @@ class ClaudeClient:
                         and block.input
                     ):
                         candidate = block.input
-                        # Haiku sometimes wraps in 'parameter' key
+                        # Model sometimes wraps in 'parameter' or 'argument' key
                         if "parameter" in candidate and len(candidate) == 1:
                             candidate = candidate["parameter"]
+                        elif "argument" in candidate and len(candidate) == 1:
+                            candidate = candidate["argument"]
                         result = candidate
 
         if result:
