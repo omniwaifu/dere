@@ -2,9 +2,34 @@ from __future__ import annotations
 
 import importlib.resources
 import tomllib
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Any
+
+import tomlkit
 
 from dere_shared.models import Personality
+
+
+class PersonalitySource(str, Enum):
+    """Source of a personality"""
+
+    EMBEDDED = "embedded"  # Only exists in embedded resources
+    USER = "user"  # Only exists in user config (custom)
+    OVERRIDE = "override"  # User config overrides embedded
+
+
+@dataclass
+class PersonalityInfo:
+    """Personality with source metadata for listing"""
+
+    name: str
+    short_name: str
+    color: str
+    icon: str
+    source: PersonalitySource
+    has_embedded: bool  # Whether an embedded version exists
 
 
 class PersonalityLoader:
@@ -131,3 +156,166 @@ class PersonalityLoader:
                     personalities.append(path.stem)
 
         return sorted(set(personalities))
+
+    def list_all_with_source(self) -> list[PersonalityInfo]:
+        """List all personalities with their source indicator"""
+        embedded_names = self._get_embedded_names()
+        user_names = self._get_user_config_names()
+
+        result: list[PersonalityInfo] = []
+
+        # Process all unique names
+        all_names = embedded_names | user_names
+
+        for name in sorted(all_names):
+            in_embedded = name in embedded_names
+            in_user = name in user_names
+
+            if in_user and in_embedded:
+                source = PersonalitySource.OVERRIDE
+            elif in_user:
+                source = PersonalitySource.USER
+            else:
+                source = PersonalitySource.EMBEDDED
+
+            # Load the personality to get display info
+            personality = self.load(name)
+            result.append(
+                PersonalityInfo(
+                    name=personality.name,
+                    short_name=personality.short_name,
+                    color=personality.color,
+                    icon=personality.icon,
+                    source=source,
+                    has_embedded=in_embedded,
+                )
+            )
+
+        return result
+
+    def _get_embedded_names(self) -> set[str]:
+        """Get all embedded personality names"""
+        names: set[str] = set()
+        try:
+            personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
+            for file_path in personalities_path.iterdir():
+                if file_path.is_file() and file_path.name.endswith(".toml"):
+                    names.add(file_path.name.removesuffix(".toml"))
+        except (FileNotFoundError, AttributeError):
+            pass
+        return names
+
+    def _get_user_config_names(self) -> set[str]:
+        """Get all user config personality names"""
+        names: set[str] = set()
+        if self.config_dir:
+            personalities_dir = self.config_dir / "personalities"
+            if personalities_dir.exists():
+                for path in personalities_dir.glob("*.toml"):
+                    names.add(path.stem)
+        return names
+
+    def is_user_override(self, name: str) -> bool:
+        """Check if a user config override exists for this personality"""
+        if not self.config_dir:
+            return False
+        personality_path = self.config_dir / "personalities" / f"{name.lower()}.toml"
+        return personality_path.exists()
+
+    def get_full(self, name: str) -> dict[str, Any]:
+        """Get the full personality data as a dict (for editing)"""
+        normalized = name.lower()
+
+        # Try user config first
+        if self.config_dir:
+            personality_path = self.config_dir / "personalities" / f"{normalized}.toml"
+            if personality_path.exists():
+                return tomllib.loads(personality_path.read_text())
+
+        # Fall back to embedded
+        try:
+            data = (
+                importlib.resources.files("dere_shared")
+                .joinpath(f"personalities/{normalized}.toml")
+                .read_text()
+            )
+            return tomllib.loads(data)
+        except FileNotFoundError:
+            pass
+
+        # Search embedded by alias
+        try:
+            personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
+            for file_path in personalities_path.iterdir():
+                if file_path.is_file() and file_path.name.endswith(".toml"):
+                    data = file_path.read_text()
+                    parsed = tomllib.loads(data)
+                    personality = self._parse_toml(data)
+                    if self._matches(personality, normalized):
+                        return parsed
+        except FileNotFoundError:
+            pass
+
+        raise ValueError(f"Personality '{name}' not found")
+
+    def save_to_user_config(self, name: str, data: dict[str, Any]) -> None:
+        """Save personality to user config directory"""
+        if not self.config_dir:
+            raise ValueError("No config directory configured")
+
+        personalities_dir = self.config_dir / "personalities"
+        personalities_dir.mkdir(parents=True, exist_ok=True)
+
+        personality_path = personalities_dir / f"{name.lower()}.toml"
+
+        # Build TOML document
+        doc = tomlkit.document()
+
+        # Metadata section
+        metadata = tomlkit.table()
+        metadata["name"] = data.get("metadata", {}).get("name", name)
+        metadata["short_name"] = data.get("metadata", {}).get("short_name", name)
+        if aliases := data.get("metadata", {}).get("aliases", []):
+            metadata["aliases"] = aliases
+        doc["metadata"] = metadata
+
+        # Display section
+        display = tomlkit.table()
+        display_data = data.get("display", {})
+        display["color"] = display_data.get("color", "white")
+        display["icon"] = display_data.get("icon", "●")
+        if announcement := display_data.get("announcement"):
+            display["announcement"] = announcement
+        doc["display"] = display
+
+        # Prompt section
+        prompt = tomlkit.table()
+        prompt_content = data.get("prompt", {}).get("content", "")
+        # Use multiline string for prompt content
+        prompt["content"] = tomlkit.string(prompt_content, multiline=True)
+        doc["prompt"] = prompt
+
+        personality_path.write_text(tomlkit.dumps(doc))
+
+        # Clear cache for this personality
+        normalized = name.lower()
+        if normalized in self._cache:
+            del self._cache[normalized]
+
+    def delete_from_user_config(self, name: str) -> bool:
+        """Delete user config personality file. Returns True if deleted, False if not found."""
+        if not self.config_dir:
+            return False
+
+        personality_path = self.config_dir / "personalities" / f"{name.lower()}.toml"
+        if not personality_path.exists():
+            return False
+
+        personality_path.unlink()
+
+        # Clear cache for this personality
+        normalized = name.lower()
+        if normalized in self._cache:
+            del self._cache[normalized]
+
+        return True

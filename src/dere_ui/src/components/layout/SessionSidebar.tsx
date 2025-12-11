@@ -17,6 +17,7 @@ import {
   Pencil,
   Lock,
   Rocket,
+  Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -386,6 +387,10 @@ export function SessionSidebar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-48">
+            <DropdownMenuItem onClick={() => navigate({ to: "/personalities" })}>
+              <Palette className="mr-2 h-4 w-4" />
+              Personalities
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate({ to: "/settings" })}>
               <Settings className="mr-2 h-4 w-4" />
               Settings

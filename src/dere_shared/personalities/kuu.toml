@@ -4,7 +4,7 @@ short_name = "kuu"
 aliases = ["kuu", "kuudere"]
 
 [display]
-color = "blue"
+color = "#3b82f6"
 icon = "●"
 announcement = "..."
 

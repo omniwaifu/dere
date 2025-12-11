@@ -11,11 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PersonalitiesRouteImport } from './routes/personalities'
 import { Route as MissionsRouteImport } from './routes/missions'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as EmotionRouteImport } from './routes/emotion'
 import { Route as AmbientRouteImport } from './routes/ambient'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PersonalityNameRouteImport } from './routes/personality.$name'
 import { Route as ChatSessionIdRouteImport } from './routes/chat.$sessionId'
 
 const TasksRoute = TasksRouteImport.update({
@@ -26,6 +28,11 @@ const TasksRoute = TasksRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PersonalitiesRoute = PersonalitiesRouteImport.update({
+  id: '/personalities',
+  path: '/personalities',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MissionsRoute = MissionsRouteImport.update({
@@ -53,6 +60,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PersonalityNameRoute = PersonalityNameRouteImport.update({
+  id: '/personality/$name',
+  path: '/personality/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatSessionIdRoute = ChatSessionIdRouteImport.update({
   id: '/chat/$sessionId',
   path: '/chat/$sessionId',
@@ -65,9 +77,11 @@ export interface FileRoutesByFullPath {
   '/emotion': typeof EmotionRoute
   '/knowledge': typeof KnowledgeRoute
   '/missions': typeof MissionsRoute
+  '/personalities': typeof PersonalitiesRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
+  '/personality/$name': typeof PersonalityNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -75,9 +89,11 @@ export interface FileRoutesByTo {
   '/emotion': typeof EmotionRoute
   '/knowledge': typeof KnowledgeRoute
   '/missions': typeof MissionsRoute
+  '/personalities': typeof PersonalitiesRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
+  '/personality/$name': typeof PersonalityNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -86,9 +102,11 @@ export interface FileRoutesById {
   '/emotion': typeof EmotionRoute
   '/knowledge': typeof KnowledgeRoute
   '/missions': typeof MissionsRoute
+  '/personalities': typeof PersonalitiesRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/chat/$sessionId': typeof ChatSessionIdRoute
+  '/personality/$name': typeof PersonalityNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -98,9 +116,11 @@ export interface FileRouteTypes {
     | '/emotion'
     | '/knowledge'
     | '/missions'
+    | '/personalities'
     | '/settings'
     | '/tasks'
     | '/chat/$sessionId'
+    | '/personality/$name'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -108,9 +128,11 @@ export interface FileRouteTypes {
     | '/emotion'
     | '/knowledge'
     | '/missions'
+    | '/personalities'
     | '/settings'
     | '/tasks'
     | '/chat/$sessionId'
+    | '/personality/$name'
   id:
     | '__root__'
     | '/'
@@ -118,9 +140,11 @@ export interface FileRouteTypes {
     | '/emotion'
     | '/knowledge'
     | '/missions'
+    | '/personalities'
     | '/settings'
     | '/tasks'
     | '/chat/$sessionId'
+    | '/personality/$name'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -129,9 +153,11 @@ export interface RootRouteChildren {
   EmotionRoute: typeof EmotionRoute
   KnowledgeRoute: typeof KnowledgeRoute
   MissionsRoute: typeof MissionsRoute
+  PersonalitiesRoute: typeof PersonalitiesRoute
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRoute
   ChatSessionIdRoute: typeof ChatSessionIdRoute
+  PersonalityNameRoute: typeof PersonalityNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -148,6 +174,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/personalities': {
+      id: '/personalities'
+      path: '/personalities'
+      fullPath: '/personalities'
+      preLoaderRoute: typeof PersonalitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/missions': {
@@ -185,6 +218,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/personality/$name': {
+      id: '/personality/$name'
+      path: '/personality/$name'
+      fullPath: '/personality/$name'
+      preLoaderRoute: typeof PersonalityNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/chat/$sessionId': {
       id: '/chat/$sessionId'
       path: '/chat/$sessionId'
@@ -201,9 +241,11 @@ const rootRouteChildren: RootRouteChildren = {
   EmotionRoute: EmotionRoute,
   KnowledgeRoute: KnowledgeRoute,
   MissionsRoute: MissionsRoute,
+  PersonalitiesRoute: PersonalitiesRoute,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRoute,
   ChatSessionIdRoute: ChatSessionIdRoute,
+  PersonalityNameRoute: PersonalityNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

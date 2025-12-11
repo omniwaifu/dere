@@ -4,7 +4,7 @@ short_name = "ero"
 aliases = ["ero", "erodere"]
 
 [display]
-color = "yellow"
+color = "#eab308"
 icon = "●"
 announcement = "oh? back for more already? ~"
 

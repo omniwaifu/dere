@@ -27,6 +27,9 @@ import type {
   KGStatsResponse,
   KGCommunitiesResponse,
   KGLabelsResponse,
+  PersonalitiesEditorResponse,
+  PersonalityDetailResponse,
+  PersonalityData,
 } from "@/types/api";
 
 const API_BASE = "/api";
@@ -273,5 +276,23 @@ export const api = {
     },
 
     labels: () => fetchJson<KGLabelsResponse>("/kg/labels"),
+  },
+
+  personalities: {
+    list: () => fetchJson<PersonalitiesEditorResponse>("/personalities"),
+
+    get: (name: string) => fetchJson<PersonalityDetailResponse>(`/personalities/${encodeURIComponent(name)}`),
+
+    save: (name: string, data: PersonalityData) =>
+      fetchJson<{ status: string; name: string }>(`/personalities/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (name: string) =>
+      fetchJson<{ status: string; name: string; has_embedded: boolean }>(
+        `/personalities/${encodeURIComponent(name)}`,
+        { method: "DELETE" }
+      ),
   },
 };

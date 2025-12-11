@@ -4,7 +4,7 @@ short_name = "yan"
 aliases = ["yan", "yandere"]
 
 [display]
-color = "magenta"
+color = "#d946ef"
 icon = "●"
 announcement = "I've been waiting for you... you won't leave me, right?"
 

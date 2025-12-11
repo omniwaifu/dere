@@ -941,6 +941,96 @@ async def get_config_schema_endpoint():
     return get_config_schema()
 
 
+# Personality Management Endpoints
+
+
+@app.get("/personalities")
+async def list_personalities():
+    """List all personalities with their source indicator."""
+    loader = app.state.personality_loader
+    if not loader:
+        raise HTTPException(status_code=500, detail="Personality loader not initialized")
+
+    personalities = loader.list_all_with_source()
+    return {
+        "personalities": [
+            {
+                "name": p.name,
+                "short_name": p.short_name,
+                "color": p.color,
+                "icon": p.icon,
+                "source": p.source.value,
+                "has_embedded": p.has_embedded,
+            }
+            for p in personalities
+        ]
+    }
+
+
+@app.get("/personalities/{name}")
+async def get_personality(name: str):
+    """Get a single personality's full data for editing."""
+    loader = app.state.personality_loader
+    if not loader:
+        raise HTTPException(status_code=500, detail="Personality loader not initialized")
+
+    try:
+        data = loader.get_full(name)
+        is_override = loader.is_user_override(name)
+        has_embedded = name.lower() in loader._get_embedded_names()
+        return {
+            "data": data,
+            "is_override": is_override,
+            "has_embedded": has_embedded,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+class PersonalitySaveRequest(BaseModel):
+    """Request body for saving a personality."""
+
+    metadata: dict = {}
+    display: dict = {}
+    prompt: dict = {}
+
+
+@app.put("/personalities/{name}")
+async def save_personality(name: str, req: PersonalitySaveRequest):
+    """Save a personality to user config directory."""
+    loader = app.state.personality_loader
+    if not loader:
+        raise HTTPException(status_code=500, detail="Personality loader not initialized")
+
+    try:
+        loader.save_to_user_config(name, req.model_dump())
+        return {"status": "saved", "name": name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/personalities/{name}")
+async def delete_personality(name: str):
+    """Delete a user config personality (reverts to embedded if exists)."""
+    loader = app.state.personality_loader
+    if not loader:
+        raise HTTPException(status_code=500, detail="Personality loader not initialized")
+
+    has_embedded = name.lower() in loader._get_embedded_names()
+    deleted = loader.delete_from_user_config(name)
+
+    if not deleted:
+        if not has_embedded:
+            raise HTTPException(status_code=404, detail=f"Personality '{name}' not found")
+        raise HTTPException(status_code=400, detail=f"Cannot delete embedded personality '{name}'")
+
+    return {
+        "status": "deleted" if not has_embedded else "reverted",
+        "name": name,
+        "has_embedded": has_embedded,
+    }
+
+
 @app.post("/search/similar")
 async def search_similar(req: SearchRequest, db: AsyncSession = Depends(get_db)):
     """Search for similar conversations using vector similarity"""

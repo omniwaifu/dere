@@ -606,3 +606,47 @@ export interface KGCommunitiesResponse {
 export interface KGLabelsResponse {
   labels: string[];
 }
+
+// Personality Editor Types
+export type PersonalitySource = "embedded" | "user" | "override";
+
+export interface PersonalityEditorInfo {
+  name: string;
+  short_name: string;
+  color: string;
+  icon: string;
+  source: PersonalitySource;
+  has_embedded: boolean;
+}
+
+export interface PersonalitiesEditorResponse {
+  personalities: PersonalityEditorInfo[];
+}
+
+export interface PersonalityMetadata {
+  name: string;
+  short_name: string;
+  aliases?: string[];
+}
+
+export interface PersonalityDisplay {
+  color: string;
+  icon: string;
+  announcement?: string;
+}
+
+export interface PersonalityPrompt {
+  content: string;
+}
+
+export interface PersonalityData {
+  metadata: PersonalityMetadata;
+  display: PersonalityDisplay;
+  prompt: PersonalityPrompt;
+}
+
+export interface PersonalityDetailResponse {
+  data: PersonalityData;
+  is_override: boolean;
+  has_embedded: boolean;
+}

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { SessionConfig, DereConfig, CreateMissionRequest, UpdateMissionRequest } from "@/types/api";
+import type { SessionConfig, DereConfig, CreateMissionRequest, UpdateMissionRequest, PersonalityData } from "@/types/api";
 
 export const queryKeys = {
   sessions: ["sessions"] as const,
@@ -33,6 +33,9 @@ export const queryKeys = {
   kgStats: ["kg", "stats"] as const,
   kgCommunities: ["kg", "communities"] as const,
   kgLabels: ["kg", "labels"] as const,
+  // Personality Editor
+  personalitiesEditor: ["personalities", "editor"] as const,
+  personalityEditor: (name: string) => ["personalities", "editor", name] as const,
 };
 
 export function useSessions() {
@@ -395,5 +398,44 @@ export function useKGCommunities(limit?: number) {
     queryKey: queryKeys.kgCommunities,
     queryFn: () => api.knowledge.communities(limit),
     staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+}
+
+// Personality Editor
+export function usePersonalitiesEditor() {
+  return useQuery({
+    queryKey: queryKeys.personalitiesEditor,
+    queryFn: () => api.personalities.list(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
+export function usePersonalityEditor(name: string) {
+  return useQuery({
+    queryKey: queryKeys.personalityEditor(name),
+    queryFn: () => api.personalities.get(name),
+    enabled: !!name,
+  });
+}
+
+export function useSavePersonality() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, data }: { name: string; data: PersonalityData }) =>
+      api.personalities.save(name, data),
+    onSuccess: (_, { name }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.personalitiesEditor });
+      queryClient.invalidateQueries({ queryKey: queryKeys.personalityEditor(name) });
+    },
+  });
+}
+
+export function useDeletePersonality() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.personalities.delete(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.personalitiesEditor });
+    },
   });
 }

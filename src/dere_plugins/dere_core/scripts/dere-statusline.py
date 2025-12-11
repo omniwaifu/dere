@@ -15,33 +15,45 @@ GRAY = "\033[90m"
 WHITE = "\033[97m"
 
 
+def hex_to_ansi(hex_color: str) -> str:
+    """Convert hex color (#rrggbb) to ANSI true color escape code"""
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) != 6:
+        return GRAY
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        return f"\033[38;2;{r};{g};{b}m"
+    except ValueError:
+        return GRAY
+
+
 def format_personality(personality):
     """Format personality with colored indicator"""
     # Get color and icon from environment if available
-    color_name = os.getenv("DERE_PERSONALITY_COLOR", "").lower()
+    color_value = os.getenv("DERE_PERSONALITY_COLOR", "")
     icon = os.getenv("DERE_PERSONALITY_ICON", "●")
 
-    # Map color names to ANSI codes
-    color_map = {
-        "red": RED,
-        "blue": BLUE,
-        "magenta": MAGENTA,
-        "green": GREEN,
-        "yellow": YELLOW,
-        "cyan": CYAN,
-        "gray": GRAY,
-        "white": WHITE,
-    }
-
-    # Get the color code, default to GRAY
-    color_code = color_map.get(color_name, GRAY)
+    # Check if it's a hex color
+    if color_value.startswith("#"):
+        color_code = hex_to_ansi(color_value)
+    else:
+        # Map color names to ANSI codes (legacy support)
+        color_map = {
+            "red": RED,
+            "blue": BLUE,
+            "magenta": MAGENTA,
+            "green": GREEN,
+            "yellow": YELLOW,
+            "cyan": CYAN,
+            "gray": GRAY,
+            "white": WHITE,
+        }
+        color_code = color_map.get(color_value.lower(), GRAY)
 
     # Format with color and icon
-    if "+" in personality:
-        # Multiple personalities combined
-        return color_code + icon + RESET + " " + personality
-    else:
-        return color_code + icon + RESET + " " + personality
+    return color_code + icon + RESET + " " + personality
 
 
 def format_model(model):

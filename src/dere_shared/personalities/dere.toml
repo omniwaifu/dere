@@ -4,7 +4,7 @@ short_name = "dere"
 aliases = ["dere", "deredere"]
 
 [display]
-color = "green"
+color = "#22c55e"
 icon = "●"
 announcement = "welcome back! ready to build something amazing together?"
 
