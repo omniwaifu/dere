@@ -15,60 +15,64 @@ export function ChatView({ sessionId }: ChatViewProps) {
   const navigate = useNavigate();
   const status = useChatStore((s) => s.status);
   const currentSessionId = useChatStore((s) => s.sessionId);
+  const isCreatingNewSession = useChatStore((s) => s.isCreatingNewSession);
   const resumeSession = useChatStore((s) => s.resumeSession);
   const clearSession = useChatStore((s) => s.clearSession);
   const lastSeq = useChatStore((s) => s.lastSeq);
 
-  const isNewSession = sessionId === "new";
-  const numericSessionId = isNewSession ? null : Number(sessionId);
+  const isNewSessionRoute = sessionId === "new";
+  const numericSessionId = isNewSessionRoute ? null : Number(sessionId);
 
-  // Track the session ID we had before navigating to /chat/new
-  // This prevents redirecting back to the old session
-  const previousSessionIdRef = useRef<number | null>(null);
-  const hasClearedRef = useRef(false);
+  // Track if we've already navigated to prevent double navigation
+  const hasNavigatedRef = useRef(false);
 
-  // Clear session state when navigating to /chat/new
+  // Clear session state when arriving at /chat/new
+  // Also clear isCreatingNewSession when leaving to prevent stale navigation
   useEffect(() => {
-    if (isNewSession && !hasClearedRef.current) {
-      // Remember what session we came from so we don't redirect back to it
-      previousSessionIdRef.current = currentSessionId;
-      hasClearedRef.current = true;
+    if (isNewSessionRoute) {
+      hasNavigatedRef.current = false;
       clearSession();
-    } else if (!isNewSession) {
-      hasClearedRef.current = false;
-      previousSessionIdRef.current = null;
     }
-  }, [isNewSession, clearSession, currentSessionId]);
+    return () => {
+      // When leaving /chat/new (or unmounting), clear the creating flag
+      // to prevent navigation to a session we abandoned
+      if (isNewSessionRoute) {
+        useChatStore.setState({ isCreatingNewSession: false });
+      }
+    };
+  }, [isNewSessionRoute, clearSession]);
 
   // Auto-resume session when navigating to an existing session
   useEffect(() => {
     if (status !== "connected") return;
-    if (isNewSession) return;
+    if (isNewSessionRoute) return;
 
     if (numericSessionId && numericSessionId !== currentSessionId) {
       resumeSession(numericSessionId, lastSeq);
     }
-  }, [status, isNewSession, numericSessionId, currentSessionId, resumeSession, lastSeq]);
+  }, [status, isNewSessionRoute, numericSessionId, currentSessionId, resumeSession, lastSeq]);
 
   // Navigate to real session URL when a new session is created.
-  // We navigate when we're on /chat/new and a NEW session ID is assigned.
+  // Only navigate if we explicitly called newSession() (isCreatingNewSession flag).
+  // This prevents navigating when a background resume completes.
   useEffect(() => {
     if (
-      isNewSession &&
+      isNewSessionRoute &&
       currentSessionId &&
-      currentSessionId !== previousSessionIdRef.current && // Must be a NEW session, not the old one
+      isCreatingNewSession && // Only when we explicitly created a new session
       status === "connected" &&
-      hasClearedRef.current
+      !hasNavigatedRef.current
     ) {
+      hasNavigatedRef.current = true;
       navigate({
         to: "/chat/$sessionId",
         params: { sessionId: String(currentSessionId) },
       });
     }
-  }, [isNewSession, currentSessionId, status, navigate]);
+  }, [isNewSessionRoute, currentSessionId, isCreatingNewSession, status, navigate]);
 
   // Always show form when on /chat/new
-  if (isNewSession) {
+  if (isNewSessionRoute) {
     return <NewSessionForm />;
   }
 

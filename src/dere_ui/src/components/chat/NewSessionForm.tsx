@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain, Shield } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import {
@@ -37,10 +36,8 @@ export function NewSessionForm() {
   const dirInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const navigate = useNavigate();
   const status = useChatStore((s) => s.status);
   const newSession = useChatStore((s) => s.newSession);
-  const addOnSessionCreated = useChatStore((s) => s.addOnSessionCreated);
 
   const { data: personalities } = usePersonalities();
   const { data: outputStyles } = useOutputStyles();
@@ -73,13 +70,8 @@ export function NewSessionForm() {
     }
   }, [message]);
 
-  // Navigate to new session when created
-  useEffect(() => {
-    const remove = addOnSessionCreated((sessionId) => {
-      navigate({ to: "/chat/$sessionId", params: { sessionId: String(sessionId) } });
-    });
-    return remove;
-  }, [navigate, addOnSessionCreated]);
+  // NOTE: Navigation to new session is handled by ChatView, not here.
+  // This prevents navigating when a background session_ready arrives.
 
   // Derived state for validation
   const isEmptySandbox = sandboxEnabled && sandboxMountType === "none";

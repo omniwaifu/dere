@@ -181,7 +181,6 @@ export interface EmotionSummaryResponse {
 export interface ResultingEmotion {
   type: string;
   intensity: number;
-  eliciting: string;
 }
 
 export interface EmotionEvent {

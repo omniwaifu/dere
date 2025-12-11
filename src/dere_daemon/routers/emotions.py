@@ -17,7 +17,6 @@ class ResultingEmotion(BaseModel):
 
     type: str
     intensity: float
-    eliciting: str
 
 
 class EmotionEvent(BaseModel):

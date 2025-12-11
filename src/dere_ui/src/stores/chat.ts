@@ -44,6 +44,9 @@ interface ChatStore {
   // Pending initial message (sent after session_ready)
   pendingInitialMessage: string | null;
 
+  // Track if we're waiting for a new session to be created (vs resuming)
+  isCreatingNewSession: boolean;
+
   // Permission requests
   pendingPermission: PermissionRequest | null;
 
@@ -90,6 +93,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   onSessionCreatedCallbacks: new Set(),
   onFirstResponseCallbacks: new Set(),
   pendingInitialMessage: null,
+  isCreatingNewSession: false,
   pendingPermission: null,
 
   connect: () => {
@@ -154,6 +158,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       streamingMessage: null,
       isQueryInProgress: false,
       pendingInitialMessage: initialMessage || null,
+      isCreatingNewSession: true,
     });
   },
 
@@ -222,6 +227,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       streamingMessage: null,
       isQueryInProgress: false,
       thinkingStartTime: null,
+      isCreatingNewSession: false,
     });
   },
 
@@ -350,6 +356,7 @@ function handleStreamEvent(event: StreamEvent) {
         sessionName: data.name ?? null,
         isLocked: data.is_locked ?? false,
         pendingInitialMessage: null,
+        // NOTE: Don't clear isCreatingNewSession here - ChatView clears it after navigation
         // Always reset loading state when session is ready
         isLoadingMessages: false,
         // Clear messages when switching to a different session

@@ -518,7 +518,7 @@ class OCCEmotionManager:
         enriched_context = {
             **context,
             "resulting_emotions": [
-                {"type": e.type, "intensity": e.intensity, "eliciting": e.eliciting}
+                {"type": e.type, "intensity": e.intensity}
                 for e in appraisal_output.resulting_emotions
             ],
             "reasoning": appraisal_output.reasoning[:200] if appraisal_output.reasoning else None,
