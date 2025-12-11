@@ -250,7 +250,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           isLoadingMessages: false,
           loadError: "Session loading timed out. Please try again.",
           loadingTimeoutId: null,
-          expectedSessionId: null,
+          // Keep expectedSessionId so retry button knows which session to load
         });
       }
     }, SESSION_READY_TIMEOUT_MS);

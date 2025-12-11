@@ -442,15 +442,21 @@ class CentralizedAgentService:
         session_id: int,
         claude_session_id: str | None,
         config: SessionConfig,
+        *,
+        _already_locked: bool = False,
     ) -> AgentSession:
         """Create the in-memory AgentSession with a session runner.
 
         This does NOT create a database row - use create_session for new sessions
         or resume_session to load existing ones.
-        """
-        lock = self._get_lock(session_id)
 
-        async with lock:
+        Args:
+            _already_locked: If True, caller already holds the session lock.
+                            Used internally to avoid deadlock when called from
+                            update_session_config.
+        """
+
+        async def _create_inner() -> AgentSession:
             if session_id in self._sessions:
                 old_session = self._sessions[session_id]
                 await self._close_session_internal(old_session)
@@ -513,15 +519,21 @@ class CentralizedAgentService:
 
             self._sessions[session_id] = agent_session
             logger.info(
-                "Created agent session {} with output_style={}, personality={}, model={}, thinking_budget={}",
+                "Created agent session {} output_style={} personality={} thinking={}",
                 session_id,
                 config.output_style,
                 config.personality,
-                config.model or "default",
                 config.thinking_budget,
             )
 
             return agent_session
+
+        if _already_locked:
+            return await _create_inner()
+
+        lock = self._get_lock(session_id)
+        async with lock:
+            return await _create_inner()
 
     async def get_session(self, session_id: int) -> AgentSession | None:
         """Get existing session by ID."""
@@ -590,11 +602,14 @@ class CentralizedAgentService:
 
         lock = self._get_lock(session_id)
         async with lock:
+            # TODO: Check if claude-agent-sdk adds set_thinking_budget() runtime control
+            # (like set_model/set_permission_mode). Until then, thinking_budget is locked
+            # after session creation - changing it requires full subprocess restart.
+            # For now, we ignore thinking_budget changes here; UI should disable the toggle.
             needs_recreate = (
                 session.config.output_style != new_config.output_style
                 or session.config.personality != new_config.personality
                 or session.config.allowed_tools != new_config.allowed_tools
-                or session.config.thinking_budget != new_config.thinking_budget
             )
 
             if needs_recreate:
@@ -619,6 +634,7 @@ class CentralizedAgentService:
                     session_id=session_id,
                     claude_session_id=claude_session_id,
                     config=new_config_with_dir,
+                    _already_locked=True,
                 )
 
             session.config = new_config

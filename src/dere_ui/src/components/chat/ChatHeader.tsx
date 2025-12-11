@@ -30,11 +30,6 @@ export function ChatHeader() {
     updateConfig({ ...sessionConfig, output_style: e.target.value });
   };
 
-  const handleThinkingToggle = () => {
-    const newBudget = sessionConfig.thinking_budget ? null : 10000;
-    updateConfig({ ...sessionConfig, thinking_budget: newBudget });
-  };
-
   const thinkingEnabled = !!sessionConfig.thinking_budget;
 
   const currentPersonality = Array.isArray(sessionConfig.personality)
@@ -90,25 +85,20 @@ export function ChatHeader() {
           </select>
         </div>
 
-        <button
-          type="button"
-          onClick={handleThinkingToggle}
-          disabled={sessionConfig.sandbox_mode}
+        {/* Thinking indicator (read-only - SDK doesn't support runtime changes) */}
+        <div
           className={cn(
-            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm transition-colors",
+            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm",
             thinkingEnabled
               ? "border-foreground/30 bg-foreground/10 text-foreground"
-              : "border-transparent text-muted-foreground",
-            sessionConfig.sandbox_mode
-              ? "cursor-not-allowed"
-              : "hover:text-foreground"
+              : "border-transparent text-muted-foreground"
           )}
-          title={sessionConfig.sandbox_mode
-            ? "Thinking mode cannot be changed in sandbox sessions"
-            : "Extended thinking mode"}
+          title={thinkingEnabled
+            ? "Extended thinking enabled (set at session start)"
+            : "Extended thinking disabled (set at session start)"}
         >
           <Brain className="h-4 w-4" />
-        </button>
+        </div>
 
         {sessionConfig.include_context && (
           <Badge variant="secondary" className="text-xs">
