@@ -2,19 +2,15 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useChatStore } from "@/stores/chat";
+import { useChatInputState, useChatActions } from "@/stores/selectors";
 import { cn } from "@/lib/utils";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const status = useChatStore((s) => s.status);
-  const sessionId = useChatStore((s) => s.sessionId);
-  const isQueryInProgress = useChatStore((s) => s.isQueryInProgress);
-  const isLocked = useChatStore((s) => s.isLocked);
-  const sendQuery = useChatStore((s) => s.sendQuery);
-  const cancelQuery = useChatStore((s) => s.cancelQuery);
+  const { status, sessionId, isQueryInProgress, isLocked } = useChatInputState();
+  const { sendQuery, cancelQuery } = useChatActions();
 
   const canSend = status === "connected" && sessionId && input.trim() && !isQueryInProgress && !isLocked;
 

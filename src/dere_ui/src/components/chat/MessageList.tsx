@@ -1,15 +1,20 @@
 import { useEffect, useRef } from "react";
-import { useChatStore } from "@/stores/chat";
+import { useMessageListState, useChatActions } from "@/stores/selectors";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageBubble } from "./MessageBubble";
 import { ThinkingIndicator } from "./ThinkingIndicator";
+import { ErrorDisplay } from "./ErrorDisplay";
 import { MessageSquare, Loader2 } from "lucide-react";
 
 export function MessageList() {
-  const messages = useChatStore((s) => s.messages);
-  const streamingMessage = useChatStore((s) => s.streamingMessage);
-  const isQueryInProgress = useChatStore((s) => s.isQueryInProgress);
-  const isLoadingMessages = useChatStore((s) => s.isLoadingMessages);
+  const {
+    messages,
+    streamingMessage,
+    isQueryInProgress,
+    isLoadingMessages,
+    loadError,
+  } = useMessageListState();
+  const { retryLoad } = useChatActions();
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const isWaitingForResponse = isQueryInProgress && !streamingMessage;
@@ -23,6 +28,10 @@ export function MessageList() {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [allMessages.length, streamingMessage?.content]);
+
+  if (loadError) {
+    return <ErrorDisplay message={loadError} onRetry={retryLoad} />;
+  }
 
   if (isLoadingMessages) {
     return (

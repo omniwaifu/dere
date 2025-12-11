@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -254,6 +255,10 @@ async def agent_websocket(websocket: WebSocket):
                             f"Unknown permission request: {msg.request_id}", recoverable=True
                         ).to_dict()
                     )
+
+            elif msg.type == "ping":
+                # Heartbeat response for client keepalive
+                await websocket.send_json({"type": "pong", "timestamp": time.time()})
 
             elif msg.type == "close":
                 break

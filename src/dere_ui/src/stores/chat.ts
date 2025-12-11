@@ -11,6 +11,14 @@ import { api } from "@/lib/api";
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
+// Timeout constants
+const SESSION_READY_TIMEOUT_MS = 10000;
+const INITIAL_RECONNECT_DELAY_MS = 1000;
+const MAX_RECONNECT_DELAY_MS = 30000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const HEARTBEAT_INTERVAL_MS = 30000;
+const HEARTBEAT_TIMEOUT_MS = 10000;
+
 interface ChatStore {
   // Connection
   status: ConnectionStatus;
@@ -50,6 +58,20 @@ interface ChatStore {
   // Permission requests
   pendingPermission: PermissionRequest | null;
 
+  // Loading error state
+  loadError: string | null;
+  loadingTimeoutId: number | null;
+  expectedSessionId: number | null;
+
+  // Reconnection state
+  reconnectAttempts: number;
+  reconnectTimeoutId: number | null;
+  shouldReconnect: boolean;
+
+  // Heartbeat state
+  heartbeatIntervalId: number | null;
+  lastActivityTime: number;
+
   // Actions
   connect: () => void;
   disconnect: () => void;
@@ -65,6 +87,8 @@ interface ChatStore {
   addOnSessionCreated: (cb: (sessionId: number) => void) => () => void;
   addOnFirstResponse: (cb: (sessionId: number) => void) => () => void;
   respondToPermission: (allowed: boolean, denyMessage?: string) => void;
+  retryLoad: () => void;
+  clearError: () => void;
 }
 
 const WS_URL = `ws://${window.location.hostname}:8787/agent/ws`;
@@ -95,21 +119,45 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   pendingInitialMessage: null,
   isCreatingNewSession: false,
   pendingPermission: null,
+  // Loading error state
+  loadError: null,
+  loadingTimeoutId: null,
+  expectedSessionId: null,
+  // Reconnection state
+  reconnectAttempts: 0,
+  reconnectTimeoutId: null,
+  shouldReconnect: true,
+  // Heartbeat state
+  heartbeatIntervalId: null,
+  lastActivityTime: Date.now(),
 
   connect: () => {
     const { socket, status } = get();
     if (socket || status === "connecting") return;
 
-    set({ status: "connecting", error: null });
+    set({ status: "connecting", error: null, loadError: null });
 
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-      set({ status: "connected", socket: ws });
+      set({
+        status: "connected",
+        socket: ws,
+        reconnectAttempts: 0,
+        error: null,
+      });
+      startHeartbeat(ws);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      stopHeartbeat();
+      const state = get();
       set({ status: "disconnected", socket: null });
+
+      // Auto-reconnect if not an intentional close
+      if (state.shouldReconnect && !event.wasClean) {
+        scheduleReconnect();
+      }
     };
 
     ws.onerror = () => {
@@ -117,6 +165,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     };
 
     ws.onmessage = (event) => {
+      // Update activity time for heartbeat monitoring
+      set({ lastActivityTime: Date.now() });
       try {
         const data = JSON.parse(event.data) as StreamEvent;
         handleStreamEvent(data);
@@ -127,12 +177,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   disconnect: () => {
-    const { socket, flushTimeout } = get();
-    if (flushTimeout) {
-      clearTimeout(flushTimeout);
-    }
+    const { socket, flushTimeout, reconnectTimeoutId, loadingTimeoutId } = get();
+
+    // Clear all timeouts
+    if (flushTimeout) clearTimeout(flushTimeout);
+    if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
+    if (loadingTimeoutId) clearTimeout(loadingTimeoutId);
+    stopHeartbeat();
+
     if (socket) {
-      socket.close();
+      socket.close(1000, "User disconnect");
     }
     set({
       status: "disconnected",
@@ -142,6 +196,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       sessionName: null,
       isLocked: false,
       flushTimeout: null,
+      shouldReconnect: false,
+      reconnectTimeoutId: null,
+      loadingTimeoutId: null,
+      expectedSessionId: null,
     });
   },
 
@@ -163,17 +221,38 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   resumeSession: (id, lastSeq) => {
-    const { socket, status } = get();
+    const { socket, status, loadingTimeoutId } = get();
     if (!socket || status !== "connected") {
-      set({ error: "Not connected" });
+      set({ loadError: "Not connected to daemon" });
       return;
     }
+
+    // Clear any existing timeout
+    if (loadingTimeoutId) {
+      clearTimeout(loadingTimeoutId);
+    }
+
+    // Start loading timeout
+    const timeoutId = window.setTimeout(() => {
+      const state = useChatStore.getState();
+      if (state.isLoadingMessages && state.expectedSessionId === id) {
+        set({
+          isLoadingMessages: false,
+          loadError: "Session loading timed out. Please try again.",
+          loadingTimeoutId: null,
+          expectedSessionId: null,
+        });
+      }
+    }, SESSION_READY_TIMEOUT_MS);
 
     // Immediately show loading state and clear old messages
     set({
       messages: [],
       streamingMessage: null,
       isLoadingMessages: true,
+      loadError: null,
+      loadingTimeoutId: timeoutId,
+      expectedSessionId: id,
       thinkingStartTime: null,
     });
 
@@ -206,8 +285,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   updateConfig: (config) => {
-    const { socket, status } = get();
+    const { socket, status, isQueryInProgress } = get();
     if (!socket || status !== "connected") return;
+
+    // Prevent config changes while query is in progress (race condition fix)
+    if (isQueryInProgress) {
+      set({ error: "Cannot change settings while a query is running" });
+      return;
+    }
 
     socket.send(JSON.stringify({ type: "update_config", config }));
     set({ sessionConfig: config });
@@ -279,7 +364,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   loadMessages: async (sessionId: number) => {
-    set({ isLoadingMessages: true });
+    set({ isLoadingMessages: true, loadError: null });
     try {
       const response = await api.sessions.messages(sessionId, { limit: 100 });
       const chatMessages: ChatMessage[] = response.messages.map((msg) => ({
@@ -303,9 +388,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }));
       set({ messages: chatMessages, isLoadingMessages: false });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load messages";
       console.error("Failed to load messages:", error);
-      set({ isLoadingMessages: false });
+      set({ isLoadingMessages: false, loadError: message });
     }
+  },
+
+  retryLoad: () => {
+    const { sessionId, expectedSessionId } = get();
+    const idToLoad = sessionId ?? expectedSessionId;
+    if (idToLoad) {
+      set({ loadError: null });
+      useChatStore.getState().resumeSession(idToLoad);
+    }
+  },
+
+  clearError: () => {
+    set({ loadError: null, error: null });
   },
 }));
 
@@ -346,6 +445,20 @@ function handleStreamEvent(event: StreamEvent) {
         name?: string | null;
       };
       const currentState = useChatStore.getState();
+
+      // Ignore stale session_ready events (from a different session than expected)
+      if (
+        currentState.expectedSessionId !== null &&
+        data.session_id !== currentState.expectedSessionId
+      ) {
+        return;
+      }
+
+      // Clear loading timeout
+      if (currentState.loadingTimeoutId) {
+        clearTimeout(currentState.loadingTimeoutId);
+      }
+
       const isSessionChange = currentState.sessionId !== data.session_id;
       const isNewSession = currentState.sessionId === null;
       const pendingMessage = currentState.pendingInitialMessage;
@@ -359,6 +472,9 @@ function handleStreamEvent(event: StreamEvent) {
         // NOTE: Don't clear isCreatingNewSession here - ChatView clears it after navigation
         // Always reset loading state when session is ready
         isLoadingMessages: false,
+        loadError: null,
+        loadingTimeoutId: null,
+        expectedSessionId: null,
         // Clear messages when switching to a different session
         ...(isSessionChange && { messages: [], streamingMessage: null }),
       });
@@ -627,5 +743,83 @@ function handleStreamEvent(event: StreamEvent) {
       });
       break;
     }
+
+    case "pong": {
+      // Heartbeat response - activity time already updated in onmessage handler
+      break;
+    }
+  }
+}
+
+// Reconnection with exponential backoff
+function scheduleReconnect() {
+  const state = useChatStore.getState();
+
+  if (state.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    useChatStore.setState({
+      error: "Failed to reconnect after multiple attempts. Please refresh the page.",
+    });
+    return;
+  }
+
+  // Exponential backoff with jitter
+  const baseDelay = Math.min(
+    INITIAL_RECONNECT_DELAY_MS * Math.pow(2, state.reconnectAttempts),
+    MAX_RECONNECT_DELAY_MS
+  );
+  const jitter = Math.random() * 1000;
+  const delay = baseDelay + jitter;
+
+  const timeoutId = window.setTimeout(() => {
+    useChatStore.setState((s) => ({
+      reconnectAttempts: s.reconnectAttempts + 1,
+      reconnectTimeoutId: null,
+      shouldReconnect: true,
+    }));
+    useChatStore.getState().connect();
+  }, delay);
+
+  useChatStore.setState({ reconnectTimeoutId: timeoutId });
+}
+
+// Heartbeat/keepalive mechanism
+function startHeartbeat(ws: WebSocket) {
+  const intervalId = window.setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      stopHeartbeat();
+      return;
+    }
+
+    const state = useChatStore.getState();
+    const timeSinceLastActivity = Date.now() - state.lastActivityTime;
+
+    // If no activity for too long, connection might be dead
+    if (timeSinceLastActivity > HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS) {
+      // Force reconnect
+      ws.close();
+      useChatStore.setState({
+        status: "disconnected",
+        error: "Connection timed out",
+      });
+      scheduleReconnect();
+      return;
+    }
+
+    // Send ping to keep connection alive and detect broken connections
+    try {
+      ws.send(JSON.stringify({ type: "ping" }));
+    } catch {
+      // Connection is broken, will be handled by onclose
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+
+  useChatStore.setState({ heartbeatIntervalId: intervalId });
+}
+
+function stopHeartbeat() {
+  const { heartbeatIntervalId } = useChatStore.getState();
+  if (heartbeatIntervalId) {
+    clearInterval(heartbeatIntervalId);
+    useChatStore.setState({ heartbeatIntervalId: null });
   }
 }

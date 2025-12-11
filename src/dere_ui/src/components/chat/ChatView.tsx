@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useChatStore } from "@/stores/chat";
+import { useChatViewState, useChatActions } from "@/stores/selectors";
 import { ChatHeader } from "./ChatHeader";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
@@ -13,12 +14,9 @@ interface ChatViewProps {
 
 export function ChatView({ sessionId }: ChatViewProps) {
   const navigate = useNavigate();
-  const status = useChatStore((s) => s.status);
-  const currentSessionId = useChatStore((s) => s.sessionId);
-  const isCreatingNewSession = useChatStore((s) => s.isCreatingNewSession);
-  const resumeSession = useChatStore((s) => s.resumeSession);
+  const { status, sessionId: currentSessionId, isCreatingNewSession, lastSeq } = useChatViewState();
+  const { resumeSession } = useChatActions();
   const clearSession = useChatStore((s) => s.clearSession);
-  const lastSeq = useChatStore((s) => s.lastSeq);
 
   const isNewSessionRoute = sessionId === "new";
   const numericSessionId = isNewSessionRoute ? null : Number(sessionId);

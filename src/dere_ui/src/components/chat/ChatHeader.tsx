@@ -1,14 +1,13 @@
 import { useEffect } from "react";
 import { FolderOpen, User, Palette, Brain, Shield } from "lucide-react";
-import { useChatStore } from "@/stores/chat";
+import { useChatHeaderState, useChatActions } from "@/stores/selectors";
 import { usePersonalities, useOutputStyles } from "@/hooks/queries";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export function ChatHeader() {
-  const sessionConfig = useChatStore((s) => s.sessionConfig);
-  const sessionName = useChatStore((s) => s.sessionName);
-  const updateConfig = useChatStore((s) => s.updateConfig);
+  const { sessionConfig, sessionName } = useChatHeaderState();
+  const { updateConfig } = useChatActions();
 
   // Update document title based on session name
   useEffect(() => {
