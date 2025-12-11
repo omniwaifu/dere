@@ -10,7 +10,7 @@ dependencies = [
     "claude-agent-sdk>=0.1.0",
     "httpx>=0.28.1",
     "pydantic>=2.11.10",
-    "click>=8.3.0",
+    "typer>=0.12.0",
     "discord.py>=2.4.0",
     "loguru>=0.7.3",
     "sqlalchemy>=2.0.0",
@@ -41,7 +41,7 @@ dev = [
 ]
 
 [project.scripts]
-dere = "dere_cli.main:cli"
+dere = "dere_cli.main:app"
 dere-daemon = "dere_daemon.main:main"
 dere-discord = "dere_discord.main:run"
 dere-taskwarrior-mcp = "dere_productivity.scripts.taskwarrior_mcp_wrapper:main"
