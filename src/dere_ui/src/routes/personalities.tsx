@@ -30,8 +30,8 @@ function getSourceBadge(source: PersonalitySource) {
       return <Badge variant="default">Custom</Badge>;
     case "override":
       return (
-        <Badge variant="outline" className="border-amber-500 text-amber-500">
-          Modified
+        <Badge variant="secondary" className="bg-primary/10 text-primary">
+          Customized
         </Badge>
       );
     default:
@@ -65,50 +65,7 @@ function PersonalityCard({ personality }: { personality: PersonalityEditorInfo }
               <CardDescription className="text-xs">{personality.short_name}</CardDescription>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {getSourceBadge(personality.source)}
-            {isDeleteable && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="relative z-20 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    {deleteAction === "reset" ? (
-                      <RotateCcw className="h-4 w-4" />
-                    ) : (
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    )}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      {deleteAction === "reset"
-                        ? `Reset ${personality.name} to default?`
-                        : `Delete ${personality.name}?`}
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {deleteAction === "reset"
-                        ? "This will remove your customizations and restore the built-in version."
-                        : "This action cannot be undone. The personality will be permanently deleted."}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => deletePersonality.mutate(personality.short_name)}
-                      className={deleteAction === "delete" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
-                    >
-                      {deleteAction === "reset" ? "Reset" : "Delete"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-          </div>
+          {getSourceBadge(personality.source)}
         </div>
       </CardHeader>
       <CardContent>
@@ -120,6 +77,52 @@ function PersonalityCard({ personality }: { personality: PersonalityEditorInfo }
           <span>{personality.color}</span>
         </div>
       </CardContent>
+
+      {isDeleteable && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-3 top-3 z-20 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+              onClick={(e) => e.preventDefault()}
+            >
+              {deleteAction === "reset" ? (
+                <RotateCcw className="h-4 w-4" />
+              ) : (
+                <Trash2 className="h-4 w-4 text-destructive" />
+              )}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {deleteAction === "reset"
+                  ? `Reset ${personality.name} to default?`
+                  : `Delete ${personality.name}?`}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteAction === "reset"
+                  ? "This will remove your customizations and restore the built-in version."
+                  : "This action cannot be undone. The personality will be permanently deleted."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => deletePersonality.mutate(personality.short_name)}
+                className={
+                  deleteAction === "delete"
+                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    : ""
+                }
+              >
+                {deleteAction === "reset" ? "Reset" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </Card>
   );
 }

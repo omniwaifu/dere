@@ -11,7 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -295,8 +296,11 @@ async def _init_dere_graph(config: dict[str, Any], db_url: str, app_state: AppSt
 async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
     """Initialize personality loader and ambient monitor."""
     from dere_shared.personalities import PersonalityLoader
+    from dere_shared.paths import get_config_dir
 
-    app_state.personality_loader = PersonalityLoader(data_dir)
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    app_state.personality_loader = PersonalityLoader(config_dir)
 
     try:
         from dere_ambient import AmbientMonitor, load_ambient_config
@@ -1010,6 +1014,91 @@ async def save_personality(name: str, req: PersonalitySaveRequest):
         return {"status": "saved", "name": name}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+_AVATAR_ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+_AVATAR_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _sanitize_stem(stem: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in stem.lower())
+    return safe.strip("._-") or "avatar"
+
+
+@app.post("/personalities/{name}/avatar")
+async def upload_personality_avatar(name: str, file: UploadFile = File(...)):
+    """Upload a profile image for a personality.
+
+    Stores under ~/.config/dere/personalities/avatars and updates display.avatar.
+    """
+    loader = app.state.personality_loader
+    if not loader or not loader.config_dir:
+        raise HTTPException(status_code=500, detail="Personality loader not initialized")
+
+    try:
+        data = loader.get_full(name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in _AVATAR_ALLOWED_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(sorted(_AVATAR_ALLOWED_EXTS))}",
+        )
+
+    content = await file.read()
+    if len(content) > _AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Avatar too large (max 5MB)")
+
+    short_name = (
+        (data.get("metadata") or {}).get("short_name")
+        or (data.get("metadata") or {}).get("name")
+        or name
+    )
+    safe_stem = _sanitize_stem(str(short_name))
+
+    personalities_dir = loader.config_dir / "personalities"
+    avatars_dir = personalities_dir / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    target_path = avatars_dir / f"{safe_stem}{suffix}"
+    target_path.write_bytes(content)
+
+    display = data.get("display") or {}
+    rel_path = f"avatars/{target_path.name}"
+    display["avatar"] = rel_path
+    data["display"] = display
+
+    loader.save_to_user_config(name, data)
+
+    return {"status": "ok", "avatar": rel_path}
+
+
+@app.get("/personalities/{name}/avatar")
+async def get_personality_avatar(name: str):
+    """Serve a personality's avatar image."""
+    loader = app.state.personality_loader
+    if not loader or not loader.config_dir:
+        raise HTTPException(status_code=500, detail="Personality loader not initialized")
+
+    try:
+        data = loader.get_full(name)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    avatar_rel = (data.get("display") or {}).get("avatar")
+    if not avatar_rel:
+        raise HTTPException(status_code=404, detail="No avatar set")
+
+    personalities_dir = (loader.config_dir / "personalities").resolve()
+    avatar_path = (personalities_dir / avatar_rel).resolve()
+    if not str(avatar_path).startswith(str(personalities_dir)):
+        raise HTTPException(status_code=400, detail="Invalid avatar path")
+    if not avatar_path.exists():
+        raise HTTPException(status_code=404, detail="Avatar file not found")
+
+    return FileResponse(avatar_path)
 
 
 @app.delete("/personalities/{name}")

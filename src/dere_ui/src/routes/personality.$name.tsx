@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Save, RotateCcw, X, Plus } from "lucide-react";
-import { usePersonalityEditor, useSavePersonality, useDeletePersonality } from "@/hooks/queries";
+import { usePersonalityEditor, useSavePersonality, useDeletePersonality, useUploadPersonalityAvatar } from "@/hooks/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +39,7 @@ function createEmptyPersonality(): PersonalityData {
       color: "#6366f1",
       icon: "●",
       announcement: "",
+      avatar: "",
     },
     prompt: {
       content: "",
@@ -52,14 +55,21 @@ function PersonalityEditPage() {
   const { data, isLoading, isError } = usePersonalityEditor(isNew ? "" : name);
   const savePersonality = useSavePersonality();
   const deletePersonality = useDeletePersonality();
+  const uploadAvatar = useUploadPersonalityAvatar();
 
   const [formData, setFormData] = useState<PersonalityData>(createEmptyPersonality());
   const [aliasInput, setAliasInput] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarCacheBust, setAvatarCacheBust] = useState(0);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   // Load data into form when fetched
   useEffect(() => {
-    if (data?.data) {
+    if (data?.data && !hasChanges && !avatarPreviewUrl) {
+      const incomingAvatar = data.data.display?.avatar || "";
+      const keepAvatar = formData.display.avatar && !incomingAvatar;
       setFormData({
         metadata: {
           name: data.data.metadata?.name || "",
@@ -70,14 +80,17 @@ function PersonalityEditPage() {
           color: data.data.display?.color || "#6366f1",
           icon: data.data.display?.icon || "●",
           announcement: data.data.display?.announcement || "",
+          avatar: keepAvatar ? formData.display.avatar : incomingAvatar,
         },
         prompt: {
           content: data.data.prompt?.content || "",
         },
       });
-      setHasChanges(false);
+      if (!keepAvatar) setHasChanges(false);
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
     }
-  }, [data]);
+  }, [data, hasChanges, avatarPreviewUrl, formData.display.avatar]);
 
   const updateMetadata = (field: keyof PersonalityData["metadata"], value: string | string[]) => {
     setFormData((prev) => ({
@@ -145,6 +158,42 @@ function PersonalityEditPage() {
         }
       },
     });
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (isNew) return;
+    setAvatarFile(file);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+    setHasChanges(true);
+    setAvatarError(null);
+
+    const saveName = formData.metadata.short_name || name;
+    uploadAvatar.mutate(
+      { name: saveName, file },
+      {
+        onSuccess: (res) => {
+          updateDisplay("avatar", res.avatar);
+          savePersonality.mutate(
+            {
+              name: saveName,
+              data: {
+                ...formData,
+                display: { ...formData.display, avatar: res.avatar },
+              },
+            },
+            { onSuccess: () => setHasChanges(false) }
+          );
+          setAvatarCacheBust((v) => v + 1);
+          setAvatarFile(null);
+          setAvatarPreviewUrl(null);
+        },
+        onError: (err: any) => {
+          setAvatarError(err?.message || "Upload failed");
+        },
+      }
+    );
   };
 
   if (isLoading && !isNew) {
@@ -245,7 +294,7 @@ function PersonalityEditPage() {
       </div>
 
       {/* Form Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <ScrollArea className="flex-1 p-6">
         <div className="mx-auto max-w-3xl space-y-6">
           {/* Metadata Section */}
           <Card>
@@ -289,7 +338,7 @@ function PersonalityEditPage() {
                       {alias}
                       <button
                         onClick={() => removeAlias(alias)}
-                        className="ml-1 rounded-full hover:bg-muted"
+                        className="ml-1 cursor-pointer rounded-full hover:bg-muted"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -323,6 +372,64 @@ function PersonalityEditPage() {
               <CardDescription>Visual appearance settings</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Profile Picture</Label>
+                <div className="flex items-center gap-4">
+                  <div className="h-20 w-20 overflow-hidden rounded-lg border border-border bg-muted/20">
+                    {avatarPreviewUrl ? (
+                      <img
+                        src={avatarPreviewUrl}
+                        alt="Avatar preview"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : !isNew && formData.display.avatar ? (
+                      <img
+                        src={`/api/personalities/${encodeURIComponent(name)}/avatar?b=${avatarCacheBust}`}
+                        alt="Avatar"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                        None
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Input
+                      id="avatarFile"
+                      type="file"
+                      accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                      onChange={handleAvatarChange}
+                      disabled={isNew}
+                      className="hidden"
+                    />
+                    <Label
+                      htmlFor="avatarFile"
+                      className={cn(
+                        "inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+                        isNew && "cursor-not-allowed opacity-50 hover:bg-background hover:text-foreground"
+                      )}
+                    >
+                      Choose file
+                    </Label>
+                    {uploadAvatar.isPending && (
+                      <p className="text-xs text-muted-foreground">Uploading...</p>
+                    )}
+                    {avatarError && (
+                      <p className="text-xs text-destructive">{avatarError}</p>
+                    )}
+                    {isNew && (
+                      <p className="text-xs text-muted-foreground">
+                        Save personality first to upload an image.
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      PNG/JPG/WEBP up to 5MB. Stored locally in your dere config.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="color">Color</Label>
@@ -332,7 +439,7 @@ function PersonalityEditPage() {
                       type="color"
                       value={formData.display.color}
                       onChange={(e) => updateDisplay("color", e.target.value)}
-                      className="h-10 w-14 p-1"
+                      className="h-10 w-14 cursor-pointer p-1"
                     />
                     <Input
                       value={formData.display.color}
@@ -384,7 +491,7 @@ function PersonalityEditPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </ScrollArea>
     </div>
   );
 }

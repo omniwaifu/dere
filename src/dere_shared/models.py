@@ -415,6 +415,7 @@ class Personality(SQLModel):
     aliases: list[str] = []
     color: str = "white"
     icon: str = "●"
+    avatar: str | None = None
     prompt_content: str
     announcement: str | None = None
     occ_goals: list[dict[str, Any]] = []
@@ -439,4 +440,3 @@ class RoutingDecision(BaseModel):
     location: str
     reasoning: str
     fallback: bool = False
-

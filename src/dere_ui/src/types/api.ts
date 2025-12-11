@@ -637,6 +637,7 @@ export interface PersonalityDisplay {
   color: string;
   icon: string;
   announcement?: string;
+  avatar?: string | null;
 }
 
 export interface PersonalityPrompt {

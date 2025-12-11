@@ -415,6 +415,7 @@ export function usePersonalityEditor(name: string) {
     queryKey: queryKeys.personalityEditor(name),
     queryFn: () => api.personalities.get(name),
     enabled: !!name,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -434,6 +435,17 @@ export function useDeletePersonality() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => api.personalities.delete(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.personalitiesEditor });
+    },
+  });
+}
+
+export function useUploadPersonalityAvatar() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, file }: { name: string; file: File }) =>
+      api.personalities.uploadAvatar(name, file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.personalitiesEditor });
     },

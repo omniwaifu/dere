@@ -117,6 +117,7 @@ class PersonalityLoader:
             aliases=metadata.get("aliases", []),
             color=display.get("color", "white"),
             icon=display.get("icon", "●"),
+            avatar=display.get("avatar"),
             prompt_content=prompt.get("content", ""),
             announcement=display.get("announcement"),
             occ_goals=occ.get("goals", []),
@@ -284,6 +285,8 @@ class PersonalityLoader:
         display_data = data.get("display", {})
         display["color"] = display_data.get("color", "white")
         display["icon"] = display_data.get("icon", "●")
+        if avatar := display_data.get("avatar"):
+            display["avatar"] = avatar
         if announcement := display_data.get("announcement"):
             display["announcement"] = announcement
         doc["display"] = display
