@@ -39,7 +39,7 @@ export function ChatInput() {
 
   return (
     <div className="border-t border-border p-4">
-      <div className="relative">
+      <div className="relative mx-auto max-w-3xl">
         <Textarea
           ref={textareaRef}
           value={input}
