@@ -15,9 +15,9 @@ router = APIRouter(prefix="/emotion", tags=["emotions"])
 class ResultingEmotion(BaseModel):
     """An emotion that resulted from appraisal."""
 
-    name: str
     type: str
     intensity: float
+    eliciting: str
 
 
 class EmotionEvent(BaseModel):

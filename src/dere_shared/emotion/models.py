@@ -256,7 +256,7 @@ class OCCEmotion(BaseModel):
 class EmotionInstance(BaseModel):
     """Internal emotion instance with timestamp"""
 
-    type: OCCEmotionType | Literal["neutral"]
+    type: OCCEmotionType
     intensity: float = Field(ge=0, le=100)
     last_updated: int  # Unix timestamp ms
 
@@ -299,8 +299,7 @@ class ObjectAttribute(BaseModel):
 class EmotionSchemaOutput(BaseModel):
     """Single emotion output from LLM"""
 
-    name: str = Field(description="Common name of the emotion")
-    type: OCCEmotionType | Literal["neutral"] = Field(description="OCC emotion type or neutral")
+    type: OCCEmotionType = Field(description="OCC emotion type")
     intensity: float = Field(ge=0, le=100, description="Intensity 0-100")
     eliciting: str = Field(description="Why this emotion arose")
 
@@ -313,7 +312,6 @@ class AppraisalOutput(BaseModel):
     object_attribute: ObjectAttribute | None = None
     resulting_emotions: list[EmotionSchemaOutput] = Field(min_length=1)
     reasoning: str | None = None
-    suggested_trust_delta: float | None = Field(default=None, ge=-0.1, le=0.1)
 
 
 class OCCEmotionState(BaseModel):

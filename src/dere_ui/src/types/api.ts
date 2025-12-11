@@ -179,9 +179,9 @@ export interface EmotionSummaryResponse {
 }
 
 export interface ResultingEmotion {
-  name: string;
   type: string;
   intensity: number;
+  eliciting: string;
 }
 
 export interface EmotionEvent {

@@ -103,12 +103,12 @@ class OCCEmotionManager:
         await self._apply_smart_decay(start_time)
 
     async def _appraisal_stage(
-        self, stimulus: dict | str, context: dict, persona_name: str
+        self, stimulus: dict | str, context: dict, persona_prompt: str
     ) -> AppraisalOutput | None:
         """Pipeline Stage 2: Run OCC appraisal on stimulus."""
         current_emotion_state = self._build_current_emotion_state(stimulus)
         appraisal_output = await self.appraisal_engine.appraise_stimulus(
-            stimulus, current_emotion_state, context, persona_name
+            stimulus, current_emotion_state, context, persona_prompt
         )
 
         if not appraisal_output or not appraisal_output.resulting_emotions:
@@ -198,7 +198,7 @@ class OCCEmotionManager:
         self.last_major_emotional_change = start_time
 
     def buffer_stimulus(
-        self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
+        self, stimulus: dict | str, context: dict | None = None, persona_prompt: str = ""
     ) -> None:
         """
         Buffer a stimulus for later batch appraisal.
@@ -209,7 +209,7 @@ class OCCEmotionManager:
         self._pending_stimuli.append({
             "stimulus": stimulus,
             "context": context or {},
-            "persona_name": persona_name,
+            "persona_prompt": persona_prompt,
             "timestamp": int(time.time() * 1000),
         })
         self._last_stimulus_time = time_module.monotonic()
@@ -245,10 +245,10 @@ class OCCEmotionManager:
         # Combine stimuli into batch
         combined_stimulus = self._combine_stimuli_for_batch()
         context = self._pending_stimuli[-1]["context"]  # Use most recent context
-        persona_name = self._pending_stimuli[-1]["persona_name"]
+        persona_prompt = self._pending_stimuli[-1]["persona_prompt"]
 
         # Stage 2: Run batch appraisal
-        appraisal_output = await self._appraisal_stage(combined_stimulus, context, persona_name)
+        appraisal_output = await self._appraisal_stage(combined_stimulus, context, persona_prompt)
 
         # Clear buffer regardless of appraisal result
         self._pending_stimuli = []
@@ -295,7 +295,7 @@ class OCCEmotionManager:
         }
 
     async def process_stimulus(
-        self, stimulus: dict | str, context: dict | None = None, persona_name: str = "AI"
+        self, stimulus: dict | str, context: dict | None = None, persona_prompt: str = ""
     ) -> dict[OCCEmotionType | str, EmotionInstance]:
         """
         Process a stimulus through the complete pipeline:
@@ -316,7 +316,7 @@ class OCCEmotionManager:
         await self._apply_decay_stage(start_time)
 
         # Stage 2: Run appraisal
-        appraisal_output = await self._appraisal_stage(stimulus, context, persona_name)
+        appraisal_output = await self._appraisal_stage(stimulus, context, persona_prompt)
         if not appraisal_output:
             return self.active_emotions
 
@@ -518,7 +518,7 @@ class OCCEmotionManager:
         enriched_context = {
             **context,
             "resulting_emotions": [
-                {"name": e.name, "type": e.type, "intensity": e.intensity}
+                {"type": e.type, "intensity": e.intensity, "eliciting": e.eliciting}
                 for e in appraisal_output.resulting_emotions
             ],
             "reasoning": appraisal_output.reasoning[:200] if appraisal_output.reasoning else None,

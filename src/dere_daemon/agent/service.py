@@ -302,11 +302,17 @@ class CentralizedAgentService:
 
                         personality_name = session.config.personality
                         if isinstance(personality_name, list):
-                            personality_name = personality_name[0] if personality_name else "AI"
+                            personality_name = personality_name[0] if personality_name else None
 
-                        emotion_manager.buffer_stimulus(
-                            stimulus, context, personality_name or "AI"
-                        )
+                        persona_prompt = ""
+                        if personality_name:
+                            try:
+                                personality = self.personality_loader.load(personality_name)
+                                persona_prompt = personality.prompt_content
+                            except ValueError:
+                                pass
+
+                        emotion_manager.buffer_stimulus(stimulus, context, persona_prompt)
                         logger.debug("[emotion] Buffered interaction stimulus")
                     except Exception as e:
                         logger.error(f"[emotion] Failed to process stimulus: {e}")

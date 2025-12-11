@@ -1178,7 +1178,14 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                 }
 
                 # Buffer stimulus for batch appraisal (will flush on idle timeout or session end)
-                emotion_manager.buffer_stimulus(stimulus, context, req.personality or "AI")
+                persona_prompt = ""
+                if req.personality:
+                    try:
+                        personality = app.state.personality_loader.load(req.personality)
+                        persona_prompt = personality.prompt_content
+                    except ValueError:
+                        pass
+                emotion_manager.buffer_stimulus(stimulus, context, persona_prompt)
 
             except Exception as e:
                 logger.error(f"[conversation_capture] Emotion processing failed: {e}")

@@ -300,7 +300,7 @@ function HistorySection() {
                               className="text-xs"
                               style={{ borderColor: config.color, borderWidth: 1 }}
                             >
-                              {e.name} ({e.intensity.toFixed(0)})
+                              {formatEmotionName(e.type)} ({e.intensity.toFixed(0)})
                             </Badge>
                           );
                         })}

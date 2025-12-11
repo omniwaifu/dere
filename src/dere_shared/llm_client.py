@@ -31,7 +31,7 @@ def format_messages(messages: list[Message]) -> str:
 class ClaudeClient:
     """Claude client for structured output generation."""
 
-    def __init__(self, model: str = "claude-haiku-4-5"):
+    def __init__(self, model: str = "claude-opus-4-5"):
         self.model = model
 
     async def generate_response(
@@ -51,9 +51,29 @@ class ClaudeClient:
             },
         )
 
+        # Consume ALL messages - don't break early or async cleanup fails
+        result = None
         async for msg in query(prompt=prompt, options=options):
+            # Check ResultMessage.structured_output
             if hasattr(msg, "structured_output") and msg.structured_output:
-                return response_model.model_validate(msg.structured_output)
+                result = msg.structured_output
+            # Fallback: extract from StructuredOutput tool call
+            if not result and hasattr(msg, "content"):
+                for block in msg.content if hasattr(msg.content, "__iter__") else []:
+                    if (
+                        hasattr(block, "name")
+                        and block.name == "StructuredOutput"
+                        and hasattr(block, "input")
+                        and block.input
+                    ):
+                        candidate = block.input
+                        # Haiku sometimes wraps in 'parameter' key
+                        if "parameter" in candidate and len(candidate) == 1:
+                            candidate = candidate["parameter"]
+                        result = candidate
+
+        if result:
+            return response_model.model_validate(result)
 
         raise ValueError("No structured output in response")
 
