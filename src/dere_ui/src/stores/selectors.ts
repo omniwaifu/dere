@@ -58,6 +58,7 @@ export function useConnectionState() {
       status: s.status,
       error: s.error,
       reconnectAttempts: s.reconnectAttempts,
+      disconnectedAt: s.disconnectedAt,
     }))
   );
 }

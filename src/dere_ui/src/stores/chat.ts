@@ -72,6 +72,9 @@ interface ChatStore {
   heartbeatIntervalId: number | null;
   lastActivityTime: number;
 
+  // Connection timing (for delayed UI)
+  disconnectedAt: number | null;
+
   // Actions
   connect: () => void;
   disconnect: () => void;
@@ -130,6 +133,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // Heartbeat state
   heartbeatIntervalId: null,
   lastActivityTime: Date.now(),
+  // Connection timing
+  disconnectedAt: null,
 
   connect: () => {
     const { socket, status } = get();
@@ -145,6 +150,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         socket: ws,
         reconnectAttempts: 0,
         error: null,
+        disconnectedAt: null,
       });
       startHeartbeat(ws);
     };
@@ -152,7 +158,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     ws.onclose = (event) => {
       stopHeartbeat();
       const state = get();
-      set({ status: "disconnected", socket: null });
+      set({
+        status: "disconnected",
+        socket: null,
+        disconnectedAt: state.disconnectedAt ?? Date.now(),
+      });
 
       // Auto-reconnect if not an intentional close
       if (state.shouldReconnect && !event.wasClean) {
