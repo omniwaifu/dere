@@ -152,6 +152,14 @@ function MissionsPage() {
                           </p>
                         </div>
                         <div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">Web</div>
+                          <p className="text-sm">
+                            {selectedMission.allowed_tools
+                              ? (selectedMission.allowed_tools.includes("WebFetch") ? "Yes" : "No")
+                              : "Yes"}
+                          </p>
+                        </div>
+                        <div>
                           <div className="text-xs font-medium text-muted-foreground mb-1">Working Dir</div>
                           <p className="text-sm truncate">{selectedMission.working_dir}</p>
                         </div>

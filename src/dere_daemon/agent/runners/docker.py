@@ -103,6 +103,11 @@ class DockerSessionRunner(SessionRunner):
             env.append(f"SANDBOX_RESUME_SESSION_ID={self._resume_session_id}")
         if self._config.auto_approve:
             env.append("SANDBOX_AUTO_APPROVE=1")
+        if self._config.sandbox_settings:
+            try:
+                env.append(f"SANDBOX_SETTINGS_JSON={json.dumps(self._config.sandbox_settings)}")
+            except Exception:
+                logger.warning("Failed to serialize sandbox_settings; using defaults")
 
         # Run as host user so files are owned correctly
         uid = os.getuid()

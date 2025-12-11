@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any
 
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -41,6 +42,7 @@ class CreateMissionRequest(BaseModel):
     working_dir: str = "/workspace"
     sandbox_mode: bool = True
     sandbox_mount_type: str = "none"
+    sandbox_settings: dict[str, Any] | None = None
     run_once: bool = False
 
 
@@ -60,6 +62,7 @@ class UpdateMissionRequest(BaseModel):
     working_dir: str | None = None
     sandbox_mode: bool | None = None
     sandbox_mount_type: str | None = None
+    sandbox_settings: dict[str, Any] | None = None
     run_once: bool | None = None
 
 
@@ -85,6 +88,7 @@ class MissionResponse(BaseModel):
     working_dir: str
     sandbox_mode: bool
     sandbox_mount_type: str
+    sandbox_settings: dict[str, Any] | None
     run_once: bool
     created_at: datetime
     updated_at: datetime
@@ -160,6 +164,7 @@ async def create_mission(
         working_dir=req.working_dir,
         sandbox_mode=req.sandbox_mode,
         sandbox_mount_type=req.sandbox_mount_type,
+        sandbox_settings=req.sandbox_settings,
         run_once=req.run_once,
     )
 

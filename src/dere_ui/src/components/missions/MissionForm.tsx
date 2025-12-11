@@ -33,6 +33,9 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
   const [workingDir, setWorkingDir] = useState(mission?.working_dir ?? "/workspace");
   const [sandboxMode, setSandboxMode] = useState(mission?.sandbox_mode ?? true);
   const [sandboxMountType, setSandboxMountType] = useState(mission?.sandbox_mount_type ?? "none");
+  const [webEnabled, setWebEnabled] = useState(
+    mission?.allowed_tools ? mission.allowed_tools.includes("WebFetch") : true
+  );
   const [runOnce, setRunOnce] = useState(mission?.run_once ?? false);
 
   const { data: personalities } = usePersonalities();
@@ -53,6 +56,20 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
     // For one-off missions, use "in 1 minute" as default schedule to trigger soon
     const effectiveSchedule = runOnce && !schedule.trim() ? "in 1 minute" : schedule.trim();
 
+    const defaultToolsWithoutWeb = ["Read", "Write", "Bash", "Edit", "Glob", "Grep"];
+    let effectiveAllowedTools: string[] | undefined;
+    if (mission?.allowed_tools) {
+      const base = [...mission.allowed_tools];
+      if (webEnabled) {
+        if (!base.includes("WebFetch")) base.push("WebFetch");
+        effectiveAllowedTools = base;
+      } else {
+        effectiveAllowedTools = base.filter((t) => t !== "WebFetch");
+      }
+    } else {
+      effectiveAllowedTools = webEnabled ? undefined : defaultToolsWithoutWeb;
+    }
+
     const data: CreateMissionRequest | UpdateMissionRequest = {
       name: name.trim(),
       description: description.trim() || undefined,
@@ -63,6 +80,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       working_dir: workingDir,
       sandbox_mode: sandboxMode,
       sandbox_mount_type: sandboxMountType,
+      allowed_tools: effectiveAllowedTools,
       run_once: runOnce,
     };
 
@@ -187,6 +205,16 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
           </div>
         </div>
         <Switch checked={sandboxMode} onCheckedChange={setSandboxMode} />
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-border p-3">
+        <div>
+          <div className="font-medium text-sm">Web Access</div>
+          <div className="text-xs text-muted-foreground">
+            Allow WebFetch / internet access
+          </div>
+        </div>
+        <Switch checked={webEnabled} onCheckedChange={setWebEnabled} />
       </div>
 
       {sandboxMode && (

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain, Shield } from "lucide-react";
+import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain, Shield, Globe } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import {
   usePersonalities,
@@ -29,6 +29,7 @@ export function NewSessionForm() {
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
   const [sandboxMountType, setSandboxMountType] = useState<"direct" | "copy" | "none">("copy");
+  const [webEnabled, setWebEnabled] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [showDirDropdown, setShowDirDropdown] = useState(false);
 
@@ -85,6 +86,7 @@ export function NewSessionForm() {
     if (!canSubmit) return;
 
     setIsCreating(true);
+    const defaultToolsWithoutWeb = ["Read", "Write", "Bash", "Edit", "Glob", "Grep"];
     const config: SessionConfig = {
       working_dir: workingDir.trim(),
       output_style: outputStyle,
@@ -95,6 +97,7 @@ export function NewSessionForm() {
       thinking_budget: thinkingEnabled ? 10000 : null,
       sandbox_mode: sandboxEnabled || undefined,
       sandbox_mount_type: sandboxEnabled ? sandboxMountType : undefined,
+      allowed_tools: webEnabled ? undefined : defaultToolsWithoutWeb,
     };
     newSession(config, message.trim() || undefined);
   };
@@ -169,6 +172,28 @@ export function NewSessionForm() {
                   </div>
                 </div>
               </div>
+
+              {/* Web toggle */}
+              <button
+                type="button"
+                onClick={() => setWebEnabled((v) => !v)}
+                className={cn(
+                  "group relative flex items-center gap-1 rounded-md border px-1.5 py-0.5 transition-colors",
+                  webEnabled
+                    ? "border-sky-500/50 bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                    : "border-border text-muted-foreground"
+                )}
+                title={webEnabled ? "WebFetch enabled" : "WebFetch disabled"}
+              >
+                <Globe className="h-3.5 w-3.5" />
+                <span className="text-xs">Web</span>
+                <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-md border border-border bg-popover p-2 text-xs text-popover-foreground shadow-lg group-hover:block">
+                  <div className="font-medium mb-1">Web Access</div>
+                  <div className="text-muted-foreground">
+                    Toggles the WebFetch tool. Turn off to prevent any internet access.
+                  </div>
+                </div>
+              </button>
 
               <FolderOpen className={cn("h-4 w-4", isEmptySandbox ? "text-muted-foreground/50" : "text-muted-foreground")} />
               <input

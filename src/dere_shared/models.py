@@ -57,6 +57,7 @@ class Session(SQLModel, table=True):
     user_id: str | None = None
     thinking_budget: int | None = None
     sandbox_mode: bool = Field(default=False)
+    sandbox_settings: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
     is_locked: bool = Field(default=False)
     mission_id: int | None = Field(default=None, foreign_key="missions.id")
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
@@ -352,6 +353,7 @@ class Mission(SQLModel, table=True):
     working_dir: str = Field(default="/workspace")
     sandbox_mode: bool = Field(default=True)
     sandbox_mount_type: str = Field(default="none")
+    sandbox_settings: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
 
     # State
     status: str = Field(default=MissionStatus.ACTIVE.value)
@@ -437,5 +439,4 @@ class RoutingDecision(BaseModel):
     location: str
     reasoning: str
     fallback: bool = False
-
 

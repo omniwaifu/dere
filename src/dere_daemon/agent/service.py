@@ -388,6 +388,7 @@ class CentralizedAgentService:
                 user_id=config.user_id,
                 thinking_budget=config.thinking_budget,
                 sandbox_mode=config.sandbox_mode,
+                sandbox_settings=config.sandbox_settings,
                 mission_id=config.mission_id,
             )
             db.add(session)

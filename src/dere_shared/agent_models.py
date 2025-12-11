@@ -87,6 +87,13 @@ class SessionConfig(BaseModel):
         default="copy",
         description="How to mount working directory: direct (rw), copy (temp), none (empty)",
     )
+    sandbox_settings: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Anthropic SandboxSettings for command sandboxing/network plumbing. "
+            "Filesystem/network access is still governed by permission rules."
+        ),
+    )
     mission_id: int | None = Field(
         default=None, description="Mission ID if spawned by a mission"
     )

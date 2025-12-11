@@ -28,6 +28,7 @@ export interface SessionConfig {
   thinking_budget?: number | null;
   sandbox_mode?: boolean;
   sandbox_mount_type?: "direct" | "copy" | "none";
+  sandbox_settings?: Record<string, unknown> | null;
 }
 
 export interface SessionResponse {
@@ -437,6 +438,7 @@ export interface Mission {
   working_dir: string;
   sandbox_mode: boolean;
   sandbox_mount_type: string;
+  sandbox_settings: Record<string, unknown> | null;
   run_once: boolean;
   created_at: string;
   updated_at: string;
@@ -471,6 +473,7 @@ export interface CreateMissionRequest {
   working_dir?: string;
   sandbox_mode?: boolean;
   sandbox_mount_type?: string;
+  sandbox_settings?: Record<string, unknown> | null;
   run_once?: boolean;
 }
 
@@ -488,6 +491,7 @@ export interface UpdateMissionRequest {
   working_dir?: string;
   sandbox_mode?: boolean;
   sandbox_mount_type?: string;
+  sandbox_settings?: Record<string, unknown> | null;
   run_once?: boolean;
 }
 

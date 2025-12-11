@@ -87,6 +87,7 @@ class MissionExecutor:
                 thinking_budget=mission.thinking_budget,
                 sandbox_mode=mission.sandbox_mode,
                 sandbox_mount_type=mission.sandbox_mount_type,
+                sandbox_settings=mission.sandbox_settings,
                 model=mission.model,
                 include_context=False,  # Missions don't need emotion/KG context
                 mission_id=mission.id,  # Link session to mission

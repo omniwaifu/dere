@@ -54,7 +54,7 @@ class SandboxRunner:
         if allowed_tools_str:
             allowed_tools = [t.strip() for t in allowed_tools_str.split(",") if t.strip()]
         else:
-            allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep"]
+            allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep", "WebFetch"]
 
         # Fork session ID for continuing previous conversations
         fork_session_id = os.environ.get("SANDBOX_RESUME_SESSION_ID") or None
@@ -62,6 +62,22 @@ class SandboxRunner:
         # Auto-approve mode for autonomous missions
         auto_approve = os.environ.get("SANDBOX_AUTO_APPROVE") == "1"
         permission_mode = "bypassPermissions" if auto_approve else "acceptEdits"
+
+        # Anthropic SandboxSettings (command sandboxing + network plumbing)
+        sandbox_settings: dict[str, Any] | None = None
+        sandbox_settings_json = os.environ.get("SANDBOX_SETTINGS_JSON")
+        if sandbox_settings_json:
+            try:
+                sandbox_settings = json.loads(sandbox_settings_json)
+            except Exception:
+                sandbox_settings = None
+        if sandbox_settings is None:
+            # Default: enable bash sandboxing in containers; auto-allow for missions
+            sandbox_settings = {
+                "enabled": True,
+                "autoAllowBashIfSandboxed": auto_approve,
+                "allowUnsandboxedCommands": False,
+            }
 
         # Create settings file
         settings_data = {"outputStyle": output_style}
@@ -91,6 +107,7 @@ class SandboxRunner:
             include_partial_messages=True,
             max_thinking_tokens=thinking_budget,
             fork_session=fork_session_id,
+            sandbox=sandbox_settings,
         )
 
         self._client = ClaudeSDKClient(options=options)
