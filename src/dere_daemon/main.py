@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlmodel import select
 
-from dere_shared.config import load_dere_config, save_dere_config
+from dere_shared.config import get_config_schema, load_dere_config, save_dere_config
 from dere_shared.database import create_engine, create_session_factory, get_session
 from dere_shared.models import (
     Conversation,
@@ -928,6 +928,17 @@ async def update_config(updates: dict[str, Any]):
         return updated_config
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/config/schema")
+async def get_config_schema_endpoint():
+    """Get configuration JSON schema with UI metadata.
+
+    Returns the full JSON Schema for DereConfig including
+    field titles, descriptions, types, and UI hints like
+    ui_type, ui_group, ui_order, and options for select fields.
+    """
+    return get_config_schema()
 
 
 @app.post("/search/similar")

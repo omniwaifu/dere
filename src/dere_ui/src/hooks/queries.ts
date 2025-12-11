@@ -21,6 +21,7 @@ export const queryKeys = {
   tasks: (params?: { status?: string; project?: string }) =>
     ["tasks", params] as const,
   config: ["config"] as const,
+  configSchema: ["configSchema"] as const,
   missions: ["missions"] as const,
   mission: (id: number) => ["missions", id] as const,
   missionExecutions: (id: number) => ["missions", id, "executions"] as const,
@@ -229,6 +230,14 @@ export function useUpdateConfig() {
       queryClient.invalidateQueries({ queryKey: queryKeys.config });
       queryClient.invalidateQueries({ queryKey: queryKeys.userInfo });
     },
+  });
+}
+
+export function useConfigSchema() {
+  return useQuery({
+    queryKey: queryKeys.configSchema,
+    queryFn: () => api.config.schema(),
+    staleTime: Infinity, // Schema doesn't change at runtime
   });
 }
 

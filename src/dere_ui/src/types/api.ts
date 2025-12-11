@@ -371,6 +371,47 @@ export interface DereConfig {
   plugins: PluginsConfig;
 }
 
+// Config Schema (JSON Schema with UI metadata)
+export interface ConfigSchemaOption {
+  value: string;
+  label: string;
+}
+
+export interface ConfigSchemaProperty {
+  type?: string | string[];
+  anyOf?: Array<{ type: string }>;
+  title?: string;
+  description?: string;
+  default?: unknown;
+  // UI metadata from json_schema_extra
+  ui_type?: "toggle" | "select" | "number" | "text" | "readonly" | "hidden";
+  ui_group?: string;
+  ui_order?: number;
+  options?: ConfigSchemaOption[];
+  suffix?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  // For nested objects
+  $ref?: string;
+  properties?: Record<string, ConfigSchemaProperty>;
+  // Section-level metadata
+  ui_section?: string;
+  ui_icon?: string;
+}
+
+export interface ConfigSchema {
+  $defs: Record<string, {
+    type: string;
+    title?: string;
+    description?: string;
+    properties: Record<string, ConfigSchemaProperty>;
+  }>;
+  properties: Record<string, ConfigSchemaProperty>;
+  title: string;
+  type: string;
+}
+
 // Missions
 export type MissionStatus = "active" | "paused" | "archived";
 export type MissionExecutionStatus = "pending" | "running" | "completed" | "failed" | "cancelled";

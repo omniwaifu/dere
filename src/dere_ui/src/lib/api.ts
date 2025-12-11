@@ -14,6 +14,7 @@ import type {
   EmotionProfileResponse,
   TasksResponse,
   DereConfig,
+  ConfigSchema,
   Mission,
   MissionExecution,
   CreateMissionRequest,
@@ -148,6 +149,7 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(updates),
       }),
+    schema: () => fetchJson<ConfigSchema>("/config/schema"),
   },
 
   taskwarrior: {

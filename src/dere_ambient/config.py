@@ -69,7 +69,7 @@ def load_ambient_config() -> AmbientConfig:
         context_change_threshold=ambient_section.get("context_change_threshold", 0.7),
         daemon_url=ambient_section.get("daemon_url", DEFAULT_DAEMON_URL),
         user_id=ambient_section.get("user_id") or config.get("user_id", "default_user"),
-        personality=ambient_section.get("personality", default_personality),
+        personality=ambient_section.get("personality") or default_personality,
         escalation_enabled=ambient_section.get("escalation_enabled", True),
         escalation_lookback_hours=ambient_section.get("escalation_lookback_hours", 12),
         min_notification_interval_minutes=ambient_section.get(
