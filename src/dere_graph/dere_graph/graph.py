@@ -138,7 +138,7 @@ class DereGraph:
         3. Deduplicates entities
         4. Extracts relationships
         5. Generates embeddings
-        6. Saves everything to Neo4j
+        6. Persists everything to FalkorDB (and optional Postgres metadata)
 
         Args:
             episode_body: Episode content

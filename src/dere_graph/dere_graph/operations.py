@@ -38,7 +38,7 @@ async def add_episode(
         # Fetch recent episodes for context in entity deduplication
         previous_episodes = await driver.get_recent_episodes(episode.group_id, limit=5)
 
-    # 1. Save episode to Neo4j
+    # 1. Save episode to graph DB
     await driver.save_episodic_node(episode)
     logger.info(f"Saved episode: {episode.uuid}")
 

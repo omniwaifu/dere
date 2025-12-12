@@ -1,148 +1,93 @@
 # dere
 
-Wrapper for Claude Code that adds personality, plugins, knowledge graph, and prompts for different workflows. The core thesis of this project is 'I pay for a subscription, I might as well wring every dollar of value I can' while utilizing it for things such as task management, note-taking (anki, obsidian, etc.), news analysis, etc. - all in a 'personality' that's less grating than default.
+Personality-layered wrapper for Claude Code with optional daemon services (memory/emotions/knowledge graph) and plugins for different workflows (coding, productivity, vaults).
+
+Core thesis: squeeze real utility out of the subscription (coding, tasks, research, notes) without the default assistant voice.
 
 ## What it does
 
-- Wraps Claude Code CLI with emotional context and conversation persistence
-- Plugin system for conditional features (productivity tools, Zettelkasten vault, symbol-aware coding)
-- Background daemon for conversation memory, emotion tracking, and knowledge graph
-- MCP servers for Taskwarrior, Google Calendar, ActivityWatch, Zotero, and library documentation
+- Wraps Claude Code CLI and injects personality + context via plugins
+- Optionally runs a daemon for persistence (sessions, emotions, graph, missions)
+- Enables workflow-specific behaviors via plugins (auto/always/never)
 
-## Install
+## Quickstart
 
-Requires Python 3.13+, [uv](https://github.com/astral-sh/uv), and [Claude Code](https://github.com/anthropics/claude-cli).
+### Prereqs
+
+- Python 3.13+, `uv`, `just`
+- Claude Code CLI installed and working
+- `bun` (required by `just install`; also used for UI + some MCP tooling)
+- PostgreSQL (daemon state)
+- Docker (optional; used for FalkorDB via `just falkordb`)
+
+### Install
 
 ```bash
-git clone https://github.com/omniwaifu/dere.git
-cd dere
 just install
 ```
 
-## Usage
+### Run
 
 ```bash
-# Basic (core personality only)
+# CLI wrapper (passes through to Claude Code unless you use subcommands)
 dere
 
-# Start background daemon
+# Daemon + services
 just dev                    # daemon only
-just dev-all                # daemon + discord bot
-
-# Daemon management
-dere daemon start
-dere daemon stop
-dere daemon status
+just dev-all                # daemon + discord bot (+ UI via Procfile)
 
 # Configuration
-dere config show            # view config
-dere config path            # show config file location
-dere config edit            # edit in $EDITOR
+dere config show
+dere config edit
 ```
-
-## Plugins
-
-Plugins are enabled based on mode or directory context.
-
-### dere-core (Always Active)
-
-Kuudere personality with environmental context.
-
-- Time, weather, and recent files tracking
-- OCC emotion model (requires daemon)
-- Knowledge graph integration (requires daemon)
-- Conversation memory and recall
-
-### dere-productivity (Opt-in)
-
-GTD task management, calendar, and activity tracking.
-
-- Taskwarrior integration
-- Google Calendar (OAuth setup required)
-- ActivityWatch time tracking
-- Daily planning/review workflows
-
-Enable: `dere --mode productivity` or in config.
-
-See [CALENDAR_SETUP.md](src/dere_plugins/dere_productivity/CALENDAR_SETUP.md) for Google Calendar setup.
-
-### dere-code (Auto)
-
-Symbol-aware code navigation and refactoring via Serena LSP.
-
-- Symbol-level navigation and refactoring
-- Codebase onboarding and analysis
-- Up-to-date library docs via Context7
-- Project knowledge persistence
-
-Auto-enabled in configured directories (default: `/mnt/data/Code`).
-
-### dere-vault (Opt-in)
-
-Zettelkasten workflows for Obsidian vaults.
-
-- Literature notes with Zotero integration
-- Permanent notes and concept extraction
-- Backlink analysis and note linking
-- Research hub creation
-
-Enable: `dere --mode vault` or when in vault directory.
-
-### dere-graph-features (Auto)
-
-Knowledge graph visualization. Auto-enabled when daemon is running.
 
 ## Configuration
 
-Config file: `~/.config/dere/config.toml`
+- Config file: `~/.config/dere/config.toml`
+- Example: `config.toml.example`
 
-```toml
-[plugins.dere_core]
-mode = "always"
+Common gotchas:
+- `DATABASE_URL` / `[database].url` must point at your Postgres instance
+- Knowledge graph requires `OPENAI_API_KEY` (embeddings) and FalkorDB running
 
-[plugins.dere_productivity]
-mode = "never"  # "always", "never", or "auto"
+## Plugins
 
-[plugins.dere_code]
-mode = "auto"
-directories = ["/mnt/data/Code"]
+- `dere-core`: personality + baseline context (always)
+- `dere-code`: coding workflow automation (auto; Serena + Context7)  
+  Docs: `src/dere_plugins/dere_code/README.md`
+- `dere-productivity`: GTD tasks/calendar/activity tooling (opt-in)  
+  Setup: `src/dere_plugins/dere_productivity/CALENDAR_SETUP.md`
+- `dere-vault`: Obsidian/Zettelkasten workflows (opt-in)  
+  Docs: `src/dere_plugins/dere_vault/README.md`
+- `dere-graph-features`: graph extraction/visualization affordances (auto when daemon)
 
-[plugins.dere_vault]
-mode = "never"
-
-[context]
-time = true
-weather = true
-recent_files = true
-knowledge_graph = true  # requires daemon
-```
-
-## Development
-
-```bash
-just build      # sync dependencies
-just test       # run tests
-just lint       # run ruff
-just fmt        # format code
-just dev        # run daemon
-just dev-all    # run all services
-```
-
-## Project Structure
+## Repo layout
 
 ```
 src/
-├── dere_cli/          # CLI wrapper
-├── dere_daemon/       # Background daemon (FastAPI)
+├── dere_cli/          # CLI wrapper (entry: `dere`)
+├── dere_daemon/       # FastAPI daemon (state, missions, graph init)
 ├── dere_discord/      # Discord bot
-├── dere_ambient/      # Proactive monitoring
-├── dere_graph/        # Knowledge graph (pgvector)
-├── dere_shared/       # Shared utilities
-├── dere_ui            # React/Vite UI 
-└── dere_plugins/      # Claude Code plugins
-    ├── dere_core/         # Core personality (always-on)
-    ├── dere_productivity/ # Productivity suite
-    ├── dere_code/         # Symbol-aware coding
-    ├── dere_vault/        # Zettelkasten integration
-    └── dere_graph_features/
+├── dere_ambient/      # Proactive monitoring/notifications
+├── dere_graph/        # Knowledge graph library (FalkorDB + OpenAI embeddings)
+├── dere_shared/       # Shared config/utilities
+├── dere_ui/           # React/Vite UI
+└── dere_plugins/      # Claude Code plugins (modes, agents, commands, output styles)
 ```
+
+## Dev commands
+
+```bash
+just test       # pytest
+just lint       # ruff check
+just fmt        # ruff format
+just dev        # run daemon
+just dev-all    # daemon + discord (+ UI via Procfile)
+just ui         # UI dev server
+just falkordb   # graph DB in docker
+```
+
+## Docs
+
+- Graph: `src/dere_graph/README.md`
+- UI: `src/dere_ui/README.md`
