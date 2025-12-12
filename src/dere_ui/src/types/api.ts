@@ -130,6 +130,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  personality?: string;
   thinking?: string;
   thinkingDuration?: number;
   toolUses: ToolUse[];

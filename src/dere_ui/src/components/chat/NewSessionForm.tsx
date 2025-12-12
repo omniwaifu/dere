@@ -31,7 +31,7 @@ export function NewSessionForm() {
   const [personality, setPersonality] = useState("");
   const [outputStyle, setOutputStyle] = useState("web");
   const [model, setModel] = useState("");
-  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
   const [sandboxMountType, setSandboxMountType] = useState<"direct" | "copy" | "none">("copy");
   const [webEnabled, setWebEnabled] = useState(true);

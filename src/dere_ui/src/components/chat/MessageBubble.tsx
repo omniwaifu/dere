@@ -30,10 +30,14 @@ function formatTiming(ms: number): string {
 interface MessageBubbleProps {
   message: ChatMessage;
   isLatest?: boolean;
+  avatarUrl?: string;
+  fallbackColor?: string;
+  fallbackIcon?: string;
 }
 
-export function MessageBubble({ message, isLatest }: MessageBubbleProps) {
+export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fallbackIcon }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   if (message.role === "user") {
     if (!message.content?.trim()) return null;
@@ -53,8 +57,52 @@ export function MessageBubble({ message, isLatest }: MessageBubbleProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const hasText = !!message.content?.trim();
+
+  // For assistant messages that are only thinking/tool-use (no final text yet),
+  // avoid showing the avatar to reduce visual noise.
+  if (!hasText) {
+    return (
+      <div className="group/message flex justify-start">
+        <div className="max-w-[85%] space-y-2">
+          <ThinkingIndicator
+            thinking={message.thinking}
+            thinkingDuration={message.thinkingDuration}
+            isStreaming={message.isStreaming}
+          />
+
+          {message.toolUses.map((tool) => (
+            <ToolUseBlock
+              key={tool.id}
+              tool={tool}
+              result={message.toolResults.find((r) => r.toolUseId === tool.id)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="group/message flex justify-start">
+    <div className="group/message flex items-start justify-start gap-2">
+      <div className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-full border border-border bg-muted/30">
+        {!avatarUrl || avatarFailed ? (
+          <div
+            className="flex h-full w-full items-center justify-center text-xs font-semibold text-foreground"
+            style={fallbackColor ? { backgroundColor: fallbackColor + "20", color: fallbackColor } : undefined}
+            title="Personality"
+          >
+            {fallbackIcon || "●"}
+          </div>
+        ) : (
+          <img
+            src={avatarUrl}
+            alt="avatar"
+            className="h-full w-full object-cover"
+            onError={() => setAvatarFailed(true)}
+          />
+        )}
+      </div>
       <div className="max-w-[85%] space-y-2">
         <ThinkingIndicator
           thinking={message.thinking}

@@ -2,17 +2,30 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useChatInputState, useChatActions } from "@/stores/selectors";
+import { useChatInputState, useChatActions, useChatHeaderState } from "@/stores/selectors";
+import { usePersonalities } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
+import { darkenHex, isHexColor } from "@/lib/color";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { status, sessionId, isQueryInProgress, isLocked } = useChatInputState();
+  const { sessionConfig } = useChatHeaderState();
   const { sendQuery, cancelQuery } = useChatActions();
+  const { data: personalities } = usePersonalities();
 
   const canSend = status === "connected" && sessionId && input.trim() && !isQueryInProgress && !isLocked;
+
+  const personalityKey = (() => {
+    const p = sessionConfig?.personality;
+    if (Array.isArray(p)) return p[0] || "";
+    return p || "";
+  })();
+  const personalityInfo = personalities?.personalities.find((p) => p.name === personalityKey);
+  const personalityColor = personalityInfo?.color;
+  const sendBg = isHexColor(personalityColor) ? darkenHex(personalityColor, 0.25) : "#f97316";
 
   const handleSubmit = () => {
     if (!canSend) return;
@@ -34,7 +47,7 @@ export function ChatInput() {
   }, [isQueryInProgress]);
 
   return (
-    <div className="border-t border-border p-4">
+    <div className="p-4">
       <div className="relative mx-auto max-w-3xl">
         <Textarea
           ref={textareaRef}
@@ -59,13 +72,14 @@ export function ChatInput() {
           onClick={isQueryInProgress ? cancelQuery : handleSubmit}
           disabled={!isQueryInProgress && !canSend}
           className={cn(
-            "absolute bottom-2 right-2 h-9 w-9 rounded-full transition-all duration-200",
+            "absolute bottom-2 right-2 h-9 w-9 rounded-full transition-all duration-200 hover:brightness-110",
             isQueryInProgress
               ? "bg-white/90 text-black hover:bg-white animate-pulse"
               : canSend
-                ? "bg-orange-500 text-white hover:bg-orange-600"
+                ? "text-white"
                 : "bg-muted text-muted-foreground"
           )}
+          style={!isQueryInProgress && canSend ? { backgroundColor: sendBg } : undefined}
         >
           {isQueryInProgress ? (
             <Square className="h-4 w-4 fill-current" />

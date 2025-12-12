@@ -4,6 +4,7 @@ import { useChatHeaderState, useChatActions } from "@/stores/selectors";
 import { usePersonalities, useOutputStyles } from "@/hooks/queries";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { alphaHex, isHexColor } from "@/lib/color";
 
 export function ChatHeader() {
   const { sessionConfig, sessionName } = useChatHeaderState();
@@ -36,25 +37,50 @@ export function ChatHeader() {
     ? sessionConfig.personality.join(", ")
     : sessionConfig.personality || "default";
 
-  return (
-    <header className="flex items-center gap-4 border-b border-border/50 px-4 py-2">
-      {sessionName && (
-        <h1 className="text-sm font-medium truncate max-w-[200px]">
-          {sessionName}
-        </h1>
-      )}
+  const personalityInfo = personalities?.personalities.find((p) => p.name === currentPersonality);
+  const personalityColor = personalityInfo?.color;
+  const tintBg = isHexColor(personalityColor) ? alphaHex(personalityColor, 0.06) : undefined;
+  const tintBorder = isHexColor(personalityColor) ? alphaHex(personalityColor, 0.25) : undefined;
+  const avatarUrl = personalityInfo ? `/api/personalities/${encodeURIComponent(personalityInfo.name)}/avatar` : undefined;
 
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <FolderOpen className="h-4 w-4" />
-        <span className="truncate max-w-[200px]">
-          {sessionConfig.working_dir}
-        </span>
+  return (
+    <header
+      className="flex items-center gap-4 border-b px-4 py-3"
+      style={{ backgroundColor: tintBg, borderBottomColor: tintBorder }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-border bg-muted/30">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="avatar" className="h-full w-full object-cover" />
+          ) : (
+            <div
+              className="flex h-full w-full items-center justify-center text-sm font-semibold"
+              style={personalityColor ? { backgroundColor: personalityColor + "20", color: personalityColor } : undefined}
+            >
+              {personalityInfo?.icon || "●"}
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          {sessionName && (
+            <h1 className="text-sm font-semibold truncate max-w-[260px]">
+              {sessionName}
+            </h1>
+          )}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span className="truncate max-w-[260px]">
+              {sessionConfig.working_dir}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-md px-2 py-1 text-sm" style={{ backgroundColor: tintBg }}>
           <User className="h-4 w-4 text-muted-foreground" />
           <select
             value={currentPersonality}
@@ -85,7 +111,6 @@ export function ChatHeader() {
           </select>
         </div>
 
-        {/* Thinking indicator (read-only - SDK doesn't support runtime changes) */}
         <div
           className={cn(
             "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm",

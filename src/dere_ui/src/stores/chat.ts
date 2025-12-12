@@ -100,6 +100,14 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function getCurrentPersonalityKey(): string | undefined {
+  const cfg = useChatStore.getState().sessionConfig;
+  if (!cfg) return undefined;
+  const p = cfg.personality;
+  if (Array.isArray(p)) return p[0] || undefined;
+  return p || undefined;
+}
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   // Initial state
   status: "disconnected",
@@ -331,6 +339,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       id: generateId(),
       role: "user",
       content,
+      personality: getCurrentPersonalityKey(),
       toolUses: [],
       toolResults: [],
       timestamp: Date.now(),
@@ -521,6 +530,7 @@ function handleStreamEvent(event: StreamEvent) {
               id: generateId(),
               role: "assistant",
               content: "",
+              personality: getCurrentPersonalityKey(),
               toolUses: [],
               toolResults: [],
               timestamp: Date.now(),
@@ -559,6 +569,7 @@ function handleStreamEvent(event: StreamEvent) {
               id: generateId(),
               role: "assistant",
               content: "",
+              personality: getCurrentPersonalityKey(),
               thinking: data.text,
               toolUses: [],
               toolResults: [],
@@ -597,6 +608,7 @@ function handleStreamEvent(event: StreamEvent) {
               id: generateId(),
               role: "assistant",
               content: "",
+              personality: getCurrentPersonalityKey(),
               toolUses: [toolUse],
               toolResults: [],
               timestamp: Date.now(),

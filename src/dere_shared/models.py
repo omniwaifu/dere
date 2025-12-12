@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel
 from sqlalchemy import BigInteger, Column, DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -92,8 +91,6 @@ class Conversation(SQLModel, table=True):
     session_id: int = Field(foreign_key="sessions.id")
     prompt: str
     message_type: str = Field(default="user")
-    embedding_text: str | None = None
-    prompt_embedding: list[float] | None = Field(default=None, sa_column=Column(Vector(1024)))
     timestamp: int
     medium: str | None = None
     user_id: str | None = None
