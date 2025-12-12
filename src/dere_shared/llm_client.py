@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
+import json
+from typing import Any, TypeVar
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, query
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -28,6 +28,54 @@ def format_messages(messages: list[Message]) -> str:
     return "\n\n".join(parts)
 
 
+def _unwrap_tool_payload(candidate: Any) -> Any:
+    """
+    Claude SDK tool calls sometimes wrap the actual JSON payload.
+
+    Common wrappers observed: {"parameters": {...}}, {"parameter": {...}},
+    {"argument": {...}}, {"input": {...}}.
+    """
+    while isinstance(candidate, dict):
+        # Single-key wrappers
+        for key in ("parameters", "parameter", "arguments", "argument", "input", "output", "data"):
+            if key in candidate and len(candidate) == 1:
+                candidate = candidate[key]
+                break
+        else:
+            # Two-key common wrapper variants: {"name": "...", "parameters": {...}}
+            if "parameters" in candidate and isinstance(candidate["parameters"], dict):
+                candidate = candidate["parameters"]
+                continue
+            if "input" in candidate and isinstance(candidate["input"], dict):
+                candidate = candidate["input"]
+                continue
+            return candidate
+    return candidate
+
+
+def _try_parse_json_from_text(text: str) -> Any | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    # First try: whole string is JSON
+    try:
+        return json.loads(stripped)
+    except Exception:
+        pass
+
+    # Fallback: find an embedded JSON object
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+
+    try:
+        return json.loads(stripped[start : end + 1])
+    except Exception:
+        return None
+
+
 class ClaudeClient:
     """Claude client for structured output generation."""
 
@@ -40,6 +88,8 @@ class ClaudeClient:
         response_model: type[T],
     ) -> T:
         """Generate structured output using Claude Agent SDK."""
+        from claude_agent_sdk import ClaudeAgentOptions, query
+
         prompt = format_messages(messages)
         schema = response_model.model_json_schema()
 
@@ -53,34 +103,44 @@ class ClaudeClient:
 
         # Consume ALL messages - don't break early or async cleanup fails
         result = None
+        last_text = ""
         async for msg in query(prompt=prompt, options=options):
             # Check ResultMessage.structured_output
             if hasattr(msg, "structured_output") and msg.structured_output:
-                result = msg.structured_output
+                result = _unwrap_tool_payload(msg.structured_output)
             # Fallback: extract from StructuredOutput tool call
             if not result and hasattr(msg, "content"):
-                for block in msg.content if hasattr(msg.content, "__iter__") else []:
-                    if (
-                        hasattr(block, "name")
-                        and block.name == "StructuredOutput"
-                        and hasattr(block, "input")
-                        and block.input
-                    ):
-                        candidate = block.input
-                        # Model sometimes wraps in 'parameter' or 'argument' key
-                        if "parameter" in candidate and len(candidate) == 1:
-                            candidate = candidate["parameter"]
-                        elif "argument" in candidate and len(candidate) == 1:
-                            candidate = candidate["argument"]
-                        result = candidate
+                content = msg.content
+                if isinstance(content, str):
+                    last_text = content
+                    parsed = _try_parse_json_from_text(content)
+                    if parsed is not None:
+                        result = _unwrap_tool_payload(parsed)
+                    continue
+
+                # content is usually a list of blocks; support dict-like blocks too
+                for block in content if hasattr(content, "__iter__") else []:
+                    if isinstance(block, dict):
+                        if "input" in block and block["input"]:
+                            result = _unwrap_tool_payload(block["input"])
+                            break
+                        continue
+
+                    if hasattr(block, "input") and getattr(block, "input"):
+                        result = _unwrap_tool_payload(getattr(block, "input"))
+                        break
 
         if result:
             return response_model.model_validate(result)
 
+        if last_text:
+            raise ValueError(f"No structured output in response (last text: {last_text[:200]!r})")
         raise ValueError("No structured output in response")
 
     async def generate_text_response(self, messages: list[Message]) -> str:
         """Generate a simple text response without structured output."""
+        from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, query
+
         prompt = format_messages(messages)
 
         response_text = ""
