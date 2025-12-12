@@ -7,10 +7,15 @@ import {
   useModels,
   useRecentDirectories,
 } from "@/hooks/queries";
+import { usePresets } from "@/hooks/usePresets";
+import type { Preset } from "@/lib/presets";
 import type { SessionConfig } from "@/types/api";
 import { cn } from "@/lib/utils";
 import { ShootingStars } from "@/components/ui/shooting-stars";
 import { StarsBackground } from "@/components/ui/stars-background";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -32,6 +37,9 @@ export function NewSessionForm() {
   const [webEnabled, setWebEnabled] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [showDirDropdown, setShowDirDropdown] = useState(false);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("off");
+  const [savePresetOpen, setSavePresetOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +52,7 @@ export function NewSessionForm() {
   const { data: outputStyles } = useOutputStyles();
   const { data: models } = useModels();
   const { data: recentDirs } = useRecentDirectories();
+  const { presets, addPreset, deletePreset } = usePresets("session");
 
   const greeting = getGreeting();
 
@@ -115,6 +124,41 @@ export function NewSessionForm() {
     textareaRef.current?.focus();
   };
 
+  const applyPreset = (preset: Preset) => {
+    const c = preset.config;
+    if (c.working_dir !== undefined) setWorkingDir(c.working_dir);
+    if (c.output_style !== undefined) setOutputStyle(c.output_style || "web");
+    if (c.personality !== undefined) setPersonality(typeof c.personality === "string" ? c.personality : "");
+    if (c.model !== undefined) setModel(c.model || "");
+    if (c.thinking_enabled !== undefined) setThinkingEnabled(!!c.thinking_enabled);
+    if (c.sandbox_mode !== undefined) setSandboxEnabled(!!c.sandbox_mode);
+    if (c.sandbox_mount_type !== undefined) setSandboxMountType(c.sandbox_mount_type);
+    if (c.web_enabled !== undefined) setWebEnabled(!!c.web_enabled);
+  };
+
+  const handlePresetChange = (id: string) => {
+    setSelectedPresetId(id);
+    const preset = presets.find((p) => p.id === id);
+    if (preset) applyPreset(preset);
+  };
+
+  const handleSavePreset = () => {
+    const name = presetName.trim();
+    if (!name) return;
+    addPreset(name, "session", {
+      working_dir: workingDir.trim() || undefined,
+      output_style: outputStyle,
+      personality: personality || undefined,
+      model: model || undefined,
+      thinking_enabled: thinkingEnabled,
+      sandbox_mode: sandboxEnabled,
+      sandbox_mount_type: sandboxMountType,
+      web_enabled: webEnabled,
+    });
+    setPresetName("");
+    setSavePresetOpen(false);
+  };
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-8 relative overflow-hidden">
       <StarsBackground className="z-0" />
@@ -134,6 +178,22 @@ export function NewSessionForm() {
           {/* Working directory section */}
           <div className="relative border-b border-border p-3">
             <div className="flex items-center gap-2">
+              {/* Preset selector */}
+              <div className="group relative flex items-center gap-1 rounded-md border px-1.5 py-0.5 transition-colors border-border text-muted-foreground">
+                <select
+                  value={selectedPresetId}
+                  onChange={(e) => handlePresetChange(e.target.value)}
+                  className="cursor-pointer bg-transparent text-xs focus:outline-none [&>option]:bg-popover [&>option]:text-popover-foreground"
+                >
+                  <option value="off">Preset</option>
+                  {presets.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Sandbox mode selector */}
               <div
                 className={cn(
@@ -248,6 +308,42 @@ export function NewSessionForm() {
               )}
           </div>
 
+          {/* Preset save / manage */}
+          <div className="border-b border-border px-3 py-2">
+            <Collapsible open={savePresetOpen} onOpenChange={setSavePresetOpen}>
+              <div className="flex items-center justify-between">
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    Save current as preset
+                  </Button>
+                </CollapsibleTrigger>
+                {selectedPresetId !== "off" &&
+                  presets.find((p) => p.id === selectedPresetId && !p.is_default) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        deletePreset(selectedPresetId);
+                        setSelectedPresetId("off");
+                      }}
+                    >
+                      Delete preset
+                    </Button>
+                  )}
+              </div>
+              <CollapsibleContent className="mt-2 flex gap-2">
+                <Input
+                  placeholder="Preset name"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                />
+                <Button onClick={handleSavePreset} disabled={!presetName.trim()}>
+                  Save
+                </Button>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+
           {/* Message textarea */}
           <div className="p-3">
             <textarea
@@ -358,13 +454,33 @@ export function NewSessionForm() {
           </p>
         )}
 
-        {/* Connection status hint */}
+        {/* Connection status hint (only after brief grace period) */}
         {status !== "connected" && (
-          <p className="text-center text-sm text-muted-foreground">
-            Connecting to server...
-          </p>
+          <DisconnectedHint />
         )}
       </div>
     </div>
+  );
+}
+
+function DisconnectedHint() {
+  const disconnectedAt = useChatStore((s) => s.disconnectedAt);
+  const status = useChatStore((s) => s.status);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (status === "connected" || !disconnectedAt) {
+      setShow(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setShow(true), 2000);
+    return () => clearTimeout(timeout);
+  }, [status, disconnectedAt]);
+
+  if (!show) return null;
+  return (
+    <p className="text-center text-sm text-muted-foreground">
+      Connecting to server...
+    </p>
   );
 }

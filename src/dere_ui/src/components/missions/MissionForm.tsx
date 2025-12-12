@@ -13,6 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { usePersonalities, useModels, useCreateMission, useUpdateMission } from "@/hooks/queries";
+import { usePresets } from "@/hooks/usePresets";
+import type { Preset } from "@/lib/presets";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { Mission, CreateMissionRequest, UpdateMissionRequest } from "@/types/api";
 
 interface MissionFormProps {
@@ -36,12 +39,17 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
   const [webEnabled, setWebEnabled] = useState(
     mission?.allowed_tools ? mission.allowed_tools.includes("WebFetch") : true
   );
+  const [thinkingEnabled, setThinkingEnabled] = useState(!!mission?.thinking_budget);
   const [runOnce, setRunOnce] = useState(mission?.run_once ?? false);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("off");
+  const [savePresetOpen, setSavePresetOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
 
   const { data: personalities } = usePersonalities();
   const { data: models } = useModels();
   const createMission = useCreateMission();
   const updateMission = useUpdateMission();
+  const { presets, addPreset, deletePreset } = usePresets("mission");
 
   const isEditing = !!mission;
   const isSubmitting = createMission.isPending || updateMission.isPending;
@@ -77,6 +85,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       schedule: effectiveSchedule,
       personality: personality || undefined,
       model,
+      thinking_budget: thinkingEnabled ? 10000 : null,
       working_dir: workingDir,
       sandbox_mode: sandboxMode,
       sandbox_mount_type: sandboxMountType,
@@ -96,6 +105,89 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Preset</Label>
+        <div className="flex items-center gap-2">
+          <Select value={selectedPresetId} onValueChange={(id) => {
+            setSelectedPresetId(id);
+            const preset = presets.find((p) => p.id === id);
+            if (!preset) return;
+            const c = preset.config as Preset["config"];
+            if (c.personality !== undefined) setPersonality(typeof c.personality === "string" ? c.personality : "");
+            if (c.model !== undefined) setModel(c.model || "claude-opus-4-5");
+            if (c.working_dir !== undefined) setWorkingDir(c.working_dir || "/workspace");
+            if (c.thinking_enabled !== undefined) setThinkingEnabled(!!c.thinking_enabled);
+            if (c.sandbox_mode !== undefined) setSandboxMode(!!c.sandbox_mode);
+            if (c.sandbox_mount_type !== undefined) setSandboxMountType(c.sandbox_mount_type);
+            if (c.web_enabled !== undefined) setWebEnabled(!!c.web_enabled);
+          }}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder="Choose preset" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">None</SelectItem>
+              {presets.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Collapsible open={savePresetOpen} onOpenChange={setSavePresetOpen}>
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="outline" size="sm">
+                Save preset
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="flex items-center gap-2">
+              <Input
+                placeholder="Preset name"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                className="w-48"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={!presetName.trim()}
+                onClick={() => {
+                  const name = presetName.trim();
+                  if (!name) return;
+                  addPreset(name, "mission", {
+                    working_dir: workingDir,
+                    personality: personality || undefined,
+                    model,
+                    thinking_enabled: thinkingEnabled,
+                    sandbox_mode: sandboxMode,
+                    sandbox_mount_type: sandboxMountType,
+                    web_enabled: webEnabled,
+                  });
+                  setPresetName("");
+                  setSavePresetOpen(false);
+                }}
+              >
+                Save
+              </Button>
+              {selectedPresetId !== "off" &&
+                presets.find((p) => p.id === selectedPresetId && !p.is_default) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      deletePreset(selectedPresetId);
+                      setSelectedPresetId("off");
+                    }}
+                  >
+                    Delete
+                  </Button>
+                )}
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="name">Name</Label>
         <Input
@@ -205,6 +297,16 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
           </div>
         </div>
         <Switch checked={sandboxMode} onCheckedChange={setSandboxMode} />
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-border p-3">
+        <div>
+          <div className="font-medium text-sm">Thinking</div>
+          <div className="text-xs text-muted-foreground">
+            Enable extended thinking for mission runs
+          </div>
+        </div>
+        <Switch checked={thinkingEnabled} onCheckedChange={setThinkingEnabled} />
       </div>
 
       <div className="flex items-center justify-between rounded-lg border border-border p-3">

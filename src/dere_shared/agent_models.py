@@ -112,6 +112,7 @@ class ClientMessageType(str, Enum):
     RESUME_SESSION = "resume_session"
     QUERY = "query"
     UPDATE_CONFIG = "update_config"
+    PING = "ping"
     CLOSE = "close"
 
 

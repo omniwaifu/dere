@@ -803,8 +803,9 @@ function startHeartbeat(ws: WebSocket) {
     const state = useChatStore.getState();
     const timeSinceLastActivity = Date.now() - state.lastActivityTime;
 
-    // If no activity for too long, connection might be dead
-    if (timeSinceLastActivity > HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS) {
+    // If no activity for too long, connection might be dead.
+    // Use a 2-interval grace period to avoid spurious reconnects on transient hiccups.
+    if (timeSinceLastActivity > HEARTBEAT_INTERVAL_MS * 2 + HEARTBEAT_TIMEOUT_MS) {
       // Force reconnect
       ws.close();
       useChatStore.setState({
@@ -817,6 +818,8 @@ function startHeartbeat(ws: WebSocket) {
 
     // Send ping to keep connection alive and detect broken connections
     try {
+      // Treat outgoing heartbeat as activity so brief pong drops don't trigger reconnect.
+      useChatStore.setState({ lastActivityTime: Date.now() });
       ws.send(JSON.stringify({ type: "ping" }));
     } catch {
       // Connection is broken, will be handled by onclose
