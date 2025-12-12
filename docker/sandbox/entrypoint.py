@@ -86,7 +86,7 @@ class SandboxRunner:
             self._settings_file = f.name
 
         # Find dere-core plugin
-        dere_core_path = Path("/app/dere/src/dere_core")
+        dere_core_path = Path("/app/dere/src/dere_plugins/dere_core")
         plugins: list[dict[str, Any]] = []
         if dere_core_path.exists():
             plugins.append({"type": "local", "path": str(dere_core_path)})

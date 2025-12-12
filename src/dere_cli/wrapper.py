@@ -47,7 +47,7 @@ class SettingsBuilder:
         output_style_to_use = self.output_style
         if not output_style_to_use:
             try:
-                from dere_vault.scripts.detect_vault import is_vault
+                from dere_plugins.dere_vault.scripts.detect_vault import is_vault
                 if is_vault():
                     output_style_to_use = "dere-vault:vault"
             except Exception:
@@ -69,7 +69,7 @@ class SettingsBuilder:
         if self.mode == "vault":
             return True
         try:
-            from dere_vault.scripts.detect_vault import is_vault
+            from dere_plugins.dere_vault.scripts.detect_vault import is_vault
             return is_vault()
         except Exception:
             return False
@@ -120,20 +120,16 @@ class SettingsBuilder:
             return False
 
     def _find_plugins_path(self) -> Path | None:
-        try:
-            import dere_core
-            plugin_file = Path(dere_core.__file__).resolve()
+        # Prefer a local checkout: walk upward and look for `src/dere_plugins`.
+        cwd = Path.cwd()
+        for parent in [cwd, *cwd.parents]:
+            candidate = parent / "src" / "dere_plugins"
+            if (candidate / ".claude-plugin" / "marketplace.json").exists():
+                return candidate
 
-            if "site-packages" in str(plugin_file):
-                cwd = Path.cwd()
-                for parent in [cwd, *cwd.parents]:
-                    candidate = parent / "src"
-                    if (candidate / "dere_core" / ".claude-plugin").exists():
-                        return candidate
-                return plugin_file.parent.parent
-            return plugin_file.parent.parent
-        except Exception:
-            return None
+        # Fallback: if running from an installed package, we may not have a marketplace
+        # manifest available. In that case, don't attempt to configure a local marketplace.
+        return None
 
     def _add_dere_plugins(self, settings: dict) -> None:
         plugins_path = self._find_plugins_path()
@@ -165,7 +161,9 @@ class SettingsBuilder:
                 pass
 
     def _add_status_line(self, settings: dict) -> None:
-        plugin_statusline = Path(__file__).parent.parent / "dere_core" / "scripts" / "dere-statusline.py"
+        plugin_statusline = (
+            Path(__file__).parent.parent / "dere_plugins" / "dere_core" / "scripts" / "dere-statusline.py"
+        )
         if plugin_statusline.exists():
             settings["statusLine"] = {
                 "type": "command",
@@ -190,10 +188,15 @@ class SettingsBuilder:
             import dere_shared  # noqa: PLC0415
 
             site_root = str(Path(dere_shared.__file__).resolve().parent.parent)
+            plugins_root = str(Path(site_root) / "dere_plugins")
             existing_pythonpath = os.environ.get("PYTHONPATH", "")
-            pythonpath_value = (
-                f"{site_root}{os.pathsep}{existing_pythonpath}" if existing_pythonpath else site_root
-            )
+            pythonpath_parts = []
+            if Path(plugins_root).exists():
+                pythonpath_parts.append(plugins_root)
+            pythonpath_parts.append(site_root)
+            if existing_pythonpath:
+                pythonpath_parts.append(existing_pythonpath)
+            pythonpath_value = os.pathsep.join(pythonpath_parts)
             settings["env"]["PYTHONPATH"] = pythonpath_value
             settings["env"]["DERE_PYTHONPATH"] = pythonpath_value
         except Exception:
@@ -208,6 +211,34 @@ class SettingsBuilder:
             settings["env"]["DERE_ENABLED_PLUGINS"] = "/".join(self.enabled_plugins)
         if self.session_id:
             settings["env"]["DERE_SESSION_ID"] = str(self.session_id)
+
+        # Google Calendar MCP: auto-provide credentials path if available.
+        # @cocal/google-calendar-mcp expects GOOGLE_OAUTH_CREDENTIALS to point to the OAuth JSON file.
+        try:
+            if (
+                self.mode in ("productivity", "tasks")
+                or "productivity" in self.enabled_plugins
+                or self._should_enable_productivity_plugin()
+            ):
+                if "GOOGLE_OAUTH_CREDENTIALS" not in settings["env"]:
+                    env_creds = os.environ.get("GOOGLE_OAUTH_CREDENTIALS")
+                    if env_creds:
+                        settings["env"]["GOOGLE_OAUTH_CREDENTIALS"] = env_creds
+                    else:
+                        home = Path.home()
+                        candidates = [
+                            home / ".config" / "google-calendar-mcp" / "gcp-oauth.keys.json",
+                            home / ".config" / "google-calendar-mcp" / "credentials.json",
+                            home / ".config" / "google-calendar-mcp" / "google-calendar-credentials.json",
+                            home / ".config" / "dere" / "gcp-oauth.keys.json",
+                            home / ".config" / "dere" / "google-calendar-credentials.json",
+                        ]
+                        for candidate in candidates:
+                            if candidate.exists():
+                                settings["env"]["GOOGLE_OAUTH_CREDENTIALS"] = str(candidate)
+                                break
+        except Exception:
+            pass
 
     def cleanup(self):
         for temp_file in self.temp_files:

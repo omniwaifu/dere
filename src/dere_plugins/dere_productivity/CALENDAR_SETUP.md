@@ -77,16 +77,28 @@ The plugin.json already includes the calendar MCP:
 }
 ```
 
-However, you may need to pass credentials. Check the `@cocal/google-calendar-mcp` documentation for specifics:
+However, you need to provide OAuth credentials to the MCP server:
 
 ```bash
-# The MCP server may look for credentials in these locations:
-# 1. Environment variable: GOOGLE_CALENDAR_CREDENTIALS
-# 2. ~/.config/google-calendar-mcp/credentials.json
-# 3. Passed via args
+# The @cocal/google-calendar-mcp server expects:
+# - Environment variable: GOOGLE_OAUTH_CREDENTIALS (path to your OAuth JSON)
+# - Tokens default to: ~/.config/google-calendar-mcp/tokens.json
+# - Custom token location: set GOOGLE_CALENDAR_MCP_TOKEN_PATH
 ```
 
-If needed, update the args to include credentials path:
+Recommended: set the environment variable:
+
+```bash
+export GOOGLE_OAUTH_CREDENTIALS="$HOME/.config/google-calendar-mcp/gcp-oauth.keys.json"
+```
+
+Alternatively, if you store it under dere config:
+
+```bash
+export GOOGLE_OAUTH_CREDENTIALS="$HOME/.config/dere/google-calendar-credentials.json"
+```
+
+If needed, you can also update the plugin's MCP config to inject env:
 
 ```json
 {
@@ -95,10 +107,11 @@ If needed, update the args to include credentials path:
       "command": "npx",
       "args": [
         "-y",
-        "@cocal/google-calendar-mcp",
-        "--credentials",
-        "~/.config/dere/google-calendar-credentials.json"
-      ]
+        "@cocal/google-calendar-mcp"
+      ],
+      "env": {
+        "GOOGLE_OAUTH_CREDENTIALS": "/absolute/path/to/your/oauth.json"
+      }
     }
   }
 }
@@ -114,9 +127,8 @@ When you first use a calendar feature:
 4. Browser will show "Authentication successful"
 5. Token will be saved locally for future use
 
-**Tokens are stored locally** - usually in:
-- `~/.config/google-calendar-mcp/tokens/`
-- Or wherever the MCP server configures
+**Tokens are stored locally** - by default:
+- `~/.config/google-calendar-mcp/tokens.json`
 
 ### 7. Test the Integration
 

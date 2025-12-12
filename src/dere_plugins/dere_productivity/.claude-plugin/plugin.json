@@ -8,10 +8,7 @@
     },
     "google-calendar": {
       "command": "npx",
-      "args": ["-y", "@cocal/google-calendar-mcp"],
-      "env": {
-        "GOOGLE_OAUTH_CREDENTIALS": "/home/justin/.config/google-calendar-mcp/credentials.json"
-      }
+      "args": ["-y", "@cocal/google-calendar-mcp"]
     }
   }
 }
