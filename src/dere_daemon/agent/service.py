@@ -25,7 +25,7 @@ from sqlmodel import select
 
 from dere_shared.config import load_dere_config
 from dere_shared.context import get_time_context
-from dere_shared.models import Conversation, MessageType, Session
+from dere_shared.models import Conversation, ConversationBlock, MessageType, Session
 from dere_shared.personalities import PersonalityLoader
 from dere_shared.weather import get_weather_context
 
@@ -709,11 +709,46 @@ class CentralizedAgentService:
         # Track timing
         request_start_time = time.monotonic()
         first_token_time: float | None = None
-        thinking_start_time: float | None = None
-        thinking_last_time: float | None = None
+        thinking_window_start: float | None = None
+        thinking_total_ms: float = 0.0
         tool_names: list[str] = []
         tool_name_set: set[str] = set()
         tool_use_count = 0
+        ordered_blocks: list[dict[str, Any]] = []
+        tool_use_id_to_block_index: dict[str, int] = {}
+
+        def _close_thinking_window(now_t: float) -> None:
+            nonlocal thinking_window_start, thinking_total_ms
+            if thinking_window_start is not None:
+                thinking_total_ms += (now_t - thinking_window_start) * 1000
+                thinking_window_start = None
+
+        def _append_or_coalesce_block(block: dict[str, Any]) -> None:
+            """Append a block, coalescing consecutive thinking/text blocks."""
+            if not ordered_blocks:
+                ordered_blocks.append(block)
+                return
+            last = ordered_blocks[-1]
+            if block.get("type") in ("text", "thinking") and last.get("type") == block.get("type"):
+                last["text"] = (last.get("text", "") or "") + (block.get("text", "") or "")
+                return
+            ordered_blocks.append(block)
+
+        def _upsert_tool_use_block(block: dict[str, Any]) -> None:
+            """Insert or update a tool_use block by id (docker emits an empty-input start then a full-input later)."""
+            tool_id = block.get("id")
+            if isinstance(tool_id, str) and tool_id:
+                existing_idx = tool_use_id_to_block_index.get(tool_id)
+                if existing_idx is not None:
+                    existing = ordered_blocks[existing_idx]
+                    if existing.get("type") == "tool_use":
+                        if existing.get("name") in (None, "", "unknown") and block.get("name"):
+                            existing["name"] = block.get("name")
+                        if (existing.get("input") in (None, {}, "")) and isinstance(block.get("input"), dict):
+                            existing["input"] = block.get("input")
+                    return
+                tool_use_id_to_block_index[tool_id] = len(ordered_blocks)
+            ordered_blocks.append(block)
 
         try:
             await session.runner.query(prompt)
@@ -733,7 +768,7 @@ class CentralizedAgentService:
 
         async def process_sdk_messages() -> None:
             """Process SDK messages and put events on the queue."""
-            nonlocal was_cancelled, tool_count, first_token_time, thinking_start_time, thinking_last_time, tool_use_count
+            nonlocal was_cancelled, tool_count, first_token_time, thinking_window_start, tool_use_count
             try:
                 async for message in session.runner.receive_response():
                     if cancel_event.is_set():
@@ -761,6 +796,8 @@ class CentralizedAgentService:
                                 if text:
                                     if first_token_time is None:
                                         first_token_time = time.monotonic()
+                                    _close_thinking_window(time.monotonic())
+                                    _append_or_coalesce_block({"type": "text", "text": text})
                                     logger.info("Stream text chunk: {!r}", text)
                                     response_chunks.append(text)
                                     await event_queue.put(
@@ -772,9 +809,9 @@ class CentralizedAgentService:
                                     if first_token_time is None:
                                         first_token_time = time.monotonic()
                                     now_t = time.monotonic()
-                                    if thinking_start_time is None:
-                                        thinking_start_time = now_t
-                                    thinking_last_time = now_t
+                                    if thinking_window_start is None:
+                                        thinking_window_start = now_t
+                                    _append_or_coalesce_block({"type": "thinking", "text": thinking_text})
                                     logger.info("Stream thinking chunk: {!r}", thinking_text)
                                     await event_queue.put(
                                         session.add_event(thinking_event(thinking_text))
@@ -789,6 +826,8 @@ class CentralizedAgentService:
                             if text:
                                 if first_token_time is None:
                                     first_token_time = time.monotonic()
+                                _close_thinking_window(time.monotonic())
+                                _append_or_coalesce_block({"type": "text", "text": text})
                                 response_chunks.append(text)
                         elif event.type in (
                             StreamEventType.TOOL_USE,
@@ -801,11 +840,33 @@ class CentralizedAgentService:
                                 if isinstance(name, str) and name not in tool_name_set:
                                     tool_name_set.add(name)
                                     tool_names.append(name)
+                                _close_thinking_window(time.monotonic())
+                                _upsert_tool_use_block(
+                                    {
+                                        "type": "tool_use",
+                                        "id": event.data.get("id"),
+                                        "name": event.data.get("name"),
+                                        "input": event.data.get("input"),
+                                    }
+                                )
+                            elif event.type == StreamEventType.TOOL_RESULT:
+                                _close_thinking_window(time.monotonic())
+                                ordered_blocks.append(
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": event.data.get("tool_use_id"),
+                                        "name": event.data.get("name"),
+                                        "output": event.data.get("output"),
+                                        "is_error": event.data.get("is_error", False),
+                                    }
+                                )
                         elif event.type == StreamEventType.THINKING:
                             now_t = time.monotonic()
-                            if thinking_start_time is None:
-                                thinking_start_time = now_t
-                            thinking_last_time = now_t
+                            if thinking_window_start is None:
+                                thinking_window_start = now_t
+                            text = event.data.get("text", "")
+                            if isinstance(text, str) and text:
+                                _append_or_coalesce_block({"type": "thinking", "text": text})
                         await event_queue.put(session.add_event(event))
                         continue
 
@@ -815,7 +876,11 @@ class CentralizedAgentService:
                             # Skip TEXT from final message if we already streamed
                             if session.config.enable_streaming:
                                 continue
-                            response_chunks.append(event.data.get("text", ""))
+                            text = event.data.get("text", "")
+                            if isinstance(text, str) and text:
+                                _close_thinking_window(time.monotonic())
+                                _append_or_coalesce_block({"type": "text", "text": text})
+                                response_chunks.append(text)
                         elif event.type in (
                             StreamEventType.TOOL_USE,
                             StreamEventType.TOOL_RESULT,
@@ -827,11 +892,33 @@ class CentralizedAgentService:
                                 if isinstance(name, str) and name not in tool_name_set:
                                     tool_name_set.add(name)
                                     tool_names.append(name)
+                                _close_thinking_window(time.monotonic())
+                                _upsert_tool_use_block(
+                                    {
+                                        "type": "tool_use",
+                                        "id": event.data.get("id"),
+                                        "name": event.data.get("name"),
+                                        "input": event.data.get("input"),
+                                    }
+                                )
+                            elif event.type == StreamEventType.TOOL_RESULT:
+                                _close_thinking_window(time.monotonic())
+                                ordered_blocks.append(
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": event.data.get("tool_use_id"),
+                                        "name": event.data.get("name"),
+                                        "output": event.data.get("output"),
+                                        "is_error": event.data.get("is_error", False),
+                                    }
+                                )
                         elif event.type == StreamEventType.THINKING:
                             now_t = time.monotonic()
-                            if thinking_start_time is None:
-                                thinking_start_time = now_t
-                            thinking_last_time = now_t
+                            if thinking_window_start is None:
+                                thinking_window_start = now_t
+                            text = event.data.get("text", "")
+                            if isinstance(text, str) and text:
+                                _append_or_coalesce_block({"type": "thinking", "text": text})
                         await event_queue.put(session.add_event(event))
             except Exception as e:
                 logger.exception("Error streaming response")
@@ -878,7 +965,15 @@ class CentralizedAgentService:
             yield session.add_event(cancelled_event())
             return
 
-        response_text = "".join(response_chunks)
+        _close_thinking_window(time.monotonic())
+
+        # Prefer block-based reconstruction for readability (separates post-tool text blocks cleanly).
+        text_segments = [
+            b.get("text", "")
+            for b in ordered_blocks
+            if b.get("type") == "text" and isinstance(b.get("text"), str) and b.get("text")
+        ]
+        response_text = "\n\n".join(text_segments) if text_segments else "".join(response_chunks)
 
         # Store first response for name generation
         if session.first_response_text is None and response_text:
@@ -899,8 +994,8 @@ class CentralizedAgentService:
             }
 
         thinking_ms: int | None = None
-        if thinking_start_time is not None and thinking_last_time is not None:
-            thinking_ms = int((thinking_last_time - thinking_start_time) * 1000)
+        if thinking_total_ms > 0:
+            thinking_ms = int(thinking_total_ms)
 
         # Persist assistant message + metrics (best-effort)
         try:
@@ -921,6 +1016,64 @@ class CentralizedAgentService:
                 )
                 db.add(conv_assistant)
                 await db.flush()
+
+                blocks: list[ConversationBlock] = []
+                ordinal = 0
+                for b in ordered_blocks:
+                    btype = b.get("type")
+                    if btype == "thinking":
+                        text = b.get("text", "")
+                        if isinstance(text, str) and text:
+                            blocks.append(
+                                ConversationBlock(
+                                    conversation_id=conv_assistant.id,  # type: ignore[arg-type]
+                                    ordinal=ordinal,
+                                    block_type="thinking",
+                                    text=text,
+                                )
+                            )
+                            ordinal += 1
+                    elif btype == "text":
+                        text = b.get("text", "")
+                        if isinstance(text, str) and text:
+                            blocks.append(
+                                ConversationBlock(
+                                    conversation_id=conv_assistant.id,  # type: ignore[arg-type]
+                                    ordinal=ordinal,
+                                    block_type="text",
+                                    text=text,
+                                )
+                            )
+                            ordinal += 1
+                    elif btype == "tool_use":
+                        blocks.append(
+                            ConversationBlock(
+                                conversation_id=conv_assistant.id,  # type: ignore[arg-type]
+                                ordinal=ordinal,
+                                block_type="tool_use",
+                                tool_use_id=b.get("id"),
+                                tool_name=b.get("name"),
+                                tool_input=b.get("input") if isinstance(b.get("input"), dict) else None,
+                            )
+                        )
+                        ordinal += 1
+                    elif btype == "tool_result":
+                        output = b.get("output", "")
+                        blocks.append(
+                            ConversationBlock(
+                                conversation_id=conv_assistant.id,  # type: ignore[arg-type]
+                                ordinal=ordinal,
+                                block_type="tool_result",
+                                tool_use_id=b.get("tool_use_id"),
+                                tool_name=b.get("name"),
+                                text=output if isinstance(output, str) else str(output),
+                                is_error=bool(b.get("is_error", False)),
+                            )
+                        )
+                        ordinal += 1
+
+                if blocks:
+                    db.add_all(blocks)
                 await db.commit()
         except Exception as e:
             logger.debug("Failed to persist assistant conversation: {}", e)

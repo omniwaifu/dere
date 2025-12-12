@@ -254,12 +254,14 @@ class DockerSessionRunner(SessionRunner):
                 yield tool_use_event(
                     data.get("name", "unknown"),
                     data.get("input", {}),
+                    data.get("id"),
                 )
             elif event_type == "tool_result":
                 yield tool_result_event(
                     data.get("name", "unknown"),
                     data.get("output", ""),
                     data.get("is_error", False),
+                    data.get("tool_use_id"),
                 )
 
     async def close(self) -> None:

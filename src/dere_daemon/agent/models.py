@@ -142,6 +142,7 @@ class ConversationMessage(BaseModel):
     thinking: str | None = None
     tool_uses: list[ToolUseData] = Field(default_factory=list)
     tool_results: list[ToolResultData] = Field(default_factory=list)
+    blocks: list[dict[str, Any]] | None = None
 
 
 class MessageHistoryResponse(BaseModel):

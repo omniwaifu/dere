@@ -12,6 +12,8 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import UTC, datetime
+
 from dere_shared.models import Conversation, Session
 
 from ..dependencies import get_db
@@ -402,9 +404,135 @@ async def get_session_messages(
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get message history for a session from Claude Code's JSONL storage."""
+    """Get message history for a session.
+
+    Prefers DB-backed history (conversations + conversation_blocks) when available
+    to avoid JSONL parsing and to preserve metrics/identity on refresh. Falls back
+    to Claude Code's JSONL storage for older sessions.
+    """
     import json
     from pathlib import Path
+
+    # Prefer DB-backed history when we have any blocks for this session.
+    from sqlalchemy import func
+    from sqlalchemy.orm import selectinload
+
+    from dere_shared.models import ConversationBlock
+
+    has_blocks_stmt = (
+        select(func.count(ConversationBlock.id))
+        .select_from(ConversationBlock)
+        .join(Conversation, Conversation.id == ConversationBlock.conversation_id)
+        .where(Conversation.session_id == session_id, Conversation.medium == "agent_api")
+    )
+    has_blocks = (await db.execute(has_blocks_stmt)).scalar_one()
+
+    if has_blocks and has_blocks > 0:
+        stmt = (
+            select(Conversation)
+            .where(Conversation.session_id == session_id, Conversation.medium == "agent_api")
+            .options(selectinload(Conversation.blocks))
+            .order_by(Conversation.created_at.asc())
+        )
+        result = await db.execute(stmt)
+        convs = list(result.scalars().all())
+
+        if len(convs) > limit:
+            convs = convs[-limit:]
+
+        messages: list[ConversationMessage] = []
+        for conv in convs:
+            role = conv.message_type
+            if role not in ("user", "assistant"):
+                continue
+
+            ts = conv.created_at.isoformat() if conv.created_at else datetime.now(UTC).isoformat()
+
+            if role == "user":
+                messages.append(
+                    ConversationMessage(
+                        id=str(conv.id or ""),
+                        role="user",
+                        content=conv.prompt,
+                        timestamp=ts,
+                        thinking=None,
+                        tool_uses=[],
+                        tool_results=[],
+                        blocks=[{"type": "text", "text": conv.prompt}],
+                    )
+                )
+                continue
+
+            blocks = sorted(conv.blocks, key=lambda b: b.ordinal)
+            tool_uses: list[ToolUseData] = []
+            tool_results: list[ToolResultData] = []
+            blocks_payload: list[dict[str, Any]] = []
+            for b in blocks:
+                if b.block_type == "thinking":
+                    if b.text:
+                        blocks_payload.append({"type": "thinking", "text": b.text})
+                elif b.block_type == "text":
+                    if b.text:
+                        blocks_payload.append({"type": "text", "text": b.text})
+                elif b.block_type == "tool_use":
+                    tool_uses.append(
+                        ToolUseData(
+                            id=b.tool_use_id or "",
+                            name=b.tool_name or "",
+                            input=b.tool_input or {},
+                        )
+                    )
+                    blocks_payload.append(
+                        {
+                            "type": "tool_use",
+                            "id": b.tool_use_id or "",
+                            "name": b.tool_name or "",
+                            "input": b.tool_input or {},
+                        }
+                    )
+                elif b.block_type == "tool_result":
+                    tool_results.append(
+                        ToolResultData(
+                            tool_use_id=b.tool_use_id or "",
+                            name=b.tool_name or "",
+                            output=b.text or "",
+                            is_error=bool(b.is_error),
+                        )
+                    )
+                    blocks_payload.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": b.tool_use_id or "",
+                            "name": b.tool_name or "",
+                            "output": b.text or "",
+                            "is_error": bool(b.is_error),
+                        }
+                    )
+
+            text_segments = [
+                b.get("text", "")
+                for b in blocks_payload
+                if b.get("type") == "text" and isinstance(b.get("text"), str) and b.get("text")
+            ]
+            content = "\n\n".join(text_segments) if text_segments else conv.prompt
+
+            messages.append(
+                ConversationMessage(
+                    id=str(conv.id or ""),
+                    role="assistant",
+                    content=content,
+                    timestamp=ts,
+                    thinking=next(
+                        (p.get("text") for p in blocks_payload if p.get("type") == "thinking" and p.get("text")),
+                        None,
+                    ),
+                    tool_uses=tool_uses,
+                    tool_results=tool_results,
+                    blocks=blocks_payload or None,
+                )
+            )
+
+        return MessageHistoryResponse(messages=messages, has_more=False)
 
     # Get session info from database
     result = await db.execute(select(Session).where(Session.id == session_id))
@@ -448,20 +576,37 @@ async def get_session_messages(
             thinking_parts = []
             tool_uses = []
             tool_results = []
+            blocks_payload: list[dict[str, Any]] = []
+            tool_id_to_name: dict[str, str] = {}
 
             for block in content_blocks:
                 if isinstance(block, str):
                     text_parts.append(block)
+                    blocks_payload.append({"type": "text", "text": block})
                 elif block.get("type") == "text":
                     text_parts.append(block.get("text", ""))
+                    blocks_payload.append({"type": "text", "text": block.get("text", "")})
                 elif block.get("type") == "thinking":
                     thinking_parts.append(block.get("thinking", ""))
+                    blocks_payload.append({"type": "thinking", "text": block.get("thinking", "")})
                 elif block.get("type") == "tool_use":
+                    tool_id = block.get("id", "")
+                    tool_name = block.get("name", "")
+                    if tool_id:
+                        tool_id_to_name[tool_id] = tool_name
                     tool_uses.append(ToolUseData(
-                        id=block.get("id", ""),
-                        name=block.get("name", ""),
+                        id=tool_id,
+                        name=tool_name,
                         input=block.get("input", {}),
                     ))
+                    blocks_payload.append(
+                        {
+                            "type": "tool_use",
+                            "id": tool_id,
+                            "name": tool_name,
+                            "input": block.get("input", {}),
+                        }
+                    )
                 elif block.get("type") == "tool_result":
                     content = block.get("content", "")
                     if isinstance(content, list):
@@ -469,58 +614,37 @@ async def get_session_messages(
                             c.get("text", "") if isinstance(c, dict) else str(c)
                             for c in content
                         )
+                    tool_use_id = block.get("tool_use_id", "")
+                    tool_name = tool_id_to_name.get(tool_use_id, "")
                     tool_results.append(ToolResultData(
-                        tool_use_id=block.get("tool_use_id", ""),
-                        name="",  # Not in tool_result block
+                        tool_use_id=tool_use_id,
+                        name=tool_name,  # Not always in tool_result block
                         output=content,
                         is_error=block.get("is_error", False),
                     ))
+                    blocks_payload.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "name": tool_name,
+                            "output": content,
+                            "is_error": block.get("is_error", False),
+                        }
+                    )
 
+            text_segments = [b.get("text", "") for b in blocks_payload if b.get("type") == "text"]
             messages.append(ConversationMessage(
                 id=entry.get("uuid", ""),
                 role=entry.get("type", ""),
-                content="".join(text_parts),
+                content="\n\n".join([t for t in text_segments if t]) if text_segments else "".join(text_parts),
                 timestamp=entry.get("timestamp", ""),
                 thinking="".join(thinking_parts) if thinking_parts else None,
                 tool_uses=tool_uses,
                 tool_results=tool_results,
+                blocks=blocks_payload or None,
             ))
 
     # Apply limit
-    # Claude Code may emit multiple consecutive assistant entries for a single turn
-    # (e.g., one with thinking, another with final text). Merge consecutive assistant
-    # entries so the UI can treat each user/assistant turn as a single message.
-    merged: list[ConversationMessage] = []
-    i = 0
-    while i < len(messages):
-        msg = messages[i]
-        if msg.role != "assistant":
-            merged.append(msg)
-            i += 1
-            continue
-
-        acc = msg
-        j = i + 1
-        while j < len(messages) and messages[j].role == "assistant":
-            nxt = messages[j]
-            acc = ConversationMessage(
-                id=nxt.id or acc.id,
-                role="assistant",
-                content=(acc.content or "") + (nxt.content or ""),
-                timestamp=nxt.timestamp or acc.timestamp,
-                thinking=(
-                    ((acc.thinking or "") + (nxt.thinking or "")) or None
-                ),
-                tool_uses=[*acc.tool_uses, *nxt.tool_uses],
-                tool_results=[*acc.tool_results, *nxt.tool_results],
-            )
-            j += 1
-
-        merged.append(acc)
-        i = j
-
-    messages = merged
-
     if len(messages) > limit:
         messages = messages[-limit:]
 

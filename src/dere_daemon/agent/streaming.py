@@ -44,19 +44,30 @@ def text_event(text: str) -> StreamEvent:
     )
 
 
-def tool_use_event(name: str, tool_input: dict[str, Any]) -> StreamEvent:
+def tool_use_event(name: str, tool_input: dict[str, Any], tool_use_id: str | None = None) -> StreamEvent:
     """Create a tool_use event."""
+    data: dict[str, Any] = {"name": name, "input": tool_input}
+    if tool_use_id:
+        data["id"] = tool_use_id
     return StreamEvent(
         type=StreamEventType.TOOL_USE,
-        data={"name": name, "input": tool_input},
+        data=data,
     )
 
 
-def tool_result_event(name: str, output: str, is_error: bool = False) -> StreamEvent:
+def tool_result_event(
+    name: str,
+    output: str,
+    is_error: bool = False,
+    tool_use_id: str | None = None,
+) -> StreamEvent:
     """Create a tool_result event."""
+    data: dict[str, Any] = {"name": name, "output": output, "is_error": is_error}
+    if tool_use_id:
+        data["tool_use_id"] = tool_use_id
     return StreamEvent(
         type=StreamEventType.TOOL_RESULT,
-        data={"name": name, "output": output, "is_error": is_error},
+        data=data,
     )
 
 
@@ -198,14 +209,14 @@ def extract_events_from_message(
             if tool_use:
                 tool_use_id, name, tool_input = tool_use
                 tool_id_to_name[tool_use_id] = name
-                events.append(tool_use_event(name, tool_input))
+                events.append(tool_use_event(name, tool_input, tool_use_id))
                 continue
 
             tool_result = extract_tool_result(block)
             if tool_result:
                 result_tool_use_id, output, is_error = tool_result
                 tool_name = tool_id_to_name.get(result_tool_use_id, "")
-                events.append(tool_result_event(tool_name, output, is_error))
+                events.append(tool_result_event(tool_name, output, is_error, result_tool_use_id))
 
     elif isinstance(message, TextBlock | ThinkingBlock):
         text = getattr(message, "text", "")
@@ -220,13 +231,13 @@ def extract_events_from_message(
         name = getattr(message, "name", "unknown")
         tool_input = getattr(message, "input", {})
         tool_id_to_name[tool_use_id] = name
-        events.append(tool_use_event(name, tool_input))
+        events.append(tool_use_event(name, tool_input, tool_use_id))
 
     elif isinstance(message, ToolResultBlock):
         result_tool_use_id = getattr(message, "tool_use_id", "")
         content = getattr(message, "content", "")
         is_error = getattr(message, "is_error", False)
         tool_name = tool_id_to_name.get(result_tool_use_id, "")
-        events.append(tool_result_event(tool_name, str(content), is_error))
+        events.append(tool_result_event(tool_name, str(content), is_error, result_tool_use_id))
 
     return events
