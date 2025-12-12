@@ -243,14 +243,14 @@ export function NewSessionForm() {
                     ? "border-sky-500/50 bg-sky-500/10 text-sky-600 dark:text-sky-400"
                     : "border-border text-muted-foreground"
                 )}
-                title={webEnabled ? "WebFetch enabled" : "WebFetch disabled"}
+                title={webEnabled ? "Web enabled" : "Web disabled"}
               >
                 <Globe className="h-3.5 w-3.5" />
                 <span className="text-xs">Web</span>
                 <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-md border border-border bg-popover p-2 text-xs text-popover-foreground shadow-lg group-hover:block">
                   <div className="font-medium mb-1">Web Access</div>
                   <div className="text-muted-foreground">
-                    Toggles the WebFetch tool. Turn off to prevent any internet access.
+                    Toggles web tools (WebSearch/WebFetch). Turn off to prevent any internet access.
                   </div>
                 </div>
               </button>

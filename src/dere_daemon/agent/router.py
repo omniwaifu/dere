@@ -251,6 +251,12 @@ async def agent_websocket(websocket: WebSocket):
                 resolved = current_session.resolve_permission(
                     msg.request_id, msg.allowed, msg.deny_message or ""
                 )
+                logger.info(
+                    "Permission response: session_id={} request_id={} allowed={}",
+                    current_session.session_id,
+                    msg.request_id,
+                    msg.allowed,
+                )
                 if not resolved:
                     await websocket.send_json(
                         error_event(

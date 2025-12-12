@@ -54,7 +54,7 @@ class SandboxRunner:
         if allowed_tools_str:
             allowed_tools = [t.strip() for t in allowed_tools_str.split(",") if t.strip()]
         else:
-            allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep", "WebFetch"]
+            allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep", "WebSearch", "WebFetch"]
 
         # Fork session ID for continuing previous conversations
         fork_session_id = os.environ.get("SANDBOX_RESUME_SESSION_ID") or None

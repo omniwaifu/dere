@@ -53,7 +53,17 @@ class LocalSessionRunner(SessionRunner):
         # Determine allowed tools
         allowed_tools = self._config.allowed_tools
         if allowed_tools is None:
-            allowed_tools = ["Read", "Write", "Bash", "Edit", "Glob", "Grep", "WebFetch"]
+            allowed_tools = [
+                "Read",
+                "Write",
+                "Bash",
+                "Edit",
+                "Glob",
+                "Grep",
+                # Claude Agent SDK exposes web access as WebSearch in practice; keep WebFetch too.
+                "WebSearch",
+                "WebFetch",
+            ]
 
         # Build plugins list
         plugins: list[dict[str, Any]] = []

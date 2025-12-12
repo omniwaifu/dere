@@ -11,8 +11,9 @@ import {
 import { Shield, ShieldAlert } from "lucide-react";
 
 export function PermissionDialog() {
-  const pendingPermission = useChatStore((s) => s.pendingPermission);
+  const pendingPermission = useChatStore((s) => s.pendingPermissionQueue[0] ?? null);
   const respondToPermission = useChatStore((s) => s.respondToPermission);
+  const permissionSendError = useChatStore((s) => s.permissionSendError);
 
   if (!pendingPermission) return null;
 
@@ -44,6 +45,9 @@ export function PermissionDialog() {
               <pre className="max-h-48 overflow-auto rounded-md bg-muted p-3 text-xs">
                 {JSON.stringify(pendingPermission.toolInput, null, 2)}
               </pre>
+              {permissionSendError && (
+                <p className="text-sm text-destructive">{permissionSendError}</p>
+              )}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>

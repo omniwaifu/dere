@@ -171,6 +171,12 @@ class CentralizedAgentService:
                 return PermissionResultAllow()
 
             request_id = str(uuid.uuid4())
+            logger.info(
+                "Permission requested: session_id={} tool={} request_id={}",
+                session.session_id,
+                tool_name,
+                request_id,
+            )
 
             # Create pending permission
             pending = PendingPermission(
@@ -192,6 +198,12 @@ class CentralizedAgentService:
             except TimeoutError:
                 # Timeout - deny by default
                 del session.pending_permissions[request_id]
+                logger.warning(
+                    "Permission timed out: session_id={} tool={} request_id={}",
+                    session.session_id,
+                    tool_name,
+                    request_id,
+                )
                 return PermissionResultDeny(
                     message="Permission request timed out (no response from user)"
                 )
@@ -200,8 +212,20 @@ class CentralizedAgentService:
             del session.pending_permissions[request_id]
 
             if pending.allowed:
+                logger.info(
+                    "Permission allowed: session_id={} tool={} request_id={}",
+                    session.session_id,
+                    tool_name,
+                    request_id,
+                )
                 return PermissionResultAllow()
             else:
+                logger.info(
+                    "Permission denied: session_id={} tool={} request_id={}",
+                    session.session_id,
+                    tool_name,
+                    request_id,
+                )
                 return PermissionResultDeny(
                     message=pending.deny_message or "Permission denied by user"
                 )
@@ -836,6 +860,12 @@ class CentralizedAgentService:
                             tool_count += 1
                             if event.type == StreamEventType.TOOL_USE:
                                 tool_use_count += 1
+                                logger.info(
+                                    "Tool use: session_id={} name={} id={}",
+                                    session.session_id,
+                                    event.data.get("name"),
+                                    event.data.get("id"),
+                                )
                                 name = event.data.get("name")
                                 if isinstance(name, str) and name not in tool_name_set:
                                     tool_name_set.add(name)
@@ -850,6 +880,13 @@ class CentralizedAgentService:
                                     }
                                 )
                             elif event.type == StreamEventType.TOOL_RESULT:
+                                logger.info(
+                                    "Tool result: session_id={} name={} tool_use_id={} is_error={}",
+                                    session.session_id,
+                                    event.data.get("name"),
+                                    event.data.get("tool_use_id"),
+                                    event.data.get("is_error", False),
+                                )
                                 _close_thinking_window(time.monotonic())
                                 ordered_blocks.append(
                                     {

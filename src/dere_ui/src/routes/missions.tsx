@@ -155,8 +155,8 @@ function MissionsPage() {
                           <div className="text-xs font-medium text-muted-foreground mb-1">Web</div>
                           <p className="text-sm">
                             {selectedMission.allowed_tools
-                              ? (selectedMission.allowed_tools.includes("WebFetch") ? "Yes" : "No")
-                              : "Yes"}
+                            ? (selectedMission.allowed_tools.includes("WebFetch") || selectedMission.allowed_tools.includes("WebSearch") ? "Yes" : "No")
+                            : "Yes"}
                           </p>
                         </div>
                         <div>

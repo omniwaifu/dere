@@ -57,7 +57,9 @@ interface ChatStore {
   isCreatingNewSession: boolean;
 
   // Permission requests
-  pendingPermission: PermissionRequest | null;
+  pendingPermissionQueue: PermissionRequest[];
+  permissionDecisions: Record<string, { allowed: boolean; denyMessage?: string }>;
+  permissionSendError: string | null;
 
   // Loading error state
   loadError: string | null;
@@ -130,7 +132,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   onFirstResponseCallbacks: new Set(),
   pendingInitialMessage: null,
   isCreatingNewSession: false,
-  pendingPermission: null,
+  pendingPermissionQueue: [],
+  permissionDecisions: {},
+  permissionSendError: null,
   // Loading error state
   loadError: null,
   loadingTimeoutId: null,
@@ -162,6 +166,40 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         disconnectedAt: null,
       });
       startHeartbeat(ws);
+
+      // If user already responded to permission requests while disconnected,
+      // send queued decisions as soon as we reconnect (in order).
+      const state = get();
+      if (ws.readyState === WebSocket.OPEN) {
+        let queue = [...state.pendingPermissionQueue];
+        let decisions = { ...state.permissionDecisions };
+        let sentAny = false;
+
+        while (queue.length > 0) {
+          const current = queue[0];
+          const decision = decisions[current.requestId];
+          if (!decision) break;
+          ws.send(
+            JSON.stringify({
+              type: "permission_response",
+              request_id: current.requestId,
+              allowed: decision.allowed,
+              deny_message: decision.denyMessage,
+            })
+          );
+          delete decisions[current.requestId];
+          queue = queue.slice(1);
+          sentAny = true;
+        }
+
+        if (sentAny) {
+          set({
+            pendingPermissionQueue: queue,
+            permissionDecisions: decisions,
+            permissionSendError: null,
+          });
+        }
+      }
     };
 
     ws.onclose = (event) => {
@@ -367,20 +405,37 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   respondToPermission: (allowed, denyMessage) => {
-    const { socket, status, pendingPermission } = get();
-    if (!socket || status !== "connected" || !pendingPermission) {
+    const { socket, status, pendingPermissionQueue, permissionDecisions } = get();
+    const current = pendingPermissionQueue[0];
+    if (!current) return;
+
+    const decision = { allowed, denyMessage };
+    const nextDecisions = { ...permissionDecisions, [current.requestId]: decision };
+
+    const payload = {
+      type: "permission_response",
+      request_id: current.requestId,
+      allowed,
+      deny_message: denyMessage,
+    };
+
+    if (socket && status === "connected" && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(payload));
+      const nextQueue = pendingPermissionQueue.slice(1);
+      const { [current.requestId]: _dropped, ...rest } = nextDecisions;
+      set({
+        pendingPermissionQueue: nextQueue,
+        permissionDecisions: rest,
+        permissionSendError: null,
+      });
       return;
     }
 
-    socket.send(
-      JSON.stringify({
-        type: "permission_response",
-        request_id: pendingPermission.requestId,
-        allowed,
-        deny_message: denyMessage,
-      })
-    );
-    set({ pendingPermission: null });
+    // If we can't send right now (brief websocket drop), remember the decision and retry on reconnect.
+    set({
+      permissionDecisions: nextDecisions,
+      permissionSendError: "Disconnected from daemon; will send when reconnected.",
+    });
   },
 
   loadMessages: async (sessionId: number) => {
@@ -861,12 +916,20 @@ function handleStreamEvent(event: StreamEvent) {
         tool_name: string;
         tool_input: Record<string, unknown>;
       };
-      useChatStore.setState({
-        pendingPermission: {
-          requestId: data.request_id,
-          toolName: data.tool_name,
-          toolInput: data.tool_input,
-        },
+      useChatStore.setState((s) => {
+        if (s.pendingPermissionQueue.some((p) => p.requestId === data.request_id)) {
+          return {};
+        }
+        return {
+          pendingPermissionQueue: [
+            ...s.pendingPermissionQueue,
+            {
+              requestId: data.request_id,
+              toolName: data.tool_name,
+              toolInput: data.tool_input,
+            },
+          ],
+        };
       });
       break;
     }

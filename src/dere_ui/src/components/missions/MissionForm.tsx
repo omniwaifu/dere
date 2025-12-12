@@ -36,9 +36,10 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
   const [workingDir, setWorkingDir] = useState(mission?.working_dir ?? "/workspace");
   const [sandboxMode, setSandboxMode] = useState(mission?.sandbox_mode ?? true);
   const [sandboxMountType, setSandboxMountType] = useState(mission?.sandbox_mount_type ?? "none");
-  const [webEnabled, setWebEnabled] = useState(
-    mission?.allowed_tools ? mission.allowed_tools.includes("WebFetch") : true
-  );
+  const [webEnabled, setWebEnabled] = useState(() => {
+    if (!mission?.allowed_tools) return true;
+    return mission.allowed_tools.includes("WebFetch") || mission.allowed_tools.includes("WebSearch");
+  });
   const [thinkingEnabled, setThinkingEnabled] = useState(!!mission?.thinking_budget);
   const [runOnce, setRunOnce] = useState(mission?.run_once ?? false);
   const [selectedPresetId, setSelectedPresetId] = useState<string>("off");
@@ -69,10 +70,11 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
     if (mission?.allowed_tools) {
       const base = [...mission.allowed_tools];
       if (webEnabled) {
+        if (!base.includes("WebSearch")) base.push("WebSearch");
         if (!base.includes("WebFetch")) base.push("WebFetch");
         effectiveAllowedTools = base;
       } else {
-        effectiveAllowedTools = base.filter((t) => t !== "WebFetch");
+        effectiveAllowedTools = base.filter((t) => t !== "WebSearch" && t !== "WebFetch");
       }
     } else {
       effectiveAllowedTools = webEnabled ? undefined : defaultToolsWithoutWeb;

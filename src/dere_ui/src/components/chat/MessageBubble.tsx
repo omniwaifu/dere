@@ -67,18 +67,18 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
     : "";
   const hasText = blocks ? !!blockText.trim() : !!message.content?.trim();
 
-  const renderBlocks = (blocksToRender: ConversationBlock[]) => {
-    const resultsByToolUseId = new Map<string, ToolResult>();
-    for (const b of blocksToRender) {
-      if (b.type === "tool_result") {
-        resultsByToolUseId.set(b.tool_use_id, {
-          toolUseId: b.tool_use_id,
-          name: b.name,
-          output: b.output,
-          isError: b.is_error,
-        });
+    const renderBlocks = (blocksToRender: ConversationBlock[]) => {
+      const resultsByToolUseId = new Map<string, ToolResult>();
+      for (const b of blocksToRender) {
+        if (b.type === "tool_result") {
+          resultsByToolUseId.set(b.tool_use_id, {
+            toolUseId: b.tool_use_id,
+            name: b.name,
+            output: b.output,
+            isError: b.is_error,
+          });
+        }
       }
-    }
 
     const parts: React.ReactNode[] = [];
     let textBuffer: string[] = [];
@@ -87,7 +87,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
       if (t.trim()) {
         parts.push(
           <div key={`text-${parts.length}`} className="rounded-lg bg-muted px-4 py-2">
-            <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-4 [&>p:last-child]:mb-0">
+            <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-4 [&>p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -124,7 +124,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
       textBuffer = [];
     };
 
-    for (const b of blocksToRender) {
+      for (const b of blocksToRender) {
       if (b.type === "thinking") {
         flushText();
         parts.push(
@@ -141,17 +141,18 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
         textBuffer.push(b.text);
       } else if (b.type === "tool_use") {
         flushText();
+        const result = resultsByToolUseId.get(b.id);
         const tool: ToolUse = {
           id: b.id,
           name: b.name,
           input: b.input,
-          status: resultsByToolUseId.get(b.id)?.isError ? "error" : "success",
+          status: result ? (result.isError ? "error" : "success") : "pending",
         };
         parts.push(
           <ToolUseBlock
             key={`tool-${b.id}-${parts.length}`}
             tool={tool}
-            result={resultsByToolUseId.get(b.id)}
+            result={result}
           />
         );
       } else if (b.type === "tool_result") {
@@ -234,7 +235,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
 
             {message.content && (
               <div className="rounded-lg bg-muted px-4 py-2">
-                <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-4 [&>p:last-child]:mb-0">
+                <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-4 [&>p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
