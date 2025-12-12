@@ -94,6 +94,16 @@ class Conversation(SQLModel, table=True):
     timestamp: int
     medium: str | None = None
     user_id: str | None = None
+    personality: str | None = None
+    # Assistant-only metrics (nullable; filled for new assistant messages)
+    ttft_ms: int | None = None
+    response_ms: int | None = None
+    thinking_ms: int | None = None
+    tool_uses: int | None = None
+    tool_names: list[str] | None = Field(
+        default=None,
+        sa_column=Column(ARRAY(String)),
+    )
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
     # Relationships
