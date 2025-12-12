@@ -109,6 +109,38 @@ class Conversation(SQLModel, table=True):
     # Relationships
     session: "Session" = Relationship(back_populates="conversations")
     entities: list["Entity"] = Relationship(back_populates="conversation")
+    blocks: list["ConversationBlock"] = Relationship(
+        back_populates="conversation", cascade_delete=True
+    )
+
+
+class ConversationBlock(SQLModel, table=True):
+    __tablename__ = "conversation_blocks"
+    __table_args__ = (
+        Index("conversation_blocks_conversation_idx", "conversation_id"),
+        Index(
+            "conversation_blocks_conversation_ordinal_idx",
+            "conversation_id",
+            "ordinal",
+            unique=True,
+        ),
+        Index("conversation_blocks_tool_use_id_idx", "tool_use_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    conversation_id: int = Field(foreign_key="conversations.id")
+    ordinal: int
+    block_type: str
+    text: str | None = None
+
+    tool_use_id: str | None = None
+    tool_name: str | None = None
+    tool_input: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    is_error: bool | None = None
+
+    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+    conversation: "Conversation" = Relationship(back_populates="blocks")
 
 
 class TaskQueue(SQLModel, table=True):
