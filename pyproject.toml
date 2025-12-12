@@ -45,21 +45,25 @@ dere = "dere_cli.main:app"
 dere-daemon = "dere_daemon.main:main"
 dere-discord = "dere_discord.main:run"
 dere-taskwarrior-mcp = "dere_productivity.scripts.taskwarrior_mcp_wrapper:main"
-dere-vault-zotero-mcp = "dere_plugins.dere_vault.mcp_server.server:main"
+dere-vault-zotero-mcp = "dere_vault.mcp_server.server:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord", "src/dere_ambient"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/dere_plugins/dere_core" = "dere_core"
-"src/dere_plugins/dere_vault" = "dere_vault"
-"src/dere_plugins/dere_productivity" = "dere_productivity"
-"src/dere_plugins/dere_code" = "dere_code"
-"src/dere_plugins/dere_graph_features" = "dere_graph_features"
+packages = [
+    "src/dere_daemon",
+    "src/dere_cli",
+    "src/dere_shared",
+    "src/dere_discord",
+    "src/dere_ambient",
+    "src/dere_core",
+    "src/dere_vault",
+    "src/dere_productivity",
+    "src/dere_code",
+    "src/dere_graph_features",
+]
 
 [tool.ruff]
 line-length = 100
@@ -90,7 +94,7 @@ include = ["src/**/*.py"]
 unresolved-attribute = "warn"
 
 [[tool.ty.overrides]]
-include = ["src/dere_plugins/**/scripts/**/*.py"]
+include = ["src/dere_*/scripts/**/*.py"]
 [tool.ty.overrides.rules]
 unresolved-import = "ignore"
 unresolved-reference = "warn"

@@ -295,8 +295,8 @@ async def _init_dere_graph(config: dict[str, Any], db_url: str, app_state: AppSt
 
 async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
     """Initialize personality loader and ambient monitor."""
-    from dere_shared.personalities import PersonalityLoader
     from dere_shared.paths import get_config_dir
+    from dere_shared.personalities import PersonalityLoader
 
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)

@@ -47,7 +47,7 @@ class SettingsBuilder:
         output_style_to_use = self.output_style
         if not output_style_to_use:
             try:
-                from dere_plugins.dere_vault.scripts.detect_vault import is_vault
+                from dere_vault.scripts.detect_vault import is_vault
                 if is_vault():
                     output_style_to_use = "dere-vault:vault"
             except Exception:
@@ -69,7 +69,7 @@ class SettingsBuilder:
         if self.mode == "vault":
             return True
         try:
-            from dere_plugins.dere_vault.scripts.detect_vault import is_vault
+            from dere_vault.scripts.detect_vault import is_vault
             return is_vault()
         except Exception:
             return False
@@ -127,8 +127,8 @@ class SettingsBuilder:
             if "site-packages" in str(plugin_file):
                 cwd = Path.cwd()
                 for parent in [cwd, *cwd.parents]:
-                    candidate = parent / "src" / "dere_plugins"
-                    if candidate.exists() and (candidate / ".claude-plugin").exists():
+                    candidate = parent / "src"
+                    if (candidate / "dere_core" / ".claude-plugin").exists():
                         return candidate
                 return plugin_file.parent.parent
             return plugin_file.parent.parent
@@ -165,7 +165,7 @@ class SettingsBuilder:
                 pass
 
     def _add_status_line(self, settings: dict) -> None:
-        plugin_statusline = Path(__file__).parent.parent / "dere_plugins" / "dere_core" / "scripts" / "dere-statusline.py"
+        plugin_statusline = Path(__file__).parent.parent / "dere_core" / "scripts" / "dere-statusline.py"
         if plugin_statusline.exists():
             settings["statusLine"] = {
                 "type": "command",
@@ -174,6 +174,31 @@ class SettingsBuilder:
             }
 
     def _add_hook_environment(self, settings: dict) -> None:
+        # Ensure hooks/MCP servers run with the same Python environment as `dere`.
+        # This fixes cases where plugin hooks run under system `python3` and can't import dere modules.
+        try:
+            python_bin_dir = str(Path(sys.executable).resolve().parent)
+            existing_path = os.environ.get("PATH", "")
+            settings["env"]["PATH"] = (
+                f"{python_bin_dir}{os.pathsep}{existing_path}" if existing_path else python_bin_dir
+            )
+        except Exception:
+            pass
+
+        # Provide an explicit PYTHONPATH for hooks that use /usr/bin/env python3.
+        try:
+            import dere_shared  # noqa: PLC0415
+
+            site_root = str(Path(dere_shared.__file__).resolve().parent.parent)
+            existing_pythonpath = os.environ.get("PYTHONPATH", "")
+            pythonpath_value = (
+                f"{site_root}{os.pathsep}{existing_pythonpath}" if existing_pythonpath else site_root
+            )
+            settings["env"]["PYTHONPATH"] = pythonpath_value
+            settings["env"]["DERE_PYTHONPATH"] = pythonpath_value
+        except Exception:
+            pass
+
         if self.personality:
             settings["env"]["DERE_PERSONALITY"] = self.personality
         settings["env"]["DERE_DAEMON_URL"] = DEFAULT_DAEMON_URL

@@ -10,14 +10,36 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Add src directory to path to find dere_shared
-src_dir = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(src_dir))
 
-from dere_shared.activitywatch import get_activity_context
-from dere_shared.config import load_dere_config
-from dere_shared.tasks import get_task_context
+def _maybe_prepend_sys_path(path: Path) -> None:
+    try:
+        resolved = str(path.resolve())
+    except Exception:
+        resolved = str(path)
+    if resolved and resolved not in sys.path:
+        sys.path.insert(0, resolved)
 
+
+def _bootstrap_import_paths() -> None:
+    """Make dere modules importable across repo, wheel, and plugin-cache layouts."""
+    # If dere wrapper provided a concrete PYTHONPATH, honor it first.
+    dere_pythonpath = os.environ.get("DERE_PYTHONPATH")
+    if dere_pythonpath:
+        for p in reversed([x for x in dere_pythonpath.split(os.pathsep) if x]):
+            _maybe_prepend_sys_path(Path(p))
+
+    # Development layout: walk upwards and look for dere_shared (or src/dere_shared).
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "dere_shared").is_dir():
+            _maybe_prepend_sys_path(parent)
+            break
+        if (parent / "src" / "dere_shared").is_dir():
+            _maybe_prepend_sys_path(parent / "src")
+            break
+
+
+_bootstrap_import_paths()
 
 def log_error(message):
     """Centralized error logging with timestamp"""
@@ -29,9 +51,22 @@ def log_error(message):
         pass
 
 
+_import_error: str | None = None
+try:
+    from dere_shared.activitywatch import get_activity_context
+    from dere_shared.config import load_dere_config
+    from dere_shared.tasks import get_task_context
+except Exception as e:
+    _import_error = f"{type(e).__name__}: {e}"
+
 def main():
     # Check if productivity context should be injected
     if os.getenv("DERE_PRODUCTIVITY") != "true":
+        sys.exit(0)
+
+    if _import_error:
+        log_error(f"Import error in productivity-context-hook.py: {_import_error}")
+        print(json.dumps({"suppressOutput": True}))
         sys.exit(0)
 
     try:

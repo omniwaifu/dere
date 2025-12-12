@@ -6,10 +6,8 @@ from pathlib import Path
 
 
 def main():
-    # Point directly to source repo (not installed copy)
-    # Find dere repo root by going up from this file
-    repo_root = Path(__file__).parent.parent.parent.parent.parent
-    mcp_server = repo_root / "src" / "dere_plugins" / "dere_productivity" / "mcp-server" / "dist" / "index.js"
+    package_root = Path(__file__).resolve().parent.parent
+    mcp_server = package_root / "mcp-server" / "dist" / "index.js"
 
     if not mcp_server.exists():
         print(f"Error: MCP server not found at {mcp_server}", file=sys.stderr)

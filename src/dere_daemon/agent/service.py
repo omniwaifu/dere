@@ -501,7 +501,7 @@ class CentralizedAgentService:
 
             # Load dere-core plugin for output styles
             dere_core_plugin_path = str(
-                Path(__file__).parent.parent.parent / "dere_plugins" / "dere_core"
+                Path(__file__).parent.parent.parent / "dere_core"
             )
 
             now = _now()
