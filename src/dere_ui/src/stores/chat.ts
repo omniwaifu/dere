@@ -6,6 +6,7 @@ import type {
   ToolResult,
   StreamEvent,
   PermissionRequest,
+  ConversationBlock,
 } from "@/types/api";
 import { api } from "@/lib/api";
 
@@ -399,16 +400,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const chatMessages: ChatMessage[] = response.messages.map((msg) => {
         const isUser = msg.role === "user";
         const metric = isUser ? userMetrics[userIdx++] : assistantMetrics[assistantIdx++];
+        const blocks = msg.blocks ?? undefined;
+        const mergedText =
+          blocks?.filter((b) => b.type === "text").map((b) => b.text).filter(Boolean).join("\n\n") ||
+          msg.content;
         return {
           id: msg.id,
           role: msg.role as "user" | "assistant",
-          content: msg.content,
+          content: mergedText,
           personality: metric?.personality ?? undefined,
           thinking: msg.thinking ?? undefined,
           thinkingDuration:
             !isUser && metric?.thinking_ms != null
               ? (metric.thinking_ms as number) / 1000
               : undefined,
+          blocks,
           toolUses:
             msg.tool_uses?.map((tu) => ({
               id: tu.id,
@@ -561,6 +567,7 @@ function handleStreamEvent(event: StreamEvent) {
               role: "assistant",
               content: "",
               personality: getCurrentPersonalityKey(),
+              blocks: [{ type: "text", text: data.text }] satisfies ConversationBlock[],
               toolUses: [],
               toolResults: [],
               timestamp: Date.now(),
@@ -569,19 +576,35 @@ function handleStreamEvent(event: StreamEvent) {
           };
         }
 
-        // Calculate thinking duration when first text arrives (if thinking happened)
-        if (s.thinkingStartTime && !s.streamingMessage.thinkingDuration) {
-          const duration = (Date.now() - s.thinkingStartTime) / 1000;
+        const blocks = s.streamingMessage.blocks ? [...s.streamingMessage.blocks] : [];
+        const last = blocks[blocks.length - 1];
+        if (last?.type === "text") {
+          last.text = (last.text || "") + data.text;
+        } else {
+          blocks.push({ type: "text", text: data.text });
+        }
+
+        // Close any active thinking window when text arrives
+        let thinkingDuration = s.streamingMessage.thinkingDuration;
+        if (s.thinkingStartTime) {
+          const elapsed = (Date.now() - s.thinkingStartTime) / 1000;
+          thinkingDuration = (thinkingDuration ?? 0) + elapsed;
           return {
             thinkingStartTime: null,
             streamingMessage: {
               ...s.streamingMessage,
-              thinkingDuration: duration,
+              thinkingDuration,
+              blocks,
             },
           };
         }
 
-        return {};
+        return {
+          streamingMessage: {
+            ...s.streamingMessage,
+            blocks,
+          },
+        };
       });
 
       bufferText(data.text);
@@ -601,6 +624,7 @@ function handleStreamEvent(event: StreamEvent) {
               content: "",
               personality: getCurrentPersonalityKey(),
               thinking: data.text,
+              blocks: [{ type: "thinking", text: data.text }] satisfies ConversationBlock[],
               toolUses: [],
               toolResults: [],
               timestamp: Date.now(),
@@ -608,13 +632,23 @@ function handleStreamEvent(event: StreamEvent) {
             },
           };
         }
-        // Ensure thinkingStartTime is set if this is the first thinking for this message
-        const needsStartTime = !s.streamingMessage.thinking && !s.thinkingStartTime;
+
+        const blocks = s.streamingMessage.blocks ? [...s.streamingMessage.blocks] : [];
+        const last = blocks[blocks.length - 1];
+        if (last?.type === "thinking") {
+          last.text = (last.text || "") + data.text;
+        } else {
+          blocks.push({ type: "thinking", text: data.text });
+        }
+
+        // Start a new thinking window if not already tracking one
+        const needsStartTime = !s.thinkingStartTime;
         return {
           thinkingStartTime: needsStartTime ? Date.now() : s.thinkingStartTime,
           streamingMessage: {
             ...s.streamingMessage,
             thinking: (s.streamingMessage.thinking || "") + data.text,
+            blocks,
           },
         };
       });
@@ -623,33 +657,52 @@ function handleStreamEvent(event: StreamEvent) {
 
     case "tool_use": {
       flushTextBuffer();
-      const data = event.data as { name: string; input: Record<string, unknown> };
+      const data = event.data as { id?: string; name: string; input: Record<string, unknown> };
+      const toolId = data.id || generateId();
       const toolUse: ToolUse = {
-        id: generateId(),
+        id: toolId,
         name: data.name,
         input: data.input,
         status: "pending",
       };
 
       useChatStore.setState((s) => {
+        // Close any active thinking window when tool starts
+        let thinkingDuration = s.streamingMessage?.thinkingDuration;
+        if (s.thinkingStartTime) {
+          const elapsed = (Date.now() - s.thinkingStartTime) / 1000;
+          thinkingDuration = (thinkingDuration ?? 0) + elapsed;
+        }
+
         if (!s.streamingMessage) {
           return {
+            thinkingStartTime: null,
             streamingMessage: {
               id: generateId(),
               role: "assistant",
               content: "",
               personality: getCurrentPersonalityKey(),
+              blocks: [
+                { type: "tool_use", id: toolId, name: data.name, input: data.input },
+              ] satisfies ConversationBlock[],
               toolUses: [toolUse],
               toolResults: [],
               timestamp: Date.now(),
               isStreaming: true,
+              thinkingDuration,
             },
           };
         }
+
+        const blocks = s.streamingMessage.blocks ? [...s.streamingMessage.blocks] : [];
+        blocks.push({ type: "tool_use", id: toolId, name: data.name, input: data.input });
         return {
+          thinkingStartTime: null,
           streamingMessage: {
             ...s.streamingMessage,
             toolUses: [...s.streamingMessage.toolUses, toolUse],
+            blocks,
+            thinkingDuration,
           },
         };
       });
@@ -659,6 +712,7 @@ function handleStreamEvent(event: StreamEvent) {
     case "tool_result": {
       flushTextBuffer();
       const data = event.data as {
+        tool_use_id?: string;
         name: string;
         output: string;
         is_error: boolean;
@@ -667,29 +721,45 @@ function handleStreamEvent(event: StreamEvent) {
       useChatStore.setState((s) => {
         if (!s.streamingMessage) return {};
 
+        const toolUseId = data.tool_use_id;
         const toolUses = s.streamingMessage.toolUses.map((tu) => {
-          if (tu.name === data.name && tu.status === "pending") {
+          const matches =
+            (toolUseId && tu.id === toolUseId) ||
+            (!toolUseId && tu.name === data.name && tu.status === "pending");
+          if (matches) {
             return { ...tu, status: data.is_error ? "error" : "success" } as ToolUse;
           }
           return tu;
         });
 
-        const lastPendingTool = s.streamingMessage.toolUses.find(
-          (tu) => tu.name === data.name && tu.status === "pending"
-        );
+        const lastPendingTool = toolUseId
+          ? s.streamingMessage.toolUses.find((tu) => tu.id === toolUseId)
+          : s.streamingMessage.toolUses.find(
+              (tu) => tu.name === data.name && tu.status === "pending"
+            );
 
         const toolResult: ToolResult = {
-          toolUseId: lastPendingTool?.id || generateId(),
+          toolUseId: lastPendingTool?.id || toolUseId || generateId(),
           name: data.name,
           output: data.output,
           isError: data.is_error,
         };
+
+        const blocks = s.streamingMessage.blocks ? [...s.streamingMessage.blocks] : [];
+        blocks.push({
+          type: "tool_result",
+          tool_use_id: toolResult.toolUseId,
+          name: data.name,
+          output: data.output,
+          is_error: data.is_error,
+        });
 
         return {
           streamingMessage: {
             ...s.streamingMessage,
             toolUses,
             toolResults: [...s.streamingMessage.toolResults, toolResult],
+            blocks,
           },
         };
       });
@@ -709,21 +779,26 @@ function handleStreamEvent(event: StreamEvent) {
       useChatStore.setState((s) => {
         if (!s.streamingMessage) return { isQueryInProgress: false, thinkingStartTime: null };
 
-        // Calculate thinking duration if not already set
-        let thinkingDuration = s.streamingMessage.thinkingDuration;
-        if (s.thinkingStartTime && thinkingDuration === undefined) {
-          thinkingDuration = (Date.now() - s.thinkingStartTime) / 1000;
+        // Close any active thinking window on done
+        let thinkingDuration = s.streamingMessage.thinkingDuration ?? 0;
+        if (s.thinkingStartTime) {
+          thinkingDuration += (Date.now() - s.thinkingStartTime) / 1000;
         }
-        // If thinking content exists but no duration (edge case), default to 0
-        if (s.streamingMessage.thinking && thinkingDuration === undefined) {
-          thinkingDuration = 0;
+        if (!s.streamingMessage.thinking && thinkingDuration === 0) {
+          thinkingDuration = undefined;
         }
+
+        const blocks = s.streamingMessage.blocks;
+        const mergedText =
+          blocks?.filter((b) => b.type === "text").map((b) => b.text).filter(Boolean).join("\n\n") ||
+          s.streamingMessage.content;
 
         const finalMessage: ChatMessage = {
           ...s.streamingMessage,
           isStreaming: false,
           thinkingDuration,
           timings: data.timings,
+          content: mergedText,
         };
 
         return {

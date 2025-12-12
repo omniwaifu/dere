@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, ToolUse, ToolResult } from "@/types/api";
+import type { ChatMessage, ToolUse, ToolResult, ConversationBlock } from "@/types/api";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
 function formatTiming(ms: number): string {
@@ -57,69 +57,36 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const hasText = !!message.content?.trim();
+  const blocks = message.blocks;
+  const blockText = blocks
+    ? blocks
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .filter(Boolean)
+        .join("\n\n")
+    : "";
+  const hasText = blocks ? !!blockText.trim() : !!message.content?.trim();
 
-  // For assistant messages that are only thinking/tool-use (no final text yet),
-  // avoid showing the avatar to reduce visual noise.
-  if (!hasText) {
-    return (
-      <div className="group/message flex justify-start">
-        <div className="max-w-[85%] space-y-2">
-          <ThinkingIndicator
-            thinking={message.thinking}
-            thinkingDuration={message.thinkingDuration}
-            isStreaming={message.isStreaming}
-          />
+  const renderBlocks = (blocksToRender: ConversationBlock[]) => {
+    const resultsByToolUseId = new Map<string, ToolResult>();
+    for (const b of blocksToRender) {
+      if (b.type === "tool_result") {
+        resultsByToolUseId.set(b.tool_use_id, {
+          toolUseId: b.tool_use_id,
+          name: b.name,
+          output: b.output,
+          isError: b.is_error,
+        });
+      }
+    }
 
-          {message.toolUses.map((tool) => (
-            <ToolUseBlock
-              key={tool.id}
-              tool={tool}
-              result={message.toolResults.find((r) => r.toolUseId === tool.id)}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="group/message flex items-start justify-start gap-2">
-      <div className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-full border border-border bg-muted/30">
-        {!avatarUrl || avatarFailed ? (
-          <div
-            className="flex h-full w-full items-center justify-center text-xs font-semibold text-foreground"
-            style={fallbackColor ? { backgroundColor: fallbackColor + "20", color: fallbackColor } : undefined}
-            title="Personality"
-          >
-            {fallbackIcon || "●"}
-          </div>
-        ) : (
-          <img
-            src={avatarUrl}
-            alt="avatar"
-            className="h-full w-full object-cover"
-            onError={() => setAvatarFailed(true)}
-          />
-        )}
-      </div>
-      <div className="max-w-[85%] space-y-2">
-        <ThinkingIndicator
-          thinking={message.thinking}
-          thinkingDuration={message.thinkingDuration}
-          isStreaming={message.isStreaming}
-        />
-
-        {message.toolUses.map((tool) => (
-          <ToolUseBlock
-            key={tool.id}
-            tool={tool}
-            result={message.toolResults.find((r) => r.toolUseId === tool.id)}
-          />
-        ))}
-
-        {message.content && (
-          <div className="rounded-lg bg-muted px-4 py-2">
+    const parts: React.ReactNode[] = [];
+    let textBuffer: string[] = [];
+    const flushText = () => {
+      const t = textBuffer.join("");
+      if (t.trim()) {
+        parts.push(
+          <div key={`text-${parts.length}`} className="rounded-lg bg-muted px-4 py-2">
             <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-4 [&>p:last-child]:mb-0">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -148,10 +115,159 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
                   ),
                 }}
               >
-                {message.content}
+                {t}
               </ReactMarkdown>
             </div>
           </div>
+        );
+      }
+      textBuffer = [];
+    };
+
+    for (const b of blocksToRender) {
+      if (b.type === "thinking") {
+        flushText();
+        parts.push(
+          <ThinkingIndicator
+            key={`thinking-${parts.length}`}
+            thinking={b.text}
+            thinkingDuration={message.thinkingDuration}
+            isStreaming={message.isStreaming}
+          />
+        );
+      } else if (b.type === "text") {
+        // Separate text blocks with paragraph breaks so post-tool text doesn't glue onto pre-tool text.
+        if (textBuffer.length) textBuffer.push("\n\n");
+        textBuffer.push(b.text);
+      } else if (b.type === "tool_use") {
+        flushText();
+        const tool: ToolUse = {
+          id: b.id,
+          name: b.name,
+          input: b.input,
+          status: resultsByToolUseId.get(b.id)?.isError ? "error" : "success",
+        };
+        parts.push(
+          <ToolUseBlock
+            key={`tool-${b.id}-${parts.length}`}
+            tool={tool}
+            result={resultsByToolUseId.get(b.id)}
+          />
+        );
+      } else if (b.type === "tool_result") {
+        // Rendered alongside tool_use
+        continue;
+      }
+    }
+    flushText();
+    return parts;
+  };
+
+  // For assistant messages that are only thinking/tool-use (no final text yet),
+  // avoid showing the avatar to reduce visual noise.
+  if (!hasText) {
+    return (
+      <div className="group/message flex justify-start">
+        <div className="max-w-[85%] space-y-2">
+          {blocks ? (
+            renderBlocks(blocks)
+          ) : (
+            <>
+              <ThinkingIndicator
+                thinking={message.thinking}
+                thinkingDuration={message.thinkingDuration}
+                isStreaming={message.isStreaming}
+              />
+
+              {message.toolUses.map((tool) => (
+                <ToolUseBlock
+                  key={tool.id}
+                  tool={tool}
+                  result={message.toolResults.find((r) => r.toolUseId === tool.id)}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group/message flex items-start justify-start gap-2">
+      <div className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-full border border-border bg-muted/30">
+        {!avatarUrl || avatarFailed ? (
+          <div
+            className="flex h-full w-full items-center justify-center text-xs font-semibold text-foreground"
+            style={fallbackColor ? { backgroundColor: fallbackColor + "20", color: fallbackColor } : undefined}
+            title="Personality"
+          >
+            {fallbackIcon || "●"}
+          </div>
+        ) : (
+          <img
+            src={avatarUrl}
+            alt="avatar"
+            className="h-full w-full object-cover"
+            onError={() => setAvatarFailed(true)}
+          />
+        )}
+      </div>
+      <div className="max-w-[85%] space-y-2">
+        {blocks ? (
+          renderBlocks(blocks)
+        ) : (
+          <>
+            <ThinkingIndicator
+              thinking={message.thinking}
+              thinkingDuration={message.thinkingDuration}
+              isStreaming={message.isStreaming}
+            />
+
+            {message.toolUses.map((tool) => (
+              <ToolUseBlock
+                key={tool.id}
+                tool={tool}
+                result={message.toolResults.find((r) => r.toolUseId === tool.id)}
+              />
+            ))}
+
+            {message.content && (
+              <div className="rounded-lg bg-muted px-4 py-2">
+                <div className="prose prose-sm prose-invert max-w-none [&>p]:mb-4 [&>p:last-child]:mb-0">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code: CodeBlock,
+                      pre: ({ children }) => <>{children}</>,
+                      em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+                      strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                      a: ({ href, children }) => (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 underline hover:text-blue-300"
+                        >
+                          {children}
+                        </a>
+                      ),
+                      p: ({ children }) => (
+                        <p>
+                          {children}
+                          {message.isStreaming && (
+                            <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-foreground align-middle" />
+                          )}
+                        </p>
+                      ),
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Footer with copy button and timing */}

@@ -92,6 +92,18 @@ export interface ApiToolResult {
   is_error: boolean;
 }
 
+export type ConversationBlock =
+  | { type: "thinking"; text: string }
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      name: string;
+      output: string;
+      is_error: boolean;
+    };
+
 export interface ConversationMessage {
   id: string;
   role: string;
@@ -100,6 +112,7 @@ export interface ConversationMessage {
   thinking?: string | null;
   tool_uses?: ApiToolUse[];
   tool_results?: ApiToolResult[];
+  blocks?: ConversationBlock[] | null;
 }
 
 export interface MessageHistoryResponse {
@@ -150,6 +163,7 @@ export interface ChatMessage {
   personality?: string;
   thinking?: string;
   thinkingDuration?: number;
+  blocks?: ConversationBlock[];
   toolUses: ToolUse[];
   toolResults: ToolResult[];
   timestamp: number;
