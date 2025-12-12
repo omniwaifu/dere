@@ -5,7 +5,7 @@ default: install
 
 # Install binaries to user PATH
 install:
-    cd src/dere_plugins/dere_productivity/mcp-server && bun run build
+    cd src/dere_productivity/mcp-server && bun run build
     uv sync --extra dev
     uv tool install --force --editable .
 
