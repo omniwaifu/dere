@@ -1289,6 +1289,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
         session_id=req.session_id,
         prompt=req.prompt,
         message_type=MessageType(req.message_type),
+        personality=req.personality,
         processing_mode="raw",
         timestamp=int(time.time()),
         medium=req.medium,

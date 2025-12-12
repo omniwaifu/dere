@@ -487,10 +487,78 @@ async def get_session_messages(
             ))
 
     # Apply limit
+    # Claude Code may emit multiple consecutive assistant entries for a single turn
+    # (e.g., one with thinking, another with final text). Merge consecutive assistant
+    # entries so the UI can treat each user/assistant turn as a single message.
+    merged: list[ConversationMessage] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg.role != "assistant":
+            merged.append(msg)
+            i += 1
+            continue
+
+        acc = msg
+        j = i + 1
+        while j < len(messages) and messages[j].role == "assistant":
+            nxt = messages[j]
+            acc = ConversationMessage(
+                id=nxt.id or acc.id,
+                role="assistant",
+                content=(acc.content or "") + (nxt.content or ""),
+                timestamp=nxt.timestamp or acc.timestamp,
+                thinking=(
+                    ((acc.thinking or "") + (nxt.thinking or "")) or None
+                ),
+                tool_uses=[*acc.tool_uses, *nxt.tool_uses],
+                tool_results=[*acc.tool_results, *nxt.tool_results],
+            )
+            j += 1
+
+        merged.append(acc)
+        i = j
+
+    messages = merged
+
     if len(messages) > limit:
         messages = messages[-limit:]
 
     return MessageHistoryResponse(messages=messages, has_more=False)
+
+
+@router.get("/sessions/{session_id}/metrics")
+async def get_session_metrics(
+    session_id: int,
+    limit: int = 300,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get per-message metrics from the DB for UI overlay."""
+    stmt = (
+        select(Conversation)
+        .where(Conversation.session_id == session_id, Conversation.medium == "agent_api")
+        .order_by(Conversation.created_at.asc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+    return {
+        "messages": [
+            {
+                "id": msg.id,
+                "message_type": msg.message_type,
+                "timestamp": msg.timestamp,
+                "created_at": int(msg.created_at.timestamp() * 1000) if msg.created_at else None,
+                "personality": msg.personality,
+                "ttft_ms": msg.ttft_ms,
+                "response_ms": msg.response_ms,
+                "thinking_ms": msg.thinking_ms,
+                "tool_uses": msg.tool_uses,
+                "tool_names": msg.tool_names,
+            }
+            for msg in messages
+        ]
+    }
 
 
 @router.get("/output-styles", response_model=AvailableOutputStylesResponse)

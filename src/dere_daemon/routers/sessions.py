@@ -46,6 +46,7 @@ class FindOrCreateSessionResponse(BaseModel):
 class StoreMessageRequest(BaseModel):
     message: str
     role: str = "user"
+    personality: str | None = None
 
 
 class StoreMessageResponse(BaseModel):
@@ -155,10 +156,15 @@ async def store_message(
     db: AsyncSession = Depends(get_db),
 ):
     """Store a message"""
+    personality = req.personality
+    if personality is None:
+        result = await db.execute(select(Session.personality).where(Session.id == session_id))
+        personality = result.scalar_one_or_none()
     conv = Conversation(
         session_id=session_id,
         prompt=req.message,
         message_type=req.role,
+        personality=personality,
         timestamp=int(time.time()),
     )
 
@@ -188,6 +194,12 @@ async def get_history(session_id: int, limit: int = 50, db: AsyncSession = Depen
                 "prompt": msg.prompt,
                 "message_type": msg.message_type,
                 "timestamp": msg.timestamp,
+                "personality": msg.personality,
+                "ttft_ms": msg.ttft_ms,
+                "response_ms": msg.response_ms,
+                "thinking_ms": msg.thinking_ms,
+                "tool_uses": msg.tool_uses,
+                "tool_names": msg.tool_names,
             }
             for msg in messages
         ]

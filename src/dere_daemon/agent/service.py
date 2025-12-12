@@ -25,7 +25,7 @@ from sqlmodel import select
 
 from dere_shared.config import load_dere_config
 from dere_shared.context import get_time_context
-from dere_shared.models import Session
+from dere_shared.models import Conversation, MessageType, Session
 from dere_shared.personalities import PersonalityLoader
 from dere_shared.weather import get_weather_context
 
@@ -685,9 +685,35 @@ class CentralizedAgentService:
             yield session.add_event(error_event("Session not initialized", recoverable=False))
             return
 
+        # Persist user prompt immediately (best-effort)
+        personality_snapshot = session.config.personality
+        if isinstance(personality_snapshot, list):
+            personality_snapshot = personality_snapshot[0] if personality_snapshot else None
+        try:
+            async with self.session_factory() as db:
+                conv_user = Conversation(
+                    session_id=session.session_id,
+                    prompt=prompt,
+                    message_type=MessageType.USER,
+                    personality=personality_snapshot,
+                    timestamp=int(time.time()),
+                    medium="agent_api",
+                    user_id=session.config.user_id,
+                )
+                db.add(conv_user)
+                await db.flush()
+                await db.commit()
+        except Exception as e:
+            logger.debug("Failed to persist user conversation: {}", e)
+
         # Track timing
         request_start_time = time.monotonic()
         first_token_time: float | None = None
+        thinking_start_time: float | None = None
+        thinking_last_time: float | None = None
+        tool_names: list[str] = []
+        tool_name_set: set[str] = set()
+        tool_use_count = 0
 
         try:
             await session.runner.query(prompt)
@@ -707,7 +733,7 @@ class CentralizedAgentService:
 
         async def process_sdk_messages() -> None:
             """Process SDK messages and put events on the queue."""
-            nonlocal was_cancelled, tool_count, first_token_time
+            nonlocal was_cancelled, tool_count, first_token_time, thinking_start_time, thinking_last_time, tool_use_count
             try:
                 async for message in session.runner.receive_response():
                     if cancel_event.is_set():
@@ -745,6 +771,10 @@ class CentralizedAgentService:
                                 if thinking_text:
                                     if first_token_time is None:
                                         first_token_time = time.monotonic()
+                                    now_t = time.monotonic()
+                                    if thinking_start_time is None:
+                                        thinking_start_time = now_t
+                                    thinking_last_time = now_t
                                     logger.info("Stream thinking chunk: {!r}", thinking_text)
                                     await event_queue.put(
                                         session.add_event(thinking_event(thinking_text))
@@ -765,6 +795,17 @@ class CentralizedAgentService:
                             StreamEventType.TOOL_RESULT,
                         ):
                             tool_count += 1
+                            if event.type == StreamEventType.TOOL_USE:
+                                tool_use_count += 1
+                                name = event.data.get("name")
+                                if isinstance(name, str) and name not in tool_name_set:
+                                    tool_name_set.add(name)
+                                    tool_names.append(name)
+                        elif event.type == StreamEventType.THINKING:
+                            now_t = time.monotonic()
+                            if thinking_start_time is None:
+                                thinking_start_time = now_t
+                            thinking_last_time = now_t
                         await event_queue.put(session.add_event(event))
                         continue
 
@@ -780,6 +821,17 @@ class CentralizedAgentService:
                             StreamEventType.TOOL_RESULT,
                         ):
                             tool_count += 1
+                            if event.type == StreamEventType.TOOL_USE:
+                                tool_use_count += 1
+                                name = event.data.get("name")
+                                if isinstance(name, str) and name not in tool_name_set:
+                                    tool_name_set.add(name)
+                                    tool_names.append(name)
+                        elif event.type == StreamEventType.THINKING:
+                            now_t = time.monotonic()
+                            if thinking_start_time is None:
+                                thinking_start_time = now_t
+                            thinking_last_time = now_t
                         await event_queue.put(session.add_event(event))
             except Exception as e:
                 logger.exception("Error streaming response")
@@ -834,13 +886,44 @@ class CentralizedAgentService:
 
         timings: dict[str, float] | None = None
         response_time_ms: float | None = None
+        response_ms: int | None = None
+        ttft_ms: int | None = None
         if first_token_time is not None:
             response_end_time = time.monotonic()
             response_time_ms = (response_end_time - request_start_time) * 1000
+            response_ms = int(response_time_ms)
+            ttft_ms = int((first_token_time - request_start_time) * 1000)
             timings = {
-                "time_to_first_token": (first_token_time - request_start_time) * 1000,
-                "response_time": response_time_ms,
+                "time_to_first_token": ttft_ms,
+                "response_time": response_ms,
             }
+
+        thinking_ms: int | None = None
+        if thinking_start_time is not None and thinking_last_time is not None:
+            thinking_ms = int((thinking_last_time - thinking_start_time) * 1000)
+
+        # Persist assistant message + metrics (best-effort)
+        try:
+            async with self.session_factory() as db:
+                conv_assistant = Conversation(
+                    session_id=session.session_id,
+                    prompt=response_text,
+                    message_type=MessageType.ASSISTANT,
+                    personality=personality_snapshot,
+                    ttft_ms=ttft_ms,
+                    response_ms=response_ms,
+                    thinking_ms=thinking_ms,
+                    tool_uses=tool_use_count,
+                    tool_names=tool_names or None,
+                    timestamp=int(time.time()),
+                    medium="agent_api",
+                    user_id=session.config.user_id,
+                )
+                db.add(conv_assistant)
+                await db.flush()
+                await db.commit()
+        except Exception as e:
+            logger.debug("Failed to persist assistant conversation: {}", e)
 
         # Process interaction for bond and emotion systems (fire and forget)
         await self._process_interaction_complete(
