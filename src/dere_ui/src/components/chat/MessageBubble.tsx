@@ -156,23 +156,25 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
 
         {/* Footer with copy button and timing */}
         {message.content && !message.isStreaming && (
-          <div
-            className={cn(
-              "flex items-center justify-between transition-opacity",
-              isLatest ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
-            )}
-          >
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              title="Copy message"
-            >
-              {copied ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Copy className="h-4 w-4" />
+          <div className="flex items-center justify-between">
+            <div
+              className={cn(
+                "transition-opacity",
+                isLatest ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
               )}
-            </button>
+            >
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Copy message"
+              >
+                {copied ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </button>
+            </div>
 
             {message.timings && (
               <div className="group/timing relative">
@@ -181,7 +183,9 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
                 </span>
                 <div className="absolute bottom-0 left-full ml-2 hidden whitespace-nowrap rounded bg-popover px-2 py-1 font-mono text-xs text-popover-foreground shadow-md group-hover/timing:block">
                   <div>TTFT: {formatTiming(message.timings.time_to_first_token)}</div>
-                  <div>Total: {formatTiming(message.timings.response_time)}</div>
+                  {message.timings.response_time !== undefined && (
+                    <div>Total: {formatTiming(message.timings.response_time)}</div>
+                  )}
                 </div>
               </div>
             )}

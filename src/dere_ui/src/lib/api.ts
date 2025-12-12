@@ -3,6 +3,7 @@ import type {
   SessionResponse,
   SessionListResponse,
   MessageHistoryResponse,
+  ConversationMetricsResponse,
   AvailableOutputStylesResponse,
   AvailablePersonalitiesResponse,
   AvailableModelsResponse,
@@ -88,6 +89,15 @@ export const api = {
       const query = searchParams.toString();
       return fetchJson<MessageHistoryResponse>(
         `/agent/sessions/${id}/messages${query ? `?${query}` : ""}`
+      );
+    },
+
+    metrics: (id: number, params?: { limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.limit) searchParams.set("limit", String(params.limit));
+      const query = searchParams.toString();
+      return fetchJson<ConversationMetricsResponse>(
+        `/agent/sessions/${id}/metrics${query ? `?${query}` : ""}`
       );
     },
 

@@ -107,6 +107,23 @@ export interface MessageHistoryResponse {
   has_more: boolean;
 }
 
+export interface ConversationMetricMessage {
+  id: number;
+  message_type: string;
+  timestamp: number;
+  created_at?: number | null;
+  personality?: string | null;
+  ttft_ms?: number | null;
+  response_ms?: number | null;
+  thinking_ms?: number | null;
+  tool_uses?: number | null;
+  tool_names?: string[] | null;
+}
+
+export interface ConversationMetricsResponse {
+  messages: ConversationMetricMessage[];
+}
+
 export interface ToolUse {
   id: string;
   name: string;
@@ -123,7 +140,7 @@ export interface ToolResult {
 
 export interface ResponseTimings {
   time_to_first_token: number;
-  response_time: number;
+  response_time?: number;
 }
 
 export interface ChatMessage {

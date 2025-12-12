@@ -385,26 +385,56 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   loadMessages: async (sessionId: number) => {
     set({ isLoadingMessages: true, loadError: null });
     try {
-      const response = await api.sessions.messages(sessionId, { limit: 100 });
-      const chatMessages: ChatMessage[] = response.messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role as "user" | "assistant",
-        content: msg.content,
-        thinking: msg.thinking ?? undefined,
-        toolUses: msg.tool_uses?.map((tu) => ({
-          id: tu.id,
-          name: tu.name,
-          input: tu.input,
-          status: "success" as const,
-        })) || [],
-        toolResults: msg.tool_results?.map((tr) => ({
-          toolUseId: tr.tool_use_id,
-          name: tr.name,
-          output: tr.output,
-          isError: tr.is_error,
-        })) || [],
-        timestamp: new Date(msg.timestamp).getTime(),
-      }));
+      const [response, metrics] = await Promise.all([
+        api.sessions.messages(sessionId, { limit: 100 }),
+        api.sessions.metrics(sessionId, { limit: 300 }).catch(() => ({ messages: [] })),
+      ]);
+
+      const metricsMessages = metrics.messages ?? [];
+      const userMetrics = metricsMessages.filter((m) => m.message_type === "user");
+      const assistantMetrics = metricsMessages.filter((m) => m.message_type === "assistant");
+      let userIdx = 0;
+      let assistantIdx = 0;
+
+      const chatMessages: ChatMessage[] = response.messages.map((msg) => {
+        const isUser = msg.role === "user";
+        const metric = isUser ? userMetrics[userIdx++] : assistantMetrics[assistantIdx++];
+        return {
+          id: msg.id,
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+          personality: metric?.personality ?? undefined,
+          thinking: msg.thinking ?? undefined,
+          thinkingDuration:
+            !isUser && metric?.thinking_ms != null
+              ? (metric.thinking_ms as number) / 1000
+              : undefined,
+          toolUses:
+            msg.tool_uses?.map((tu) => ({
+              id: tu.id,
+              name: tu.name,
+              input: tu.input,
+              status: "success" as const,
+            })) || [],
+          toolResults:
+            msg.tool_results?.map((tr) => ({
+              toolUseId: tr.tool_use_id,
+              name: tr.name,
+              output: tr.output,
+              isError: tr.is_error,
+            })) || [],
+          timestamp: new Date(msg.timestamp).getTime(),
+          timings:
+            !isUser && metric?.ttft_ms != null
+              ? {
+                  time_to_first_token: metric.ttft_ms as number,
+                  ...(metric?.response_ms != null
+                    ? { response_time: metric.response_ms as number }
+                    : {}),
+                }
+              : undefined,
+        };
+      });
       set({ messages: chatMessages, isLoadingMessages: false });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load messages";
