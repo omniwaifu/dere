@@ -120,15 +120,18 @@ class SettingsBuilder:
             return False
 
     def _find_plugins_path(self) -> Path | None:
-        # Prefer a local checkout: walk upward and look for `src/dere_plugins`.
+        # Primary: find plugins relative to this wrapper module (works regardless of cwd)
+        wrapper_plugins = Path(__file__).parent.parent / "dere_plugins"
+        if (wrapper_plugins / ".claude-plugin" / "marketplace.json").exists():
+            return wrapper_plugins
+
+        # Fallback: walk upward from cwd for local dev overrides
         cwd = Path.cwd()
         for parent in [cwd, *cwd.parents]:
             candidate = parent / "src" / "dere_plugins"
             if (candidate / ".claude-plugin" / "marketplace.json").exists():
                 return candidate
 
-        # Fallback: if running from an installed package, we may not have a marketplace
-        # manifest available. In that case, don't attempt to configure a local marketplace.
         return None
 
     def _add_dere_plugins(self, settings: dict) -> None:
