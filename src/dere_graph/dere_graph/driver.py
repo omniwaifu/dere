@@ -170,6 +170,7 @@ class FalkorDriver:
                 e.group_id = $group_id,
                 e.valid_at = $valid_at,
                 e.conversation_id = $conversation_id,
+                e.entity_edges = $entity_edges,
                 e.speaker_id = $speaker_id,
                 e.speaker_name = $speaker_name,
                 e.personality = $personality,
@@ -183,6 +184,7 @@ class FalkorDriver:
             group_id=node.group_id,
             valid_at=node.valid_at,
             conversation_id=node.conversation_id,
+            entity_edges=node.entity_edges,
             speaker_id=node.speaker_id,
             speaker_name=node.speaker_name,
             personality=node.personality,
@@ -203,12 +205,13 @@ class FalkorDriver:
                    e.source_description AS source_description,
                    e.source AS source,
                    e.group_id AS group_id,
-                   e.valid_at AS valid_at,
-                   e.conversation_id AS conversation_id,
-                   e.speaker_id AS speaker_id,
-                   e.speaker_name AS speaker_name,
-                   e.personality AS personality,
-                   e.created_at AS created_at
+	                   e.valid_at AS valid_at,
+	                   e.conversation_id AS conversation_id,
+	                   e.entity_edges AS entity_edges,
+	                   e.speaker_id AS speaker_id,
+	                   e.speaker_name AS speaker_name,
+	                   e.personality AS personality,
+	                   e.created_at AS created_at
             ORDER BY e.created_at DESC
             LIMIT $limit
             """,
@@ -224,13 +227,14 @@ class FalkorDriver:
                 content=record["content"],
                 source_description=record["source_description"],
                 source=EpisodeType(record["source"]),
-                group_id=record["group_id"],
-                conversation_id=record.get("conversation_id", "default"),
-                speaker_id=record.get("speaker_id"),
-                speaker_name=record.get("speaker_name"),
-                personality=record.get("personality"),
-                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
-                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
+	                group_id=record["group_id"],
+	                conversation_id=record.get("conversation_id", "default"),
+	                entity_edges=record.get("entity_edges") or [],
+	                speaker_id=record.get("speaker_id"),
+	                speaker_name=record.get("speaker_name"),
+	                personality=record.get("personality"),
+	                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+	                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
             episodes.append(episode)
 
@@ -251,12 +255,13 @@ class FalkorDriver:
                    e.source_description AS source_description,
                    e.source AS source,
                    e.group_id AS group_id,
-                   e.valid_at AS valid_at,
-                   e.conversation_id AS conversation_id,
-                   e.speaker_id AS speaker_id,
-                   e.speaker_name AS speaker_name,
-                   e.personality AS personality,
-                   e.created_at AS created_at
+	                   e.valid_at AS valid_at,
+	                   e.conversation_id AS conversation_id,
+	                   e.entity_edges AS entity_edges,
+	                   e.speaker_id AS speaker_id,
+	                   e.speaker_name AS speaker_name,
+	                   e.personality AS personality,
+	                   e.created_at AS created_at
             ORDER BY e.created_at DESC
             LIMIT 1
             """,
@@ -272,13 +277,14 @@ class FalkorDriver:
                 content=record["content"],
                 source_description=record["source_description"],
                 source=EpisodeType(record["source"]),
-                group_id=record["group_id"],
-                conversation_id=record.get("conversation_id", "default"),
-                speaker_id=record.get("speaker_id"),
-                speaker_name=record.get("speaker_name"),
-                personality=record.get("personality"),
-                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
-                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
+	                group_id=record["group_id"],
+	                conversation_id=record.get("conversation_id", "default"),
+	                entity_edges=record.get("entity_edges") or [],
+	                speaker_id=record.get("speaker_id"),
+	                speaker_name=record.get("speaker_name"),
+	                personality=record.get("personality"),
+	                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+	                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
             episodes.append(episode)
 
@@ -304,9 +310,10 @@ class FalkorDriver:
                    episode.source_description AS source_description,
                    episode.source AS source,
                    episode.group_id AS group_id,
-                   episode.valid_at AS valid_at,
-                   episode.conversation_id AS conversation_id,
-                   episode.created_at AS created_at
+	                   episode.valid_at AS valid_at,
+	                   episode.conversation_id AS conversation_id,
+	                   episode.entity_edges AS entity_edges,
+	                   episode.created_at AS created_at
             ORDER BY episode.created_at DESC
             LIMIT $limit
             """,
@@ -323,10 +330,11 @@ class FalkorDriver:
                 content=record["content"],
                 source_description=record["source_description"],
                 source=EpisodeType(record["source"]),
-                group_id=record["group_id"],
-                conversation_id=record.get("conversation_id", "default"),
-                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
-                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
+	                group_id=record["group_id"],
+	                conversation_id=record.get("conversation_id", "default"),
+	                entity_edges=record.get("entity_edges") or [],
+	                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+	                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
             episodes.append(episode)
 
@@ -471,6 +479,21 @@ class FalkorDriver:
 
         return edges
 
+    async def get_edge_uuids_for_episode(self, episode_uuid: str, group_id: str) -> list[str]:
+        """Return all semantic edge UUIDs that reference an episode UUID."""
+        records = await self.execute_query(
+            """
+            MATCH ()-[r:RELATES_TO]->()
+            WHERE r.group_id = $group_id
+              AND r.episodes IS NOT NULL
+              AND $episode_uuid IN r.episodes
+            RETURN r.uuid AS uuid
+            """,
+            group_id=group_id,
+            episode_uuid=episode_uuid,
+        )
+        return [record["uuid"] for record in records if record.get("uuid")]
+
     async def invalidate_edge(self, edge_uuid: str, invalid_at: datetime) -> None:
         """Invalidate an edge by setting its invalid_at timestamp."""
         await self.execute_query(
@@ -514,6 +537,7 @@ class FalkorDriver:
                    e.source AS source,
                    e.group_id AS group_id,
                    e.valid_at AS valid_at,
+                   e.entity_edges AS entity_edges,
                    e.created_at AS created_at
             """,
             uuid=uuid,
@@ -531,6 +555,7 @@ class FalkorDriver:
             source=EpisodeType(record["source"]),
             group_id=record["group_id"],
             valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+            entity_edges=record.get("entity_edges") or [],
             created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
         )
 

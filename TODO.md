@@ -40,11 +40,11 @@ These unlock everything else; do them first.
     same representation, and nodes now support `expired_at`.
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/driver.py`
 
-- [ ] **Persist and maintain “bidirectional indices” between episodes and facts**
+- [x] **Persist and maintain “bidirectional indices” between episodes and facts**
   - Why: citation/quotation and provenance; fast traversal from an edge back to its source episode(s).
   - Paper/Graphiti: episodic edges + semantic edges store pointers to episodes.
-  - Current state: we write `MENTIONS` edges (episode → entity) and store `EntityEdge.episodes`, but we don’t maintain
-    `EpisodicNode.entity_edges` in the DB.
+  - Current state: we write `MENTIONS` edges (episode → entity), store `EntityEdge.episodes`, and persist
+    `EpisodicNode.entity_edges` for reverse lookup.
   - Files: `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/driver.py`
 
 - [ ] **Include short conversational context during entity extraction + require speaker entity**

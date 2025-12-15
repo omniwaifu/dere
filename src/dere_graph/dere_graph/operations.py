@@ -575,6 +575,10 @@ async def save_nodes_and_edges(
         )
         await driver.save_episodic_edge(episodic_edge)
 
+    # Persist bidirectional episode ↔ fact index (episode.entity_edges)
+    episode.entity_edges = await driver.get_edge_uuids_for_episode(episode.uuid, episode.group_id)
+    await driver.save_episodic_node(episode)
+
     logger.debug(
         f"Saved {len(nodes_with_embeddings)} nodes (with embeddings), {len(edges)} entity edges, {len(all_nodes)} episodic edges"
     )
