@@ -328,6 +328,14 @@ async def deduplicate_nodes(
 
             logger.debug(f"[EntityExtraction] ✓ New entity: {extracted_node.name}")
 
+        # Apply canonical name from the resolution step.
+        canonical_name = resolution.name.strip() if resolution.name else ""
+        if canonical_name and canonical_name != resolved_node.name:
+            logger.debug(
+                f"[EntityExtraction] ↻ Canonicalized name: {resolved_node.name} → {canonical_name}"
+            )
+            resolved_node.name = canonical_name
+
         resolved_nodes.append(resolved_node)
 
     duplicates_count = len([v for k, v in uuid_map.items() if k != v])

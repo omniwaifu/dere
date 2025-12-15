@@ -55,7 +55,8 @@ These unlock everything else; do them first.
 
 - [ ] **Generate and store entity summaries (and update canonical name/summary during resolution)**
   - Why: (1) improves dedupe, (2) improves BM25 retrieval, (3) enables stable canonicalization over time.
-  - Current state: `EntityNode.summary` exists but stays mostly empty; resolution returns only indices (no updated summary).
+  - Current state: dedupe now applies a canonical entity name; `EntityNode.summary` still stays mostly empty (no dedicated
+    summary generation / merging yet).
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`
 
 ---
