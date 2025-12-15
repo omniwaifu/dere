@@ -89,6 +89,20 @@ class EdgeDates(BaseModel):
     )
 
 
+class EdgeDateUpdate(BaseModel):
+    id: int = Field(..., description="The id of the edge from the EDGES list")
+    valid_at: str | None = Field(
+        None, description="ISO 8601 datetime when relationship became true"
+    )
+    invalid_at: str | None = Field(
+        None, description="ISO 8601 datetime when relationship stopped being true"
+    )
+
+
+class EdgeDateUpdates(BaseModel):
+    edge_dates: list[EdgeDateUpdate]
+
+
 # Response Models for Entity Deduplication
 class NodeDuplicate(BaseModel):
     id: int = Field(..., description="integer id of the entity")
@@ -535,6 +549,53 @@ Guidelines:
 7. If only a date is mentioned without time, use 00:00:00 (midnight).
 8. If only year is mentioned, use January 1st at 00:00:00.
 9. Always include the time zone offset (use Z for UTC).
+"""
+    return [
+        Message(role="system", content=sys_prompt),
+        Message(role="user", content=user_prompt),
+    ]
+
+
+def extract_edge_dates_batch(
+    previous_episodes: list[str],
+    current_episode: str,
+    edges: list[dict[str, Any]],
+    reference_timestamp: str,
+) -> list[Message]:
+    """Extract datetime information for a list of edge facts."""
+    sys_prompt = """You are an AI assistant that extracts datetime information for graph edges.
+Focus only on dates directly related to the establishment or change of each relationship."""
+
+    user_prompt = f"""
+<PREVIOUS MESSAGES>
+{"\n".join(previous_episodes)}
+</PREVIOUS MESSAGES>
+
+<CURRENT MESSAGE>
+{current_episode}
+</CURRENT MESSAGE>
+
+<REFERENCE TIMESTAMP>
+{reference_timestamp}  # ISO 8601 (UTC); used to resolve relative time mentions
+</REFERENCE TIMESTAMP>
+
+<EDGES>
+{edges}
+</EDGES>
+
+IMPORTANT:
+- Only extract time information if it is part of the relationship described in the edge fact.
+- Do NOT infer dates from related events. Only use dates directly stated or unambiguously implied.
+
+Task:
+- For EACH edge in EDGES, determine valid_at and invalid_at (or null).
+- Use ISO 8601 format with Z suffix (UTC).
+- If the fact is present tense and ongoing, set valid_at to REFERENCE TIMESTAMP.
+- If no temporal information is found, leave fields null.
+
+Output requirements:
+- Return EXACTLY one entry per edge id in EDGES.
+- Use the ids from EDGES.
 """
     return [
         Message(role="system", content=sys_prompt),

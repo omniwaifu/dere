@@ -20,6 +20,7 @@ from dere_graph.models import (
     validate_entity_types,
 )
 from dere_graph.prompts import (
+    EdgeDateUpdates,
     EdgeDuplicate,
     EntityAttributeUpdates,
     EntitySummaries,
@@ -28,6 +29,7 @@ from dere_graph.prompts import (
     NodeResolutions,
     dedupe_edges,
     dedupe_entities,
+    extract_edge_dates_batch,
     extract_edges,
     extract_entities_text,
     hydrate_entity_attributes,
@@ -44,6 +46,7 @@ async def add_episode(
     postgres_driver=None,
     enable_reflection: bool = True,
     enable_attribute_hydration: bool = False,
+    enable_edge_date_refinement: bool = False,
     entity_types: dict[str, type[BaseModel]] | None = None,
     excluded_entity_types: list[str] | None = None,
     edge_types: dict[str, type[BaseModel]] | None = None,
@@ -122,6 +125,14 @@ async def add_episode(
         llm_client,
         entity_edges,
     )
+
+    if enable_edge_date_refinement and deduped_edges:
+        await refine_edge_dates_batch(
+            llm_client,
+            episode,
+            deduped_edges,
+            previous_episodes or [],
+        )
 
     if edge_types:
         for edge in deduped_edges:
@@ -716,6 +727,88 @@ Only extract facts that are clearly supported by the text and involve two distin
 
     logger.debug(f"Extracted {len(edges)} entity edges")
     return edges
+
+
+def _parse_edge_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+async def refine_edge_dates_batch(
+    llm_client: ClaudeClient,
+    episode: EpisodicNode,
+    edges: list[EntityEdge],
+    previous_episodes: list[EpisodicNode],
+) -> None:
+    """Optional second-pass edge datetime extraction.
+
+    Only fills missing valid_at/invalid_at fields and does not override existing values.
+    """
+    if not edges:
+        return
+
+    edges_to_refine: list[dict[str, object]] = []
+    id_to_edge: dict[int, EntityEdge] = {}
+    for idx, edge in enumerate(edges):
+        if edge.valid_at is not None and edge.invalid_at is not None:
+            continue
+        id_to_edge[idx] = edge
+        edges_to_refine.append(
+            {
+                "id": idx,
+                "relation_type": edge.name,
+                "fact": edge.fact,
+                "valid_at": edge.valid_at.isoformat() if edge.valid_at else None,
+                "invalid_at": edge.invalid_at.isoformat() if edge.invalid_at else None,
+            }
+        )
+
+    if not edges_to_refine:
+        return
+
+    prev_episode_strings = [ep.content for ep in previous_episodes][-4:]
+    messages = extract_edge_dates_batch(
+        prev_episode_strings,
+        episode.content,
+        edges_to_refine,
+        episode.valid_at.isoformat(),
+    )
+
+    try:
+        response = await llm_client.generate_response(messages, EdgeDateUpdates)
+    except Exception as e:
+        logger.warning(f"[EdgeExtraction] Edge date refinement failed: {e}")
+        return
+
+    updates_by_id = {u.id: u for u in response.edge_dates}
+    updated_edges = 0
+    for idx, edge in id_to_edge.items():
+        update = updates_by_id.get(idx)
+        if not update:
+            continue
+
+        changed = False
+        if edge.valid_at is None and update.valid_at:
+            parsed = _parse_edge_date(update.valid_at)
+            if parsed is not None:
+                edge.valid_at = parsed
+                changed = True
+        if edge.invalid_at is None and update.invalid_at:
+            parsed = _parse_edge_date(update.invalid_at)
+            if parsed is not None:
+                edge.invalid_at = parsed
+                changed = True
+
+        if changed:
+            updated_edges += 1
+
+    logger.debug(
+        f"[EdgeExtraction] Refined dates for {updated_edges}/{len(edges_to_refine)} edges"
+    )
 
 
 async def deduplicate_edges_batch(

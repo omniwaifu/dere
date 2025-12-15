@@ -50,6 +50,7 @@ class DereGraph:
         postgres_db_url: str | None = None,
         enable_reflection: bool = True,
         enable_attribute_hydration: bool = False,
+        enable_edge_date_refinement: bool = False,
         idle_threshold_minutes: int = 15,
     ):
         """Initialize DereGraph with database and AI clients.
@@ -66,6 +67,7 @@ class DereGraph:
             postgres_db_url: Optional Postgres connection URL for entity meta-context
             enable_reflection: Enable reflection-based entity extraction validation
             enable_attribute_hydration: Run a dedicated attribute hydration pass after deduplication
+            enable_edge_date_refinement: Run a dedicated edge date extraction pass post-deduplication
             idle_threshold_minutes: Minutes of idle time before creating new conversation_id
         """
         self.driver = FalkorDriver(
@@ -82,6 +84,7 @@ class DereGraph:
         )
         self.enable_reflection = enable_reflection
         self.enable_attribute_hydration = enable_attribute_hydration
+        self.enable_edge_date_refinement = enable_edge_date_refinement
         self.idle_threshold_minutes = idle_threshold_minutes
 
         # Optional Postgres for entity meta-context
@@ -133,6 +136,7 @@ class DereGraph:
         speaker_name: str | None = None,
         personality: str | None = None,
         enable_attribute_hydration: bool | None = None,
+        enable_edge_date_refinement: bool | None = None,
         entity_types: dict[str, type[BaseModel]] | None = None,
         excluded_entity_types: list[str] | None = None,
         edge_types: dict[str, type[BaseModel]] | None = None,
@@ -160,6 +164,7 @@ class DereGraph:
             speaker_name: Optional speaker display name for pronoun resolution
             personality: Optional AI personality name (e.g., 'Tsun', 'Kuu')
             enable_attribute_hydration: Override default attribute hydration behavior for this call
+            enable_edge_date_refinement: Override default edge date refinement behavior for this call
             entity_types: Optional ontology mapping entity type label -> attribute schema
             excluded_entity_types: Optional entity type labels to exclude at extraction time
             edge_types: Optional ontology mapping edge type -> attribute schema
@@ -224,6 +229,11 @@ class DereGraph:
                 if enable_attribute_hydration is None
                 else enable_attribute_hydration
             ),
+            enable_edge_date_refinement=(
+                self.enable_edge_date_refinement
+                if enable_edge_date_refinement is None
+                else enable_edge_date_refinement
+            ),
             entity_types=entity_types,
             excluded_entity_types=excluded_entity_types,
             edge_types=edge_types,
@@ -245,6 +255,7 @@ class DereGraph:
         group_id: str = "default",
         max_concurrent: int = 5,
         enable_attribute_hydration: bool | None = None,
+        enable_edge_date_refinement: bool | None = None,
         entity_types: dict[str, type[BaseModel]] | None = None,
         excluded_entity_types: list[str] | None = None,
         edge_types: dict[str, type[BaseModel]] | None = None,
@@ -278,6 +289,7 @@ class DereGraph:
                     source=source,
                     group_id=group_id,
                     enable_attribute_hydration=enable_attribute_hydration,
+                    enable_edge_date_refinement=enable_edge_date_refinement,
                     entity_types=entity_types,
                     excluded_entity_types=excluded_entity_types,
                     edge_types=edge_types,

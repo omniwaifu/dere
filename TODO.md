@@ -81,12 +81,11 @@ These unlock everything else; do them first.
     code/doc extraction instructions) based on episode type.
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/prompts.py`
 
-- [ ] **Decide and implement temporal extraction strategy**
+- [x] **Decide and implement temporal extraction strategy**
   - Why: paper describes a dedicated temporal extraction step; we currently request timestamps inline during fact extraction.
-  - Options:
-    - Keep “timestamps inline” but make prompts + parsing robust, or
-    - Add a second pass per edge using an `extract_edge_dates`-style prompt.
-  - Files: `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`
+  - Current state: timestamps are extracted inline during edge extraction, with an optional second pass
+    (`enable_edge_date_refinement`) that batch-refines missing `valid_at`/`invalid_at` via `extract_edge_dates_batch`.
+  - Files: `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/graph.py`, `src/dere_daemon/main.py`, `config.toml.example`
 
 - [ ] **Support “hyper-edge” / n-ary fact representation (optional, but paper calls it out)**
   - Why: a single fact can involve >2 entities (meeting, project, decision); forcing it into pairwise edges loses structure.

@@ -110,6 +110,7 @@ claude_model = "claude-haiku-4-5"   # Model for entity extraction
 embedding_dim = 1536                # Embedding dimensions
 enable_reflection = true            # Enable periodic reflection
 enable_attribute_hydration = false  # Second-pass entity attribute extraction
+enable_edge_date_refinement = false # Second-pass edge date extraction
 idle_threshold_minutes = 15         # Minutes of inactivity before reflection
 
 # ============================================================================

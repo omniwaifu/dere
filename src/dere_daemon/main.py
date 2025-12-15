@@ -285,6 +285,7 @@ async def _init_dere_graph(config: dict[str, Any], db_url: str, app_state: AppSt
             postgres_db_url=postgres_url,
             enable_reflection=graph_config.get("enable_reflection", True),
             enable_attribute_hydration=graph_config.get("enable_attribute_hydration", False),
+            enable_edge_date_refinement=graph_config.get("enable_edge_date_refinement", False),
             idle_threshold_minutes=graph_config.get("idle_threshold_minutes", 15),
         )
         await app_state.dere_graph.build_indices()
