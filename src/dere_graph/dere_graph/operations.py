@@ -3,11 +3,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from loguru import logger
+from pydantic import BaseModel
 
 from dere_graph.driver import FalkorDriver
 from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.llm_client import ClaudeClient
-from dere_graph.models import EntityEdge, EntityNode, EpisodicEdge, EpisodicNode
+from dere_graph.models import (
+    EntityEdge,
+    EntityNode,
+    EpisodicEdge,
+    EpisodicNode,
+    apply_edge_schema,
+    apply_entity_schema,
+    validate_edge_types,
+    validate_entity_types,
+)
 from dere_graph.prompts import (
     EdgeDuplicate,
     EntitySummaries,
@@ -30,12 +40,21 @@ async def add_episode(
     previous_episodes: list[EpisodicNode] | None = None,
     postgres_driver=None,
     enable_reflection: bool = True,
+    entity_types: dict[str, type[BaseModel]] | None = None,
+    excluded_entity_types: list[str] | None = None,
+    edge_types: dict[str, type[BaseModel]] | None = None,
+    excluded_edge_types: list[str] | None = None,
 ) -> tuple[list[EntityNode], list[EntityEdge]]:
     """Main ingestion pipeline for adding an episode to the graph.
 
     Returns:
         tuple: (new_nodes, new_edges) created during ingestion
     """
+    if entity_types:
+        validate_entity_types(entity_types)
+    if edge_types:
+        validate_edge_types(edge_types)
+
     if previous_episodes is None:
         # Fetch recent episodes for context in entity deduplication
         previous_episodes = await driver.get_recent_episodes(episode.group_id, limit=5)
@@ -45,7 +64,14 @@ async def add_episode(
     logger.info(f"Saved episode: {episode.uuid}")
 
     # 2. Extract entities
-    extracted_nodes = await extract_nodes(llm_client, episode, previous_episodes, enable_reflection)
+    extracted_nodes = await extract_nodes(
+        llm_client,
+        episode,
+        previous_episodes,
+        enable_reflection,
+        entity_types=entity_types,
+        excluded_entity_types=excluded_entity_types,
+    )
     if not extracted_nodes:
         logger.info("No entities extracted")
         return [], []
@@ -60,12 +86,21 @@ async def add_episode(
         previous_episodes,
     )
 
+    if entity_types:
+        for node in resolved_nodes:
+            try:
+                apply_entity_schema(node, entity_types)
+            except Exception as e:
+                logger.warning(f"[EntityExtraction] Entity schema validation skipped: {e}")
+
     # 4. Extract relationships between entities
     entity_edges = await extract_entity_edges(
         llm_client,
         episode,
         resolved_nodes,
         previous_episodes,
+        edge_types=edge_types,
+        excluded_edge_types=excluded_edge_types,
     )
 
     # 5. Deduplicate edges
@@ -74,6 +109,13 @@ async def add_episode(
         llm_client,
         entity_edges,
     )
+
+    if edge_types:
+        for edge in deduped_edges:
+            try:
+                apply_edge_schema(edge, edge_types)
+            except Exception as e:
+                logger.warning(f"[EdgeExtraction] Edge schema validation skipped: {e}")
 
     # 6. Generate embeddings for nodes and edges
     # Find nodes that need embeddings (either new or existing without embeddings)
@@ -104,6 +146,8 @@ async def extract_nodes(
     episode: EpisodicNode,
     previous_episodes: list[EpisodicNode] | None = None,
     enable_reflection: bool = True,
+    entity_types: dict[str, type[BaseModel]] | None = None,
+    excluded_entity_types: list[str] | None = None,
 ) -> list[EntityNode]:
     """Extract entity nodes from episode content with optional reflection validation."""
     def ensure_speaker_first(nodes: list[EntityNode]) -> list[EntityNode]:
@@ -147,24 +191,42 @@ async def extract_nodes(
         speaker_id=episode.speaker_id,
         speaker_name=episode.speaker_name,
         personality=episode.personality,
+        entity_types=list(entity_types.keys()) if entity_types else None,
+        excluded_entity_types=excluded_entity_types,
     )
 
     response = await llm_client.generate_response(messages, ExtractedEntities)
 
     logger.debug("[EntityExtraction] === INITIAL EXTRACTION ===")
     extracted_nodes = []
+    allowed_type_names = set(entity_types.keys()) if entity_types else None
     for entity in response.extracted_entities:
         if not entity.name.strip():
             continue
 
+        entity_type = entity.entity_type.strip() if entity.entity_type else None
+
         node = EntityNode(
             name=entity.name,
             group_id=episode.group_id,
-            labels=([entity.entity_type] if entity.entity_type else []),
+            labels=([entity_type] if entity_type else []),
             summary="",
             attributes=entity.attributes,
             aliases=entity.aliases,
         )
+
+        if allowed_type_names and node.labels and node.labels[0] not in allowed_type_names:
+            logger.debug(
+                f"[EntityExtraction] Dropping unknown entity_type '{node.labels[0]}' for entity '{node.name}'"
+            )
+            node.labels = []
+
+        if entity_types:
+            try:
+                apply_entity_schema(node, entity_types)
+            except Exception as e:
+                logger.warning(f"[EntityExtraction] Entity schema validation skipped: {e}")
+
         extracted_nodes.append(node)
 
         # Log each extracted entity
@@ -351,6 +413,9 @@ async def deduplicate_nodes(
                 f"[EntityExtraction] ⊕ Merged duplicate: {extracted_node.name} → "
                 f"existing {resolved_node.name} (mentions: {resolved_node.mention_count})"
             )
+
+            if extracted_node.labels and not resolved_node.labels:
+                resolved_node.labels = extracted_node.labels
         else:
             # It's new - initialize with mention_count=1
             resolved_node = extracted_node
@@ -413,6 +478,8 @@ async def extract_entity_edges(
     episode: EpisodicNode,
     nodes: list[EntityNode],
     previous_episodes: list[EpisodicNode],
+    edge_types: dict[str, type[BaseModel]] | None = None,
+    excluded_edge_types: list[str] | None = None,
 ) -> list[EntityEdge]:
     """Extract relationships between entities."""
     if len(nodes) < 2:
@@ -428,11 +495,15 @@ async def extract_entity_edges(
         [ep.content for ep in previous_episodes],
         nodes_context,
         episode.valid_at.isoformat(),
+        edge_types=list(edge_types.keys()) if edge_types else None,
+        excluded_edge_types=excluded_edge_types,
     )
 
     response = await llm_client.generate_response(messages, ExtractedEdges)
 
     edges = []
+    allowed_edge_type_names = set(edge_types.keys()) if edge_types else None
+    excluded_edge_type_names = set(excluded_edge_types or [])
     for edge_data in response.edges:
         if not edge_data.fact.strip():
             continue
@@ -463,16 +534,23 @@ async def extract_entity_edges(
             except Exception as e:
                 logger.warning(f"Failed to parse invalid_at: {e}")
 
+        relation_type = (edge_data.relation_type or "").strip() or "DEFAULT"
+        if relation_type in excluded_edge_type_names:
+            relation_type = "DEFAULT"
+        if allowed_edge_type_names and relation_type not in allowed_edge_type_names:
+            relation_type = "DEFAULT"
+
         edge = EntityEdge(
             source_node_uuid=nodes[source_idx].uuid,
             target_node_uuid=nodes[target_idx].uuid,
-            name=edge_data.relation_type,
+            name=relation_type,
             fact=edge_data.fact,
             group_id=episode.group_id,
             valid_at=valid_at,
             invalid_at=invalid_at,
             episodes=[episode.uuid],
             strength=edge_data.strength,
+            attributes=edge_data.attributes or {},
         )
         edges.append(edge)
 

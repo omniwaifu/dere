@@ -129,6 +129,10 @@ class DereGraph:
         speaker_id: str | None = None,
         speaker_name: str | None = None,
         personality: str | None = None,
+        entity_types: dict[str, type[BaseModel]] | None = None,
+        excluded_entity_types: list[str] | None = None,
+        edge_types: dict[str, type[BaseModel]] | None = None,
+        excluded_edge_types: list[str] | None = None,
     ) -> AddEpisodeResults:
         """Add an episode to the knowledge graph.
 
@@ -151,6 +155,10 @@ class DereGraph:
             speaker_id: Optional speaker ID for pronoun resolution (e.g., Discord user ID)
             speaker_name: Optional speaker display name for pronoun resolution
             personality: Optional AI personality name (e.g., 'Tsun', 'Kuu')
+            entity_types: Optional ontology mapping entity type label -> attribute schema
+            excluded_entity_types: Optional entity type labels to exclude at extraction time
+            edge_types: Optional ontology mapping edge type -> attribute schema
+            excluded_edge_types: Optional edge types to exclude at extraction time
 
         Returns:
             AddEpisodeResults with created nodes and edges
@@ -206,6 +214,10 @@ class DereGraph:
             previous_episodes,
             self.postgres_driver,
             self.enable_reflection,
+            entity_types=entity_types,
+            excluded_entity_types=excluded_entity_types,
+            edge_types=edge_types,
+            excluded_edge_types=excluded_edge_types,
         )
 
         logger.info(f"Episode added: {episode.uuid}")
@@ -222,6 +234,10 @@ class DereGraph:
         episodes: list[tuple[str, str, datetime, EpisodeType]],
         group_id: str = "default",
         max_concurrent: int = 5,
+        entity_types: dict[str, type[BaseModel]] | None = None,
+        excluded_entity_types: list[str] | None = None,
+        edge_types: dict[str, type[BaseModel]] | None = None,
+        excluded_edge_types: list[str] | None = None,
     ) -> list[AddEpisodeResults]:
         """Add multiple episodes in parallel with concurrency control.
 
@@ -250,6 +266,10 @@ class DereGraph:
                     reference_time=reference_time,
                     source=source,
                     group_id=group_id,
+                    entity_types=entity_types,
+                    excluded_entity_types=excluded_entity_types,
+                    edge_types=edge_types,
+                    excluded_edge_types=excluded_edge_types,
                 )
 
         tasks = [add_with_semaphore(*episode_data) for episode_data in episodes]

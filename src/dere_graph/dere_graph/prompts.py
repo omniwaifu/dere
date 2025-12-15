@@ -47,6 +47,10 @@ class Edge(BaseModel):
         ...,
         description="A natural language description of the relationship between the entities",
     )
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional structured attributes for the fact (e.g., role, priority, status).",
+    )
     valid_at: str | None = Field(
         None, description="ISO 8601 datetime when relationship became true"
     )
@@ -313,10 +317,28 @@ def extract_edges(
     nodes: list[dict[str, Any]],
     reference_time: str,
     custom_prompt: str = "",
+    edge_types: list[str] | None = None,
+    excluded_edge_types: list[str] | None = None,
 ) -> list[Message]:
     sys_prompt = """You are an expert fact extractor that extracts fact triples from text.
 1. Extracted fact triples should also be extracted with relevant date information.
 2. Treat the CURRENT TIME as the time the CURRENT MESSAGE was sent. All temporal information should be extracted relative to this time."""
+
+    edge_type_context = ""
+    if edge_types:
+        edge_type_context = f"""
+<FACT_TYPES>
+Use one of these relation_type values when possible: {", ".join(edge_types)}.
+If none fit, use DEFAULT.
+</FACT_TYPES>
+"""
+
+    if excluded_edge_types:
+        edge_type_context += f"""
+<EXCLUDED_FACT_TYPES>
+Do NOT use these relation_type values: {", ".join(excluded_edge_types)}
+</EXCLUDED_FACT_TYPES>
+"""
 
     user_prompt = f"""
 <PREVIOUS_MESSAGES>
@@ -330,6 +352,8 @@ def extract_edges(
 <ENTITIES>
 {nodes}
 </ENTITIES>
+
+{edge_type_context}
 
 <REFERENCE_TIME>
 {reference_time}  # ISO 8601 (UTC); used to resolve relative time mentions
@@ -384,6 +408,7 @@ You may use information from the PREVIOUS MESSAGES only to disambiguate referenc
 5. The fact should closely paraphrase the original source sentence(s).
 6. Use REFERENCE_TIME to resolve vague or relative temporal expressions (e.g., "last week").
 7. Do **not** hallucinate or infer temporal bounds from unrelated events.
+8. Keep attributes conservative: only include fields that are explicitly stated or unambiguously implied.
 
 # DATETIME RULES
 

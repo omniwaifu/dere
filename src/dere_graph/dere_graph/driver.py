@@ -418,6 +418,12 @@ class FalkorDriver:
             "strength": edge.strength,
             "group_id": edge.group_id,
         }
+        if edge.attributes:
+            reserved_keys = set(edge_data.keys())
+            for key, value in edge.attributes.items():
+                if key in reserved_keys:
+                    continue
+                edge_data[key] = value
 
         await self.execute_query(
             """
@@ -443,41 +449,16 @@ class FalkorDriver:
             MATCH (target:Entity {uuid: $target_uuid})
             MATCH (source)-[r:RELATES_TO]->(target)
             WHERE r.group_id = $group_id
-            RETURN r.uuid AS uuid,
-                   r.name AS name,
-                   r.fact AS fact,
-                   r.fact_embedding AS fact_embedding,
-                   r.episodes AS episodes,
-                   r.created_at AS created_at,
-                   r.expired_at AS expired_at,
-                   r.valid_at AS valid_at,
-                   r.invalid_at AS invalid_at,
-                   r.group_id AS group_id
+            RETURN r AS edge, source.uuid AS source_uuid, target.uuid AS target_uuid
             """,
             source_uuid=source_uuid,
             target_uuid=target_uuid,
             group_id=group_id,
         )
-
-        edges = []
-        for record in records:
-            edge = EntityEdge(
-                uuid=record["uuid"],
-                source_node_uuid=source_uuid,
-                target_node_uuid=target_uuid,
-                name=record["name"],
-                fact=record["fact"],
-                fact_embedding=record["fact_embedding"],
-                episodes=record["episodes"] or [],
-                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
-                expired_at=_parse_iso_datetime(record["expired_at"]) if record["expired_at"] else None,
-                valid_at=_parse_iso_datetime(record["valid_at"]) if record["valid_at"] else None,
-                invalid_at=_parse_iso_datetime(record["invalid_at"]) if record["invalid_at"] else None,
-                group_id=record["group_id"],
-            )
-            edges.append(edge)
-
-        return edges
+        return [
+            self._dict_to_entity_edge(record["edge"], record["source_uuid"], record["target_uuid"])
+            for record in records
+        ]
 
     async def get_edge_uuids_for_episode(self, episode_uuid: str, group_id: str) -> list[str]:
         """Return all semantic edge UUIDs that reference an episode UUID."""
@@ -922,6 +903,7 @@ class FalkorDriver:
         fact = props.pop("fact", "")
         fact_embedding = props.pop("fact_embedding", None)
         episodes = props.pop("episodes", [])
+        strength = props.pop("strength", None)
         expired_at_str = props.pop("expired_at", None)
         valid_at_str = props.pop("valid_at", None)
         invalid_at_str = props.pop("invalid_at", None)
@@ -934,6 +916,15 @@ class FalkorDriver:
         valid_at = _parse_iso_datetime(valid_at_str)
         invalid_at = _parse_iso_datetime(invalid_at_str)
         created_at = _parse_iso_datetime(created_at_str) or datetime.now(UTC)
+
+        strength_val: float | None
+        if strength is None:
+            strength_val = None
+        else:
+            try:
+                strength_val = float(strength)
+            except Exception:
+                strength_val = None
 
         return EntityEdge(
             uuid=uuid,
@@ -948,6 +939,7 @@ class FalkorDriver:
             valid_at=valid_at,
             invalid_at=invalid_at,
             created_at=created_at,
+            strength=strength_val,
             attributes=attributes,
         )
 

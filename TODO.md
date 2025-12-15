@@ -68,11 +68,11 @@ These unlock everything else; do them first.
   - Current state: we store `attributes` from the initial extraction JSON, but we don’t have a second pass to enrich/normalize.
   - Files: `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`
 
-- [ ] **Implement typed ontologies (custom entity types + edge types) end-to-end**
+- [x] **Implement typed ontologies (custom entity types + edge types) end-to-end**
   - Why: “all-encompassing brain” needs different schemas for code vs people vs tasks; reduces ambiguity and dedupe errors.
-  - Current state: there are schema helpers (`validate_entity_types`, etc.) but ingestion doesn’t actually drive extraction
-    using a provided ontology the way Graphiti does.
-  - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`
+  - Current state: `DereGraph.add_episode()` accepts `entity_types`/`edge_types` (schema dicts), passes allowlists into
+    extraction prompts, best-effort validates attributes via `apply_*_schema`, and persists edge attributes.
+  - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/driver.py`, `src/dere_graph/dere_graph/graph.py`
 
 - [ ] **Episode-type specific ingestion (message vs text vs JSON vs code/doc)**
   - Why: code and JSON need different prompts and pre-processing; “one prompt” will underperform or hallucinate structure.

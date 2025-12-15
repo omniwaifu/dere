@@ -186,6 +186,12 @@ def validate_entity_types(entity_types: dict[str, type[BaseModel]]) -> None:
         "expired_at",
         "name_embedding",
         "summary",
+        "aliases",
+        "last_mentioned",
+        "mention_count",
+        "retrieval_count",
+        "citation_count",
+        "retrieval_quality",
     }
 
     for type_name, schema in entity_types.items():
@@ -219,6 +225,7 @@ def validate_edge_types(edge_types: dict[str, type[BaseModel]]) -> None:
         "expired_at",
         "valid_at",
         "invalid_at",
+        "strength",
     }
 
     for type_name, schema in edge_types.items():
