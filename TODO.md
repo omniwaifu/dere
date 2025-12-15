@@ -63,10 +63,11 @@ These unlock everything else; do them first.
 
 ## Phase 1 — Ingestion richness (make the graph worth retrieving)
 
-- [ ] **Add explicit “node attribute extraction / hydration”**
+- [x] **Add explicit “node attribute extraction / hydration”**
   - Why: Graphiti extracts richer structured attributes beyond just type/name, improving retrieval and future reasoning.
-  - Current state: we store `attributes` from the initial extraction JSON, but we don’t have a second pass to enrich/normalize.
-  - Files: `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`
+  - Current state: optional dedicated hydration pass (`enable_attribute_hydration`) runs post-dedup to enrich/normalize
+    `EntityNode.attributes` (best-effort + schema validation when ontology is provided).
+  - Files: `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/graph.py`, `src/dere_daemon/main.py`, `config.toml.example`
 
 - [x] **Implement typed ontologies (custom entity types + edge types) end-to-end**
   - Why: “all-encompassing brain” needs different schemas for code vs people vs tasks; reduces ambiguity and dedupe errors.

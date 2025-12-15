@@ -20,6 +20,7 @@ from dere_graph.models import (
 )
 from dere_graph.prompts import (
     EdgeDuplicate,
+    EntityAttributeUpdates,
     EntitySummaries,
     ExtractedEdges,
     ExtractedEntities,
@@ -28,6 +29,7 @@ from dere_graph.prompts import (
     dedupe_entities,
     extract_edges,
     extract_entities_text,
+    hydrate_entity_attributes,
     summarize_entities,
 )
 
@@ -40,6 +42,7 @@ async def add_episode(
     previous_episodes: list[EpisodicNode] | None = None,
     postgres_driver=None,
     enable_reflection: bool = True,
+    enable_attribute_hydration: bool = False,
     entity_types: dict[str, type[BaseModel]] | None = None,
     excluded_entity_types: list[str] | None = None,
     edge_types: dict[str, type[BaseModel]] | None = None,
@@ -85,6 +88,15 @@ async def add_episode(
         episode,
         previous_episodes,
     )
+
+    if enable_attribute_hydration:
+        await hydrate_node_attributes(
+            llm_client,
+            episode,
+            resolved_nodes,
+            previous_episodes or [],
+            entity_types=entity_types,
+        )
 
     if entity_types:
         for node in resolved_nodes:
@@ -337,6 +349,87 @@ async def extract_nodes(
 
     logger.debug(f"Final: {len(extracted_nodes)} entities after reflection")
     return extracted_nodes
+
+
+def _entity_type_schemas_for_prompt(
+    entity_types: dict[str, type[BaseModel]] | None,
+) -> dict[str, dict[str, str]] | None:
+    if not entity_types:
+        return None
+    schemas: dict[str, dict[str, str]] = {}
+    for type_name, schema in entity_types.items():
+        fields: dict[str, str] = {}
+        for field_name, field in schema.model_fields.items():
+            fields[field_name] = field.description or ""
+        schemas[type_name] = fields
+    return schemas
+
+
+async def hydrate_node_attributes(
+    llm_client: ClaudeClient,
+    episode: EpisodicNode,
+    nodes: list[EntityNode],
+    previous_episodes: list[EpisodicNode],
+    *,
+    entity_types: dict[str, type[BaseModel]] | None = None,
+) -> None:
+    """Second-pass node attribute extraction/normalization."""
+    if not nodes:
+        return
+
+    prev_episode_strings = [ep.content for ep in previous_episodes][-4:]
+    entities_payload = [
+        {
+            "id": i,
+            "name": node.name,
+            "labels": node.labels,
+            "summary": node.summary,
+            "attributes": node.attributes,
+            "aliases": node.aliases,
+        }
+        for i, node in enumerate(nodes)
+    ]
+
+    messages = hydrate_entity_attributes(
+        prev_episode_strings,
+        episode.content,
+        entities_payload,
+        entity_type_schemas=_entity_type_schemas_for_prompt(entity_types),
+    )
+
+    try:
+        response = await llm_client.generate_response(messages, EntityAttributeUpdates)
+    except Exception as e:
+        logger.warning(f"[EntityExtraction] Attribute hydration failed: {e}")
+        return
+
+    updates_by_id = {u.id: (u.attributes or {}) for u in response.entity_attributes}
+    protected_keys = {"is_speaker", "user_id"}
+
+    updated_nodes = 0
+    for idx, node in enumerate(nodes):
+        incoming = updates_by_id.get(idx)
+        if not isinstance(incoming, dict) or not incoming:
+            continue
+
+        changed = False
+        for key, value in incoming.items():
+            if key in protected_keys and key in node.attributes:
+                continue
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            if isinstance(value, (list, dict)) and not value:
+                continue
+            if node.attributes.get(key) != value:
+                node.attributes[key] = value
+                changed = True
+
+        if changed:
+            updated_nodes += 1
+
+    logger.debug(f"[EntityExtraction] Hydrated attributes for {updated_nodes}/{len(nodes)} nodes")
 
 
 async def deduplicate_nodes(

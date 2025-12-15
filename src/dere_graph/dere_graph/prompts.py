@@ -34,6 +34,18 @@ class EntitySummaries(BaseModel):
     entity_summaries: list[EntitySummary]
 
 
+class EntityAttributeUpdate(BaseModel):
+    id: int = Field(..., description="The id of the entity from the ENTITIES list")
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured attributes for the entity (keys depend on entity type).",
+    )
+
+
+class EntityAttributeUpdates(BaseModel):
+    entity_attributes: list[EntityAttributeUpdate]
+
+
 # Response Models for Edge Extraction
 class Edge(BaseModel):
     relation_type: str = Field(..., description="FACT_PREDICATE_IN_SCREAMING_SNAKE_CASE")
@@ -301,6 +313,57 @@ Task:
 
 Output requirements:
 - Return EXACTLY one summary per entity id in ENTITIES.
+- Use the ids from ENTITIES.
+"""
+
+    return [
+        Message(role="system", content=sys_prompt),
+        Message(role="user", content=user_prompt),
+    ]
+
+
+def hydrate_entity_attributes(
+    previous_episodes: list[str],
+    current_episode: str,
+    entities: list[dict[str, Any]],
+    entity_type_schemas: dict[str, dict[str, str]] | None = None,
+) -> list[Message]:
+    """Extract and normalize entity attributes in a dedicated hydration pass."""
+    sys_prompt = """You are an expert knowledge graph attribute extractor.
+You will be given a CURRENT MESSAGE, optional PREVIOUS MESSAGES for context, and a list of ENTITIES.
+Return conservative structured attributes for each entity, without hallucinating."""
+
+    schema_context = ""
+    if entity_type_schemas:
+        schema_context = f"""
+<ENTITY_TYPE_SCHEMAS>
+{entity_type_schemas}
+</ENTITY_TYPE_SCHEMAS>
+"""
+
+    user_prompt = f"""
+<PREVIOUS_MESSAGES>
+{"\n".join(previous_episodes)}
+</PREVIOUS_MESSAGES>
+
+<CURRENT_MESSAGE>
+{current_episode}
+</CURRENT_MESSAGE>
+
+<ENTITIES>
+{entities}
+</ENTITIES>
+
+{schema_context}
+
+Task:
+- For EACH entity, extract durable, identity-defining attributes mentioned or clearly implied in the messages.
+- Prefer stable attributes (roles, organizations, locations, preferences, IDs) over transient facts.
+- Do NOT hallucinate. If nothing beyond the existing attributes is supported, return an empty dict for that entity.
+- If ENTITY_TYPE_SCHEMAS is provided, only emit keys listed for the entity's type label(s).
+
+Output requirements:
+- Return EXACTLY one attributes object per entity id in ENTITIES.
 - Use the ids from ENTITIES.
 """
 
