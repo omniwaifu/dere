@@ -128,6 +128,7 @@ class EdgeDuplicate(BaseModel):
 # Prompts for Entity Extraction
 def extract_entities_text(
     episode_content: str,
+    previous_episodes: list[str] | None = None,
     custom_prompt: str = "",
     speaker_id: str | None = None,
     speaker_name: str | None = None,
@@ -148,7 +149,7 @@ This message was spoken by: {speaker_name} (ID: {speaker_id})
 
 CRITICAL: When extracting entities, resolve first-person pronouns:
 - "I", "me", "my", "mine", "myself" → {speaker_name}
-- Always create a User/Person entity for the speaker
+- Always create a User/Person entity for the speaker (and place it FIRST in the output list)
 - Link all first-person actions/preferences/statements to the speaker entity
 
 Example:
@@ -197,14 +198,29 @@ Do NOT extract entities of these types: {", ".join(excluded_entity_types)}
 </EXCLUDED_TYPES>
 """
 
+    # Build previous context if provided
+    previous_context = ""
+    if previous_episodes:
+        previous_context = f"""
+<PREVIOUS_MESSAGES>
+{"\n".join(previous_episodes)}
+</PREVIOUS_MESSAGES>
+"""
+
     user_prompt = f"""
 {speaker_context}
 {entity_type_context}
-<TEXT>
-{episode_content}
-</TEXT>
+{previous_context}
 
-Given the above text, extract entities from the TEXT that are explicitly or implicitly mentioned.
+<CURRENT_MESSAGE>
+{episode_content}
+</CURRENT_MESSAGE>
+
+Given the above CURRENT_MESSAGE (and optional PREVIOUS_MESSAGES for context), extract entities that are explicitly or
+implicitly mentioned in the CURRENT_MESSAGE.
+
+IMPORTANT: You may use PREVIOUS_MESSAGES only to disambiguate references. Do NOT extract entities mentioned only in
+PREVIOUS_MESSAGES.
 
 {custom_prompt}
 

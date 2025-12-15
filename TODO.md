@@ -47,9 +47,10 @@ These unlock everything else; do them first.
     `EpisodicNode.entity_edges` for reverse lookup.
   - Files: `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/driver.py`
 
-- [ ] **Include short conversational context during entity extraction + require speaker entity**
+- [x] **Include short conversational context during entity extraction + require speaker entity**
   - Why: pronoun resolution (“I”, “you”), disambiguation, better recall; the paper explicitly uses the last *n* messages.
-  - Current state: initial extraction uses only current episode content; speaker is optional context, not a required entity.
+  - Current state: initial extraction includes recent context (previous messages) and we deterministically ensure the speaker
+    entity exists and is first.
   - Files: `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/prompts.py`
 
 - [ ] **Generate and store entity summaries (and update canonical name/summary during resolution)**

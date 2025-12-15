@@ -104,9 +104,44 @@ async def extract_nodes(
     enable_reflection: bool = True,
 ) -> list[EntityNode]:
     """Extract entity nodes from episode content with optional reflection validation."""
+    def ensure_speaker_first(nodes: list[EntityNode]) -> list[EntityNode]:
+        """Ensure the speaker entity exists and is the first node (Graphiti-style)."""
+        speaker_name = (episode.speaker_name or "").strip()
+        if not speaker_name:
+            return nodes
+
+        speaker_id = (episode.speaker_id or "").strip()
+
+        # Prefer an extracted node matching the speaker name.
+        speaker_idx = next(
+            (i for i, node in enumerate(nodes) if node.name.strip().lower() == speaker_name.lower()),
+            None,
+        )
+        if speaker_idx is not None:
+            speaker_node = nodes.pop(speaker_idx)
+        else:
+            speaker_node = EntityNode(
+                name=speaker_name,
+                group_id=episode.group_id,
+                labels=["User"],
+                summary="",
+                attributes={},
+                aliases=[],
+            )
+
+        speaker_node.attributes.setdefault("is_speaker", True)
+        if speaker_id:
+            speaker_node.attributes.setdefault("user_id", speaker_id)
+        if not speaker_node.labels:
+            speaker_node.labels = ["User"]
+
+        return [speaker_node, *nodes]
+
     # Initial extraction
+    prev_episode_strings = [ep.content for ep in (previous_episodes or [])][-4:]
     messages = extract_entities_text(
         episode.content,
+        previous_episodes=prev_episode_strings,
         speaker_id=episode.speaker_id,
         speaker_name=episode.speaker_name,
         personality=episode.personality,
@@ -123,7 +158,7 @@ async def extract_nodes(
         node = EntityNode(
             name=entity.name,
             group_id=episode.group_id,
-            labels=["Entity"] + ([entity.entity_type] if entity.entity_type else []),
+            labels=([entity.entity_type] if entity.entity_type else []),
             summary="",
             attributes=entity.attributes,
             aliases=entity.aliases,
@@ -183,7 +218,7 @@ async def extract_nodes(
                 node = EntityNode(
                     name=missed.name,
                     group_id=episode.group_id,
-                    labels=["Entity"],
+                    labels=[],
                     summary=missed.summary,
                     attributes={},
                     aliases=[],
@@ -211,6 +246,7 @@ async def extract_nodes(
                             node.summary = refinement.refined_summary
                         break
 
+    extracted_nodes = ensure_speaker_first(extracted_nodes)
     logger.debug(f"Final: {len(extracted_nodes)} entities after reflection")
     return extracted_nodes
 
