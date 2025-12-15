@@ -104,6 +104,19 @@ class SessionConfig(BaseModel):
         default=False, description="Auto-approve all tool permissions (for autonomous missions)"
     )
 
+    # Swarm-related fields
+    lean_mode: bool = Field(
+        default=False,
+        description="Lean mode: skip emotion/KG context injection for swarm agents",
+    )
+    swarm_agent_id: int | None = Field(
+        default=None, description="SwarmAgent ID if spawned by swarm system"
+    )
+    plugins: list[str] | None = Field(
+        default=None,
+        description="Explicit plugin list (None = auto-detect based on working_dir)",
+    )
+
 
 class ClientMessageType(str, Enum):
     """Types of messages sent from client to daemon."""

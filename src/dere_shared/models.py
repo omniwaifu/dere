@@ -479,3 +479,103 @@ class RoutingDecision(BaseModel):
     location: str
     reasoning: str
     fallback: bool = False
+
+
+# Swarm system enums and models
+class SwarmStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class SwarmAgentRole(str, Enum):
+    IMPLEMENTATION = "implementation"
+    REVIEW = "review"
+    RESEARCH = "research"
+    GENERIC = "generic"
+
+
+class Swarm(SQLModel, table=True):
+    """A collection of spawned agents working on related tasks."""
+
+    __tablename__ = "swarms"
+    __table_args__ = (
+        Index("swarms_parent_session_idx", "parent_session_id"),
+        Index("swarms_status_idx", "status"),
+        Index("swarms_created_idx", "created_at", postgresql_ops={"created_at": "DESC"}),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    description: str | None = None
+
+    # Parent session that spawned this swarm
+    parent_session_id: int = Field(foreign_key="sessions.id")
+
+    # Configuration
+    working_dir: str
+    git_branch_prefix: str | None = None
+    base_branch: str | None = None
+
+    # State
+    status: str = Field(default=SwarmStatus.PENDING.value)
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    completed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+    # Relationships
+    agents: list["SwarmAgent"] = Relationship(back_populates="swarm", cascade_delete=True)
+
+
+class SwarmAgent(SQLModel, table=True):
+    """Individual agent within a swarm."""
+
+    __tablename__ = "swarm_agents"
+    __table_args__ = (
+        Index("swarm_agents_swarm_idx", "swarm_id"),
+        Index("swarm_agents_status_idx", "status"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    swarm_id: int = Field(foreign_key="swarms.id")
+
+    # Identity
+    name: str
+    role: str = Field(default=SwarmAgentRole.GENERIC.value)
+
+    # Task
+    prompt: str
+
+    # Configuration
+    personality: str | None = None
+    plugins: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    git_branch: str | None = None
+    allowed_tools: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    thinking_budget: int | None = None
+    model: str | None = None
+    sandbox_mode: bool = Field(default=True)
+
+    # Dependencies (agent IDs this depends on)
+    depends_on: list[int] | None = Field(default=None, sa_column=Column(ARRAY(BigInteger)))
+
+    # Execution
+    session_id: int | None = Field(default=None, foreign_key="sessions.id")
+    status: str = Field(default=SwarmStatus.PENDING.value)
+
+    # Results
+    output_text: str | None = None
+    output_summary: str | None = None
+    error_message: str | None = None
+    tool_count: int = Field(default=0)
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    completed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+    # Relationships
+    swarm: "Swarm" = Relationship(back_populates="agents")

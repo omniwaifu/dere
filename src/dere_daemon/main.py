@@ -239,6 +239,7 @@ class AppState:
     agent_service: Any  # CentralizedAgentService
     mission_executor: Any  # MissionExecutor
     mission_scheduler: Any  # MissionScheduler
+    swarm_coordinator: Any  # SwarmCoordinator
 
 
 async def _init_database(db_url: str, app_state: AppState) -> None:
@@ -318,9 +319,10 @@ async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
 
 
 async def _init_agent_service(app_state: AppState) -> None:
-    """Initialize the centralized agent service and mission scheduler."""
+    """Initialize the centralized agent service, mission scheduler, and swarm coordinator."""
     from dere_daemon.agent import CentralizedAgentService
     from dere_daemon.missions import MissionExecutor, MissionScheduler
+    from dere_daemon.swarm import SwarmCoordinator
 
     app_state.agent_service = CentralizedAgentService(
         session_factory=app_state.session_factory,
@@ -344,6 +346,14 @@ async def _init_agent_service(app_state: AppState) -> None:
     )
     app_state.mission_scheduler.start()
     print("Mission scheduler started")
+
+    # Initialize swarm coordinator
+    app_state.swarm_coordinator = SwarmCoordinator(
+        session_factory=app_state.session_factory,
+        agent_service=app_state.agent_service,
+        personality_loader=app_state.personality_loader,
+    )
+    print("Swarm coordinator initialized")
 
 
 
@@ -732,6 +742,7 @@ from dere_daemon.routers import (
     notifications_router,
     presence_router,
     sessions_router,
+    swarm_router,
     taskwarrior_router,
 )
 
@@ -745,6 +756,7 @@ app.include_router(context_router)
 app.include_router(taskwarrior_router)
 app.include_router(missions_router)
 app.include_router(dashboard_router)
+app.include_router(swarm_router)
 
 
 # Database session dependency

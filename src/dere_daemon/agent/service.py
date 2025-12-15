@@ -491,7 +491,8 @@ class CentralizedAgentService:
 
             env_context = ""
             emotion_context = ""
-            if config.include_context:
+            # Skip context injection for lean mode (swarm agents) or when explicitly disabled
+            if config.include_context and not config.lean_mode:
                 env_context = self._build_environmental_context(session_id)
                 emotion_summary = await self._get_emotion_summary(session_id)
                 if emotion_summary:
@@ -499,10 +500,22 @@ class CentralizedAgentService:
 
             full_prompt = personality_prompt + env_context + emotion_context
 
-            # Load dere-core plugin for output styles
-            dere_core_plugin_path = str(
-                Path(__file__).parent.parent.parent / "dere_core"
-            )
+            # Determine plugin paths based on config
+            # If plugins explicitly specified, use those; otherwise default to dere_core
+            plugin_paths: list[str] = []
+            plugins_base = Path(__file__).parent.parent.parent
+
+            if config.plugins is not None:
+                # Explicit plugin list (empty list = no plugins for lean mode)
+                for plugin_name in config.plugins:
+                    plugin_path = plugins_base / plugin_name
+                    if plugin_path.exists():
+                        plugin_paths.append(str(plugin_path))
+            else:
+                # Default: load dere_core
+                dere_core_path = plugins_base / "dere_core"
+                if dere_core_path.exists():
+                    plugin_paths.append(str(dere_core_path))
 
             now = _now()
 
@@ -537,7 +550,7 @@ class CentralizedAgentService:
                     system_prompt=full_prompt,
                     permission_callback=permission_callback,
                     resume_session_id=claude_session_id,
-                    dere_core_plugin_path=dere_core_plugin_path,
+                    plugin_paths=plugin_paths,
                 )
             await runner.start()
             agent_session.runner = runner

@@ -27,13 +27,13 @@ class LocalSessionRunner(SessionRunner):
         system_prompt: str,
         permission_callback: PermissionCallback | None = None,
         resume_session_id: str | None = None,
-        dere_core_plugin_path: str | None = None,
+        plugin_paths: list[str] | None = None,
     ):
         self._config = config
         self._system_prompt = system_prompt
         self._permission_callback = permission_callback
         self._resume_session_id = resume_session_id
-        self._dere_core_plugin_path = dere_core_plugin_path
+        self._plugin_paths = plugin_paths or []
 
         self._client: ClaudeSDKClient | None = None
         self._exit_stack: AsyncExitStack | None = None
@@ -65,10 +65,10 @@ class LocalSessionRunner(SessionRunner):
                 "WebFetch",
             ]
 
-        # Build plugins list
-        plugins: list[dict[str, Any]] = []
-        if self._dere_core_plugin_path:
-            plugins.append({"type": "local", "path": self._dere_core_plugin_path})
+        # Build plugins list from configured paths
+        plugins: list[dict[str, Any]] = [
+            {"type": "local", "path": path} for path in self._plugin_paths
+        ]
 
         # Use bypassPermissions for auto-approve sessions (e.g., missions)
         permission_mode = "bypassPermissions" if self._config.auto_approve else "acceptEdits"
