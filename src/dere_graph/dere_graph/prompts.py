@@ -25,6 +25,15 @@ class ExtractedEntities(BaseModel):
     extracted_entities: list[ExtractedEntity]
 
 
+class EntitySummary(BaseModel):
+    id: int = Field(..., description="The id of the entity from the ENTITIES list")
+    summary: str = Field(..., description="Concise 1-2 sentence summary of the entity")
+
+
+class EntitySummaries(BaseModel):
+    entity_summaries: list[EntitySummary]
+
+
 # Response Models for Edge Extraction
 class Edge(BaseModel):
     relation_type: str = Field(..., description="FACT_PREDICATE_IN_SCREAMING_SNAKE_CASE")
@@ -252,6 +261,45 @@ For speaker entities, include: {{"is_speaker": true, "user_id": "{{speaker_id if
 Only include attributes that are explicitly mentioned or clearly implied in the text.
 Empty attributes dict is acceptable if no distinguishing attributes are present.
 """
+    return [
+        Message(role="system", content=sys_prompt),
+        Message(role="user", content=user_prompt),
+    ]
+
+
+def summarize_entities(
+    previous_episodes: list[str],
+    current_episode: str,
+    entities: list[dict[str, Any]],
+) -> list[Message]:
+    """Generate concise summaries for entities based on the current episode and context."""
+    sys_prompt = """You are an expert entity summarizer for a knowledge graph.
+You will be given a CURRENT MESSAGE, optional PREVIOUS MESSAGES for context, and a list of ENTITIES.
+Return concise summaries that capture only what is stated or clearly implied in the messages."""
+
+    user_prompt = f"""
+<PREVIOUS_MESSAGES>
+{"\n".join(previous_episodes)}
+</PREVIOUS_MESSAGES>
+
+<CURRENT_MESSAGE>
+{current_episode}
+</CURRENT_MESSAGE>
+
+<ENTITIES>
+{entities}
+</ENTITIES>
+
+Task:
+- Produce a short summary for EACH entity in ENTITIES.
+- Each summary should be 1-2 sentences and focus on durable, identity-defining facts (roles, relationships, preferences).
+- Do NOT hallucinate. If nothing meaningful is known beyond the name, say so briefly.
+
+Output requirements:
+- Return EXACTLY one summary per entity id in ENTITIES.
+- Use the ids from ENTITIES.
+"""
+
     return [
         Message(role="system", content=sys_prompt),
         Message(role="user", content=user_prompt),

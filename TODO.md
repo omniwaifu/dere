@@ -53,10 +53,10 @@ These unlock everything else; do them first.
     entity exists and is first.
   - Files: `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/prompts.py`
 
-- [ ] **Generate and store entity summaries (and update canonical name/summary during resolution)**
+- [x] **Generate and store entity summaries (and update canonical name/summary during resolution)**
   - Why: (1) improves dedupe, (2) improves BM25 retrieval, (3) enables stable canonicalization over time.
-  - Current state: dedupe now applies a canonical entity name; `EntityNode.summary` still stays mostly empty (no dedicated
-    summary generation / merging yet).
+  - Current state: extracted entities get a concise per-entity summary pass; dedupe applies canonical names and will
+    propagate summaries into existing entities when missing.
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`
 
 ---

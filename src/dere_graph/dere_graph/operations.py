@@ -10,6 +10,7 @@ from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import EntityEdge, EntityNode, EpisodicEdge, EpisodicNode
 from dere_graph.prompts import (
     EdgeDuplicate,
+    EntitySummaries,
     ExtractedEdges,
     ExtractedEntities,
     NodeResolutions,
@@ -17,6 +18,7 @@ from dere_graph.prompts import (
     dedupe_entities,
     extract_edges,
     extract_entities_text,
+    summarize_entities,
 )
 
 
@@ -247,6 +249,30 @@ async def extract_nodes(
                         break
 
     extracted_nodes = ensure_speaker_first(extracted_nodes)
+
+    # Generate/update concise entity summaries (improves dedupe + retrieval).
+    try:
+        entities_payload = [
+            {
+                "id": i,
+                "name": node.name,
+                "labels": node.labels,
+                "attributes": node.attributes,
+                "aliases": node.aliases,
+                "summary": node.summary,
+            }
+            for i, node in enumerate(extracted_nodes)
+        ]
+        summary_messages = summarize_entities(prev_episode_strings, episode.content, entities_payload)
+        summary_response = await llm_client.generate_response(summary_messages, EntitySummaries)
+        summaries_by_id = {s.id: s.summary.strip() for s in summary_response.entity_summaries}
+        for i, node in enumerate(extracted_nodes):
+            summary = summaries_by_id.get(i, "")
+            if summary:
+                node.summary = summary
+    except Exception as e:
+        logger.warning(f"[EntityExtraction] Summary generation failed: {e}")
+
     logger.debug(f"Final: {len(extracted_nodes)} entities after reflection")
     return extracted_nodes
 
@@ -315,6 +341,11 @@ async def deduplicate_nodes(
             resolved_node = existing_candidates[resolution.duplicate_idx]
             resolved_node.mention_count = (resolved_node.mention_count or 1) + 1
             uuid_map[extracted_node.uuid] = resolved_node.uuid
+
+            # Propagate summary if the existing node doesn't have one yet.
+            incoming_summary = extracted_node.summary.strip() if extracted_node.summary else ""
+            if incoming_summary and not (resolved_node.summary or "").strip():
+                resolved_node.summary = incoming_summary
 
             logger.debug(
                 f"[EntityExtraction] ⊕ Merged duplicate: {extracted_node.name} → "
