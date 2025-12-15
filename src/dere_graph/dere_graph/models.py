@@ -37,6 +37,9 @@ class Node(BaseModel, ABC):
     group_id: str = Field(description="partition of the graph")
     labels: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
+    expired_at: datetime | None = Field(
+        default=None, description="datetime of when the node was invalidated"
+    )
 
     def __hash__(self) -> int:
         return hash(self.uuid)
@@ -180,6 +183,7 @@ def validate_entity_types(entity_types: dict[str, type[BaseModel]]) -> None:
         "group_id",
         "labels",
         "created_at",
+        "expired_at",
         "name_embedding",
         "summary",
     }

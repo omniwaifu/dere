@@ -43,17 +43,14 @@ async def node_bfs_search(
 
     query = query.format(max_depth=max_depth)
 
-    result = await driver.execute_query(
+    records = await driver.execute_query(
         query,
         origin_uuids=origin_uuids,
         group_id=group_id,
         limit=limit,
     )
 
-    nodes = []
-    for record in result.result_set:
-        node_data = record[0]
-        nodes.append(driver._dict_to_entity_node(node_data))
+    nodes = [driver._dict_to_entity_node(record["n"]) for record in records]
 
     logger.debug(f"BFS found {len(nodes)} nodes from {len(origin_uuids)} origins")
     return nodes
@@ -91,24 +88,22 @@ async def edge_bfs_search(
     WHERE r.group_id = $group_id
       AND r.invalid_at IS NULL
     LIMIT $limit
-    RETURN r, source.uuid, target.uuid
+    RETURN r AS edge, source.uuid AS source_uuid, target.uuid AS target_uuid
     """
 
     query = query.format(max_depth=max_depth)
 
-    result = await driver.execute_query(
+    records = await driver.execute_query(
         query,
         origin_uuids=origin_uuids,
         group_id=group_id,
         limit=limit,
     )
 
-    edges = []
-    for record in result.result_set:
-        edge_data = record[0]
-        source_uuid = record[1]
-        target_uuid = record[2]
-        edges.append(driver._dict_to_entity_edge(edge_data, source_uuid, target_uuid))
+    edges = [
+        driver._dict_to_entity_edge(record["edge"], record["source_uuid"], record["target_uuid"])
+        for record in records
+    ]
 
     logger.debug(f"BFS found {len(edges)} edges from {len(origin_uuids)} origins")
     return edges
@@ -147,7 +142,7 @@ async def calculate_node_distances(
 
     query = query.format(max_depth=max_depth)
 
-    result = await driver.execute_query(
+    records = await driver.execute_query(
         query,
         center_uuid=center_uuid,
         node_uuids=node_uuids,
@@ -155,10 +150,8 @@ async def calculate_node_distances(
     )
 
     distances = {}
-    for record in result.result_set:
-        uuid = record[0]
-        distance = record[1]
-        distances[uuid] = distance
+    for record in records:
+        distances[record["uuid"]] = record["distance"]
 
     return distances
 

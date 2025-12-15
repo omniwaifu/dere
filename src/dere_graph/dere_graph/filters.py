@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -45,8 +45,15 @@ class DateFilter(BaseModel):
         if self.value is None:
             raise ValueError(f"Value required for operator {self.operator}")
 
-        # Convert datetime to timestamp for Cypher
-        timestamp = int(self.value.timestamp())
+        # FalkorDB stores timestamps as ISO strings (see driver.convert_datetimes_to_strings).
+        # For ISO 8601 strings, lexicographic ordering matches chronological ordering when
+        # timestamps are normalized (prefer UTC).
+        value = self.value
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        else:
+            value = value.astimezone(UTC)
+        timestamp = value.isoformat()
 
         operator_map = {
             ComparisonOperator.EQUALS: "=",
@@ -89,7 +96,7 @@ class SearchFilters(BaseModel):
     )
 
     def to_cypher_conditions(
-        self, node_alias: str = "n", edge_alias: str = "r"
+        self, node_alias: str = "n", edge_alias: str | None = "r"
     ) -> tuple[list[str], dict]:
         """Convert filters to Cypher WHERE conditions.
 
@@ -103,18 +110,23 @@ class SearchFilters(BaseModel):
         conditions = []
         params = {}
 
-        # Temporal filters (work for both nodes and edges)
-        if self.valid_at:
-            cond, p = self.valid_at.to_cypher_condition(f"{edge_alias}.valid_at", "filter_valid_at")
-            conditions.append(cond)
-            params.update(p)
+        # Temporal filters
+        # - created_at/expired_at apply to the "primary" object (node_alias)
+        # - valid_at/invalid_at apply to relationships (edge_alias) when present
+        if edge_alias is not None:
+            if self.valid_at:
+                cond, p = self.valid_at.to_cypher_condition(
+                    f"{edge_alias}.valid_at", "filter_valid_at"
+                )
+                conditions.append(cond)
+                params.update(p)
 
-        if self.invalid_at:
-            cond, p = self.invalid_at.to_cypher_condition(
-                f"{edge_alias}.invalid_at", "filter_invalid_at"
-            )
-            conditions.append(cond)
-            params.update(p)
+            if self.invalid_at:
+                cond, p = self.invalid_at.to_cypher_condition(
+                    f"{edge_alias}.invalid_at", "filter_invalid_at"
+                )
+                conditions.append(cond)
+                params.update(p)
 
         if self.created_at:
             # Works for both nodes and edges
@@ -126,7 +138,7 @@ class SearchFilters(BaseModel):
 
         if self.expired_at:
             cond, p = self.expired_at.to_cypher_condition(
-                f"{edge_alias}.expired_at", "filter_expired_at"
+                f"{node_alias}.expired_at", "filter_expired_at"
             )
             conditions.append(cond)
             params.update(p)
@@ -138,9 +150,11 @@ class SearchFilters(BaseModel):
             conditions.append(f"({' OR '.join(label_conditions)})")
 
         if self.edge_types:
-            # Edge type must match one from list
-            type_conditions = [f"type({edge_alias}) = '{etype}'" for etype in self.edge_types]
-            conditions.append(f"({' OR '.join(type_conditions)})")
+            # In dere_graph, relationship "type" is stored on the `name` property
+            # (the Cypher relationship type is always `RELATES_TO`).
+            if edge_alias is not None:
+                conditions.append(f"{edge_alias}.name IN $filter_edge_types")
+                params["filter_edge_types"] = self.edge_types
 
         # Attribute filters
         if self.node_attributes:
@@ -149,7 +163,7 @@ class SearchFilters(BaseModel):
                 conditions.append(f"{node_alias}.{key} = ${param_name}")
                 params[param_name] = value
 
-        if self.edge_attributes:
+        if self.edge_attributes and edge_alias is not None:
             for key, value in self.edge_attributes.items():
                 param_name = f"edge_attr_{key}"
                 conditions.append(f"{edge_alias}.{key} = ${param_name}")
@@ -159,7 +173,9 @@ class SearchFilters(BaseModel):
 
 
 def build_temporal_query_clause(
-    filters: SearchFilters | None, node_alias: str = "n", edge_alias: str = "r"
+    filters: SearchFilters | None,
+    node_alias: str = "n",
+    edge_alias: str | None = "r",
 ) -> tuple[str, dict]:
     """Build Cypher WHERE clause from filters.
 

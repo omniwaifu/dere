@@ -33,11 +33,11 @@ When to split:
 
 These unlock everything else; do them first.
 
-- [ ] **Make the temporal model internally consistent (bi-temporal fields + queries)**
+- [x] **Make the temporal model internally consistent (bi-temporal fields + queries)**
   - Why: point-in-time queries and contradiction invalidation only work if timestamps are correct and consistently stored.
   - Paper/Graphiti: transactional timeline (`t'created`, `t'expired`) + event timeline (`t_valid`, `t_invalid`).
-  - Current state: edges carry `created_at`, `expired_at`, `valid_at`, `invalid_at`; nodes don’t clearly support `expired_at`,
-    yet some queries reference it.
+  - Current state: edges and nodes carry consistent ISO timestamps; temporal filters and point-in-time queries compare the
+    same representation, and nodes now support `expired_at`.
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/driver.py`
 
 - [ ] **Persist and maintain “bidirectional indices” between episodes and facts**
@@ -134,4 +134,3 @@ These unlock everything else; do them first.
 - [ ] **Optional: reduce dependency costs**
   - Why: current design still pays OpenAI for embeddings; consider local embeddings or a cheaper provider if needed.
   - Files: `src/dere_graph/dere_graph/embeddings.py`
-

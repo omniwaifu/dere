@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from falkordb.asyncio import FalkorDB
@@ -26,6 +26,21 @@ def convert_datetimes_to_strings(obj):
         return obj.isoformat()
     else:
         return obj
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text.replace("Z", "+00:00")
+        return datetime.fromisoformat(text)
+    return None
 
 
 class FalkorDriver:
@@ -123,6 +138,7 @@ class FalkorDriver:
             "group_id": node.group_id,
             "summary": node.summary,
             "created_at": node.created_at,
+            "expired_at": node.expired_at,
             "name_embedding": node.name_embedding,
             "aliases": node.aliases,
             "last_mentioned": node.last_mentioned,
@@ -213,10 +229,8 @@ class FalkorDriver:
                 speaker_id=record.get("speaker_id"),
                 speaker_name=record.get("speaker_name"),
                 personality=record.get("personality"),
-                valid_at=datetime.fromisoformat(record["valid_at"]) if record["valid_at"] else None,
-                created_at=datetime.fromisoformat(record["created_at"])
-                if record["created_at"]
-                else None,
+                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
             episodes.append(episode)
 
@@ -263,10 +277,8 @@ class FalkorDriver:
                 speaker_id=record.get("speaker_id"),
                 speaker_name=record.get("speaker_name"),
                 personality=record.get("personality"),
-                valid_at=datetime.fromisoformat(record["valid_at"]) if record["valid_at"] else None,
-                created_at=datetime.fromisoformat(record["created_at"])
-                if record["created_at"]
-                else None,
+                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
             episodes.append(episode)
 
@@ -313,10 +325,8 @@ class FalkorDriver:
                 source=EpisodeType(record["source"]),
                 group_id=record["group_id"],
                 conversation_id=record.get("conversation_id", "default"),
-                valid_at=datetime.fromisoformat(record["valid_at"]) if record["valid_at"] else None,
-                created_at=datetime.fromisoformat(record["created_at"])
-                if record["created_at"]
-                else None,
+                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
             episodes.append(episode)
 
@@ -332,6 +342,9 @@ class FalkorDriver:
                    n.name_embedding AS name_embedding,
                    n.summary AS summary,
                    n.created_at AS created_at,
+                   n.expired_at AS expired_at,
+                   n.aliases AS aliases,
+                   n.last_mentioned AS last_mentioned,
                    n.mention_count AS mention_count,
                    n.retrieval_count AS retrieval_count,
                    n.citation_count AS citation_count,
@@ -355,7 +368,13 @@ class FalkorDriver:
             "name_embedding",
             "summary",
             "created_at",
+            "expired_at",
+            "aliases",
+            "last_mentioned",
             "mention_count",
+            "retrieval_count",
+            "citation_count",
+            "retrieval_quality",
         ]:
             attributes.pop(key, None)
 
@@ -365,9 +384,10 @@ class FalkorDriver:
             group_id=record["group_id"],
             name_embedding=record["name_embedding"],
             summary=record["summary"] or "",
-            created_at=datetime.fromisoformat(record["created_at"])
-            if record["created_at"]
-            else None,
+            created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
+            expired_at=_parse_iso_datetime(record.get("expired_at")),
+            aliases=record.get("aliases") or [],
+            last_mentioned=_parse_iso_datetime(record.get("last_mentioned")),
             mention_count=record.get("mention_count") or 1,
             retrieval_count=record.get("retrieval_count") or 0,
             citation_count=record.get("citation_count") or 0,
@@ -441,16 +461,10 @@ class FalkorDriver:
                 fact=record["fact"],
                 fact_embedding=record["fact_embedding"],
                 episodes=record["episodes"] or [],
-                created_at=datetime.fromisoformat(record["created_at"])
-                if record["created_at"]
-                else None,
-                expired_at=datetime.fromisoformat(record["expired_at"])
-                if record["expired_at"]
-                else None,
-                valid_at=datetime.fromisoformat(record["valid_at"]) if record["valid_at"] else None,
-                invalid_at=datetime.fromisoformat(record["invalid_at"])
-                if record["invalid_at"]
-                else None,
+                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
+                expired_at=_parse_iso_datetime(record["expired_at"]) if record["expired_at"] else None,
+                valid_at=_parse_iso_datetime(record["valid_at"]) if record["valid_at"] else None,
+                invalid_at=_parse_iso_datetime(record["invalid_at"]) if record["invalid_at"] else None,
                 group_id=record["group_id"],
             )
             edges.append(edge)
@@ -516,10 +530,8 @@ class FalkorDriver:
             source_description=record["source_description"],
             source=EpisodeType(record["source"]),
             group_id=record["group_id"],
-            valid_at=datetime.fromisoformat(record["valid_at"]) if record["valid_at"] else None,
-            created_at=datetime.fromisoformat(record["created_at"])
-            if record["created_at"]
-            else None,
+            valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+            created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
         )
 
     async def remove_episode(self, episode_uuid: str) -> None:
@@ -551,25 +563,23 @@ class FalkorDriver:
         Returns:
             List of EntityNode objects valid at timestamp
         """
-        ts = int(timestamp.timestamp())
+        ts = (
+            timestamp.replace(tzinfo=UTC)
+            if timestamp.tzinfo is None
+            else timestamp.astimezone(UTC)
+        ).isoformat()
 
         query = """
         MATCH (n:Entity)
         WHERE n.group_id = $group_id
           AND n.created_at <= $timestamp
           AND (n.expired_at IS NULL OR n.expired_at > $timestamp)
-        RETURN n
+        RETURN n AS node
         LIMIT $limit
         """
 
-        result = await self.execute_query(query, group_id=group_id, timestamp=ts, limit=limit)
-
-        nodes = []
-        for record in result.result_set:
-            node_data = record[0]
-            nodes.append(self._dict_to_entity_node(node_data))
-
-        return nodes
+        records = await self.execute_query(query, group_id=group_id, timestamp=ts, limit=limit)
+        return [self._dict_to_entity_node(record["node"]) for record in records]
 
     async def get_edges_at_time(
         self, timestamp: datetime, group_id: str, limit: int = 100
@@ -584,7 +594,11 @@ class FalkorDriver:
         Returns:
             List of EntityEdge objects valid at timestamp
         """
-        ts = int(timestamp.timestamp())
+        ts = (
+            timestamp.replace(tzinfo=UTC)
+            if timestamp.tzinfo is None
+            else timestamp.astimezone(UTC)
+        ).isoformat()
 
         query = """
         MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
@@ -593,20 +607,15 @@ class FalkorDriver:
           AND (r.expired_at IS NULL OR r.expired_at > $timestamp)
           AND (r.valid_at IS NULL OR r.valid_at <= $timestamp)
           AND (r.invalid_at IS NULL OR r.invalid_at > $timestamp)
-        RETURN r, source.uuid, target.uuid
+        RETURN r AS edge, source.uuid AS source_uuid, target.uuid AS target_uuid
         LIMIT $limit
         """
 
-        result = await self.execute_query(query, group_id=group_id, timestamp=ts, limit=limit)
-
-        edges = []
-        for record in result.result_set:
-            edge_data = record[0]
-            source_uuid = record[1]
-            target_uuid = record[2]
-            edges.append(self._dict_to_entity_edge(edge_data, source_uuid, target_uuid))
-
-        return edges
+        records = await self.execute_query(query, group_id=group_id, timestamp=ts, limit=limit)
+        return [
+            self._dict_to_entity_edge(record["edge"], record["source_uuid"], record["target_uuid"])
+            for record in records
+        ]
 
     async def get_by_uuids(
         self, uuids: list[str], node_type: str = "Entity"
@@ -629,11 +638,11 @@ class FalkorDriver:
         RETURN n
         """
 
-        result = await self.execute_query(query, uuids=uuids)
+        records = await self.execute_query(query, uuids=uuids)
 
         nodes = []
-        for record in result.result_set:
-            node_data = record[0]
+        for record in records:
+            node_data = record["n"]
             if node_type == "Entity":
                 nodes.append(self._dict_to_entity_node(node_data))
             elif node_type == "Episode":
@@ -667,11 +676,11 @@ class FalkorDriver:
         LIMIT $limit
         """
 
-        result = await self.execute_query(query, group_ids=group_ids, limit=limit)
+        records = await self.execute_query(query, group_ids=group_ids, limit=limit)
 
         nodes = []
-        for record in result.result_set:
-            node_data = record[0]
+        for record in records:
+            node_data = record["n"]
             if node_type == "Entity":
                 nodes.append(self._dict_to_entity_node(node_data))
             elif node_type == "Episode":
@@ -695,21 +704,17 @@ class FalkorDriver:
         query = """
         MATCH (source:Entity {uuid: $source_uuid})-[r:RELATES_TO]-(target:Entity {uuid: $target_uuid})
         WHERE r.group_id = $group_id
-        RETURN r, source.uuid, target.uuid
+        RETURN r AS edge, source.uuid AS source_uuid, target.uuid AS target_uuid
         """
 
-        result = await self.execute_query(
+        records = await self.execute_query(
             query, source_uuid=source_uuid, target_uuid=target_uuid, group_id=group_id
         )
 
-        edges = []
-        for record in result.result_set:
-            edge_data = record[0]
-            src_uuid = record[1]
-            tgt_uuid = record[2]
-            edges.append(self._dict_to_entity_edge(edge_data, src_uuid, tgt_uuid))
-
-        return edges
+        return [
+            self._dict_to_entity_edge(record["edge"], record["source_uuid"], record["target_uuid"])
+            for record in records
+        ]
 
     async def get_by_node_uuid(
         self, node_uuid: str, group_id: str, direction: str = "both"
@@ -725,28 +730,29 @@ class FalkorDriver:
             List of EntityEdge objects
         """
         if direction == "outgoing":
-            pattern = "(n:Entity {uuid: $node_uuid})-[r:RELATES_TO]->(target:Entity)"
+            match_clause = "MATCH (source:Entity {uuid: $node_uuid})-[r:RELATES_TO]->(target:Entity)"
+            extra_where = ""
         elif direction == "incoming":
-            pattern = "(source:Entity)-[r:RELATES_TO]->(n:Entity {uuid: $node_uuid})"
+            match_clause = (
+                "MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity {uuid: $node_uuid})"
+            )
+            extra_where = ""
         else:  # both
-            pattern = "(source:Entity)-[r:RELATES_TO]-(target:Entity) WHERE source.uuid = $node_uuid OR target.uuid = $node_uuid"
+            match_clause = "MATCH (source:Entity)-[r:RELATES_TO]-(target:Entity)"
+            extra_where = "AND (source.uuid = $node_uuid OR target.uuid = $node_uuid)"
 
         query = f"""
-        MATCH {pattern}
+        {match_clause}
         WHERE r.group_id = $group_id
-        RETURN r, source.uuid, target.uuid
+          {extra_where}
+        RETURN r AS edge, source.uuid AS source_uuid, target.uuid AS target_uuid
         """
 
-        result = await self.execute_query(query, node_uuid=node_uuid, group_id=group_id)
-
-        edges = []
-        for record in result.result_set:
-            edge_data = record[0]
-            src_uuid = record[1]
-            tgt_uuid = record[2]
-            edges.append(self._dict_to_entity_edge(edge_data, src_uuid, tgt_uuid))
-
-        return edges
+        records = await self.execute_query(query, node_uuid=node_uuid, group_id=group_id)
+        return [
+            self._dict_to_entity_edge(record["edge"], record["source_uuid"], record["target_uuid"])
+            for record in records
+        ]
 
     async def delete_by_uuids(self, uuids: list[str], node_type: str = "Entity") -> int:
         """Delete multiple nodes by UUID.
@@ -768,8 +774,10 @@ class FalkorDriver:
         RETURN count(n) as deleted_count
         """
 
-        result = await self.execute_query(query, uuids=uuids)
-        return result.result_set[0][0] if result.result_set else 0
+        records = await self.execute_query(query, uuids=uuids)
+        if not records:
+            return 0
+        return int(records[0].get("deleted_count", 0) or 0)
 
     async def delete_by_group_id(self, group_id: str, node_type: str = "Entity") -> int:
         """Delete all nodes in a group_id.
@@ -788,8 +796,10 @@ class FalkorDriver:
         RETURN count(n) as deleted_count
         """
 
-        result = await self.execute_query(query, group_id=group_id)
-        return result.result_set[0][0] if result.result_set else 0
+        records = await self.execute_query(query, group_id=group_id)
+        if not records:
+            return 0
+        return int(records[0].get("deleted_count", 0) or 0)
 
     def _dict_to_entity_node(self, node_data: Any) -> EntityNode:
         """Convert FalkorDB node data to EntityNode."""
@@ -802,6 +812,9 @@ class FalkorDriver:
         name_embedding = props.pop("name_embedding", None)
         summary = props.pop("summary", "")
         created_at_str = props.pop("created_at", None)
+        expired_at_str = props.pop("expired_at", None)
+        aliases = props.pop("aliases", []) or []
+        last_mentioned_str = props.pop("last_mentioned", None)
         mention_count = props.pop("mention_count", 1)
         retrieval_count = props.pop("retrieval_count", 0)
         citation_count = props.pop("citation_count", 0)
@@ -810,7 +823,9 @@ class FalkorDriver:
         # Remaining props are attributes
         attributes = props
 
-        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
+        created_at = _parse_iso_datetime(created_at_str) or datetime.now(UTC)
+        expired_at = _parse_iso_datetime(expired_at_str)
+        last_mentioned = _parse_iso_datetime(last_mentioned_str)
 
         # Get labels (excluding 'Entity')
         labels = [label for label in node_data.labels if label != "Entity"]
@@ -822,6 +837,9 @@ class FalkorDriver:
             name_embedding=name_embedding,
             summary=summary,
             created_at=created_at,
+            expired_at=expired_at,
+            aliases=aliases,
+            last_mentioned=last_mentioned,
             mention_count=mention_count,
             retrieval_count=retrieval_count,
             citation_count=citation_count,
@@ -849,8 +867,8 @@ class FalkorDriver:
         speaker_name = props.pop("speaker_name", None)
         created_at_str = props.pop("created_at", None)
 
-        valid_at = datetime.fromisoformat(valid_at_str) if valid_at_str else datetime.now()
-        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
+        valid_at = _parse_iso_datetime(valid_at_str) or datetime.now(UTC)
+        created_at = _parse_iso_datetime(created_at_str) or datetime.now(UTC)
 
         return EpisodicNode(
             uuid=uuid,
@@ -887,10 +905,10 @@ class FalkorDriver:
         # Remaining props are attributes
         attributes = props
 
-        expired_at = datetime.fromisoformat(expired_at_str) if expired_at_str else None
-        valid_at = datetime.fromisoformat(valid_at_str) if valid_at_str else None
-        invalid_at = datetime.fromisoformat(invalid_at_str) if invalid_at_str else None
-        created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now()
+        expired_at = _parse_iso_datetime(expired_at_str)
+        valid_at = _parse_iso_datetime(valid_at_str)
+        invalid_at = _parse_iso_datetime(invalid_at_str)
+        created_at = _parse_iso_datetime(created_at_str) or datetime.now(UTC)
 
         return EntityEdge(
             uuid=uuid,

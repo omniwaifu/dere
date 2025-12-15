@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -12,13 +13,23 @@ from dere_graph.filters import SearchFilters, build_temporal_query_clause
 from dere_graph.models import EntityEdge, EntityNode
 
 
-def parse_db_date(date_str: str | None) -> datetime | None:
-    """Parse ISO datetime string from FalkorDB to Python datetime."""
-    if date_str is None:
+def parse_db_date(value: Any) -> datetime | None:
+    """Parse datetime-ish values from FalkorDB records."""
+    if value is None:
         return None
-    if isinstance(date_str, str):
-        return datetime.fromisoformat(date_str)
-    return date_str
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=UTC)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        # `datetime.fromisoformat` doesn't reliably accept "Z".
+        if text.endswith("Z"):
+            text = text.replace("Z", "+00:00")
+        return datetime.fromisoformat(text)
+    return None
 
 
 def calculate_cosine_similarity(vector1: list[float], vector2: list[float]) -> float:
@@ -195,7 +206,7 @@ async def fulltext_node_search(
 ) -> list[EntityNode]:
     """BM25 fulltext search on node names and summaries."""
     # Build filter clause
-    filter_clause, filter_params = build_temporal_query_clause(filters, "node", "r")
+    filter_clause, filter_params = build_temporal_query_clause(filters, "node", None)
 
     # Handle empty queries - use direct MATCH instead of fulltext index
     if not query or not query.strip():
@@ -272,7 +283,16 @@ async def fulltext_node_search(
         # Extract attributes from Node object
         node_obj = record["attributes"]
         attributes = dict(node_obj.properties)
-        # Remove standard fields from attributes
+
+        # Pull out standard/reserved fields so `attributes` remains domain-specific.
+        aliases = attributes.pop("aliases", []) or []
+        last_mentioned = parse_db_date(attributes.pop("last_mentioned", None))
+        expired_at = parse_db_date(attributes.pop("expired_at", None))
+        mention_count = attributes.pop("mention_count", 1) or 1
+        retrieval_count = attributes.pop("retrieval_count", 0) or 0
+        citation_count = attributes.pop("citation_count", 0) or 0
+        retrieval_quality = attributes.pop("retrieval_quality", 1.0) or 1.0
+
         for key in ["uuid", "name", "group_id", "name_embedding", "summary", "created_at"]:
             attributes.pop(key, None)
 
@@ -283,6 +303,13 @@ async def fulltext_node_search(
             name_embedding=record["name_embedding"],
             summary=record["summary"],
             created_at=parse_db_date(record["created_at"]),
+            expired_at=expired_at,
+            aliases=aliases,
+            last_mentioned=last_mentioned,
+            mention_count=int(mention_count),
+            retrieval_count=int(retrieval_count),
+            citation_count=int(citation_count),
+            retrieval_quality=float(retrieval_quality),
             labels=[label for label in record["labels"] if label != "Entity"],
             attributes=attributes,
         )
@@ -302,7 +329,7 @@ async def vector_node_search(
 ) -> list[EntityNode]:
     """Vector similarity search on node name embeddings."""
     # Build filter conditions
-    filter_clause, filter_params = build_temporal_query_clause(filters, "n", "r")
+    filter_clause, filter_params = build_temporal_query_clause(filters, "n", None)
 
     # Extract just the conditions (remove WHERE)
     filter_conditions = filter_clause.replace("WHERE ", "") if filter_clause else ""
@@ -349,7 +376,15 @@ async def vector_node_search(
         # Extract attributes from Node object
         node_obj = record["attributes"]
         attributes = dict(node_obj.properties)
-        # Remove standard fields from attributes
+
+        aliases = attributes.pop("aliases", []) or []
+        last_mentioned = parse_db_date(attributes.pop("last_mentioned", None))
+        expired_at = parse_db_date(attributes.pop("expired_at", None))
+        mention_count = attributes.pop("mention_count", 1) or 1
+        retrieval_count = attributes.pop("retrieval_count", 0) or 0
+        citation_count = attributes.pop("citation_count", 0) or 0
+        retrieval_quality = attributes.pop("retrieval_quality", 1.0) or 1.0
+
         for key in ["uuid", "name", "group_id", "name_embedding", "summary", "created_at"]:
             attributes.pop(key, None)
 
@@ -360,6 +395,13 @@ async def vector_node_search(
             name_embedding=record["name_embedding"],
             summary=record["summary"],
             created_at=parse_db_date(record["created_at"]),
+            expired_at=expired_at,
+            aliases=aliases,
+            last_mentioned=last_mentioned,
+            mention_count=int(mention_count),
+            retrieval_count=int(retrieval_count),
+            citation_count=int(citation_count),
+            retrieval_quality=float(retrieval_quality),
             labels=[label for label in record["labels"] if label != "Entity"],
             attributes=attributes,
         )
@@ -508,6 +550,9 @@ async def fulltext_edge_search(
         # Extract attributes from Edge object
         edge_obj = record["attributes"]
         attributes = dict(edge_obj.properties)
+
+        strength = attributes.pop("strength", None)
+
         # Remove standard fields from attributes
         for key in [
             "uuid",
@@ -532,10 +577,11 @@ async def fulltext_edge_search(
             fact=record["fact"],
             fact_embedding=record["fact_embedding"],
             episodes=record["episodes"] or [],
-            created_at=record["created_at"],
-            expired_at=record["expired_at"],
-            valid_at=record["valid_at"],
-            invalid_at=record["invalid_at"],
+            created_at=parse_db_date(record["created_at"]) or datetime.now(UTC),
+            expired_at=parse_db_date(record["expired_at"]),
+            valid_at=parse_db_date(record["valid_at"]),
+            invalid_at=parse_db_date(record["invalid_at"]),
+            strength=float(strength) if strength is not None else None,
             attributes=attributes,
         )
         edges.append(edge)
@@ -606,6 +652,8 @@ async def vector_edge_search(
         # Extract attributes from Edge object
         edge_obj = record["attributes"]
         attributes = dict(edge_obj.properties)
+
+        strength = attributes.pop("strength", None)
         # Remove standard fields from attributes
         for key in [
             "uuid",
@@ -630,10 +678,11 @@ async def vector_edge_search(
             fact=record["fact"],
             fact_embedding=record["fact_embedding"],
             episodes=record["episodes"] or [],
-            created_at=record["created_at"],
-            expired_at=record["expired_at"],
-            valid_at=record["valid_at"],
-            invalid_at=record["invalid_at"],
+            created_at=parse_db_date(record["created_at"]) or datetime.now(UTC),
+            expired_at=parse_db_date(record["expired_at"]),
+            valid_at=parse_db_date(record["valid_at"]),
+            invalid_at=parse_db_date(record["invalid_at"]),
+            strength=float(strength) if strength is not None else None,
             attributes=attributes,
         )
         edges.append(edge)

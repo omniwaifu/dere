@@ -1304,7 +1304,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
         import asyncio
 
         async def process_background():
-            from datetime import datetime
+            from datetime import UTC, datetime
 
             from loguru import logger
 
@@ -1319,7 +1319,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                     await app.state.dere_graph.add_episode(
                         episode_body=req.prompt,
                         source_description=f"{req.medium or 'cli'} conversation",
-                        reference_time=datetime.fromtimestamp(conv.timestamp),
+                        reference_time=datetime.fromtimestamp(conv.timestamp, tz=UTC),
                         source=EpisodeType.message,
                         group_id=req.user_id or "default",
                         speaker_id=req.user_id,
