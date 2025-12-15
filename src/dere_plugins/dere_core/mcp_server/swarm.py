@@ -41,6 +41,9 @@ async def spawn_agents(
     """
     Spawn a swarm of background agents to work on tasks.
 
+    By default, agents start executing immediately (auto_start=True).
+    You do NOT need to call start_swarm after this - just use wait_for_agents.
+
     Args:
         swarm_name: Name for this swarm (e.g., "implement-auth-feature")
         agents: List of agent specs, each with:
@@ -57,10 +60,11 @@ async def spawn_agents(
         git_branch_prefix: If set, each agent gets its own git branch
         base_branch: Base branch to create from (default: current branch)
         working_dir: Working directory (defaults to current)
-        auto_start: Start execution immediately (default: True)
+        auto_start: Whether to start immediately (default: True). Only set False
+            if you need to inspect the swarm before starting.
 
     Returns:
-        Swarm info with ID and agent IDs
+        Swarm info with ID and agent IDs. Status will be "running" if auto_start=True.
     """
     session_id = _get_session_id()
 
@@ -87,6 +91,9 @@ async def spawn_agents(
 async def start_swarm(swarm_id: int) -> dict:
     """
     Start executing a pending swarm's agents.
+
+    NOTE: You usually don't need this. spawn_agents() auto-starts by default.
+    Only use this if you created a swarm with auto_start=False.
 
     Args:
         swarm_id: The swarm ID from spawn_agents
@@ -141,7 +148,7 @@ async def wait_for_agents(
         timeout_seconds: Max time to wait
 
     Returns:
-        Results from completed agents
+        Dict with "agents" key containing list of agent results
     """
     # Set request timeout slightly higher than wait timeout
     request_timeout = (timeout_seconds + 30) if timeout_seconds else None
@@ -156,7 +163,7 @@ async def wait_for_agents(
             timeout=request_timeout,
         )
         resp.raise_for_status()
-        return resp.json()
+        return {"agents": resp.json()}
 
 
 @mcp.tool()

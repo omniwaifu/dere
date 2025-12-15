@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dere_shared.agent_models import SessionConfig, StreamEventType
-from dere_shared.models import Swarm, SwarmAgent, SwarmStatus
+from dere_shared.models import Session, Swarm, SwarmAgent, SwarmStatus
 
 from .git import (
     create_branch,
@@ -47,7 +47,7 @@ class SwarmCoordinator:
 
     async def create_swarm(
         self,
-        parent_session_id: int,
+        parent_session_id: int | None,
         name: str,
         working_dir: str,
         agents: list[AgentSpec],
@@ -58,7 +58,7 @@ class SwarmCoordinator:
         """Create a new swarm with specified agents.
 
         Args:
-            parent_session_id: Session ID that's spawning this swarm
+            parent_session_id: Session ID that's spawning this swarm (optional)
             name: Name for the swarm
             working_dir: Working directory for agents
             agents: List of agent specifications
@@ -77,11 +77,25 @@ class SwarmCoordinator:
                 logger.warning("Failed to get current branch: {}", e)
 
         async with self.session_factory() as db:
+            # Verify parent session exists if provided
+            verified_parent_id = None
+            if parent_session_id:
+                result = await db.execute(
+                    select(Session.id).where(Session.id == parent_session_id)
+                )
+                if result.scalar_one_or_none():
+                    verified_parent_id = parent_session_id
+                else:
+                    logger.info(
+                        "Parent session {} not found in DB, creating swarm without parent",
+                        parent_session_id,
+                    )
+
             # Create swarm
             swarm = Swarm(
                 name=name,
                 description=description,
-                parent_session_id=parent_session_id,
+                parent_session_id=verified_parent_id,
                 working_dir=working_dir,
                 git_branch_prefix=git_branch_prefix,
                 base_branch=base_branch,
@@ -131,7 +145,14 @@ class SwarmCoordinator:
                     agent.depends_on = dep_ids
 
             await db.commit()
-            await db.refresh(swarm)
+
+            # Re-fetch with agents eagerly loaded (avoid DetachedInstanceError)
+            result = await db.execute(
+                select(Swarm)
+                .options(selectinload(Swarm.agents))
+                .where(Swarm.id == swarm.id)
+            )
+            swarm = result.scalar_one()
 
             logger.info(
                 "Created swarm '{}' (id={}) with {} agents",

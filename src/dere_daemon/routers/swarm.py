@@ -21,7 +21,7 @@ from dere_daemon.swarm.models import (
     SwarmStatusResponse,
     WaitRequest,
 )
-from dere_shared.models import Swarm, SwarmStatus
+from dere_shared.models import Swarm, SwarmAgent, SwarmStatus
 
 router = APIRouter(prefix="/swarm", tags=["swarm"])
 
@@ -71,6 +71,17 @@ async def create_swarm(
 
     If auto_start is True (default), the swarm will start executing immediately.
     """
+    # Anti-recursion: check if caller is a swarm agent
+    if req.parent_session_id:
+        result = await db.execute(
+            select(SwarmAgent.id).where(SwarmAgent.session_id == req.parent_session_id)
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=403,
+                detail="Swarm agents cannot spawn new swarms",
+            )
+
     coordinator = getattr(request.app.state, "swarm_coordinator", None)
     if not coordinator:
         raise HTTPException(status_code=503, detail="Swarm coordinator not available")
@@ -141,6 +152,64 @@ async def list_swarms(
         )
         for s in swarms
     ]
+
+
+@router.get("/personalities", response_model=ListPersonalitiesResponse)
+async def list_personalities(request: Request):
+    """List available personalities for swarm agents."""
+    from dere_shared.personalities import PersonalityLoader
+
+    try:
+        loader = PersonalityLoader()
+        personalities = loader.list_available()
+        return ListPersonalitiesResponse(personalities=personalities)
+    except Exception as e:
+        logger.warning("Failed to load personalities: {}", e)
+        return ListPersonalitiesResponse(personalities=[])
+
+
+@router.get("/plugins", response_model=ListPluginsResponse)
+async def list_plugins():
+    """List available plugins for swarm agents.
+
+    Scans the dere_plugins directory and returns metadata from each plugin.json.
+    """
+    import json
+    from importlib.util import find_spec
+    from pathlib import Path
+
+    plugins: list[PluginInfo] = []
+
+    # Find plugins directory - dere_plugins is a namespace package so __file__ is None
+    spec = find_spec("dere_plugins")
+    if not spec or not spec.submodule_search_locations:
+        return ListPluginsResponse(plugins=[])
+    plugins_dir = Path(spec.submodule_search_locations[0])
+
+    for plugin_dir in plugins_dir.iterdir():
+        if not plugin_dir.is_dir() or plugin_dir.name.startswith("_"):
+            continue
+
+        plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
+        if not plugin_json.exists():
+            continue
+
+        try:
+            data = json.loads(plugin_json.read_text())
+            mcp_servers = list(data.get("mcpServers", {}).keys())
+            plugins.append(
+                PluginInfo(
+                    name=plugin_dir.name,
+                    version=data.get("version", "0.0.0"),
+                    description=data.get("description", ""),
+                    has_mcp_servers=bool(mcp_servers),
+                    mcp_servers=mcp_servers,
+                )
+            )
+        except Exception as e:
+            logger.warning("Failed to load plugin {}: {}", plugin_dir.name, e)
+
+    return ListPluginsResponse(plugins=plugins)
 
 
 @router.get("/{swarm_id}", response_model=SwarmStatusResponse)
@@ -254,59 +323,3 @@ async def merge_branches(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-
-
-@router.get("/personalities", response_model=ListPersonalitiesResponse)
-async def list_personalities(request: Request):
-    """List available personalities for swarm agents."""
-    from dere_shared.personalities import PersonalityLoader
-
-    try:
-        loader = PersonalityLoader()
-        personalities = loader.list_all()
-        return ListPersonalitiesResponse(personalities=personalities)
-    except Exception as e:
-        logger.warning("Failed to load personalities: {}", e)
-        return ListPersonalitiesResponse(personalities=[])
-
-
-@router.get("/plugins", response_model=ListPluginsResponse)
-async def list_plugins():
-    """List available plugins for swarm agents.
-
-    Scans the dere_plugins directory and returns metadata from each plugin.json.
-    """
-    import json
-    from pathlib import Path
-
-    plugins: list[PluginInfo] = []
-
-    # Find plugins directory relative to dere_daemon
-    import dere_plugins
-
-    plugins_dir = Path(dere_plugins.__file__).parent
-
-    for plugin_dir in plugins_dir.iterdir():
-        if not plugin_dir.is_dir() or plugin_dir.name.startswith("_"):
-            continue
-
-        plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
-        if not plugin_json.exists():
-            continue
-
-        try:
-            data = json.loads(plugin_json.read_text())
-            mcp_servers = list(data.get("mcpServers", {}).keys())
-            plugins.append(
-                PluginInfo(
-                    name=plugin_dir.name,
-                    version=data.get("version", "0.0.0"),
-                    description=data.get("description", ""),
-                    has_mcp_servers=bool(mcp_servers),
-                    mcp_servers=mcp_servers,
-                )
-            )
-        except Exception as e:
-            logger.warning("Failed to load plugin {}: {}", plugin_dir.name, e)
-
-    return ListPluginsResponse(plugins=plugins)

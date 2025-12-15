@@ -351,7 +351,6 @@ async def _init_agent_service(app_state: AppState) -> None:
     app_state.swarm_coordinator = SwarmCoordinator(
         session_factory=app_state.session_factory,
         agent_service=app_state.agent_service,
-        personality_loader=app_state.personality_loader,
     )
     print("Swarm coordinator initialized")
 

@@ -511,8 +511,8 @@ class Swarm(SQLModel, table=True):
     name: str = Field(index=True)
     description: str | None = None
 
-    # Parent session that spawned this swarm
-    parent_session_id: int = Field(foreign_key="sessions.id")
+    # Parent session that spawned this swarm (optional - may not exist in DB)
+    parent_session_id: int | None = Field(default=None, foreign_key="sessions.id")
 
     # Configuration
     working_dir: str
