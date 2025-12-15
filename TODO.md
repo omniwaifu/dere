@@ -75,9 +75,10 @@ These unlock everything else; do them first.
     extraction prompts, best-effort validates attributes via `apply_*_schema`, and persists edge attributes.
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/driver.py`, `src/dere_graph/dere_graph/graph.py`
 
-- [ ] **Episode-type specific ingestion (message vs text vs JSON vs code/doc)**
+- [x] **Episode-type specific ingestion (message vs text vs JSON vs code/doc)**
   - Why: code and JSON need different prompts and pre-processing; “one prompt” will underperform or hallucinate structure.
-  - Current state: `EpisodeType` exists but extraction is mostly “text/message-like”.
+  - Current state: `EpisodeType` supports `code`/`doc`; ingestion adjusts prompts + pre-processing (JSON pretty-printing;
+    code/doc extraction instructions) based on episode type.
   - Files: `src/dere_graph/dere_graph/models.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/prompts.py`
 
 - [ ] **Decide and implement temporal extraction strategy**

@@ -69,7 +69,11 @@ def test_episode_types():
     assert EpisodeType.text.value == "text"
     assert EpisodeType.message.value == "message"
     assert EpisodeType.json.value == "json"
+    assert EpisodeType.code.value == "code"
+    assert EpisodeType.doc.value == "doc"
     assert EpisodeType.from_str("text") == EpisodeType.text
+    assert EpisodeType.from_str("code") == EpisodeType.code
+    assert EpisodeType.from_str("doc") == EpisodeType.doc
 
 
 def test_node_equality():

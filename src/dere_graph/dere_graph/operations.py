@@ -11,6 +11,7 @@ from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import (
     EntityEdge,
     EntityNode,
+    EpisodeType,
     EpisodicEdge,
     EpisodicNode,
     apply_edge_schema,
@@ -197,9 +198,45 @@ async def extract_nodes(
 
     # Initial extraction
     prev_episode_strings = [ep.content for ep in (previous_episodes or [])][-4:]
+    episode_content = episode.content
+    custom_prompt = ""
+    if episode.source == EpisodeType.json:
+        import json
+
+        try:
+            parsed = json.loads(episode.content)
+            episode_content = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            episode_content = episode.content
+
+        custom_prompt = f"""
+This episode source is JSON from: {episode.source_description}
+
+Treat CURRENT_MESSAGE as a JSON payload, not a conversation.
+- Extract entities representing meaningful objects, identifiers, resources, people, orgs, repos, files, tasks, and durable concepts.
+- Do NOT create entities for trivial keys, single primitive values, timestamps, or purely structural JSON fields.
+"""
+    elif episode.source == EpisodeType.code:
+        custom_prompt = f"""
+This episode source is CODE from: {episode.source_description}
+
+Treat CURRENT_MESSAGE as source code, not a conversation.
+- Extract entities like repositories/projects, file/module names, symbols (classes/functions), libraries/frameworks, error types/messages, and key domain concepts.
+- Avoid extracting every variable or local identifier unless it is clearly important/durable (e.g., public API, config keys).
+"""
+    elif episode.source == EpisodeType.doc:
+        custom_prompt = f"""
+This episode source is DOCUMENTATION from: {episode.source_description}
+
+Treat CURRENT_MESSAGE as documentation/notes.
+- Extract entities like products, libraries, commands, APIs, configuration keys, concepts, and durable decisions.
+- Avoid extracting generic words that don't add retrieval value.
+"""
+
     messages = extract_entities_text(
-        episode.content,
+        episode_content,
         previous_episodes=prev_episode_strings,
+        custom_prompt=custom_prompt,
         speaker_id=episode.speaker_id,
         speaker_name=episode.speaker_name,
         personality=episode.personality,
@@ -583,11 +620,41 @@ async def extract_entity_edges(
         {"id": i, "name": node.name, "entity_types": node.labels} for i, node in enumerate(nodes)
     ]
 
+    episode_content = episode.content
+    custom_prompt = ""
+    if episode.source == EpisodeType.json:
+        import json
+
+        try:
+            parsed = json.loads(episode.content)
+            episode_content = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            episode_content = episode.content
+
+        custom_prompt = f"""
+This episode source is JSON from: {episode.source_description}
+Only extract facts that represent durable relationships between entities in the JSON (ownership, membership, association).
+Avoid creating edges for purely structural JSON adjacency or transient telemetry fields.
+"""
+    elif episode.source == EpisodeType.code:
+        custom_prompt = f"""
+This episode source is CODE from: {episode.source_description}
+Prefer code-aware relation_type values when appropriate (e.g., DEFINES, IMPORTS, CALLS, DEPENDS_ON, USES, LOCATED_IN).
+Only extract facts that are clearly supported by the code and involve two distinct ENTITIES.
+"""
+    elif episode.source == EpisodeType.doc:
+        custom_prompt = f"""
+This episode source is DOCUMENTATION from: {episode.source_description}
+Prefer doc-aware relation_type values when appropriate (e.g., DESCRIBES, DOCUMENTS, REQUIRES, CONFIGURES, USES).
+Only extract facts that are clearly supported by the text and involve two distinct ENTITIES.
+"""
+
     messages = extract_edges(
-        episode.content,
+        episode_content,
         [ep.content for ep in previous_episodes],
         nodes_context,
         episode.valid_at.isoformat(),
+        custom_prompt=custom_prompt,
         edge_types=list(edge_types.keys()) if edge_types else None,
         excluded_edge_types=excluded_edge_types,
     )

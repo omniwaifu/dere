@@ -17,6 +17,8 @@ class EpisodeType(Enum):
     message = "message"
     json = "json"
     text = "text"
+    code = "code"
+    doc = "doc"
 
     @staticmethod
     def from_str(episode_type: str) -> EpisodeType:
@@ -27,6 +29,10 @@ class EpisodeType(Enum):
                 return EpisodeType.json
             case "text":
                 return EpisodeType.text
+            case "code":
+                return EpisodeType.code
+            case "doc":
+                return EpisodeType.doc
             case _:
                 raise ValueError(f"Unknown episode type: {episode_type}")
 
