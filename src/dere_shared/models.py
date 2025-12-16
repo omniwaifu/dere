@@ -511,6 +511,7 @@ class SwarmAgentRole(str, Enum):
     RESEARCH = "research"
     GENERIC = "generic"
     SYNTHESIS = "synthesis"
+    SUPERVISOR = "supervisor"
 
 
 class SwarmAgentMode(str, Enum):
@@ -563,6 +564,11 @@ class Swarm(SQLModel, table=True):
     # Synthesis output (stored for easy access)
     synthesis_output: str | None = None
     synthesis_summary: str | None = None
+
+    # Supervisor configuration
+    auto_supervise: bool = Field(default=False)
+    supervisor_warn_seconds: int = Field(default=600)
+    supervisor_cancel_seconds: int = Field(default=1800)
 
     # Timestamps
     created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))

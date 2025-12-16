@@ -98,6 +98,9 @@ async def create_swarm(
             auto_synthesize=req.auto_synthesize,
             synthesis_prompt=req.synthesis_prompt,
             skip_synthesis_on_failure=req.skip_synthesis_on_failure,
+            auto_supervise=req.auto_supervise,
+            supervisor_warn_seconds=req.supervisor_warn_seconds,
+            supervisor_cancel_seconds=req.supervisor_cancel_seconds,
         )
 
         if req.auto_start:

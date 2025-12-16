@@ -68,6 +68,9 @@ class SwarmCoordinator:
         auto_synthesize: bool = False,
         synthesis_prompt: str | None = None,
         skip_synthesis_on_failure: bool = False,
+        auto_supervise: bool = False,
+        supervisor_warn_seconds: int = 600,
+        supervisor_cancel_seconds: int = 1800,
     ) -> Swarm:
         """Create a new swarm with specified agents.
 
@@ -82,6 +85,9 @@ class SwarmCoordinator:
             auto_synthesize: Spawn a synthesis agent after all others complete
             synthesis_prompt: Custom prompt for synthesis agent (auto-generated if None)
             skip_synthesis_on_failure: Skip synthesis if any agent failed
+            auto_supervise: Spawn a watchdog supervisor to monitor agents
+            supervisor_warn_seconds: Seconds before supervisor warns a stalling agent
+            supervisor_cancel_seconds: Seconds before supervisor marks agent as stuck
 
         Returns:
             Created Swarm instance
@@ -118,6 +124,9 @@ class SwarmCoordinator:
                 auto_synthesize=auto_synthesize,
                 synthesis_prompt=synthesis_prompt,
                 skip_synthesis_on_failure=skip_synthesis_on_failure,
+                auto_supervise=auto_supervise,
+                supervisor_warn_seconds=supervisor_warn_seconds,
+                supervisor_cancel_seconds=supervisor_cancel_seconds,
             )
             db.add(swarm)
             await db.flush()
@@ -210,6 +219,40 @@ class SwarmCoordinator:
                     "Created synthesis agent for swarm '{}' with {} dependencies",
                     name,
                     len(synthesis_deps),
+                )
+
+            # Create supervisor agent if enabled
+            if auto_supervise:
+                supervisor_prompt = self._build_supervisor_prompt(
+                    swarm_name=name,
+                    agent_names=[spec.name for spec in agents],
+                    warn_seconds=supervisor_warn_seconds,
+                    cancel_seconds=supervisor_cancel_seconds,
+                )
+
+                supervisor_agent = SwarmAgent(
+                    swarm_id=swarm.id,
+                    name="supervisor",
+                    role=SwarmAgentRole.SUPERVISOR.value,
+                    prompt=supervisor_prompt,
+                    personality=None,
+                    plugins=["dere_core"],  # For swarm status + messaging
+                    git_branch=None,
+                    allowed_tools=None,
+                    thinking_budget=None,
+                    model=None,
+                    sandbox_mode=True,
+                    depends_on=None,  # No dependencies - runs in parallel
+                    is_synthesis_agent=False,
+                )
+                db.add(supervisor_agent)
+                await db.flush()
+
+                logger.info(
+                    "Created supervisor agent for swarm '{}' (warn={}s, cancel={}s)",
+                    name,
+                    supervisor_warn_seconds,
+                    supervisor_cancel_seconds,
                 )
 
             await db.commit()
@@ -1052,6 +1095,59 @@ Summary:"""
         except Exception as e:
             logger.warning("Failed to generate summary: {}", e)
             return None
+
+    def _build_supervisor_prompt(
+        self,
+        swarm_name: str,
+        agent_names: list[str],
+        warn_seconds: int,
+        cancel_seconds: int,
+    ) -> str:
+        """Build prompt for watchdog supervisor agent."""
+        check_interval = 30
+        agent_list = ", ".join(f"'{n}'" for n in agent_names)
+
+        return f"""You are the watchdog supervisor for swarm '{swarm_name}'.
+
+## Your Job
+
+Monitor these agents: {agent_list}
+
+You observe, warn, and record - but don't interfere with working agents.
+
+## Monitoring Loop
+
+Every {check_interval} seconds:
+
+1. Call `get_swarm_status()` to check all agents
+2. For each RUNNING agent:
+   - If running > {warn_seconds}s: send a warning message asking them to wrap up
+   - If running > {cancel_seconds}s: note they may be stuck in scratchpad
+3. For FAILED agents: record the failure reason in scratchpad
+4. Exit when all monitored agents are COMPLETED, FAILED, or CANCELLED
+
+## Tools Available
+
+- `get_swarm_status()`: Get status of all agents (check started_at timestamps)
+- `send_message(to, text, priority)`: Send message to an agent (use priority="urgent" for warnings)
+- `scratchpad_set(key, value)`: Record observations for synthesis to review
+
+## Scratchpad Keys to Use
+
+- `supervisor/warnings/{{agent_name}}`: Agents you've warned
+- `supervisor/stuck/{{agent_name}}`: Agents that exceeded cancel threshold
+- `supervisor/failures/{{agent_name}}`: Agents that failed with error details
+- `supervisor/summary`: Final monitoring summary when done
+
+## Important
+
+- Be patient - agents doing real work take time
+- Only warn if genuinely concerned about progress
+- Don't spam messages - one warning per threshold is enough
+- Record anomalies for synthesis to review
+- Your observations help improve future swarms
+
+Start by calling get_swarm_status() to see the current state, then begin your monitoring loop."""
 
     def _build_default_synthesis_prompt(self, swarm_name: str) -> str:
         """Build default prompt for synthesis agent."""

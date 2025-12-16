@@ -1,6 +1,6 @@
 {
   "name": "dere-core",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Core dere infrastructure: personality tone, emotion awareness (OCC), memory/recall, knowledge graph integration, and environmental context. Always enabled.",
   "mcpServers": {
     "swarm": {

@@ -182,6 +182,18 @@ class CreateSwarmRequest(BaseModel):
         default=False,
         description="Skip synthesis if any agent failed",
     )
+    auto_supervise: bool = Field(
+        default=False,
+        description="Spawn a watchdog supervisor to monitor agents for failures/stalls",
+    )
+    supervisor_warn_seconds: int = Field(
+        default=600,
+        description="Seconds before supervisor warns a stalling agent (default: 10 min)",
+    )
+    supervisor_cancel_seconds: int = Field(
+        default=1800,
+        description="Seconds before supervisor marks agent as stuck (default: 30 min)",
+    )
 
 
 class CreateSwarmResponse(BaseModel):

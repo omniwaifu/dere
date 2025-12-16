@@ -42,6 +42,9 @@ async def spawn_agents(
     auto_synthesize: bool = False,
     synthesis_prompt: str | None = None,
     skip_synthesis_on_failure: bool = False,
+    auto_supervise: bool = False,
+    supervisor_warn_seconds: int = 600,
+    supervisor_cancel_seconds: int = 1800,
 ) -> dict:
     """
     Spawn a swarm of background agents to work on tasks.
@@ -78,6 +81,10 @@ async def spawn_agents(
             complete to aggregate results and create follow-up tasks
         synthesis_prompt: Custom prompt for synthesis agent (auto-generated if None)
         skip_synthesis_on_failure: If True, skip synthesis if any agent failed
+        auto_supervise: If True, spawn a watchdog supervisor to monitor agents for
+            failures, stalls, and anomalies. Warns stalling agents and records issues.
+        supervisor_warn_seconds: Seconds before supervisor warns a stalling agent (default: 600 = 10 min)
+        supervisor_cancel_seconds: Seconds before supervisor marks agent as stuck (default: 1800 = 30 min)
 
     Returns:
         Swarm info with ID and agent IDs. Status will be "running" if auto_start=True.
@@ -117,6 +124,9 @@ async def spawn_agents(
                 "auto_synthesize": auto_synthesize,
                 "synthesis_prompt": synthesis_prompt,
                 "skip_synthesis_on_failure": skip_synthesis_on_failure,
+                "auto_supervise": auto_supervise,
+                "supervisor_warn_seconds": supervisor_warn_seconds,
+                "supervisor_cancel_seconds": supervisor_cancel_seconds,
             },
             timeout=60.0,
         )
