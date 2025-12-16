@@ -33,23 +33,42 @@ def _unwrap_tool_payload(candidate: Any) -> Any:
     Claude SDK tool calls sometimes wrap the actual JSON payload.
 
     Common wrappers observed: {"parameters": {...}}, {"parameter": {...}},
-    {"argument": {...}}, {"input": {...}}.
+    {"argument": {...}}, {"input": {...}}, {"object": {...}}.
     """
+    from loguru import logger
+
+    iteration = 0
     while isinstance(candidate, dict):
+        iteration += 1
+        if iteration > 10:
+            logger.warning(f"[_unwrap_tool_payload] Too many unwrap iterations, stopping")
+            break
+
         # Single-key wrappers
-        for key in ("parameters", "parameter", "arguments", "argument", "input", "output", "data"):
+        found = False
+        for key in ("parameters", "parameter", "arguments", "argument", "input", "output", "data", "object"):
             if key in candidate and len(candidate) == 1:
                 candidate = candidate[key]
+                found = True
                 break
-        else:
-            # Two-key common wrapper variants: {"name": "...", "parameters": {...}}
-            if "parameters" in candidate and isinstance(candidate["parameters"], dict):
-                candidate = candidate["parameters"]
-                continue
-            if "input" in candidate and isinstance(candidate["input"], dict):
-                candidate = candidate["input"]
-                continue
-            return candidate
+
+        if found:
+            continue
+
+        # Two-key common wrapper variants: {"name": "...", "parameters": {...}}
+        if "parameters" in candidate and isinstance(candidate["parameters"], dict):
+            candidate = candidate["parameters"]
+            continue
+        if "input" in candidate and isinstance(candidate["input"], dict):
+            candidate = candidate["input"]
+            continue
+
+        # No known wrapper found - check if it's an unknown single-key wrapper
+        if len(candidate) == 1 and isinstance(list(candidate.values())[0], dict):
+            unknown_key = list(candidate.keys())[0]
+            logger.warning(f"[_unwrap_tool_payload] Unknown single-key wrapper: {unknown_key!r}")
+
+        return candidate
     return candidate
 
 
