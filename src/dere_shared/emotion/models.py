@@ -303,6 +303,89 @@ class EmotionSchemaOutput(BaseModel):
     intensity: float = Field(ge=0, le=100, description="Intensity 0-100")
     eliciting: str = Field(description="Why this emotion arose")
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_emotion_type(cls, v: Any) -> str:
+        """Normalize LLM's creative emotion descriptions to valid enum values."""
+        from loguru import logger
+
+        if isinstance(v, OCCEmotionType):
+            return v.value
+
+        if not isinstance(v, str):
+            return str(v)
+
+        original_value = v
+        # Remove any wrapper text and normalize
+        normalized = v.lower().strip()
+
+        # Handle compound/descriptive responses like "concern/mild_distress" or "mild distress"
+        mapping = {
+            "concern": "fear",
+            "worry": "fear",
+            "anxious": "fear",
+            "anxiety": "fear",
+            "mild_distress": "distress",
+            "mild distress": "distress",
+            "sadness": "distress",
+            "sad": "distress",
+            "upset": "distress",
+            "happiness": "joy",
+            "happy": "joy",
+            "pleased": "joy",
+            "content": "satisfaction",
+            "contentment": "satisfaction",
+            "frustration": "disappointment",
+            "frustrated": "disappointment",
+            "annoyed": "anger",
+            "annoyance": "anger",
+            "irritated": "anger",
+            "irritation": "anger",
+            "worried": "fear",
+            "nervous": "fear",
+        }
+
+        # Check if it's a compound value (e.g., "concern/mild_distress")
+        if "/" in normalized or "_" in normalized or " " in normalized:
+            # Split and try to map the parts
+            parts = normalized.replace("_", " ").replace("/", " ").split()
+            for part in parts:
+                part = part.strip()
+                # First check if part is already a valid emotion
+                for emotion_type in OCCEmotionType:
+                    if emotion_type.value == part:
+                        if part != original_value:
+                            logger.info(
+                                f"[EmotionSchemaOutput] Normalized emotion type: {original_value!r} -> {part!r}"
+                            )
+                        return part
+                # Then check mapping
+                if part in mapping:
+                    result = mapping[part]
+                    logger.info(
+                        f"[EmotionSchemaOutput] Normalized emotion type: {original_value!r} -> {result!r}"
+                    )
+                    return result
+
+        # Direct mapping
+        if normalized in mapping:
+            result = mapping[normalized]
+            logger.info(
+                f"[EmotionSchemaOutput] Normalized emotion type: {original_value!r} -> {result!r}"
+            )
+            return result
+
+        # Check if it's already valid
+        for emotion_type in OCCEmotionType:
+            if emotion_type.value == normalized:
+                return normalized
+
+        # If nothing matches, log and let Pydantic validation fail with helpful message
+        logger.warning(
+            f"[EmotionSchemaOutput] Unknown emotion type {original_value!r}, validation will fail"
+        )
+        return normalized
+
 
 class AppraisalOutput(BaseModel):
     """Complete appraisal output from LLM"""

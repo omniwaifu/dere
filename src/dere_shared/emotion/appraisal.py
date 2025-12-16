@@ -102,13 +102,9 @@ class AppraisalEngine:
 
     def _format_user_profile(self) -> str:
         """Format the user's OCC profile (goals, standards, attitudes)."""
-        goals_str = ", ".join(
-            f"{g.id}({g.importance})" for g in self.goals if g.active
-        )
+        goals_str = ", ".join(f"{g.id}({g.importance})" for g in self.goals if g.active)
         standards_str = ", ".join(f"{s.id}({s.importance})" for s in self.standards)
-        attitudes_str = ", ".join(
-            f"{a.target_object}({a.appealingness})" for a in self.attitudes
-        )
+        attitudes_str = ", ".join(f"{a.target_object}({a.appealingness})" for a in self.attitudes)
 
         return f"""Goals: {goals_str}
 Standards: {standards_str}
@@ -127,7 +123,8 @@ Event/Action/Object dimensions, strength -10 to 10. Intensity 0-100 (normal=20-4
     def _format_response_schema(self) -> str:
         """Format the expected response schema."""
         # SDK enforces schema via StructuredOutput tool - just list valid emotion types
-        return """Valid OCC emotion types: hope, fear, joy, distress, satisfaction, relief, fears-confirmed, disappointment, happy-for, pity, gloating, resentment, pride, shame, admiration, reproach, love, hate, interest, disgust, gratitude, anger, gratification, remorse, neutral."""
+        return """IMPORTANT: Use ONLY these exact emotion type values (no descriptions, no combinations):
+hope, fear, joy, distress, satisfaction, relief, fears-confirmed, disappointment, happy-for, pity, gloating, resentment, pride, shame, admiration, reproach, love, hate, interest, disgust, gratitude, anger, gratification, remorse, neutral."""
 
     def _build_appraisal_prompt(
         self,
