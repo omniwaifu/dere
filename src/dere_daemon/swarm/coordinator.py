@@ -13,7 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dere_shared.agent_models import SessionConfig, StreamEventType
-from dere_shared.models import Session, Swarm, SwarmAgent, SwarmAgentRole, SwarmStatus
+from dere_shared.models import (
+    ProjectTask,
+    ProjectTaskStatus,
+    Session,
+    Swarm,
+    SwarmAgent,
+    SwarmAgentMode,
+    SwarmAgentRole,
+    SwarmStatus,
+)
 
 from .git import (
     create_branch,
@@ -26,6 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from dere_daemon.agent.service import CentralizedAgentService
+    from dere_daemon.work_queue.coordinator import WorkQueueCoordinator
 
 # Maximum output size to store per agent (50KB)
 MAX_OUTPUT_SIZE = 50 * 1024
@@ -40,6 +50,7 @@ class SwarmCoordinator:
 
     agent_service: CentralizedAgentService
     session_factory: Callable[[], AsyncSession]
+    work_queue: WorkQueueCoordinator | None = None
 
     # Track running agent tasks
     _running_tasks: dict[int, asyncio.Task] = field(default_factory=dict)
@@ -86,9 +97,7 @@ class SwarmCoordinator:
             # Verify parent session exists if provided
             verified_parent_id = None
             if parent_session_id:
-                result = await db.execute(
-                    select(Session.id).where(Session.id == parent_session_id)
-                )
+                result = await db.execute(select(Session.id).where(Session.id == parent_session_id))
                 if result.scalar_one_or_none():
                     verified_parent_id = parent_session_id
                 else:
@@ -126,6 +135,7 @@ class SwarmCoordinator:
                     swarm_id=swarm.id,
                     name=spec.name,
                     role=spec.role.value,
+                    mode=spec.mode.value,
                     prompt=spec.prompt,
                     personality=spec.personality,
                     plugins=spec.plugins,
@@ -135,6 +145,13 @@ class SwarmCoordinator:
                     model=spec.model,
                     sandbox_mode=spec.sandbox_mode,
                     status=SwarmStatus.PENDING.value,
+                    # Autonomous mode fields
+                    goal=spec.goal,
+                    capabilities=spec.capabilities,
+                    task_types=spec.task_types,
+                    max_tasks=spec.max_tasks,
+                    max_duration_seconds=spec.max_duration_seconds,
+                    idle_timeout_seconds=spec.idle_timeout_seconds,
                 )
                 db.add(agent)
                 await db.flush()
@@ -150,16 +167,20 @@ class SwarmCoordinator:
                             raise ValueError(
                                 f"Agent '{spec.name}' depends on unknown agent '{dep_spec.agent}'"
                             )
-                        dep_specs.append({
-                            "agent_id": name_to_db_agent[dep_spec.agent].id,
-                            "include": dep_spec.include.value,
-                        })
+                        dep_specs.append(
+                            {
+                                "agent_id": name_to_db_agent[dep_spec.agent].id,
+                                "include": dep_spec.include.value,
+                            }
+                        )
                     agent.depends_on = dep_specs
 
             # Create synthesis agent if enabled
             if auto_synthesize:
                 # Build default prompt if not provided
-                final_synthesis_prompt = synthesis_prompt or self._build_default_synthesis_prompt(name)
+                final_synthesis_prompt = synthesis_prompt or self._build_default_synthesis_prompt(
+                    name
+                )
 
                 # Synthesis agent depends on ALL other agents with full output
                 synthesis_deps = [
@@ -195,9 +216,7 @@ class SwarmCoordinator:
 
             # Re-fetch with agents eagerly loaded (avoid DetachedInstanceError)
             result = await db.execute(
-                select(Swarm)
-                .options(selectinload(Swarm.agents))
-                .where(Swarm.id == swarm.id)
+                select(Swarm).options(selectinload(Swarm.agents)).where(Swarm.id == swarm.id)
             )
             swarm = result.scalar_one()
 
@@ -217,9 +236,7 @@ class SwarmCoordinator:
         Agents with dependencies wait for their dependencies to complete.
         """
         async with self.session_factory() as db:
-            swarm = await db.get(
-                Swarm, swarm_id, options=[selectinload(Swarm.agents)]
-            )
+            swarm = await db.get(Swarm, swarm_id, options=[selectinload(Swarm.agents)])
             if not swarm:
                 raise ValueError(f"Swarm {swarm_id} not found")
 
@@ -244,9 +261,7 @@ class SwarmCoordinator:
         async with self.session_factory() as db:
             swarm = await db.get(Swarm, swarm_id, options=[selectinload(Swarm.agents)])
             for agent in swarm.agents:
-                task = asyncio.create_task(
-                    self._execute_agent_with_dependencies(agent.id)
-                )
+                task = asyncio.create_task(self._execute_agent_with_dependencies(agent.id))
                 self._running_tasks[agent.id] = task
 
         logger.info("Started swarm {} with {} agents", swarm_id, len(swarm.agents))
@@ -304,6 +319,16 @@ class SwarmCoordinator:
             agent.started_at = datetime.now(UTC)
             await db.commit()
 
+        # Branch based on mode
+        if agent.mode == SwarmAgentMode.AUTONOMOUS.value:
+            await self._execute_autonomous_agent(agent_id)
+            return
+
+        # Below is assigned mode execution
+        async with self.session_factory() as db:
+            agent = await db.get(SwarmAgent, agent_id)
+            swarm = await db.get(Swarm, agent.swarm_id)
+
             # Build dependency context
             dependency_context = ""
             if agent.depends_on:
@@ -326,7 +351,11 @@ class SwarmCoordinator:
                     dep_sections.append(f"## Output from '{dep_agent.name}'\n{output}")
 
                 if dep_sections:
-                    dependency_context = "# Context from dependencies\n\n" + "\n\n".join(dep_sections) + "\n\n---\n\n"
+                    dependency_context = (
+                        "# Context from dependencies\n\n"
+                        + "\n\n".join(dep_sections)
+                        + "\n\n---\n\n"
+                    )
 
         logger.info(
             "Executing agent '{}' (id={}) in swarm '{}'",
@@ -357,6 +386,7 @@ class SwarmCoordinator:
                 env={
                     "DERE_SWARM_ID": str(swarm.id),
                     "DERE_SWARM_AGENT_ID": str(agent_id),
+                    "DERE_SWARM_AGENT_NAME": agent.name,
                 },
             )
 
@@ -445,6 +475,292 @@ class SwarmCoordinator:
         # Check if all agents are done and update swarm status
         await self._check_swarm_completion(swarm.id)
 
+    async def _execute_autonomous_agent(self, agent_id: int) -> None:
+        """Execute an autonomous agent that discovers work from the queue."""
+        if not self.work_queue:
+            raise RuntimeError(
+                "WorkQueueCoordinator required for autonomous agents. "
+                "Set work_queue on SwarmCoordinator."
+            )
+
+        async with self.session_factory() as db:
+            agent = await db.get(SwarmAgent, agent_id)
+            swarm = await db.get(Swarm, agent.swarm_id)
+
+        if not agent or not swarm:
+            return
+
+        logger.info(
+            "Starting autonomous agent '{}' (id={}) with goal: {}",
+            agent.name,
+            agent_id,
+            agent.goal or "(no goal)",
+        )
+
+        start_time = datetime.now(UTC)
+        last_task_time = start_time
+
+        try:
+            while True:
+                # Check termination conditions
+                elapsed = (datetime.now(UTC) - start_time).total_seconds()
+
+                if agent.max_duration_seconds and elapsed >= agent.max_duration_seconds:
+                    logger.info(
+                        "Agent '{}' reached max duration ({:.0f}s)",
+                        agent.name,
+                        elapsed,
+                    )
+                    break
+
+                if agent.max_tasks and agent.tasks_completed >= agent.max_tasks:
+                    logger.info(
+                        "Agent '{}' reached max tasks ({})",
+                        agent.name,
+                        agent.tasks_completed,
+                    )
+                    break
+
+                # Discover and claim a task
+                task = await self._discover_and_claim_task(agent, swarm.working_dir)
+
+                if not task:
+                    # Check idle timeout
+                    idle_time = (datetime.now(UTC) - last_task_time).total_seconds()
+                    if idle_time >= agent.idle_timeout_seconds:
+                        logger.info(
+                            "Agent '{}' idle timeout ({:.0f}s without work)",
+                            agent.name,
+                            idle_time,
+                        )
+                        break
+
+                    # Wait and retry
+                    await asyncio.sleep(5)
+                    continue
+
+                last_task_time = datetime.now(UTC)
+
+                # Execute the task
+                success = await self._execute_single_task(agent_id, agent, task, swarm)
+
+                # Update tracking
+                async with self.session_factory() as db:
+                    agent_record = await db.get(SwarmAgent, agent_id)
+                    if agent_record:
+                        if success:
+                            agent_record.tasks_completed += 1
+                        else:
+                            agent_record.tasks_failed += 1
+                        agent_record.current_task_id = None
+                        await db.commit()
+                        # Refresh local copy
+                        agent.tasks_completed = agent_record.tasks_completed
+                        agent.tasks_failed = agent_record.tasks_failed
+
+            # Autonomous agent completed successfully
+            async with self.session_factory() as db:
+                agent_record = await db.get(SwarmAgent, agent_id)
+                if agent_record:
+                    agent_record.status = SwarmStatus.COMPLETED.value
+                    agent_record.completed_at = datetime.now(UTC)
+                    agent_record.output_text = (
+                        f"Autonomous agent completed. "
+                        f"Tasks: {agent.tasks_completed} completed, {agent.tasks_failed} failed."
+                    )
+                    await db.commit()
+
+            logger.info(
+                "Autonomous agent '{}' finished: {} completed, {} failed",
+                agent.name,
+                agent.tasks_completed,
+                agent.tasks_failed,
+            )
+
+        except Exception as e:
+            logger.exception("Autonomous agent '{}' execution failed", agent.name)
+
+            async with self.session_factory() as db:
+                agent_record = await db.get(SwarmAgent, agent_id)
+                if agent_record:
+                    agent_record.status = SwarmStatus.FAILED.value
+                    agent_record.completed_at = datetime.now(UTC)
+                    agent_record.error_message = str(e)
+                    await db.commit()
+
+        # Check swarm completion
+        await self._check_swarm_completion(swarm.id)
+
+    async def _discover_and_claim_task(
+        self, agent: SwarmAgent, working_dir: str
+    ) -> ProjectTask | None:
+        """Discover and atomically claim a task from the work queue."""
+        # Get ready tasks that match agent's capabilities
+        ready_tasks = await self.work_queue.get_ready_tasks(
+            working_dir=working_dir,
+            limit=5,
+            task_type=agent.task_types[0] if agent.task_types else None,
+            required_tools=agent.capabilities,
+        )
+
+        # Try to claim one
+        for task in ready_tasks:
+            try:
+                claimed = await self.work_queue.claim_task(
+                    task_id=task.id,
+                    agent_id=agent.id,
+                )
+                # Update agent's current task
+                async with self.session_factory() as db:
+                    agent_record = await db.get(SwarmAgent, agent.id)
+                    if agent_record:
+                        agent_record.current_task_id = claimed.id
+                        await db.commit()
+                return claimed
+            except ValueError:
+                # Task was claimed by someone else, try next
+                continue
+
+        return None
+
+    async def _execute_single_task(
+        self,
+        agent_id: int,
+        agent: SwarmAgent,
+        task: ProjectTask,
+        swarm: Swarm,
+    ) -> bool:
+        """Execute a single task from the work queue. Returns True if successful."""
+        logger.info(
+            "Agent '{}' executing task {}: {}",
+            agent.name,
+            task.id,
+            task.title,
+        )
+
+        # Mark task as in progress
+        await self.work_queue.update_task(
+            task_id=task.id,
+            status=ProjectTaskStatus.IN_PROGRESS.value,
+        )
+
+        # Build prompt from goal + task
+        prompt = self._build_task_prompt(agent, task)
+
+        try:
+            # Build session config (similar to assigned mode)
+            lean_mode = agent.plugins is None
+            config = SessionConfig(
+                working_dir=swarm.working_dir,
+                output_style="default",
+                personality=agent.personality or "",
+                allowed_tools=agent.allowed_tools,
+                thinking_budget=agent.thinking_budget,
+                model=agent.model,
+                sandbox_mode=agent.sandbox_mode,
+                include_context=False,
+                auto_approve=True,
+                lean_mode=lean_mode,
+                swarm_agent_id=agent_id,
+                plugins=agent.plugins,
+                session_name=f"swarm:{swarm.name}:{agent.name}:task-{task.id}",
+                env={
+                    "DERE_SWARM_ID": str(swarm.id),
+                    "DERE_SWARM_AGENT_ID": str(agent_id),
+                    "DERE_SWARM_AGENT_NAME": agent.name,
+                },
+            )
+
+            # Create and run session
+            session = await self.agent_service.create_session(config)
+
+            try:
+                output_chunks: list[str] = []
+                tool_count = 0
+                error_message: str | None = None
+
+                async for event in self.agent_service.query(session, prompt):
+                    if event.type == StreamEventType.TEXT:
+                        text = event.data.get("text", "")
+                        if text:
+                            output_chunks.append(text)
+                    elif event.type == StreamEventType.TOOL_USE:
+                        tool_count += 1
+                    elif event.type == StreamEventType.DONE:
+                        tool_count = event.data.get("tool_count", tool_count)
+                    elif event.type == StreamEventType.ERROR:
+                        error_message = event.data.get("message", "Unknown error")
+                        if not event.data.get("recoverable", True):
+                            break
+
+                output_text = "".join(output_chunks)
+
+                # Update task based on result
+                if error_message:
+                    # Task failed - re-queue as ready for retry
+                    await self.work_queue.update_task(
+                        task_id=task.id,
+                        status=ProjectTaskStatus.READY.value,
+                        last_error=error_message,
+                    )
+                    # Clear claim
+                    await self.work_queue.release_task(task.id, reason=error_message)
+                    return False
+                else:
+                    # Task succeeded
+                    await self.work_queue.update_task(
+                        task_id=task.id,
+                        status=ProjectTaskStatus.DONE.value,
+                        outcome=f"Completed by autonomous agent '{agent.name}'",
+                        completion_notes=output_text[:2000] if output_text else None,
+                    )
+                    return True
+
+            finally:
+                await self.agent_service.close_session(session.session_id)
+
+        except Exception as e:
+            logger.exception("Task {} execution failed", task.id)
+            # Re-queue task
+            try:
+                await self.work_queue.release_task(task.id, reason=str(e))
+            except Exception:
+                pass
+            return False
+
+    def _build_task_prompt(self, agent: SwarmAgent, task: ProjectTask) -> str:
+        """Build a prompt for executing a task, combining agent goal with task details."""
+        sections = []
+
+        # Agent's high-level goal
+        if agent.goal:
+            sections.append(f"# Your Goal\n\n{agent.goal}")
+
+        # Task details
+        sections.append(f"# Current Task\n\n**{task.title}**")
+
+        if task.description:
+            sections.append(f"## Description\n\n{task.description}")
+
+        if task.acceptance_criteria:
+            sections.append(f"## Acceptance Criteria\n\n{task.acceptance_criteria}")
+
+        if task.context_summary:
+            sections.append(f"## Context\n\n{task.context_summary}")
+
+        if task.scope_paths:
+            sections.append(f"## Scope\n\nFocus on: {', '.join(task.scope_paths)}")
+
+        # Instructions for sub-task creation
+        sections.append(
+            "## Instructions\n\n"
+            "1. Complete this task thoroughly\n"
+            "2. If you discover additional work needed, use work-queue tools to create follow-up tasks\n"
+            "3. Mark this task complete when done"
+        )
+
+        return "\n\n".join(sections)
+
     async def _check_swarm_completion(self, swarm_id: int) -> None:
         """Check if all agents in swarm are done and update swarm status."""
         async with self.session_factory() as db:
@@ -454,13 +770,16 @@ class SwarmCoordinator:
 
             # Separate regular agents from synthesis agent
             regular_agents = [a for a in swarm.agents if not a.is_synthesis_agent]
-            synthesis_agent = next(
-                (a for a in swarm.agents if a.is_synthesis_agent), None
-            )
+            synthesis_agent = next((a for a in swarm.agents if a.is_synthesis_agent), None)
 
             # Check if all regular agents are done
             regular_done = all(
-                a.status in (SwarmStatus.COMPLETED.value, SwarmStatus.FAILED.value, SwarmStatus.CANCELLED.value)
+                a.status
+                in (
+                    SwarmStatus.COMPLETED.value,
+                    SwarmStatus.FAILED.value,
+                    SwarmStatus.CANCELLED.value,
+                )
                 for a in regular_agents
             )
 
@@ -491,15 +810,20 @@ class SwarmCoordinator:
 
             # All agents (including synthesis if present) are done
             all_done = all(
-                a.status in (SwarmStatus.COMPLETED.value, SwarmStatus.FAILED.value, SwarmStatus.CANCELLED.value)
+                a.status
+                in (
+                    SwarmStatus.COMPLETED.value,
+                    SwarmStatus.FAILED.value,
+                    SwarmStatus.CANCELLED.value,
+                )
                 for a in swarm.agents
             )
 
             if all_done:
-                any_failed = any(
-                    a.status == SwarmStatus.FAILED.value for a in swarm.agents
+                any_failed = any(a.status == SwarmStatus.FAILED.value for a in swarm.agents)
+                swarm.status = (
+                    SwarmStatus.FAILED.value if any_failed else SwarmStatus.COMPLETED.value
                 )
-                swarm.status = SwarmStatus.FAILED.value if any_failed else SwarmStatus.COMPLETED.value
                 swarm.completed_at = datetime.now(UTC)
 
                 # Copy synthesis output to swarm for easy access
@@ -585,9 +909,7 @@ class SwarmCoordinator:
 
         # Wait for completion events
         events_to_wait = [
-            self._completion_events[aid]
-            for aid in agent_ids
-            if aid in self._completion_events
+            self._completion_events[aid] for aid in agent_ids if aid in self._completion_events
         ]
 
         if events_to_wait:
@@ -601,9 +923,7 @@ class SwarmCoordinator:
 
         # Get final results
         async with self.session_factory() as db:
-            result = await db.execute(
-                select(SwarmAgent).where(SwarmAgent.id.in_(agent_ids))
-            )
+            result = await db.execute(select(SwarmAgent).where(SwarmAgent.id.in_(agent_ids)))
             agents = result.scalars().all()
 
             return [
@@ -680,8 +1000,7 @@ class SwarmCoordinator:
 
             # Get agents with branches that completed successfully
             agents_to_merge = [
-                a for a in swarm.agents
-                if a.git_branch and a.status == SwarmStatus.COMPLETED.value
+                a for a in swarm.agents if a.git_branch and a.status == SwarmStatus.COMPLETED.value
             ]
 
             for agent in agents_to_merge:
@@ -742,12 +1061,30 @@ Your task is to:
 1. Review the outputs from all agents provided in the context
 2. Create a unified summary of what was accomplished
 3. Identify any inconsistencies, conflicts, or issues between agent outputs
-4. If there are unfinished items or discovered issues, create follow-up tasks using the work-queue tools
+4. **Create follow-up tasks** for any unfinished work using the work-queue tools
 
-Important:
+## Work-Queue Tools Available
+
+You have access to work-queue tools:
+- `list_tasks` - View existing tasks in the queue
+- `create_task` - Create new tasks for follow-up work
+- `get_ready_tasks` - See what tasks are ready for work
+
+When creating follow-up tasks with `create_task()`, include:
+- **title**: Clear, actionable title
+- **description**: What needs to be done
+- **acceptance_criteria**: How to know when it's complete
+- **task_type**: 'feature', 'bug', 'refactor', 'test', 'docs', or 'research'
+- **estimated_effort**: 'trivial', 'small', 'medium', 'large', or 'epic'
+- **scope_paths**: Relevant files/directories
+- **required_tools**: Tools needed (e.g., ["Edit", "Bash", "Grep"])
+- **context_summary**: Background info from this swarm's work
+
+## Important
+
 - Focus on synthesis and aggregation, not implementation
 - Note which agents succeeded vs failed
-- Create work-queue tasks for any follow-up work needed
+- **Always** create work-queue tasks for any follow-up work discovered
 - Provide a clear, concise summary at the end
 
 Review the agent outputs below and provide your synthesis."""

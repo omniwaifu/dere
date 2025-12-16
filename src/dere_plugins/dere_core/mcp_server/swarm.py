@@ -7,6 +7,8 @@ It communicates with the dere daemon via HTTP API.
 from __future__ import annotations
 
 import os
+import time
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -59,6 +61,13 @@ async def spawn_agents(
             - model: Optional model override
             - thinking_budget: Optional thinking token budget
             - sandbox_mode: Run in sandbox (default: True)
+            - mode: "assigned" (default) or "autonomous" (discovers work from queue)
+            - goal: High-level objective for autonomous agents (used instead of prompt)
+            - capabilities: Tools the agent can use (for task matching in autonomous mode)
+            - task_types: Task types to filter (feature, bug, refactor, test, docs, research)
+            - max_tasks: Max tasks to complete before terminating (autonomous mode)
+            - max_duration_seconds: Max runtime before terminating (autonomous mode)
+            - idle_timeout_seconds: Seconds without finding work before terminating (default: 60)
         description: Optional swarm description
         git_branch_prefix: If set, each agent gets its own git branch
         base_branch: Base branch to create from (default: current branch)
@@ -72,6 +81,24 @@ async def spawn_agents(
 
     Returns:
         Swarm info with ID and agent IDs. Status will be "running" if auto_start=True.
+
+    Example - Autonomous agent that discovers work from queue:
+        {
+            "name": "maintenance-bot",
+            "mode": "autonomous",
+            "goal": "Fix all lint warnings in the codebase",
+            "capabilities": ["Edit", "Bash", "Grep"],
+            "task_types": ["refactor"],
+            "max_tasks": 10,
+            "plugins": ["dere_code"]
+        }
+
+    Example - Assigned agent with explicit task:
+        {
+            "name": "feature-impl",
+            "prompt": "Implement user authentication using JWT",
+            "plugins": ["dere_code"]
+        }
     """
     session_id = _get_session_id()
 
@@ -444,6 +471,69 @@ async def scratchpad_delete(key: str) -> dict:
         )
         resp.raise_for_status()
         return resp.json()
+
+
+# --- Inter-Agent Messaging ---
+
+
+def _get_agent_name() -> str | None:
+    """Get current agent's name from environment."""
+    return os.environ.get("DERE_SWARM_AGENT_NAME")
+
+
+@mcp.tool()
+async def send_message(to: str, text: str, priority: str = "normal") -> dict:
+    """
+    Send a message to another agent in this swarm.
+
+    Messages are delivered after the recipient's next tool use.
+    Use for coordination, sharing discoveries, or warnings.
+
+    Args:
+        to: Name of the target agent (e.g., "researcher", "implementer")
+        text: Message content
+        priority: "normal" or "urgent"
+
+    Returns:
+        Confirmation with message ID
+
+    Example:
+        send_message(to="implementer", text="Found auth code in src/auth/jwt.py")
+    """
+    swarm_id, agent_id = _require_swarm_context()
+    sender_name = _get_agent_name() or f"agent-{agent_id}"
+
+    message_id = f"{int(time.time() * 1000)}-{agent_id}"
+    key = f"messages/to-{to}/{message_id}"
+
+    async with httpx.AsyncClient() as client:
+        # Get agent info for provenance
+        status_resp = await client.get(
+            f"{DAEMON_URL}/swarm/{swarm_id}",
+            timeout=10.0,
+        )
+        status_resp.raise_for_status()
+
+        # Write message to scratchpad
+        resp = await client.put(
+            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
+            json={
+                "value": {
+                    "from": sender_name,
+                    "from_id": agent_id,
+                    "to": to,
+                    "text": text,
+                    "priority": priority,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+                "agent_id": agent_id,
+                "agent_name": sender_name,
+            },
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+
+    return {"sent": True, "message_id": message_id, "to": to}
 
 
 def main():

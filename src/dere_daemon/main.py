@@ -349,18 +349,19 @@ async def _init_agent_service(app_state: AppState) -> None:
     app_state.mission_scheduler.start()
     print("Mission scheduler started")
 
-    # Initialize swarm coordinator
-    app_state.swarm_coordinator = SwarmCoordinator(
-        session_factory=app_state.session_factory,
-        agent_service=app_state.agent_service,
-    )
-    print("Swarm coordinator initialized")
-
-    # Initialize work queue coordinator
+    # Initialize work queue coordinator (before swarm, since swarm uses it)
     app_state.work_queue_coordinator = WorkQueueCoordinator(
         session_factory=app_state.session_factory,
     )
     print("Work queue coordinator initialized")
+
+    # Initialize swarm coordinator
+    app_state.swarm_coordinator = SwarmCoordinator(
+        session_factory=app_state.session_factory,
+        agent_service=app_state.agent_service,
+        work_queue=app_state.work_queue_coordinator,
+    )
+    print("Swarm coordinator initialized")
 
 
 # Emotion batch appraisal settings

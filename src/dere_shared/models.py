@@ -64,11 +64,19 @@ class Session(SQLModel, table=True):
     summary_updated_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
 
     # Relationships (cascade_delete ensures related records are deleted with session)
-    conversations: list["Conversation"] = Relationship(back_populates="session", cascade_delete=True)
+    conversations: list["Conversation"] = Relationship(
+        back_populates="session", cascade_delete=True
+    )
     entities: list["Entity"] = Relationship(back_populates="session", cascade_delete=True)
-    context_caches: list["ContextCache"] = Relationship(back_populates="session", cascade_delete=True)
-    emotion_states: list["EmotionState"] = Relationship(back_populates="session", cascade_delete=True)
-    stimulus_histories: list["StimulusHistory"] = Relationship(back_populates="session", cascade_delete=True)
+    context_caches: list["ContextCache"] = Relationship(
+        back_populates="session", cascade_delete=True
+    )
+    emotion_states: list["EmotionState"] = Relationship(
+        back_populates="session", cascade_delete=True
+    )
+    stimulus_histories: list["StimulusHistory"] = Relationship(
+        back_populates="session", cascade_delete=True
+    )
 
 
 class Conversation(SQLModel, table=True):
@@ -266,7 +274,10 @@ class EmotionState(SQLModel, table=True):
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
     # Relationship (optional since session_id is nullable for global state)
-    session: "Session" = Relationship(back_populates="emotion_states", sa_relationship_kwargs={"foreign_keys": "[EmotionState.session_id]"})
+    session: "Session" = Relationship(
+        back_populates="emotion_states",
+        sa_relationship_kwargs={"foreign_keys": "[EmotionState.session_id]"},
+    )
 
 
 class StimulusHistory(SQLModel, table=True):
@@ -286,7 +297,10 @@ class StimulusHistory(SQLModel, table=True):
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
     # Relationship (optional since session_id is nullable for global state)
-    session: "Session" = Relationship(back_populates="stimulus_histories", sa_relationship_kwargs={"foreign_keys": "[StimulusHistory.session_id]"})
+    session: "Session" = Relationship(
+        back_populates="stimulus_histories",
+        sa_relationship_kwargs={"foreign_keys": "[StimulusHistory.session_id]"},
+    )
 
 
 class Notification(SQLModel, table=True):
@@ -316,6 +330,7 @@ class Notification(SQLModel, table=True):
 
 class NotificationContext(SQLModel, table=True):
     """Tracks the context/trigger that caused a notification for follow-up detection."""
+
     __tablename__ = "notification_context"
 
     id: int | None = Field(default=None, primary_key=True)
@@ -498,6 +513,11 @@ class SwarmAgentRole(str, Enum):
     SYNTHESIS = "synthesis"
 
 
+class SwarmAgentMode(str, Enum):
+    ASSIGNED = "assigned"  # Explicit prompt, execute once (default)
+    AUTONOMOUS = "autonomous"  # Discover work from queue, loop until done
+
+
 class ProjectTaskStatus(str, Enum):
     """Status workflow for project tasks."""
 
@@ -569,9 +589,23 @@ class SwarmAgent(SQLModel, table=True):
     name: str
     role: str = Field(default=SwarmAgentRole.GENERIC.value)
     is_synthesis_agent: bool = Field(default=False)
+    mode: str = Field(default=SwarmAgentMode.ASSIGNED.value)
 
-    # Task
-    prompt: str
+    # Task (for assigned mode)
+    prompt: str = Field(default="")
+
+    # Autonomous mode configuration
+    goal: str | None = None
+    capabilities: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    task_types: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    max_tasks: int | None = None
+    max_duration_seconds: int | None = None
+    idle_timeout_seconds: int = Field(default=60)
+
+    # Autonomous mode tracking
+    tasks_completed: int = Field(default=0)
+    tasks_failed: int = Field(default=0)
+    current_task_id: int | None = Field(default=None, foreign_key="project_tasks.id")
 
     # Configuration
     personality: str | None = None

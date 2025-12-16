@@ -7,7 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
 
-from dere_shared.models import SwarmAgentRole, SwarmStatus
+from dere_shared.models import SwarmAgentMode, SwarmAgentRole, SwarmStatus
 
 
 class DependencyIncludeMode(str, Enum):
@@ -32,10 +32,17 @@ class AgentSpec(BaseModel):
     """Specification for an agent to spawn in a swarm."""
 
     name: str = Field(..., description="Agent identifier within the swarm")
-    prompt: str = Field(..., description="Task prompt for the agent")
+    prompt: str = Field(
+        default="",
+        description="Task prompt for assigned mode (optional for autonomous mode)",
+    )
     role: SwarmAgentRole = Field(
         default=SwarmAgentRole.GENERIC,
         description="Agent role: implementation, review, research, or generic",
+    )
+    mode: SwarmAgentMode = Field(
+        default=SwarmAgentMode.ASSIGNED,
+        description="Execution mode: assigned (explicit prompt) or autonomous (discover work)",
     )
     personality: str | None = Field(
         default=None, description="Personality preset (e.g., 'tsun', 'kuu')"
@@ -51,17 +58,39 @@ class AgentSpec(BaseModel):
     allowed_tools: list[str] | None = Field(
         default=None, description="Tool restrictions (None = default tools)"
     )
-    thinking_budget: int | None = Field(
-        default=None, description="Extended thinking token budget"
-    )
+    thinking_budget: int | None = Field(default=None, description="Extended thinking token budget")
     model: str | None = Field(default=None, description="Claude model override")
     sandbox_mode: bool = Field(default=True, description="Run in Docker sandbox")
 
+    # Autonomous mode configuration
+    goal: str | None = Field(
+        default=None,
+        description="High-level objective for autonomous agents (used instead of prompt)",
+    )
+    capabilities: list[str] | None = Field(
+        default=None,
+        description="Tools the agent can use (for task matching in autonomous mode)",
+    )
+    task_types: list[str] | None = Field(
+        default=None,
+        description="Task types to filter (feature, bug, refactor, test, docs, research)",
+    )
+    max_tasks: int | None = Field(
+        default=None,
+        description="Max tasks to complete before terminating (autonomous mode)",
+    )
+    max_duration_seconds: int | None = Field(
+        default=None,
+        description="Max runtime in seconds before terminating (autonomous mode)",
+    )
+    idle_timeout_seconds: int = Field(
+        default=60,
+        description="Seconds without finding work before terminating (autonomous mode)",
+    )
+
     @field_validator("depends_on", mode="before")
     @classmethod
-    def normalize_depends_on(
-        cls, v: list[str | dict] | None
-    ) -> list[DependencySpec] | None:
+    def normalize_depends_on(cls, v: list[str | dict] | None) -> list[DependencySpec] | None:
         """Convert string dependencies to DependencySpec objects."""
         if v is None:
             return None
@@ -140,9 +169,7 @@ class CreateSwarmRequest(BaseModel):
     description: str | None = None
     git_branch_prefix: str | None = None
     base_branch: str | None = None
-    auto_start: bool = Field(
-        default=True, description="Start execution immediately after creation"
-    )
+    auto_start: bool = Field(default=True, description="Start execution immediately after creation")
     auto_synthesize: bool = Field(
         default=False,
         description="Spawn a synthesis agent after all others complete to aggregate results",

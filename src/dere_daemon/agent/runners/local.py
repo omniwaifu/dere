@@ -54,7 +54,18 @@ class LocalSessionRunner(SessionRunner):
                 os.environ[key] = value
 
         # Create settings file
-        settings_data = {"outputStyle": self._config.output_style}
+        settings_data: dict[str, Any] = {"outputStyle": self._config.output_style}
+
+        # Add mailbox check hook for swarm agents
+        if self._config.swarm_agent_id:
+            settings_data["hooks"] = {
+                "PostToolUse": [
+                    {
+                        "command": "uv run python -m dere_plugins.dere_core.scripts.check_mailbox",
+                    }
+                ]
+            }
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(settings_data, f)
             self._settings_file = f.name
