@@ -12,6 +12,7 @@ from .presence import router as presence_router
 from .sessions import router as sessions_router
 from .swarm import router as swarm_router
 from .taskwarrior import router as taskwarrior_router
+from .work_queue import router as work_queue_router
 
 __all__ = [
     "agent_router",
@@ -25,4 +26,5 @@ __all__ = [
     "sessions_router",
     "swarm_router",
     "taskwarrior_router",
+    "work_queue_router",
 ]

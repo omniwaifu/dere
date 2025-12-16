@@ -240,6 +240,7 @@ class AppState:
     mission_executor: Any  # MissionExecutor
     mission_scheduler: Any  # MissionScheduler
     swarm_coordinator: Any  # SwarmCoordinator
+    work_queue_coordinator: Any  # WorkQueueCoordinator
 
 
 async def _init_database(db_url: str, app_state: AppState) -> None:
@@ -323,6 +324,7 @@ async def _init_agent_service(app_state: AppState) -> None:
     from dere_daemon.agent import CentralizedAgentService
     from dere_daemon.missions import MissionExecutor, MissionScheduler
     from dere_daemon.swarm import SwarmCoordinator
+    from dere_daemon.work_queue import WorkQueueCoordinator
 
     app_state.agent_service = CentralizedAgentService(
         session_factory=app_state.session_factory,
@@ -354,7 +356,11 @@ async def _init_agent_service(app_state: AppState) -> None:
     )
     print("Swarm coordinator initialized")
 
-
+    # Initialize work queue coordinator
+    app_state.work_queue_coordinator = WorkQueueCoordinator(
+        session_factory=app_state.session_factory,
+    )
+    print("Work queue coordinator initialized")
 
 
 # Emotion batch appraisal settings
@@ -743,6 +749,7 @@ from dere_daemon.routers import (
     sessions_router,
     swarm_router,
     taskwarrior_router,
+    work_queue_router,
 )
 
 app.include_router(sessions_router)
@@ -756,6 +763,7 @@ app.include_router(taskwarrior_router)
 app.include_router(missions_router)
 app.include_router(dashboard_router)
 app.include_router(swarm_router)
+app.include_router(work_queue_router)
 
 
 # Database session dependency

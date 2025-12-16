@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel
-from sqlalchemy import BigInteger, Column, DateTime, Index, String, text
+from sqlalchemy import BigInteger, Column, DateTime, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -497,6 +497,18 @@ class SwarmAgentRole(str, Enum):
     GENERIC = "generic"
 
 
+class ProjectTaskStatus(str, Enum):
+    """Status workflow for project tasks."""
+
+    BACKLOG = "backlog"  # Not yet ready for work
+    READY = "ready"  # Deps satisfied, can be claimed
+    CLAIMED = "claimed"  # Agent has claimed but not started
+    IN_PROGRESS = "in_progress"  # Actively being worked on
+    DONE = "done"  # Completed successfully
+    BLOCKED = "blocked"  # Has unmet dependencies
+    CANCELLED = "cancelled"  # No longer needed
+
+
 class Swarm(SQLModel, table=True):
     """A collection of spawned agents working on related tasks."""
 
@@ -579,3 +591,91 @@ class SwarmAgent(SQLModel, table=True):
 
     # Relationships
     swarm: "Swarm" = Relationship(back_populates="agents")
+
+
+class SwarmScratchpadEntry(SQLModel, table=True):
+    """Key-value scratchpad entry for inter-agent coordination within a swarm."""
+
+    __tablename__ = "swarm_scratchpad"
+    __table_args__ = (
+        Index("swarm_scratchpad_swarm_idx", "swarm_id"),
+        UniqueConstraint("swarm_id", "key", name="uq_swarm_scratchpad_key"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    swarm_id: int = Field(foreign_key="swarms.id", index=True)
+    key: str
+    value: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+
+    # Provenance
+    set_by_agent_id: int | None = Field(default=None, foreign_key="swarm_agents.id")
+    set_by_agent_name: str | None = None  # Denormalized for convenience
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    updated_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+
+class ProjectTask(SQLModel, table=True):
+    """Persistent project-level task for agent work queue."""
+
+    __tablename__ = "project_tasks"
+    __table_args__ = (
+        Index("project_tasks_working_dir_idx", "working_dir"),
+        Index("project_tasks_status_idx", "status"),
+        Index("project_tasks_task_type_idx", "task_type"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    working_dir: str = Field(index=True)
+
+    # Task definition
+    title: str
+    description: str | None = None
+    acceptance_criteria: str | None = None
+    context_summary: str | None = None
+
+    # Scoping
+    scope_paths: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    required_tools: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+
+    # Classification
+    task_type: str | None = None  # 'feature', 'bug', 'refactor', 'test', 'docs', 'research'
+    tags: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    estimated_effort: str | None = None  # 'trivial', 'small', 'medium', 'large', 'epic'
+    priority: int = Field(default=0)
+
+    # Status
+    status: str = Field(default=ProjectTaskStatus.BACKLOG.value)
+
+    # Assignment
+    claimed_by_session_id: int | None = Field(default=None, foreign_key="sessions.id")
+    claimed_by_agent_id: int | None = Field(default=None, foreign_key="swarm_agents.id")
+    claimed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    attempt_count: int = Field(default=0)
+
+    # Dependencies
+    blocked_by: list[int] | None = Field(default=None, sa_column=Column(ARRAY(BigInteger)))
+    related_task_ids: list[int] | None = Field(default=None, sa_column=Column(ARRAY(BigInteger)))
+
+    # Provenance
+    created_by_session_id: int | None = Field(default=None, foreign_key="sessions.id")
+    created_by_agent_id: int | None = Field(default=None, foreign_key="swarm_agents.id")
+    discovered_from_task_id: int | None = Field(default=None, foreign_key="project_tasks.id")
+    discovery_reason: str | None = None
+
+    # Results
+    outcome: str | None = None
+    completion_notes: str | None = None
+    files_changed: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
+    follow_up_task_ids: list[int] | None = Field(default=None, sa_column=Column(ARRAY(BigInteger)))
+    last_error: str | None = None
+
+    # Extra data
+    extra: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    updated_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    completed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))

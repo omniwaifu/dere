@@ -21,7 +21,7 @@ from dere_daemon.swarm.models import (
     SwarmStatusResponse,
     WaitRequest,
 )
-from dere_shared.models import Swarm, SwarmAgent, SwarmStatus
+from dere_shared.models import Swarm, SwarmAgent, SwarmScratchpadEntry, SwarmStatus
 
 router = APIRouter(prefix="/swarm", tags=["swarm"])
 
@@ -323,3 +323,167 @@ async def merge_branches(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+# --- Scratchpad Endpoints ---
+
+
+class ScratchpadEntry(BaseModel):
+    """A scratchpad entry."""
+
+    key: str
+    value: dict | None
+    set_by_agent_id: int | None
+    set_by_agent_name: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScratchpadSetRequest(BaseModel):
+    """Request to set a scratchpad value."""
+
+    value: dict | None
+    agent_id: int | None = None
+    agent_name: str | None = None
+
+
+@router.get("/{swarm_id}/scratchpad", response_model=list[ScratchpadEntry])
+async def list_scratchpad(
+    swarm_id: int,
+    db: AsyncSession = Depends(get_db),
+    prefix: str | None = None,
+):
+    """List all scratchpad entries for a swarm, optionally filtered by key prefix."""
+    # Verify swarm exists
+    result = await db.execute(select(Swarm).where(Swarm.id == swarm_id))
+    swarm = result.scalar_one_or_none()
+    if not swarm:
+        raise HTTPException(status_code=404, detail=f"Swarm {swarm_id} not found")
+
+    stmt = select(SwarmScratchpadEntry).where(SwarmScratchpadEntry.swarm_id == swarm_id)
+    if prefix:
+        stmt = stmt.where(SwarmScratchpadEntry.key.startswith(prefix))
+    stmt = stmt.order_by(SwarmScratchpadEntry.key)
+
+    result = await db.execute(stmt)
+    entries = result.scalars().all()
+
+    return [
+        ScratchpadEntry(
+            key=e.key,
+            value=e.value,
+            set_by_agent_id=e.set_by_agent_id,
+            set_by_agent_name=e.set_by_agent_name,
+            created_at=e.created_at,
+            updated_at=e.updated_at,
+        )
+        for e in entries
+    ]
+
+
+@router.get("/{swarm_id}/scratchpad/{key:path}", response_model=ScratchpadEntry)
+async def get_scratchpad_entry(
+    swarm_id: int,
+    key: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific scratchpad entry by key."""
+    result = await db.execute(
+        select(SwarmScratchpadEntry).where(
+            SwarmScratchpadEntry.swarm_id == swarm_id,
+            SwarmScratchpadEntry.key == key,
+        )
+    )
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Key '{key}' not found in swarm {swarm_id}")
+
+    return ScratchpadEntry(
+        key=entry.key,
+        value=entry.value,
+        set_by_agent_id=entry.set_by_agent_id,
+        set_by_agent_name=entry.set_by_agent_name,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+    )
+
+
+@router.put("/{swarm_id}/scratchpad/{key:path}", response_model=ScratchpadEntry)
+async def set_scratchpad_entry(
+    swarm_id: int,
+    key: str,
+    req: ScratchpadSetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Set or update a scratchpad entry."""
+    from datetime import UTC, datetime
+
+    # Verify swarm exists
+    result = await db.execute(select(Swarm).where(Swarm.id == swarm_id))
+    swarm = result.scalar_one_or_none()
+    if not swarm:
+        raise HTTPException(status_code=404, detail=f"Swarm {swarm_id} not found")
+
+    # Check if entry exists
+    result = await db.execute(
+        select(SwarmScratchpadEntry).where(
+            SwarmScratchpadEntry.swarm_id == swarm_id,
+            SwarmScratchpadEntry.key == key,
+        )
+    )
+    entry = result.scalar_one_or_none()
+
+    now = datetime.now(UTC)
+    if entry:
+        # Update existing
+        entry.value = req.value
+        entry.set_by_agent_id = req.agent_id
+        entry.set_by_agent_name = req.agent_name
+        entry.updated_at = now
+    else:
+        # Create new
+        entry = SwarmScratchpadEntry(
+            swarm_id=swarm_id,
+            key=key,
+            value=req.value,
+            set_by_agent_id=req.agent_id,
+            set_by_agent_name=req.agent_name,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(entry)
+
+    await db.commit()
+    await db.refresh(entry)
+
+    return ScratchpadEntry(
+        key=entry.key,
+        value=entry.value,
+        set_by_agent_id=entry.set_by_agent_id,
+        set_by_agent_name=entry.set_by_agent_name,
+        created_at=entry.created_at,
+        updated_at=entry.updated_at,
+    )
+
+
+@router.delete("/{swarm_id}/scratchpad/{key:path}")
+async def delete_scratchpad_entry(
+    swarm_id: int,
+    key: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a scratchpad entry."""
+    result = await db.execute(
+        select(SwarmScratchpadEntry).where(
+            SwarmScratchpadEntry.swarm_id == swarm_id,
+            SwarmScratchpadEntry.key == key,
+        )
+    )
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Key '{key}' not found in swarm {swarm_id}")
+
+    await db.delete(entry)
+    await db.commit()
+
+    return {"deleted": True, "key": key}

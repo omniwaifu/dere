@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from fastmcp import FastMCP
 
-DAEMON_URL = os.environ.get("DERE_DAEMON_URL", "http://localhost:8420")
+DAEMON_URL = os.environ.get("DERE_DAEMON_URL", "http://localhost:8787")
 PARENT_SESSION_ID = os.environ.get("DERE_SESSION_ID")
 
 mcp = FastMCP("Swarm Agent Coordinator")
@@ -278,6 +278,159 @@ async def list_plugins() -> dict:
         resp = await client.get(
             f"{DAEMON_URL}/swarm/plugins",
             timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+# --- Scratchpad Tools (only available in swarm context) ---
+
+
+def _get_swarm_context() -> tuple[int, int] | None:
+    """Get (swarm_id, agent_id) if running as a swarm agent."""
+    swarm_id = os.environ.get("DERE_SWARM_ID")
+    agent_id = os.environ.get("DERE_SWARM_AGENT_ID")
+    if swarm_id and agent_id:
+        return int(swarm_id), int(agent_id)
+    return None
+
+
+def _require_swarm_context() -> tuple[int, int]:
+    """Require swarm context, raise if not running as a swarm agent."""
+    ctx = _get_swarm_context()
+    if not ctx:
+        raise RuntimeError(
+            "Scratchpad tools are only available when running as a swarm agent. "
+            "DERE_SWARM_ID and DERE_SWARM_AGENT_ID environment variables not set."
+        )
+    return ctx
+
+
+@mcp.tool()
+async def scratchpad_set(key: str, value: Any) -> dict:
+    """
+    Share a value with other agents in this swarm via the scratchpad.
+
+    Use for emergent coordination:
+    - Discoveries: "auth_location" -> {"path": "src/auth/", "framework": "JWT"}
+    - Decisions: "api_style" -> {"choice": "REST", "reason": "matches existing patterns"}
+    - Warnings: "blocked_files" -> ["src/config.py", "src/secrets.py"]
+
+    Only available when running as a swarm agent.
+
+    Args:
+        key: A string key (use namespacing by convention, e.g., "discoveries/auth")
+        value: Any JSON-serializable value
+
+    Returns:
+        The stored entry with metadata
+    """
+    swarm_id, agent_id = _require_swarm_context()
+
+    # Get agent name for provenance
+    async with httpx.AsyncClient() as client:
+        # Get agent info to include name
+        status_resp = await client.get(
+            f"{DAEMON_URL}/swarm/{swarm_id}",
+            timeout=10.0,
+        )
+        status_resp.raise_for_status()
+        status = status_resp.json()
+
+        agent_name = None
+        for agent in status.get("agents", []):
+            if agent.get("id") == agent_id:
+                agent_name = agent.get("name")
+                break
+
+        # Set the scratchpad entry
+        resp = await client.put(
+            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
+            json={
+                "value": value,
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+            },
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+@mcp.tool()
+async def scratchpad_get(key: str) -> dict | None:
+    """
+    Get a value from the swarm scratchpad.
+
+    Only available when running as a swarm agent.
+
+    Args:
+        key: The key to retrieve
+
+    Returns:
+        The entry with value and metadata, or None if not found
+    """
+    swarm_id, _ = _require_swarm_context()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
+            timeout=30.0,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
+
+@mcp.tool()
+async def scratchpad_list(prefix: str | None = None) -> list[dict]:
+    """
+    List all scratchpad entries in this swarm.
+
+    Only available when running as a swarm agent.
+
+    Args:
+        prefix: Optional key prefix to filter by (e.g., "discoveries/")
+
+    Returns:
+        List of entries with key, value, set_by info, and timestamps
+    """
+    swarm_id, _ = _require_swarm_context()
+
+    params = {}
+    if prefix:
+        params["prefix"] = prefix
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad",
+            params=params,
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+@mcp.tool()
+async def scratchpad_delete(key: str) -> dict:
+    """
+    Delete a key from the swarm scratchpad.
+
+    Only available when running as a swarm agent.
+
+    Args:
+        key: The key to delete
+
+    Returns:
+        Confirmation of deletion
+    """
+    swarm_id, _ = _require_swarm_context()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.delete(
+            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
+            timeout=30.0,
         )
         resp.raise_for_status()
         return resp.json()

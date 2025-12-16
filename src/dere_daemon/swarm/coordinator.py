@@ -310,6 +310,10 @@ class SwarmCoordinator:
                 swarm_agent_id=agent_id,
                 plugins=agent.plugins,
                 session_name=f"swarm:{swarm.name}:{agent.name}",
+                env={
+                    "DERE_SWARM_ID": str(swarm.id),
+                    "DERE_SWARM_AGENT_ID": str(agent_id),
+                },
             )
 
             # Build prompt with dependency context and git branch info

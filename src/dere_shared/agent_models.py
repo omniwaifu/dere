@@ -116,6 +116,10 @@ class SessionConfig(BaseModel):
         default=None,
         description="Explicit plugin list (None = auto-detect based on working_dir)",
     )
+    env: dict[str, str] | None = Field(
+        default=None,
+        description="Additional environment variables to pass to the agent process",
+    )
 
 
 class ClientMessageType(str, Enum):

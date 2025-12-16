@@ -39,10 +39,19 @@ class LocalSessionRunner(SessionRunner):
         self._exit_stack: AsyncExitStack | None = None
         self._settings_file: str | None = None
         self._claude_session_id: str | None = resume_session_id
+        self._env_backup: dict[str, str | None] = {}  # Track env vars we set
 
     async def start(self) -> None:
         """Initialize ClaudeSDKClient."""
+        import os
+
         self._exit_stack = AsyncExitStack()
+
+        # Set custom environment variables (for MCP server substitution)
+        if self._config.env:
+            for key, value in self._config.env.items():
+                self._env_backup[key] = os.environ.get(key)
+                os.environ[key] = value
 
         # Create settings file
         settings_data = {"outputStyle": self._config.output_style}
@@ -116,6 +125,8 @@ class LocalSessionRunner(SessionRunner):
 
     async def close(self) -> None:
         """Cleanup resources."""
+        import os
+
         if self._exit_stack:
             await self._exit_stack.aclose()
             self._exit_stack = None
@@ -126,6 +137,14 @@ class LocalSessionRunner(SessionRunner):
             except Exception as e:
                 logger.debug("Failed to cleanup settings file: {}", e)
             self._settings_file = None
+
+        # Restore environment variables
+        for key, original_value in self._env_backup.items():
+            if original_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original_value
+        self._env_backup.clear()
 
         self._client = None
         logger.debug("LocalSessionRunner closed")
