@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # OCC Emotion Taxonomy following Steunebrink, Dastani, & Meyer revision
@@ -312,6 +312,16 @@ class AppraisalOutput(BaseModel):
     object_attribute: ObjectAttribute | None = None
     resulting_emotions: list[EmotionSchemaOutput] = Field(min_length=1)
     reasoning: str | None = None
+
+    @field_validator("resulting_emotions", mode="before")
+    @classmethod
+    def parse_emotions_from_string(cls, v: Any) -> Any:
+        """Handle LLMs returning nested arrays as JSON strings."""
+        if isinstance(v, str):
+            import json
+
+            return json.loads(v)
+        return v
 
 
 class OCCEmotionState(BaseModel):
