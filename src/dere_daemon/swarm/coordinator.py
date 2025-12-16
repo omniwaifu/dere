@@ -135,14 +135,17 @@ class SwarmCoordinator:
             for spec in agents:
                 if spec.depends_on:
                     agent = name_to_db_agent[spec.name]
-                    dep_ids = []
-                    for dep_name in spec.depends_on:
-                        if dep_name not in name_to_db_agent:
+                    dep_specs = []
+                    for dep_spec in spec.depends_on:
+                        if dep_spec.agent not in name_to_db_agent:
                             raise ValueError(
-                                f"Agent '{spec.name}' depends on unknown agent '{dep_name}'"
+                                f"Agent '{spec.name}' depends on unknown agent '{dep_spec.agent}'"
                             )
-                        dep_ids.append(name_to_db_agent[dep_name].id)
-                    agent.depends_on = dep_ids
+                        dep_specs.append({
+                            "agent_id": name_to_db_agent[dep_spec.agent].id,
+                            "include": dep_spec.include.value,
+                        })
+                    agent.depends_on = dep_specs
 
             await db.commit()
 
@@ -232,7 +235,8 @@ class SwarmCoordinator:
 
             # Wait for dependencies
             if agent.depends_on:
-                for dep_id in agent.depends_on:
+                for dep_spec in agent.depends_on:
+                    dep_id = dep_spec["agent_id"]
                     if dep_id in self._completion_events:
                         await self._completion_events[dep_id].wait()
 
@@ -255,6 +259,30 @@ class SwarmCoordinator:
             agent.status = SwarmStatus.RUNNING.value
             agent.started_at = datetime.now(UTC)
             await db.commit()
+
+            # Build dependency context
+            dependency_context = ""
+            if agent.depends_on:
+                dep_sections = []
+                for dep_spec in agent.depends_on:
+                    include_mode = dep_spec.get("include", "summary")
+                    if include_mode == "none":
+                        continue
+
+                    dep_agent = await db.get(SwarmAgent, dep_spec["agent_id"])
+                    if not dep_agent:
+                        continue
+
+                    # Get the appropriate output based on include mode
+                    if include_mode == "full":
+                        output = dep_agent.output_text or "(no output)"
+                    else:  # summary (default)
+                        output = dep_agent.output_summary or dep_agent.output_text or "(no output)"
+
+                    dep_sections.append(f"## Output from '{dep_agent.name}'\n{output}")
+
+                if dep_sections:
+                    dependency_context = "# Context from dependencies\n\n" + "\n\n".join(dep_sections) + "\n\n---\n\n"
 
         logger.info(
             "Executing agent '{}' (id={}) in swarm '{}'",
@@ -284,8 +312,8 @@ class SwarmCoordinator:
                 session_name=f"swarm:{swarm.name}:{agent.name}",
             )
 
-            # If agent has a git branch, include it in the prompt
-            prompt = agent.prompt
+            # Build prompt with dependency context and git branch info
+            prompt = dependency_context + agent.prompt
             if agent.git_branch:
                 prompt = f"You are working on branch '{agent.git_branch}'. Make sure to checkout this branch before making changes.\n\n{prompt}"
 

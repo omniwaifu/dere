@@ -3,10 +3,29 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from dere_shared.models import SwarmAgentRole, SwarmStatus
+
+
+class DependencyIncludeMode(str, Enum):
+    """How much output to include from a dependency."""
+
+    SUMMARY = "summary"  # LLM-generated summary (default)
+    FULL = "full"  # Full output text
+    NONE = "none"  # Just wait, don't inject output
+
+
+class DependencySpec(BaseModel):
+    """Detailed specification for a dependency."""
+
+    agent: str = Field(..., description="Name of the agent to depend on")
+    include: DependencyIncludeMode = Field(
+        default=DependencyIncludeMode.SUMMARY,
+        description="How much output to include from this dependency",
+    )
 
 
 class AgentSpec(BaseModel):
@@ -25,9 +44,9 @@ class AgentSpec(BaseModel):
         default=None,
         description="Plugins to enable (e.g., ['dere_code']). None for lean mode.",
     )
-    depends_on: list[str] | None = Field(
+    depends_on: list[DependencySpec] | None = Field(
         default=None,
-        description="Agent names this agent depends on (will wait for them to complete)",
+        description="Dependencies: list of agent names or DependencySpec objects",
     )
     allowed_tools: list[str] | None = Field(
         default=None, description="Tool restrictions (None = default tools)"
@@ -37,6 +56,26 @@ class AgentSpec(BaseModel):
     )
     model: str | None = Field(default=None, description="Claude model override")
     sandbox_mode: bool = Field(default=True, description="Run in Docker sandbox")
+
+    @field_validator("depends_on", mode="before")
+    @classmethod
+    def normalize_depends_on(
+        cls, v: list[str | dict] | None
+    ) -> list[DependencySpec] | None:
+        """Convert string dependencies to DependencySpec objects."""
+        if v is None:
+            return None
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(DependencySpec(agent=item))
+            elif isinstance(item, dict):
+                result.append(DependencySpec(**item))
+            elif isinstance(item, DependencySpec):
+                result.append(item)
+            else:
+                raise ValueError(f"Invalid dependency spec: {item}")
+        return result
 
 
 class AgentResult(BaseModel):

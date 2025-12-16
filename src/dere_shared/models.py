@@ -559,8 +559,8 @@ class SwarmAgent(SQLModel, table=True):
     model: str | None = None
     sandbox_mode: bool = Field(default=True)
 
-    # Dependencies (agent IDs this depends on)
-    depends_on: list[int] | None = Field(default=None, sa_column=Column(ARRAY(BigInteger)))
+    # Dependencies: list of {"agent_id": int, "include": "summary"|"full"|"none"}
+    depends_on: list[dict] | None = Field(default=None, sa_column=Column(JSONB))
 
     # Execution
     session_id: int | None = Field(default=None, foreign_key="sessions.id")
