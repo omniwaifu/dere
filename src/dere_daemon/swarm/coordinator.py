@@ -412,6 +412,11 @@ class SwarmCoordinator:
             # Determine if this is lean mode (no plugins specified)
             lean_mode = agent.plugins is None
 
+            # Supervisor needs host network to reach daemon on localhost
+            network_mode = (
+                "host" if agent.role == SwarmAgentRole.SUPERVISOR.value else "bridge"
+            )
+
             config = SessionConfig(
                 working_dir=swarm.working_dir,
                 output_style="default",
@@ -420,6 +425,7 @@ class SwarmCoordinator:
                 thinking_budget=agent.thinking_budget,
                 model=agent.model,
                 sandbox_mode=agent.sandbox_mode,
+                sandbox_network_mode=network_mode,
                 include_context=False,  # Swarm agents don't need emotion/KG
                 auto_approve=True,  # Autonomous execution
                 lean_mode=lean_mode,

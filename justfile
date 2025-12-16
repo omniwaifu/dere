@@ -30,6 +30,30 @@ fmt:
 dev:
     uv run python -m dere_daemon.main
 
+# Stop running daemon
+stop:
+    #!/usr/bin/env bash
+    if [ "$(uname)" = "Darwin" ]; then
+        PID_FILE="$HOME/Library/Application Support/dere/daemon.pid"
+    elif [ "$(uname)" = "Linux" ]; then
+        PID_FILE="$HOME/.local/share/dere/daemon.pid"
+    else
+        PID_FILE="$LOCALAPPDATA/dere/daemon.pid"
+    fi
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "Stopping daemon (PID: $PID)..."
+            kill "$PID"
+            echo "Daemon stopped"
+        else
+            echo "Daemon not running (stale PID file)"
+            rm "$PID_FILE"
+        fi
+    else
+        echo "No daemon PID file found"
+    fi
+
 # Run all services (daemon + discord)
 dev-all:
     uv run honcho start

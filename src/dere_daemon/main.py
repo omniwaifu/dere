@@ -384,11 +384,7 @@ async def _update_summary_context(session_factory) -> None:
     try:
         async with session_factory() as db:
             # Get previous global summary to find already-processed sessions
-            prev_stmt = (
-                select(SummaryContext)
-                .order_by(SummaryContext.created_at.desc())
-                .limit(1)
-            )
+            prev_stmt = select(SummaryContext).order_by(SummaryContext.created_at.desc()).limit(1)
             prev_result = await db.execute(prev_stmt)
             prev_context = prev_result.scalar_one_or_none()
             prev_summary = prev_context.summary if prev_context else None
@@ -411,9 +407,7 @@ async def _update_summary_context(session_factory) -> None:
                 return
 
             # Build session summaries for prompt
-            session_summaries = "\n".join(
-                [f"- {s.summary}" for s in new_sessions if s.summary]
-            )
+            session_summaries = "\n".join([f"- {s.summary}" for s in new_sessions if s.summary])
             new_session_ids = [s.id for s in new_sessions]
 
             prompt = f"""Previous: {prev_summary or "None"}
@@ -577,10 +571,11 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
                     if not sessions_to_summarize:
                         continue
 
-                    logger.info(f"[Summary] Generating summaries for {len(sessions_to_summarize)} sessions")
+                    logger.info(
+                        f"[Summary] Generating summaries for {len(sessions_to_summarize)} sessions"
+                    )
 
                     for session in sessions_to_summarize:
-
                         # Get recent messages for summary
                         msg_stmt = (
                             select(Conversation.prompt, Conversation.message_type)
@@ -697,14 +692,7 @@ async def _shutdown_cleanup(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown"""
-    match platform.system():
-        case "Windows":
-            data_dir = Path(os.getenv("LOCALAPPDATA", "")) / "dere"
-        case "Darwin":
-            data_dir = Path.home() / "Library" / "Application Support" / "dere"
-        case _:
-            data_dir = Path.home() / ".local" / "share" / "dere"
-
+    data_dir = _get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     db_path = data_dir / "dere.db"
     pid_file = data_dir / "daemon.pid"
@@ -1713,12 +1701,86 @@ def _configure_logging() -> None:
     )
 
 
+def _get_data_dir() -> Path:
+    """Get platform-specific data directory."""
+    match platform.system():
+        case "Windows":
+            return Path(os.getenv("LOCALAPPDATA", "")) / "dere"
+        case "Darwin":
+            return Path.home() / "Library" / "Application Support" / "dere"
+        case _:
+            return Path.home() / ".local" / "share" / "dere"
+
+
+def _check_port_available(host: str, port: int) -> bool:
+    """Check if a port is available for binding."""
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host, port))
+            return True
+    except OSError:
+        return False
+
+
+def _check_process_running(pid: int) -> bool:
+    """Check if a process with given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _handle_existing_instance(host: str, port: int) -> None:
+    """Handle case where daemon might already be running."""
+    data_dir = _get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    pid_file = data_dir / "daemon.pid"
+
+    if not _check_port_available(host, port):
+        if pid_file.exists():
+            try:
+                existing_pid = int(pid_file.read_text().strip())
+                if _check_process_running(existing_pid):
+                    logger.error(f"Daemon already running (PID: {existing_pid})")
+                    logger.info(f"To stop it, run: kill {existing_pid}")
+                    logger.info("Or use: just dev-all  (which will stop existing instances)")
+                    sys.exit(1)
+                else:
+                    logger.warning(f"Stale PID file found (PID {existing_pid} not running)")
+                    pid_file.unlink()
+                    logger.info("Cleaned up stale PID file, checking port again...")
+                    if not _check_port_available(host, port):
+                        logger.error(f"Port {port} still in use by unknown process")
+                        logger.info(f"Find process with: lsof -i :{port}")
+                        sys.exit(1)
+            except (ValueError, OSError) as e:
+                logger.warning(f"Could not read PID file: {e}")
+                pid_file.unlink()
+        else:
+            logger.error(f"Port {port} is in use but no PID file found")
+            logger.info("Another process may be using the port")
+            logger.info(f"Find it with: lsof -i :{port}")
+            sys.exit(1)
+
+
 def main():
     """Main entry point for the daemon"""
     import uvicorn
 
+    from dere_shared.constants import DEFAULT_DAEMON_PORT
+
     _configure_logging()
-    uvicorn.run(app, host="127.0.0.1", port=8787, log_level="warning", access_log=False)
+
+    host = "127.0.0.1"
+    port = DEFAULT_DAEMON_PORT
+
+    _handle_existing_instance(host, port)
+
+    uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
 
 
 if __name__ == "__main__":

@@ -94,6 +94,10 @@ class SessionConfig(BaseModel):
             "Filesystem/network access is still governed by permission rules."
         ),
     )
+    sandbox_network_mode: Literal["bridge", "host"] = Field(
+        default="bridge",
+        description="Docker network mode: bridge (isolated) or host (shares host network)",
+    )
     mission_id: int | None = Field(
         default=None, description="Mission ID if spawned by a mission"
     )

@@ -109,21 +109,42 @@ class DockerSessionRunner(SessionRunner):
             except Exception:
                 logger.warning("Failed to serialize sandbox_settings; using defaults")
 
+        # Pass through custom env vars (e.g., DERE_SWARM_ID, etc.)
+        # These are needed for MCP server variable substitution inside the container
+        if self._config.env:
+            for key, value in self._config.env.items():
+                # Rewrite localhost URLs to host.docker.internal for container access
+                if "localhost" in value or "127.0.0.1" in value:
+                    value = value.replace("localhost", "host.docker.internal")
+                    value = value.replace("127.0.0.1", "host.docker.internal")
+                env.append(f"{key}={value}")
+
+        # Also ensure DERE_DAEMON_URL can reach host if not explicitly set
+        if not any(e.startswith("DERE_DAEMON_URL=") for e in env):
+            env.append("DERE_DAEMON_URL=http://host.docker.internal:8787")
+
         # Run as host user so files are owned correctly
         uid = os.getuid()
         gid = os.getgid()
+
+        # Build HostConfig based on network mode
+        network_mode = self._config.sandbox_network_mode or "bridge"
+        host_config: dict[str, Any] = {
+            "Binds": binds,
+            "Memory": self._parse_memory_limit(self._memory_limit),
+            "NanoCpus": int(self._cpu_limit * 1e9),
+            "NetworkMode": network_mode,
+        }
+        # ExtraHosts only needed for bridge mode to reach host services
+        if network_mode == "bridge":
+            host_config["ExtraHosts"] = ["host.docker.internal:host-gateway"]
 
         container_config = {
             "Image": self._image,
             "Env": env,
             "WorkingDir": working_dir,
             "User": f"{uid}:{gid}",
-            "HostConfig": {
-                "Binds": binds,
-                "Memory": self._parse_memory_limit(self._memory_limit),
-                "NanoCpus": int(self._cpu_limit * 1e9),
-                "NetworkMode": "bridge",
-            },
+            "HostConfig": host_config,
             "AttachStdin": True,
             "AttachStdout": True,
             "AttachStderr": True,
