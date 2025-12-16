@@ -37,6 +37,9 @@ async def spawn_agents(
     base_branch: str | None = None,
     working_dir: str | None = None,
     auto_start: bool = True,
+    auto_synthesize: bool = False,
+    synthesis_prompt: str | None = None,
+    skip_synthesis_on_failure: bool = False,
 ) -> dict:
     """
     Spawn a swarm of background agents to work on tasks.
@@ -62,6 +65,10 @@ async def spawn_agents(
         working_dir: Working directory (defaults to current)
         auto_start: Whether to start immediately (default: True). Only set False
             if you need to inspect the swarm before starting.
+        auto_synthesize: If True, spawn a synthesis agent that runs after all others
+            complete to aggregate results and create follow-up tasks
+        synthesis_prompt: Custom prompt for synthesis agent (auto-generated if None)
+        skip_synthesis_on_failure: If True, skip synthesis if any agent failed
 
     Returns:
         Swarm info with ID and agent IDs. Status will be "running" if auto_start=True.
@@ -80,6 +87,9 @@ async def spawn_agents(
                 "base_branch": base_branch,
                 "agents": agents,
                 "auto_start": auto_start,
+                "auto_synthesize": auto_synthesize,
+                "synthesis_prompt": synthesis_prompt,
+                "skip_synthesis_on_failure": skip_synthesis_on_failure,
             },
             timeout=60.0,
         )

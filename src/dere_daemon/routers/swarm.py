@@ -95,6 +95,9 @@ async def create_swarm(
             description=req.description,
             git_branch_prefix=req.git_branch_prefix,
             base_branch=req.base_branch,
+            auto_synthesize=req.auto_synthesize,
+            synthesis_prompt=req.synthesis_prompt,
+            skip_synthesis_on_failure=req.skip_synthesis_on_failure,
         )
 
         if req.auto_start:

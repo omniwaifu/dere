@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dere_shared.agent_models import SessionConfig, StreamEventType
-from dere_shared.models import Session, Swarm, SwarmAgent, SwarmStatus
+from dere_shared.models import Session, Swarm, SwarmAgent, SwarmAgentRole, SwarmStatus
 
 from .git import (
     create_branch,
@@ -54,6 +54,9 @@ class SwarmCoordinator:
         description: str | None = None,
         git_branch_prefix: str | None = None,
         base_branch: str | None = None,
+        auto_synthesize: bool = False,
+        synthesis_prompt: str | None = None,
+        skip_synthesis_on_failure: bool = False,
     ) -> Swarm:
         """Create a new swarm with specified agents.
 
@@ -65,6 +68,9 @@ class SwarmCoordinator:
             description: Optional description
             git_branch_prefix: If set, create branches for each agent
             base_branch: Base branch to create from (default: current branch)
+            auto_synthesize: Spawn a synthesis agent after all others complete
+            synthesis_prompt: Custom prompt for synthesis agent (auto-generated if None)
+            skip_synthesis_on_failure: Skip synthesis if any agent failed
 
         Returns:
             Created Swarm instance
@@ -100,6 +106,9 @@ class SwarmCoordinator:
                 git_branch_prefix=git_branch_prefix,
                 base_branch=base_branch,
                 status=SwarmStatus.PENDING.value,
+                auto_synthesize=auto_synthesize,
+                synthesis_prompt=synthesis_prompt,
+                skip_synthesis_on_failure=skip_synthesis_on_failure,
             )
             db.add(swarm)
             await db.flush()
@@ -146,6 +155,41 @@ class SwarmCoordinator:
                             "include": dep_spec.include.value,
                         })
                     agent.depends_on = dep_specs
+
+            # Create synthesis agent if enabled
+            if auto_synthesize:
+                # Build default prompt if not provided
+                final_synthesis_prompt = synthesis_prompt or self._build_default_synthesis_prompt(name)
+
+                # Synthesis agent depends on ALL other agents with full output
+                synthesis_deps = [
+                    {"agent_id": db_agent.id, "include": "full"}
+                    for db_agent in name_to_db_agent.values()
+                ]
+
+                synthesis_agent = SwarmAgent(
+                    swarm_id=swarm.id,
+                    name="synthesis",
+                    role=SwarmAgentRole.SYNTHESIS.value,
+                    prompt=final_synthesis_prompt,
+                    personality=None,
+                    plugins=["dere_core"],  # For work-queue access
+                    git_branch=None,
+                    allowed_tools=None,
+                    thinking_budget=None,
+                    model=None,
+                    sandbox_mode=True,
+                    depends_on=synthesis_deps,
+                    is_synthesis_agent=True,
+                )
+                db.add(synthesis_agent)
+                await db.flush()
+
+                logger.info(
+                    "Created synthesis agent for swarm '{}' with {} dependencies",
+                    name,
+                    len(synthesis_deps),
+                )
 
             await db.commit()
 
@@ -408,6 +452,44 @@ class SwarmCoordinator:
             if not swarm:
                 return
 
+            # Separate regular agents from synthesis agent
+            regular_agents = [a for a in swarm.agents if not a.is_synthesis_agent]
+            synthesis_agent = next(
+                (a for a in swarm.agents if a.is_synthesis_agent), None
+            )
+
+            # Check if all regular agents are done
+            regular_done = all(
+                a.status in (SwarmStatus.COMPLETED.value, SwarmStatus.FAILED.value, SwarmStatus.CANCELLED.value)
+                for a in regular_agents
+            )
+
+            if not regular_done:
+                return
+
+            # If synthesis is enabled and pending, check if we should skip or let it run
+            if synthesis_agent and synthesis_agent.status == SwarmStatus.PENDING.value:
+                any_failed = any(a.status == SwarmStatus.FAILED.value for a in regular_agents)
+
+                if any_failed and swarm.skip_synthesis_on_failure:
+                    # Mark synthesis as skipped (cancelled)
+                    synthesis_agent.status = SwarmStatus.CANCELLED.value
+                    synthesis_agent.error_message = "Skipped due to agent failures"
+                    synthesis_agent.completed_at = datetime.now(UTC)
+                    await db.commit()
+                    logger.info("Skipping synthesis for swarm '{}' due to failures", swarm.name)
+                    # Signal completion for synthesis so waiters don't hang
+                    if synthesis_agent.id in self._completion_events:
+                        self._completion_events[synthesis_agent.id].set()
+                else:
+                    # Synthesis will run via normal dependency mechanism
+                    return
+
+            # Check if synthesis is still running
+            if synthesis_agent and synthesis_agent.status == SwarmStatus.RUNNING.value:
+                return
+
+            # All agents (including synthesis if present) are done
             all_done = all(
                 a.status in (SwarmStatus.COMPLETED.value, SwarmStatus.FAILED.value, SwarmStatus.CANCELLED.value)
                 for a in swarm.agents
@@ -419,6 +501,12 @@ class SwarmCoordinator:
                 )
                 swarm.status = SwarmStatus.FAILED.value if any_failed else SwarmStatus.COMPLETED.value
                 swarm.completed_at = datetime.now(UTC)
+
+                # Copy synthesis output to swarm for easy access
+                if synthesis_agent and synthesis_agent.status == SwarmStatus.COMPLETED.value:
+                    swarm.synthesis_output = synthesis_agent.output_text
+                    swarm.synthesis_summary = synthesis_agent.output_summary
+
                 await db.commit()
 
                 logger.info(
@@ -462,6 +550,9 @@ class SwarmCoordinator:
                 created_at=swarm.created_at,
                 started_at=swarm.started_at,
                 completed_at=swarm.completed_at,
+                auto_synthesize=swarm.auto_synthesize,
+                synthesis_output=swarm.synthesis_output,
+                synthesis_summary=swarm.synthesis_summary,
             )
 
     async def wait_for_agents(
@@ -642,6 +733,24 @@ Summary:"""
         except Exception as e:
             logger.warning("Failed to generate summary: {}", e)
             return None
+
+    def _build_default_synthesis_prompt(self, swarm_name: str) -> str:
+        """Build default prompt for synthesis agent."""
+        return f"""You are the synthesis agent for swarm '{swarm_name}'.
+
+Your task is to:
+1. Review the outputs from all agents provided in the context
+2. Create a unified summary of what was accomplished
+3. Identify any inconsistencies, conflicts, or issues between agent outputs
+4. If there are unfinished items or discovered issues, create follow-up tasks using the work-queue tools
+
+Important:
+- Focus on synthesis and aggregation, not implementation
+- Note which agents succeeded vs failed
+- Create work-queue tasks for any follow-up work needed
+- Provide a clear, concise summary at the end
+
+Review the agent outputs below and provide your synthesis."""
 
     async def get_agent_output(self, swarm_id: int, agent_name: str) -> AgentResult:
         """Get full output from a specific agent."""

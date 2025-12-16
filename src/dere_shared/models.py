@@ -495,6 +495,7 @@ class SwarmAgentRole(str, Enum):
     REVIEW = "review"
     RESEARCH = "research"
     GENERIC = "generic"
+    SYNTHESIS = "synthesis"
 
 
 class ProjectTaskStatus(str, Enum):
@@ -534,6 +535,15 @@ class Swarm(SQLModel, table=True):
     # State
     status: str = Field(default=SwarmStatus.PENDING.value)
 
+    # Synthesis configuration
+    auto_synthesize: bool = Field(default=False)
+    synthesis_prompt: str | None = None
+    skip_synthesis_on_failure: bool = Field(default=False)
+
+    # Synthesis output (stored for easy access)
+    synthesis_output: str | None = None
+    synthesis_summary: str | None = None
+
     # Timestamps
     created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
     started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
@@ -558,6 +568,7 @@ class SwarmAgent(SQLModel, table=True):
     # Identity
     name: str
     role: str = Field(default=SwarmAgentRole.GENERIC.value)
+    is_synthesis_agent: bool = Field(default=False)
 
     # Task
     prompt: str

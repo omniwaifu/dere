@@ -114,6 +114,11 @@ class SwarmStatusResponse(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
+    # Synthesis info
+    auto_synthesize: bool = False
+    synthesis_output: str | None = None
+    synthesis_summary: str | None = None
+
 
 class MergeResult(BaseModel):
     """Result of branch merge operation."""
@@ -137,6 +142,18 @@ class CreateSwarmRequest(BaseModel):
     base_branch: str | None = None
     auto_start: bool = Field(
         default=True, description="Start execution immediately after creation"
+    )
+    auto_synthesize: bool = Field(
+        default=False,
+        description="Spawn a synthesis agent after all others complete to aggregate results",
+    )
+    synthesis_prompt: str | None = Field(
+        default=None,
+        description="Custom prompt for synthesis agent (auto-generated if None)",
+    )
+    skip_synthesis_on_failure: bool = Field(
+        default=False,
+        description="Skip synthesis if any agent failed",
     )
 
 
