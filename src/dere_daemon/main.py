@@ -1767,6 +1767,50 @@ def _handle_existing_instance(host: str, port: int) -> None:
             sys.exit(1)
 
 
+def _setup_socket_dir() -> Path | None:
+    """Create the socket directory with proper permissions.
+
+    Uses XDG_RUNTIME_DIR if available (user-writable, no sudo needed).
+    Falls back to /run/dere for system-wide installations.
+
+    Returns:
+        Path to socket file if setup succeeded, None otherwise.
+    """
+    from dere_shared.constants import get_daemon_socket_path
+
+    socket_path = Path(get_daemon_socket_path())
+    socket_dir = socket_path.parent
+
+    try:
+        # Create directory with 0750 permissions (owner: rwx, group: rx, other: none)
+        socket_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
+
+        # Remove stale socket file if it exists
+        if socket_path.exists():
+            socket_path.unlink()
+
+        return socket_path
+    except PermissionError:
+        logger.warning(
+            "Cannot create socket directory {} (permission denied). "
+            "UDS listener disabled. Run with appropriate permissions or use TCP.",
+            socket_dir,
+        )
+        return None
+    except Exception as e:
+        logger.warning("Failed to setup socket directory: {}. UDS listener disabled.", e)
+        return None
+
+
+def _cleanup_socket(socket_path: Path | None) -> None:
+    """Remove socket file on shutdown."""
+    if socket_path and socket_path.exists():
+        try:
+            socket_path.unlink()
+        except Exception:
+            pass
+
+
 def main():
     """Main entry point for the daemon"""
     import uvicorn
@@ -1780,7 +1824,53 @@ def main():
 
     _handle_existing_instance(host, port)
 
-    uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
+    # Setup Unix Domain Socket
+    socket_path = _setup_socket_dir()
+
+    if socket_path:
+        # Run with both TCP and UDS listeners using uvicorn config
+        import asyncio
+        import signal
+
+        async def serve():
+            # TCP server
+            tcp_config = uvicorn.Config(
+                app, host=host, port=port, log_level="warning", access_log=False
+            )
+            tcp_server = uvicorn.Server(tcp_config)
+
+            # UDS server
+            uds_config = uvicorn.Config(
+                app, uds=str(socket_path), log_level="warning", access_log=False
+            )
+            uds_server = uvicorn.Server(uds_config)
+
+            # Handle shutdown gracefully
+            loop = asyncio.get_event_loop()
+            shutdown_event = asyncio.Event()
+
+            def handle_signal():
+                shutdown_event.set()
+
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(sig, handle_signal)
+
+            print(f"Dere daemon listening on tcp://{host}:{port} and unix://{socket_path}")
+
+            try:
+                # Start both servers
+                await asyncio.gather(
+                    tcp_server.serve(),
+                    uds_server.serve(),
+                )
+            finally:
+                _cleanup_socket(socket_path)
+
+        asyncio.run(serve())
+    else:
+        # Fallback to TCP only
+        print(f"Dere daemon listening on tcp://{host}:{port} (UDS unavailable)")
+        uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
 
 
 if __name__ == "__main__":

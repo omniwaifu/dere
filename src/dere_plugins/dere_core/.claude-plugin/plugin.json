@@ -4,10 +4,8 @@
   "description": "Core dere infrastructure: personality tone, emotion awareness (OCC), memory/recall, knowledge graph integration, and environmental context. Always enabled.",
   "mcpServers": {
     "swarm": {
-      "command": "uv",
+      "command": "python",
       "args": [
-        "run",
-        "python",
         "-m",
         "dere_plugins.dere_core.mcp_server.swarm"
       ],
@@ -15,14 +13,13 @@
         "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:8787}",
         "DERE_SESSION_ID": "${DERE_SESSION_ID}",
         "DERE_SWARM_ID": "${DERE_SWARM_ID}",
-        "DERE_SWARM_AGENT_ID": "${DERE_SWARM_AGENT_ID}"
+        "DERE_SWARM_AGENT_ID": "${DERE_SWARM_AGENT_ID}",
+        "DERE_SWARM_AGENT_NAME": "${DERE_SWARM_AGENT_NAME}"
       }
     },
     "work-queue": {
-      "command": "uv",
+      "command": "python",
       "args": [
-        "run",
-        "python",
         "-m",
         "dere_plugins.dere_core.mcp_server.work_queue"
       ],

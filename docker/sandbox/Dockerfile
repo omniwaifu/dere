@@ -9,6 +9,11 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv for Python package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/ && \
+    mv /root/.local/bin/uvx /usr/local/bin/ 2>/dev/null || true
+
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
@@ -18,8 +23,8 @@ WORKDIR /app
 # Copy dere package for installation (plugins, shared code)
 COPY . /app/dere
 
-# Install dere-graph (workspace dependency) then dere package
-RUN pip install /app/dere/src/dere_graph && pip install /app/dere
+# Install dere-graph (workspace dependency) then dere package using uv
+RUN uv pip install --system /app/dere/src/dere_graph && uv pip install --system /app/dere
 
 # Copy entrypoint
 COPY docker/sandbox/entrypoint.py /app/entrypoint.py

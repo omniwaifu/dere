@@ -1,7 +1,7 @@
 """FastMCP server for project work queue management.
 
 This MCP server exposes tools for creating, claiming, and managing project tasks.
-It communicates with the dere daemon via HTTP API.
+It communicates with the dere daemon via HTTP API (TCP or Unix socket).
 """
 
 from __future__ import annotations
@@ -9,10 +9,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import httpx
 from fastmcp import FastMCP
 
-DAEMON_URL = os.environ.get("DERE_DAEMON_URL", "http://localhost:8787")
+from dere_shared.daemon_client import daemon_client
+
 SESSION_ID = os.environ.get("DERE_SESSION_ID")
 AGENT_ID = os.environ.get("DERE_SWARM_AGENT_ID")
 
@@ -62,12 +62,8 @@ async def list_tasks(
     if tags:
         params["tags"] = tags
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/work-queue/tasks",
-            params=params,
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get("/work-queue/tasks", params=params)
         resp.raise_for_status()
         return resp.json()
 
@@ -115,9 +111,9 @@ async def create_task(
     Returns:
         Created task details
     """
-    async with httpx.AsyncClient() as client:
+    async with daemon_client() as client:
         resp = await client.post(
-            f"{DAEMON_URL}/work-queue/tasks",
+            "/work-queue/tasks",
             json={
                 "title": title,
                 "description": description,
@@ -138,7 +134,6 @@ async def create_task(
                 "discovery_reason": discovery_reason,
                 "extra": extra,
             },
-            timeout=30.0,
         )
         resp.raise_for_status()
         return resp.json()
@@ -174,12 +169,8 @@ async def get_ready_tasks(
     if required_tools:
         params["required_tools"] = required_tools
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/work-queue/tasks/ready",
-            params=params,
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get("/work-queue/tasks/ready", params=params)
         resp.raise_for_status()
         return resp.json()
 
@@ -202,14 +193,13 @@ async def claim_task(task_id: int) -> dict:
     Returns:
         Claimed task details or error
     """
-    async with httpx.AsyncClient() as client:
+    async with daemon_client() as client:
         resp = await client.post(
-            f"{DAEMON_URL}/work-queue/tasks/{task_id}/claim",
+            f"/work-queue/tasks/{task_id}/claim",
             json={
                 "session_id": _get_session_id(),
                 "agent_id": _get_agent_id(),
             },
-            timeout=30.0,
         )
         resp.raise_for_status()
         return resp.json()
@@ -229,11 +219,10 @@ async def release_task(task_id: int, reason: str | None = None) -> dict:
     Returns:
         Updated task details
     """
-    async with httpx.AsyncClient() as client:
+    async with daemon_client() as client:
         resp = await client.post(
-            f"{DAEMON_URL}/work-queue/tasks/{task_id}/release",
+            f"/work-queue/tasks/{task_id}/release",
             json={"reason": reason},
-            timeout=30.0,
         )
         resp.raise_for_status()
         return resp.json()
@@ -300,12 +289,8 @@ async def update_task(
     if last_error is not None:
         payload["last_error"] = last_error
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.patch(
-            f"{DAEMON_URL}/work-queue/tasks/{task_id}",
-            json=payload,
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.patch(f"/work-queue/tasks/{task_id}", json=payload)
         resp.raise_for_status()
         return resp.json()
 
@@ -321,11 +306,8 @@ async def get_task(task_id: int) -> dict:
     Returns:
         Task details
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/work-queue/tasks/{task_id}",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get(f"/work-queue/tasks/{task_id}")
         resp.raise_for_status()
         return resp.json()
 

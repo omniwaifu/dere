@@ -1,7 +1,7 @@
 """FastMCP server for swarm agent coordination.
 
 This MCP server exposes tools for spawning and managing swarm agents.
-It communicates with the dere daemon via HTTP API.
+It communicates with the dere daemon via HTTP API (TCP or Unix socket).
 """
 
 from __future__ import annotations
@@ -11,10 +11,10 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from fastmcp import FastMCP
 
-DAEMON_URL = os.environ.get("DERE_DAEMON_URL", "http://localhost:8787")
+from dere_shared.daemon_client import daemon_client
+
 PARENT_SESSION_ID = os.environ.get("DERE_SESSION_ID")
 
 mcp = FastMCP("Swarm Agent Coordinator")
@@ -109,9 +109,9 @@ async def spawn_agents(
     """
     session_id = _get_session_id()
 
-    async with httpx.AsyncClient() as client:
+    async with daemon_client(timeout=60.0) as client:
         resp = await client.post(
-            f"{DAEMON_URL}/swarm/create",
+            "/swarm/create",
             json={
                 "parent_session_id": session_id,
                 "name": swarm_name,
@@ -128,7 +128,6 @@ async def spawn_agents(
                 "supervisor_warn_seconds": supervisor_warn_seconds,
                 "supervisor_cancel_seconds": supervisor_cancel_seconds,
             },
-            timeout=60.0,
         )
         resp.raise_for_status()
         return resp.json()
@@ -148,11 +147,8 @@ async def start_swarm(swarm_id: int) -> dict:
     Returns:
         Status update
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{DAEMON_URL}/swarm/{swarm_id}/start",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.post(f"/swarm/{swarm_id}/start")
         resp.raise_for_status()
         return resp.json()
 
@@ -168,11 +164,8 @@ async def get_swarm_status(swarm_id: int) -> dict:
     Returns:
         Full status including each agent's progress
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/swarm/{swarm_id}",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get(f"/swarm/{swarm_id}")
         resp.raise_for_status()
         return resp.json()
 
@@ -198,16 +191,15 @@ async def wait_for_agents(
         Dict with "agents" key containing list of agent results
     """
     # Set request timeout slightly higher than wait timeout
-    request_timeout = (timeout_seconds + 30) if timeout_seconds else None
+    request_timeout = (timeout_seconds + 30) if timeout_seconds else 300.0
 
-    async with httpx.AsyncClient() as client:
+    async with daemon_client(timeout=request_timeout) as client:
         resp = await client.post(
-            f"{DAEMON_URL}/swarm/{swarm_id}/wait",
+            f"/swarm/{swarm_id}/wait",
             json={
                 "agent_names": agent_names,
                 "timeout_seconds": timeout_seconds,
             },
-            timeout=request_timeout,
         )
         resp.raise_for_status()
         return {"agents": resp.json()}
@@ -225,11 +217,8 @@ async def get_agent_output(swarm_id: int, agent_name: str) -> dict:
     Returns:
         Agent's full output text and summary
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/swarm/{swarm_id}/agent/{agent_name}",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get(f"/swarm/{swarm_id}/agent/{agent_name}")
         resp.raise_for_status()
         return resp.json()
 
@@ -245,11 +234,8 @@ async def cancel_swarm(swarm_id: int) -> dict:
     Returns:
         Cancellation status
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{DAEMON_URL}/swarm/{swarm_id}/cancel",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.post(f"/swarm/{swarm_id}/cancel")
         resp.raise_for_status()
         return resp.json()
 
@@ -273,14 +259,13 @@ async def merge_agent_branches(
     Returns:
         Merge results including any conflicts
     """
-    async with httpx.AsyncClient() as client:
+    async with daemon_client(timeout=300.0) as client:
         resp = await client.post(
-            f"{DAEMON_URL}/swarm/{swarm_id}/merge",
+            f"/swarm/{swarm_id}/merge",
             json={
                 "target_branch": target_branch,
                 "strategy": strategy,
             },
-            timeout=300.0,
         )
         resp.raise_for_status()
         return resp.json()
@@ -294,11 +279,8 @@ async def list_personalities() -> dict:
     Returns:
         List of personality names (e.g., "tsun", "kuu", "yan", "dan")
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/swarm/personalities",
-            timeout=10.0,
-        )
+    async with daemon_client(timeout=10.0) as client:
+        resp = await client.get("/swarm/personalities")
         resp.raise_for_status()
         return resp.json()
 
@@ -321,11 +303,8 @@ async def list_plugins() -> dict:
     Returns:
         List of plugins with name, description, and available MCP servers
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/swarm/plugins",
-            timeout=10.0,
-        )
+    async with daemon_client(timeout=10.0) as client:
+        resp = await client.get("/swarm/plugins")
         resp.raise_for_status()
         return resp.json()
 
@@ -375,12 +354,9 @@ async def scratchpad_set(key: str, value: Any) -> dict:
     swarm_id, agent_id = _require_swarm_context()
 
     # Get agent name for provenance
-    async with httpx.AsyncClient() as client:
+    async with daemon_client() as client:
         # Get agent info to include name
-        status_resp = await client.get(
-            f"{DAEMON_URL}/swarm/{swarm_id}",
-            timeout=10.0,
-        )
+        status_resp = await client.get(f"/swarm/{swarm_id}")
         status_resp.raise_for_status()
         status = status_resp.json()
 
@@ -392,13 +368,12 @@ async def scratchpad_set(key: str, value: Any) -> dict:
 
         # Set the scratchpad entry
         resp = await client.put(
-            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
+            f"/swarm/{swarm_id}/scratchpad/{key}",
             json={
                 "value": value,
                 "agent_id": agent_id,
                 "agent_name": agent_name,
             },
-            timeout=30.0,
         )
         resp.raise_for_status()
         return resp.json()
@@ -419,11 +394,8 @@ async def scratchpad_get(key: str) -> dict | None:
     """
     swarm_id, _ = _require_swarm_context()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get(f"/swarm/{swarm_id}/scratchpad/{key}")
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -449,12 +421,8 @@ async def scratchpad_list(prefix: str | None = None) -> list[dict]:
     if prefix:
         params["prefix"] = prefix
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad",
-            params=params,
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.get(f"/swarm/{swarm_id}/scratchpad", params=params)
         resp.raise_for_status()
         return resp.json()
 
@@ -474,11 +442,8 @@ async def scratchpad_delete(key: str) -> dict:
     """
     swarm_id, _ = _require_swarm_context()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.delete(
-            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
-            timeout=30.0,
-        )
+    async with daemon_client() as client:
+        resp = await client.delete(f"/swarm/{swarm_id}/scratchpad/{key}")
         resp.raise_for_status()
         return resp.json()
 
@@ -516,17 +481,14 @@ async def send_message(to: str, text: str, priority: str = "normal") -> dict:
     message_id = f"{int(time.time() * 1000)}-{agent_id}"
     key = f"messages/to-{to}/{message_id}"
 
-    async with httpx.AsyncClient() as client:
+    async with daemon_client() as client:
         # Get agent info for provenance
-        status_resp = await client.get(
-            f"{DAEMON_URL}/swarm/{swarm_id}",
-            timeout=10.0,
-        )
+        status_resp = await client.get(f"/swarm/{swarm_id}")
         status_resp.raise_for_status()
 
         # Write message to scratchpad
         resp = await client.put(
-            f"{DAEMON_URL}/swarm/{swarm_id}/scratchpad/{key}",
+            f"/swarm/{swarm_id}/scratchpad/{key}",
             json={
                 "value": {
                     "from": sender_name,
@@ -539,7 +501,6 @@ async def send_message(to: str, text: str, priority: str = "normal") -> dict:
                 "agent_id": agent_id,
                 "agent_name": sender_name,
             },
-            timeout=30.0,
         )
         resp.raise_for_status()
 

@@ -11,9 +11,8 @@ from __future__ import annotations
 import asyncio
 import os
 
-import httpx
+from dere_shared.daemon_client import daemon_client
 
-DAEMON_URL = os.environ.get("DERE_DAEMON_URL", "http://localhost:8787")
 SWARM_ID = os.environ.get("DERE_SWARM_ID")
 AGENT_NAME = os.environ.get("DERE_SWARM_AGENT_NAME")
 
@@ -24,10 +23,10 @@ async def check_mailbox() -> None:
         return  # Not in swarm context, silently exit
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with daemon_client(timeout=5.0) as client:
             # List messages for this agent
             resp = await client.get(
-                f"{DAEMON_URL}/swarm/{SWARM_ID}/scratchpad",
+                f"/swarm/{SWARM_ID}/scratchpad",
                 params={"prefix": f"messages/to-{AGENT_NAME}/"},
             )
             if resp.status_code != 200:
@@ -55,9 +54,7 @@ async def check_mailbox() -> None:
 
                 # Delete after reading to prevent duplicate delivery
                 try:
-                    await client.delete(
-                        f"{DAEMON_URL}/swarm/{SWARM_ID}/scratchpad/{key}",
-                    )
+                    await client.delete(f"/swarm/{SWARM_ID}/scratchpad/{key}")
                 except Exception:
                     pass  # Best effort deletion
 

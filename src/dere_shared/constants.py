@@ -10,6 +10,16 @@ from __future__ import annotations
 DEFAULT_DAEMON_URL = "http://localhost:8787"
 DEFAULT_DAEMON_PORT = 8787
 
+# Socket path uses XDG_RUNTIME_DIR for user-writable location (no sudo needed)
+# Falls back to /run/dere for system-wide installations
+def get_daemon_socket_path() -> str:
+    """Get daemon socket path, preferring XDG_RUNTIME_DIR."""
+    import os
+    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg_runtime:
+        return f"{xdg_runtime}/dere/daemon.sock"
+    return "/run/dere/daemon.sock"
+
 # ActivityWatch
 DEFAULT_ACTIVITYWATCH_URL = "http://localhost:5600"
 DEFAULT_ACTIVITYWATCH_PORT = 5600

@@ -73,6 +73,17 @@ class DockerSessionRunner(SessionRunner):
         if claude_dir.exists():
             binds.append(f"{claude_dir}:/home/user/.claude:rw")
 
+        # Mount daemon socket directory for secure daemon communication
+        # This allows containers to talk to daemon via Unix socket without network exposure
+        from dere_shared.constants import get_daemon_socket_path
+
+        daemon_socket_path = Path(get_daemon_socket_path())
+        daemon_socket_dir = daemon_socket_path.parent
+        # Mount to consistent location inside container regardless of host XDG path
+        container_socket_dir = Path("/run/dere")
+        if daemon_socket_dir.exists():
+            binds.append(f"{daemon_socket_dir}:{container_socket_dir}:ro")
+
         # Handle working directory mount based on mount_type
         if self._config.working_dir and self._mount_type != "none":
             source_dir = Path(self._config.working_dir)
@@ -113,15 +124,16 @@ class DockerSessionRunner(SessionRunner):
         # These are needed for MCP server variable substitution inside the container
         if self._config.env:
             for key, value in self._config.env.items():
-                # Rewrite localhost URLs to host.docker.internal for container access
-                if "localhost" in value or "127.0.0.1" in value:
-                    value = value.replace("localhost", "host.docker.internal")
-                    value = value.replace("127.0.0.1", "host.docker.internal")
                 env.append(f"{key}={value}")
 
-        # Also ensure DERE_DAEMON_URL can reach host if not explicitly set
+        # Set daemon URL to use Unix socket if available, otherwise TCP fallback
+        # Container always sees socket at /run/dere/daemon.sock (consistent mount point)
         if not any(e.startswith("DERE_DAEMON_URL=") for e in env):
-            env.append("DERE_DAEMON_URL=http://host.docker.internal:8787")
+            if daemon_socket_dir.exists():
+                env.append("DERE_DAEMON_URL=http+unix:///run/dere/daemon.sock")
+            else:
+                # Fallback for when socket isn't available (e.g., dev without daemon)
+                env.append("DERE_DAEMON_URL=http://host.docker.internal:8787")
 
         # Run as host user so files are owned correctly
         uid = os.getuid()

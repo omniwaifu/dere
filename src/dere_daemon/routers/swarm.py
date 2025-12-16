@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
@@ -338,7 +339,7 @@ class ScratchpadEntry(BaseModel):
     """A scratchpad entry."""
 
     key: str
-    value: dict | None
+    value: Any
     set_by_agent_id: int | None
     set_by_agent_name: str | None
     created_at: datetime
@@ -348,7 +349,7 @@ class ScratchpadEntry(BaseModel):
 class ScratchpadSetRequest(BaseModel):
     """Request to set a scratchpad value."""
 
-    value: dict | None
+    value: Any
     agent_id: int | None = None
     agent_name: str | None = None
 

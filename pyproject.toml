@@ -52,14 +52,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord", "src/dere_ambient"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/dere_plugins/dere_core" = "dere_core"
-"src/dere_plugins/dere_vault" = "dere_vault"
-"src/dere_plugins/dere_productivity" = "dere_productivity"
-"src/dere_plugins/dere_code" = "dere_code"
-"src/dere_plugins/dere_graph_features" = "dere_graph_features"
+packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord", "src/dere_ambient", "src/dere_plugins"]
 
 [tool.ruff]
 line-length = 100
