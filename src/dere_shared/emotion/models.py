@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # OCC Emotion Taxonomy following Steunebrink, Dastani, & Meyer revision
@@ -395,6 +395,16 @@ class AppraisalOutput(BaseModel):
     object_attribute: ObjectAttribute | None = None
     resulting_emotions: list[EmotionSchemaOutput] = Field(min_length=1)
     reasoning: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_resulting_emotions(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Ensure resulting_emotions exists, defaulting to neutral if LLM omits it."""
+        if isinstance(data, dict) and "resulting_emotions" not in data:
+            data["resulting_emotions"] = [
+                {"type": "neutral", "intensity": 20, "eliciting": "No emotion detected"}
+            ]
+        return data
 
     @field_validator("resulting_emotions", mode="before")
     @classmethod

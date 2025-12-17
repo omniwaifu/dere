@@ -41,7 +41,7 @@ def _unwrap_tool_payload(candidate: Any) -> Any:
     while isinstance(candidate, dict):
         iteration += 1
         if iteration > 10:
-            logger.warning(f"[_unwrap_tool_payload] Too many unwrap iterations, stopping")
+            logger.warning("[_unwrap_tool_payload] Too many unwrap iterations, stopping")
             break
 
         # Single-key wrappers
@@ -107,13 +107,20 @@ class ClaudeClient:
         response_model: type[T],
     ) -> T:
         """Generate structured output using Claude Agent SDK."""
+        from pathlib import Path
+
         from claude_agent_sdk import ClaudeAgentOptions, query
+
+        # Isolate sessions from user projects to prevent dere -c contamination
+        isolated_cwd = Path("/tmp/dere-emotion-appraisal")
+        isolated_cwd.mkdir(exist_ok=True)
 
         prompt = format_messages(messages)
         schema = response_model.model_json_schema()
 
         options = ClaudeAgentOptions(
             model=self.model,
+            cwd=str(isolated_cwd),
             output_format={
                 "type": "json_schema",
                 "schema": schema,
