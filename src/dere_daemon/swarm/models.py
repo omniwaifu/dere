@@ -26,6 +26,12 @@ class DependencySpec(BaseModel):
         default=DependencyIncludeMode.SUMMARY,
         description="How much output to include from this dependency",
     )
+    condition: str | None = Field(
+        default=None,
+        description="Optional condition expression. If set, the dependent agent only runs "
+        "if this evaluates to True against the dependency's JSON output. "
+        "Example: 'output.risk_level == \"high\"' or 'len(output.issues) > 0'",
+    )
 
 
 class AgentSpec(BaseModel):

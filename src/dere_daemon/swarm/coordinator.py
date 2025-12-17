@@ -105,6 +105,88 @@ def detect_dependency_cycle(agents: list[AgentSpec]) -> list[str] | None:
     return None
 
 
+def evaluate_condition(condition: str, output_text: str | None) -> tuple[bool, str | None]:
+    """Evaluate a condition expression against agent output.
+
+    Args:
+        condition: Expression like 'output.risk_level == "high"' or 'len(output.issues) > 0'
+        output_text: The dependency's output text (attempted JSON parse)
+
+    Returns:
+        Tuple of (result, error_message). If error_message is set, evaluation failed.
+    """
+    if not output_text:
+        return False, "Dependency has no output"
+
+    # Try to parse output as JSON
+    import json
+
+    try:
+        # Look for JSON in the output (might be wrapped in markdown code blocks)
+        json_text = output_text
+        if "```json" in output_text:
+            start = output_text.find("```json") + 7
+            end = output_text.find("```", start)
+            if end > start:
+                json_text = output_text[start:end].strip()
+        elif "```" in output_text:
+            start = output_text.find("```") + 3
+            end = output_text.find("```", start)
+            if end > start:
+                json_text = output_text[start:end].strip()
+
+        output = json.loads(json_text)
+    except json.JSONDecodeError:
+        # If not JSON, create a simple object with the raw text
+        output = {"text": output_text, "raw": output_text}
+
+    # Create a restricted namespace for evaluation
+    safe_builtins = {
+        "len": len,
+        "str": str,
+        "int": int,
+        "float": float,
+        "bool": bool,
+        "list": list,
+        "dict": dict,
+        "any": any,
+        "all": all,
+        "sum": sum,
+        "min": min,
+        "max": max,
+        "abs": abs,
+        "True": True,
+        "False": False,
+        "None": None,
+    }
+
+    # Support both 'output.field' and 'output["field"]' syntax
+    # by wrapping output in a namespace object
+    class OutputNamespace:
+        def __init__(self, data: dict):
+            self._data = data
+
+        def __getattr__(self, name: str):
+            if name.startswith("_"):
+                raise AttributeError(name)
+            return self._data.get(name)
+
+        def __getitem__(self, key: str):
+            return self._data.get(key)
+
+        def get(self, key: str, default=None):
+            return self._data.get(key, default)
+
+    namespace = {"output": OutputNamespace(output) if isinstance(output, dict) else output}
+    namespace.update(safe_builtins)
+
+    try:
+        result = eval(condition, {"__builtins__": {}}, namespace)  # noqa: S307
+        return bool(result), None
+    except Exception as e:
+        return False, f"Condition evaluation error: {e}"
+
+
 @dataclass
 class SwarmCoordinator:
     """Coordinates spawning and management of agent swarms."""
@@ -243,12 +325,13 @@ class SwarmCoordinator:
                             raise ValueError(
                                 f"Agent '{spec.name}' depends on unknown agent '{dep_spec.agent}'"
                             )
-                        dep_specs.append(
-                            {
-                                "agent_id": name_to_db_agent[dep_spec.agent].id,
-                                "include": dep_spec.include.value,
-                            }
-                        )
+                        dep_spec_dict = {
+                            "agent_id": name_to_db_agent[dep_spec.agent].id,
+                            "include": dep_spec.include.value,
+                        }
+                        if dep_spec.condition:
+                            dep_spec_dict["condition"] = dep_spec.condition
+                        dep_specs.append(dep_spec_dict)
                     agent.depends_on = dep_specs
 
             # Create synthesis agent if enabled
@@ -396,7 +479,11 @@ class SwarmCoordinator:
                     raise
 
     async def _execute_agent_with_dependencies(self, agent_id: int) -> None:
-        """Execute an agent after waiting for its dependencies."""
+        """Execute an agent after waiting for its dependencies.
+
+        If any dependency has a condition that evaluates to False,
+        the agent is marked as SKIPPED instead of executed.
+        """
         async with self.session_factory() as db:
             agent = await db.get(SwarmAgent, agent_id)
             if not agent:
@@ -408,6 +495,69 @@ class SwarmCoordinator:
                     dep_id = dep_spec["agent_id"]
                     if dep_id in self._completion_events:
                         await self._completion_events[dep_id].wait()
+
+        # Check conditions after dependencies complete
+        should_skip = False
+        skip_reason = None
+
+        async with self.session_factory() as db:
+            agent = await db.get(SwarmAgent, agent_id)
+            if agent and agent.depends_on:
+                for dep_spec in agent.depends_on:
+                    condition = dep_spec.get("condition")
+                    if not condition:
+                        continue
+
+                    dep_id = dep_spec["agent_id"]
+                    dep_agent = await db.get(SwarmAgent, dep_id)
+                    if not dep_agent:
+                        continue
+
+                    # Evaluate condition against dependency output
+                    result, error = evaluate_condition(condition, dep_agent.output_text)
+
+                    if error:
+                        logger.warning(
+                            "Condition evaluation failed for agent '{}' on dep '{}': {}",
+                            agent.name,
+                            dep_agent.name,
+                            error,
+                        )
+                        should_skip = True
+                        skip_reason = f"Condition error on '{dep_agent.name}': {error}"
+                        break
+
+                    if not result:
+                        logger.info(
+                            "Agent '{}' skipped: condition '{}' on '{}' evaluated to False",
+                            agent.name,
+                            condition,
+                            dep_agent.name,
+                        )
+                        should_skip = True
+                        skip_reason = f"Condition '{condition}' on '{dep_agent.name}' was False"
+                        break
+
+        if should_skip:
+            # Mark as skipped without executing
+            async with self.session_factory() as db:
+                agent = await db.get(SwarmAgent, agent_id)
+                if agent:
+                    agent.status = SwarmStatus.SKIPPED.value
+                    agent.completed_at = datetime.now(UTC)
+                    agent.error_message = skip_reason
+                    await db.commit()
+
+            # Check swarm completion
+            async with self.session_factory() as db:
+                agent = await db.get(SwarmAgent, agent_id)
+                if agent:
+                    await self._check_swarm_completion(agent.swarm_id)
+
+            # Signal completion so dependents can proceed
+            if agent_id in self._completion_events:
+                self._completion_events[agent_id].set()
+            return
 
         # Execute the agent
         await self._execute_agent(agent_id)
@@ -891,6 +1041,7 @@ class SwarmCoordinator:
                     SwarmStatus.COMPLETED.value,
                     SwarmStatus.FAILED.value,
                     SwarmStatus.CANCELLED.value,
+                    SwarmStatus.SKIPPED.value,
                 )
                 for a in regular_agents
             )
@@ -927,6 +1078,7 @@ class SwarmCoordinator:
                     SwarmStatus.COMPLETED.value,
                     SwarmStatus.FAILED.value,
                     SwarmStatus.CANCELLED.value,
+                    SwarmStatus.SKIPPED.value,
                 )
                 for a in swarm.agents
             )

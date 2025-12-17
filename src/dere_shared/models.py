@@ -503,6 +503,7 @@ class SwarmStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    SKIPPED = "skipped"  # Condition on dependency not met
 
 
 class SwarmAgentRole(str, Enum):
