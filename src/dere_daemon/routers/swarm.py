@@ -19,6 +19,7 @@ from dere_daemon.swarm.models import (
     CreateSwarmResponse,
     MergeRequest,
     MergeResult,
+    SwarmDAGResponse,
     SwarmStatusResponse,
     WaitRequest,
 )
@@ -231,6 +232,26 @@ async def get_swarm(
 
     try:
         return await coordinator.get_swarm_status(swarm_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/{swarm_id}/dag", response_model=SwarmDAGResponse)
+async def get_swarm_dag(
+    swarm_id: int,
+    request: Request,
+):
+    """Get DAG representation of swarm for visualization.
+
+    Returns nodes with topological levels and edges with include modes.
+    Useful for rendering dependency graphs in UI.
+    """
+    coordinator = getattr(request.app.state, "swarm_coordinator", None)
+    if not coordinator:
+        raise HTTPException(status_code=503, detail="Swarm coordinator not available")
+
+    try:
+        return await coordinator.get_swarm_dag(swarm_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

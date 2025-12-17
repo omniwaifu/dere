@@ -29,7 +29,15 @@ from .git import (
     get_current_branch,
     merge_branch,
 )
-from .models import AgentResult, AgentSpec, MergeResult, SwarmStatusResponse
+from .models import (
+    AgentResult,
+    AgentSpec,
+    DAGEdge,
+    DAGNode,
+    MergeResult,
+    SwarmDAGResponse,
+    SwarmStatusResponse,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,6 +50,59 @@ MAX_OUTPUT_SIZE = 50 * 1024
 
 # Threshold for generating summary (1000 chars)
 SUMMARY_THRESHOLD = 1000
+
+
+def detect_dependency_cycle(agents: list[AgentSpec]) -> list[str] | None:
+    """Detect cycles in agent dependencies using DFS.
+
+    Args:
+        agents: List of agent specifications with depends_on fields
+
+    Returns:
+        List of agent names forming a cycle, or None if no cycle exists
+    """
+    # Build adjacency list: agent -> agents it depends on
+    adj: dict[str, list[str]] = {}
+    agent_names = {spec.name for spec in agents}
+
+    for spec in agents:
+        deps = []
+        if spec.depends_on:
+            for dep in spec.depends_on:
+                if dep.agent in agent_names:
+                    deps.append(dep.agent)
+        adj[spec.name] = deps
+
+    # DFS with path tracking (0=unvisited, 1=in progress, 2=done)
+    visiting, visited = 1, 2
+    state = {name: 0 for name in agent_names}
+    path: list[str] = []
+
+    def dfs(node: str) -> list[str] | None:
+        state[node] = visiting
+        path.append(node)
+
+        for neighbor in adj.get(node, []):
+            if state[neighbor] == visiting:
+                # Found cycle - extract it from path
+                cycle_start = path.index(neighbor)
+                return path[cycle_start:] + [neighbor]
+            if state[neighbor] == 0:
+                result = dfs(neighbor)
+                if result:
+                    return result
+
+        path.pop()
+        state[node] = visited
+        return None
+
+    for name in agent_names:
+        if state[name] == 0:
+            cycle = dfs(name)
+            if cycle:
+                return cycle
+
+    return None
 
 
 @dataclass
@@ -98,6 +159,12 @@ class SwarmCoordinator:
                 base_branch = await get_current_branch(working_dir)
             except Exception as e:
                 logger.warning("Failed to get current branch: {}", e)
+
+        # Validate no cycles in dependencies
+        cycle = detect_dependency_cycle(agents)
+        if cycle:
+            cycle_str = " -> ".join(cycle)
+            raise ValueError(f"Circular dependency detected: {cycle_str}")
 
         async with self.session_factory() as db:
             # Verify parent session exists if provided
@@ -922,6 +989,113 @@ class SwarmCoordinator:
                 auto_synthesize=swarm.auto_synthesize,
                 synthesis_output=swarm.synthesis_output,
                 synthesis_summary=swarm.synthesis_summary,
+            )
+
+    async def get_swarm_dag(self, swarm_id: int) -> SwarmDAGResponse:
+        """Get DAG representation of swarm for visualization.
+
+        Computes topological levels and critical path for graph layout.
+        """
+        async with self.session_factory() as db:
+            swarm = await db.get(Swarm, swarm_id, options=[selectinload(Swarm.agents)])
+            if not swarm:
+                raise ValueError(f"Swarm {swarm_id} not found")
+
+            # Build lookup maps
+            id_to_agent = {a.id: a for a in swarm.agents}
+            name_to_agent = {a.name: a for a in swarm.agents}
+
+            # Compute topological levels (0 = no dependencies)
+            levels: dict[str, int] = {}
+
+            def compute_level(agent_name: str) -> int:
+                if agent_name in levels:
+                    return levels[agent_name]
+
+                agent = name_to_agent.get(agent_name)
+                if not agent or not agent.depends_on:
+                    levels[agent_name] = 0
+                    return 0
+
+                max_dep_level = -1
+                for dep_spec in agent.depends_on:
+                    dep_agent = id_to_agent.get(dep_spec.get("agent_id"))
+                    if dep_agent:
+                        max_dep_level = max(max_dep_level, compute_level(dep_agent.name))
+
+                levels[agent_name] = max_dep_level + 1
+                return levels[agent_name]
+
+            for agent in swarm.agents:
+                compute_level(agent.name)
+
+            # Build nodes
+            nodes = [
+                DAGNode(
+                    id=a.id,
+                    name=a.name,
+                    role=a.role,
+                    status=SwarmStatus(a.status),
+                    level=levels.get(a.name, 0),
+                    started_at=a.started_at,
+                    completed_at=a.completed_at,
+                    error_message=a.error_message,
+                )
+                for a in swarm.agents
+            ]
+
+            # Build edges
+            edges = []
+            for agent in swarm.agents:
+                if agent.depends_on:
+                    for dep_spec in agent.depends_on:
+                        dep_agent = id_to_agent.get(dep_spec.get("agent_id"))
+                        if dep_agent:
+                            edges.append(
+                                DAGEdge(
+                                    source=dep_agent.name,
+                                    target=agent.name,
+                                    include_mode=dep_spec.get("include", "summary"),
+                                )
+                            )
+
+            # Compute critical path (longest path through the DAG)
+            # Use dynamic programming on topological order
+            max_level = max(levels.values()) if levels else 0
+            critical_path: list[str] | None = None
+
+            if max_level > 0:
+                # For each node, track the longest path ending at that node
+                path_to: dict[str, list[str]] = {a.name: [a.name] for a in swarm.agents}
+
+                # Process in topological order (by level)
+                for level in range(1, max_level + 1):
+                    for agent in swarm.agents:
+                        if levels.get(agent.name) != level:
+                            continue
+                        if not agent.depends_on:
+                            continue
+
+                        # Find longest path among dependencies
+                        longest_dep_path: list[str] = []
+                        for dep_spec in agent.depends_on:
+                            dep_agent = id_to_agent.get(dep_spec.get("agent_id"))
+                            if dep_agent and len(path_to[dep_agent.name]) > len(longest_dep_path):
+                                longest_dep_path = path_to[dep_agent.name]
+
+                        path_to[agent.name] = longest_dep_path + [agent.name]
+
+                # Find the longest path overall
+                critical_path = max(path_to.values(), key=len)
+
+            return SwarmDAGResponse(
+                swarm_id=swarm.id,
+                name=swarm.name,
+                status=SwarmStatus(swarm.status),
+                nodes=nodes,
+                edges=edges,
+                max_level=max_level,
+                critical_path=critical_path,
             )
 
     async def wait_for_agents(

@@ -224,3 +224,38 @@ class MergeRequest(BaseModel):
         default="sequential",
         description="Merge strategy: 'sequential' (one by one) or 'squash'",
     )
+
+
+class DAGNode(BaseModel):
+    """A node in the swarm dependency graph."""
+
+    id: int = Field(description="Agent database ID")
+    name: str = Field(description="Agent name")
+    role: str = Field(description="Agent role (implementation, review, etc.)")
+    status: SwarmStatus = Field(description="Current execution status")
+    level: int = Field(description="Topological level (0 = no dependencies)")
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+
+
+class DAGEdge(BaseModel):
+    """An edge in the swarm dependency graph."""
+
+    source: str = Field(description="Source agent name (dependency)")
+    target: str = Field(description="Target agent name (dependent)")
+    include_mode: str = Field(description="Output injection mode (summary/full/none)")
+
+
+class SwarmDAGResponse(BaseModel):
+    """DAG representation of swarm for visualization."""
+
+    swarm_id: int
+    name: str
+    status: SwarmStatus
+    nodes: list[DAGNode]
+    edges: list[DAGEdge]
+    max_level: int = Field(description="Highest topological level in the graph")
+    critical_path: list[str] | None = Field(
+        default=None, description="Agent names on the critical path (longest chain)"
+    )
