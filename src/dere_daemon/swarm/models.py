@@ -154,6 +154,12 @@ class SwarmStatusResponse(BaseModel):
     synthesis_output: str | None = None
     synthesis_summary: str | None = None
 
+    # DAG analysis
+    critical_path: list[str] | None = Field(
+        default=None,
+        description="Agent names on the critical path (longest dependency chain)",
+    )
+
 
 class MergeResult(BaseModel):
     """Result of branch merge operation."""

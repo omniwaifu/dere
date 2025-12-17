@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -236,24 +236,81 @@ async def get_swarm(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.get("/{swarm_id}/dag", response_model=SwarmDAGResponse)
+@router.get("/{swarm_id}/dag")
 async def get_swarm_dag(
     swarm_id: int,
     request: Request,
+    format: str = "json",
 ):
     """Get DAG representation of swarm for visualization.
 
+    Args:
+        format: Output format - "json" (default) or "dot" (graphviz)
+
     Returns nodes with topological levels and edges with include modes.
-    Useful for rendering dependency graphs in UI.
+    Useful for rendering dependency graphs in UI or generating diagrams.
+
+    DOT format can be piped to graphviz:
+        curl .../swarm/42/dag?format=dot | dot -Tpng > swarm.png
     """
     coordinator = getattr(request.app.state, "swarm_coordinator", None)
     if not coordinator:
         raise HTTPException(status_code=503, detail="Swarm coordinator not available")
 
     try:
-        return await coordinator.get_swarm_dag(swarm_id)
+        dag = await coordinator.get_swarm_dag(swarm_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+    if format == "dot":
+        return Response(content=_dag_to_dot(dag), media_type="text/vnd.graphviz")
+
+    return dag
+
+
+def _dag_to_dot(dag: SwarmDAGResponse) -> str:
+    """Convert DAG response to Graphviz DOT format."""
+    lines = [
+        f'digraph "{dag.name}" {{',
+        "  rankdir=LR;",
+        "  node [shape=box, style=rounded];",
+        "",
+    ]
+
+    # Status to color mapping
+    colors = {
+        "pending": "gray",
+        "running": "dodgerblue",
+        "completed": "green",
+        "failed": "red",
+        "cancelled": "orange",
+        "skipped": "lightgray",
+    }
+
+    # Critical path nodes (bold outline)
+    critical = set(dag.critical_path or [])
+
+    # Add nodes
+    for node in dag.nodes:
+        color = colors.get(node.status.value, "gray")
+        label = f"{node.name}\\n[{node.status.value}]"
+        style = "rounded,bold" if node.name in critical else "rounded"
+        penwidth = "2.0" if node.name in critical else "1.0"
+        lines.append(
+            f'  "{node.name}" [label="{label}", color={color}, '
+            f"style={style}, penwidth={penwidth}];"
+        )
+
+    lines.append("")
+
+    # Add edges
+    for edge in dag.edges:
+        style = "solid" if edge.include_mode != "none" else "dashed"
+        label = "" if edge.include_mode == "summary" else f" [{edge.include_mode}]"
+        lines.append(f'  "{edge.source}" -> "{edge.target}" [style={style}, label="{label}"];')
+
+    lines.append("}")
+    return "\n".join(lines)
 
 
 @router.post("/{swarm_id}/start")
@@ -269,6 +326,48 @@ async def start_swarm(
     try:
         await coordinator.start_swarm(swarm_id)
         return {"status": "started", "swarm_id": swarm_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class ResumeRequest(BaseModel):
+    """Request to resume a failed swarm."""
+
+    from_agents: list[str] | None = Field(
+        default=None,
+        description="Specific agent names to re-run. If None, re-runs all failed agents.",
+    )
+    reset_failed: bool = Field(
+        default=True,
+        description="If True and from_agents is None, reset all failed/cancelled agents",
+    )
+
+
+@router.post("/{swarm_id}/resume")
+async def resume_swarm(
+    swarm_id: int,
+    req: ResumeRequest,
+    request: Request,
+):
+    """Resume a failed or partially completed swarm.
+
+    Resets failed agents to pending and re-executes them.
+    Already-completed agents are skipped (their outputs are preserved).
+
+    Examples:
+        - Resume all failed agents: POST /swarm/42/resume {}
+        - Resume specific agent: POST /swarm/42/resume {"from_agents": ["reviewer"]}
+    """
+    coordinator = getattr(request.app.state, "swarm_coordinator", None)
+    if not coordinator:
+        raise HTTPException(status_code=503, detail="Swarm coordinator not available")
+
+    try:
+        return await coordinator.resume_swarm(
+            swarm_id,
+            from_agents=req.from_agents,
+            reset_failed=req.reset_failed,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

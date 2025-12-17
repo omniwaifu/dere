@@ -187,6 +187,72 @@ def evaluate_condition(condition: str, output_text: str | None) -> tuple[bool, s
         return False, f"Condition evaluation error: {e}"
 
 
+def compute_critical_path(agents: list) -> list[str] | None:
+    """Compute the critical path (longest dependency chain) through agents.
+
+    Args:
+        agents: List of SwarmAgent database objects with depends_on field
+
+    Returns:
+        List of agent names on the critical path, or None if no dependencies
+    """
+    if not agents:
+        return None
+
+    # Build lookup maps
+    id_to_agent = {a.id: a for a in agents}
+    name_to_agent = {a.name: a for a in agents}
+
+    # Compute topological levels
+    levels: dict[str, int] = {}
+
+    def compute_level(agent_name: str) -> int:
+        if agent_name in levels:
+            return levels[agent_name]
+
+        agent = name_to_agent.get(agent_name)
+        if not agent or not agent.depends_on:
+            levels[agent_name] = 0
+            return 0
+
+        max_dep_level = -1
+        for dep_spec in agent.depends_on:
+            dep_agent = id_to_agent.get(dep_spec.get("agent_id"))
+            if dep_agent:
+                max_dep_level = max(max_dep_level, compute_level(dep_agent.name))
+
+        levels[agent_name] = max_dep_level + 1
+        return levels[agent_name]
+
+    for agent in agents:
+        compute_level(agent.name)
+
+    max_level = max(levels.values()) if levels else 0
+
+    if max_level == 0:
+        return None
+
+    # Compute critical path using dynamic programming
+    path_to: dict[str, list[str]] = {a.name: [a.name] for a in agents}
+
+    for level in range(1, max_level + 1):
+        for agent in agents:
+            if levels.get(agent.name) != level:
+                continue
+            if not agent.depends_on:
+                continue
+
+            longest_dep_path: list[str] = []
+            for dep_spec in agent.depends_on:
+                dep_agent = id_to_agent.get(dep_spec.get("agent_id"))
+                if dep_agent and len(path_to[dep_agent.name]) > len(longest_dep_path):
+                    longest_dep_path = path_to[dep_agent.name]
+
+            path_to[agent.name] = longest_dep_path + [agent.name]
+
+    return max(path_to.values(), key=len)
+
+
 @dataclass
 class SwarmCoordinator:
     """Coordinates spawning and management of agent swarms."""
@@ -458,6 +524,113 @@ class SwarmCoordinator:
                 self._running_tasks[agent.id] = task
 
         logger.info("Started swarm {} with {} agents", swarm_id, len(swarm.agents))
+
+    async def resume_swarm(
+        self,
+        swarm_id: int,
+        from_agents: list[str] | None = None,
+        reset_failed: bool = True,
+    ) -> dict:
+        """Resume a failed or partially completed swarm.
+
+        Args:
+            swarm_id: The swarm to resume
+            from_agents: Specific agent names to re-run. If None and reset_failed=True,
+                         re-runs all failed/cancelled agents.
+            reset_failed: If True and from_agents is None, reset all failed agents
+
+        Returns:
+            Dict with resume status and affected agents
+        """
+        async with self.session_factory() as db:
+            swarm = await db.get(Swarm, swarm_id, options=[selectinload(Swarm.agents)])
+            if not swarm:
+                raise ValueError(f"Swarm {swarm_id} not found")
+
+            # Determine which agents to reset
+            agents_to_reset: list[SwarmAgent] = []
+
+            if from_agents:
+                # Reset specific agents
+                name_to_agent = {a.name: a for a in swarm.agents}
+                for name in from_agents:
+                    if name not in name_to_agent:
+                        raise ValueError(f"Agent '{name}' not found in swarm")
+                    agents_to_reset.append(name_to_agent[name])
+            elif reset_failed:
+                # Reset all failed/cancelled agents
+                agents_to_reset = [
+                    a
+                    for a in swarm.agents
+                    if a.status in (SwarmStatus.FAILED.value, SwarmStatus.CANCELLED.value)
+                ]
+
+            if not agents_to_reset:
+                return {
+                    "status": "no_action",
+                    "message": "No agents to reset",
+                    "swarm_id": swarm_id,
+                }
+
+            # Reset the specified agents
+            reset_names = []
+            for agent in agents_to_reset:
+                agent.status = SwarmStatus.PENDING.value
+                agent.started_at = None
+                agent.completed_at = None
+                agent.output_text = None
+                agent.output_summary = None
+                agent.error_message = None
+                agent.tool_count = 0
+                reset_names.append(agent.name)
+
+            # Reset swarm status to running
+            swarm.status = SwarmStatus.RUNNING.value
+            swarm.completed_at = None
+
+            await db.commit()
+
+        # Set up completion events
+        async with self.session_factory() as db:
+            swarm = await db.get(Swarm, swarm_id, options=[selectinload(Swarm.agents)])
+
+            for agent in swarm.agents:
+                # Create event for each agent
+                self._completion_events[agent.id] = asyncio.Event()
+
+                # Pre-signal completion for already-completed agents
+                if agent.status in (
+                    SwarmStatus.COMPLETED.value,
+                    SwarmStatus.SKIPPED.value,
+                ):
+                    self._completion_events[agent.id].set()
+
+        # Start tasks for agents that need to run
+        async with self.session_factory() as db:
+            swarm = await db.get(Swarm, swarm_id, options=[selectinload(Swarm.agents)])
+
+            started_count = 0
+            for agent in swarm.agents:
+                if agent.status == SwarmStatus.PENDING.value:
+                    task = asyncio.create_task(
+                        self._execute_agent_with_dependencies(agent.id)
+                    )
+                    self._running_tasks[agent.id] = task
+                    started_count += 1
+
+        logger.info(
+            "Resumed swarm {} - reset {} agents, started {} tasks",
+            swarm_id,
+            len(reset_names),
+            started_count,
+        )
+
+        return {
+            "status": "resumed",
+            "swarm_id": swarm_id,
+            "reset_agents": reset_names,
+            "started_count": started_count,
+        }
 
     async def _create_agent_branches(self, swarm: Swarm) -> None:
         """Create git branches for all agents in the swarm."""
@@ -1126,6 +1299,9 @@ class SwarmCoordinator:
                 for a in swarm.agents
             ]
 
+            # Compute critical path
+            critical_path = compute_critical_path(swarm.agents)
+
             return SwarmStatusResponse(
                 swarm_id=swarm.id,
                 name=swarm.name,
@@ -1141,6 +1317,7 @@ class SwarmCoordinator:
                 auto_synthesize=swarm.auto_synthesize,
                 synthesis_output=swarm.synthesis_output,
                 synthesis_summary=swarm.synthesis_summary,
+                critical_path=critical_path,
             )
 
     async def get_swarm_dag(self, swarm_id: int) -> SwarmDAGResponse:
@@ -1211,34 +1388,9 @@ class SwarmCoordinator:
                                 )
                             )
 
-            # Compute critical path (longest path through the DAG)
-            # Use dynamic programming on topological order
+            # Compute critical path and max level
             max_level = max(levels.values()) if levels else 0
-            critical_path: list[str] | None = None
-
-            if max_level > 0:
-                # For each node, track the longest path ending at that node
-                path_to: dict[str, list[str]] = {a.name: [a.name] for a in swarm.agents}
-
-                # Process in topological order (by level)
-                for level in range(1, max_level + 1):
-                    for agent in swarm.agents:
-                        if levels.get(agent.name) != level:
-                            continue
-                        if not agent.depends_on:
-                            continue
-
-                        # Find longest path among dependencies
-                        longest_dep_path: list[str] = []
-                        for dep_spec in agent.depends_on:
-                            dep_agent = id_to_agent.get(dep_spec.get("agent_id"))
-                            if dep_agent and len(path_to[dep_agent.name]) > len(longest_dep_path):
-                                longest_dep_path = path_to[dep_agent.name]
-
-                        path_to[agent.name] = longest_dep_path + [agent.name]
-
-                # Find the longest path overall
-                critical_path = max(path_to.values(), key=len)
+            critical_path = compute_critical_path(swarm.agents)
 
             return SwarmDAGResponse(
                 swarm_id=swarm.id,
