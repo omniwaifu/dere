@@ -277,6 +277,21 @@ class EventOutcome(BaseModel):
     affected_goals: list[str] = []
     desirability: float = Field(default=0, ge=-10, le=10)
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, v: Any) -> str | None:
+        """Normalize LLM's creative type values to valid literals."""
+        if v is None:
+            return None
+        v_str = str(v).lower().strip()
+        # Map common variations to valid values
+        if v_str in ("desirable", "positive", "good"):
+            return "desirable"
+        if v_str in ("undesirable", "negative", "bad"):
+            return "undesirable"
+        # Anything else (including 'mixed', 'ambiguous', etc.) becomes neutral
+        return "neutral"
+
 
 class AgentAction(BaseModel):
     """Agent action appraisal"""
@@ -286,6 +301,19 @@ class AgentAction(BaseModel):
     affected_standards: list[str] = []
     praiseworthiness: float = Field(default=0, ge=-10, le=10)
 
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, v: Any) -> str | None:
+        """Normalize LLM's creative type values to valid literals."""
+        if v is None:
+            return None
+        v_str = str(v).lower().strip()
+        if v_str in ("praiseworthy", "positive", "good", "admirable"):
+            return "praiseworthy"
+        if v_str in ("blameworthy", "negative", "bad", "shameful"):
+            return "blameworthy"
+        return "neutral"
+
 
 class ObjectAttribute(BaseModel):
     """Object aspect appraisal"""
@@ -294,6 +322,19 @@ class ObjectAttribute(BaseModel):
     type: Literal["appealing", "unappealing", "neutral"] | None = None
     affected_attitudes: list[str] = []
     appealingness: float = Field(default=0, ge=-10, le=10)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def normalize_type(cls, v: Any) -> str | None:
+        """Normalize LLM's creative type values to valid literals."""
+        if v is None:
+            return None
+        v_str = str(v).lower().strip()
+        if v_str in ("appealing", "positive", "good", "attractive"):
+            return "appealing"
+        if v_str in ("unappealing", "negative", "bad", "repulsive"):
+            return "unappealing"
+        return "neutral"
 
 
 class EmotionSchemaOutput(BaseModel):

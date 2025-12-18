@@ -46,7 +46,7 @@ def _unwrap_tool_payload(candidate: Any) -> Any:
 
         # Single-key wrappers
         found = False
-        for key in ("parameters", "parameter", "arguments", "argument", "input", "output", "data", "object"):
+        for key in ("parameters", "parameter", "arguments", "argument", "input", "output", "data", "object", "content", "result"):
             if key in candidate and len(candidate) == 1:
                 candidate = candidate[key]
                 found = True
