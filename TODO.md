@@ -97,6 +97,11 @@ These unlock everything else; do them first.
   - Current state: facts are represented as `Fact` nodes with role edges (`HAS_ROLE`) to entities, embedded for retrieval,
     indexed for fulltext search, and included in context with citations and role formatting; pairwise edges remain for fast
     retrieval.
+- [x] **Deduplicate hyper-edge facts and invalidate contradictions**
+  - Why: without dedupe, repeated fact extraction bloats the graph; contradictions must be invalidated for temporal queries.
+  - Current state: fact dedupe compares new facts (with roles) against existing candidate facts; duplicates merge episodes and
+    attributes, contradictions are invalidated with `invalid_at`.
+  - Files: `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/driver.py`, `src/dere_graph/dere_graph/prompts.py`
 
 ---
 
@@ -128,6 +133,10 @@ These unlock everything else; do them first.
 - [x] **Context assembly + citations back to episodes**
   - Why: “brain” is only useful if the agent can quote/prove where facts came from (and avoid stale/invalid facts).
   - Current state: context building now annotates facts with episode-derived citations and short excerpts.
+- [x] **Expose hyper-edge fact search + roles via the KG API**
+  - Why: external callers need structured fact retrieval (including role bindings and point-in-time filters).
+  - Current state: `/kg/search` returns facts + roles, with fact-only search and point-in-time fact endpoints.
+  - Files: `src/dere_daemon/routers/knowledge_graph.py`, `src/dere_graph/dere_graph/graph.py`, `src/dere_graph/dere_graph/driver.py`
 
 ---
 
@@ -140,6 +149,10 @@ These unlock everything else; do them first.
 - [x] **Add ingestion/retrieval evaluation harness**
   - Why: regression prevention; prompts will drift. Need a repeatable suite of “known conversations → expected facts”.
   - Current state: eval harness supports scoring search results against expected entities/facts with a sample dataset and CLI runner.
+- [x] **Role-aware eval expectations for fact roles**
+  - Why: hyper-edge facts need validation beyond raw text matching; roles should be explicitly scored.
+  - Current state: eval queries can specify expected fact roles and minimum role hits; reports include role scoring.
+  - Files: `src/dere_graph/dere_graph/evals.py`, `src/dere_graph/tests/test_evals.py`, `src/dere_graph/tests/data/eval_cases.json`
 
 - [ ] **Optional: reduce dependency costs**
   - Why: current design still pays OpenAI for embeddings; consider local embeddings or a cheaper provider if needed.

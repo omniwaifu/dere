@@ -656,6 +656,31 @@ class FalkorDriver:
             return None
         return self._dict_to_fact_node(records[0]["fact"])
 
+    async def get_facts_by_entities(
+        self,
+        entity_uuids: list[str],
+        group_id: str,
+        limit: int = 10,
+    ) -> list[FactNode]:
+        if not entity_uuids:
+            return []
+
+        records = await self.execute_query(
+            """
+            MATCH (fact:Fact)-[:HAS_ROLE]->(entity:Entity)
+            WHERE entity.uuid IN $entity_uuids
+              AND fact.group_id = $group_id
+              AND fact.invalid_at IS NULL
+            RETURN DISTINCT fact AS fact
+            LIMIT $limit
+            """,
+            entity_uuids=entity_uuids,
+            group_id=group_id,
+            limit=limit,
+        )
+
+        return [self._dict_to_fact_node(record["fact"]) for record in records]
+
     async def get_fact_roles(
         self,
         fact_uuids: list[str],
@@ -790,6 +815,18 @@ class FalkorDriver:
             invalid_at=invalid_at,
         )
         logger.debug(f"Invalidated EntityEdge: {edge_uuid}")
+
+    async def invalidate_fact(self, fact_uuid: str, invalid_at: datetime) -> None:
+        """Invalidate a fact node by setting its invalid_at timestamp."""
+        await self.execute_query(
+            """
+            MATCH (f:Fact {uuid: $uuid})
+            SET f.invalid_at = $invalid_at
+            """,
+            uuid=fact_uuid,
+            invalid_at=invalid_at,
+        )
+        logger.debug(f"Invalidated FactNode: {fact_uuid}")
 
     async def save_episodic_edge(self, edge: EpisodicEdge) -> None:
         await self.execute_query(

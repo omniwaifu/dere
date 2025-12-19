@@ -205,6 +205,17 @@ class EdgeDuplicate(BaseModel):
     fact_type: str = Field(..., description="One of the provided fact types or DEFAULT")
 
 
+# Response Models for Fact Deduplication
+class FactDuplicate(BaseModel):
+    duplicate_facts: list[int] = Field(
+        default_factory=list,
+        description="List of idx values of any duplicate facts. If no duplicates found, empty list.",
+    )
+    contradicted_facts: list[int] = Field(
+        default_factory=list,
+        description="List of idx values of facts that should be invalidated.",
+    )
+
 # Prompts for Entity Extraction
 def extract_entities_text(
     episode_content: str,
@@ -537,6 +548,34 @@ You may use information from the PREVIOUS MESSAGES only to disambiguate referenc
 - If only a date is mentioned (no time), assume 00:00:00.
 - If only a year is mentioned, use January 1st at 00:00:00.
 """
+    return [
+        Message(role="system", content=sys_prompt),
+        Message(role="user", content=user_prompt),
+    ]
+
+
+def dedupe_facts(
+    new_fact: dict[str, Any],
+    existing_facts: list[dict[str, Any]],
+) -> list[Message]:
+    sys_prompt = """You are a helpful assistant that de-duplicates facts and flags contradictions.
+You will receive a NEW FACT and a list of EXISTING FACTS with role bindings.
+
+Return JSON with:
+- duplicate_facts: idx values from EXISTING FACTS that mean the same thing as NEW FACT
+- contradicted_facts: idx values from EXISTING FACTS that are contradicted by NEW FACT
+
+If none, return empty lists.
+"""
+
+    user_prompt = f"""
+NEW_FACT:
+{new_fact}
+
+EXISTING_FACTS:
+{existing_facts}
+"""
+
     return [
         Message(role="system", content=sys_prompt),
         Message(role="user", content=user_prompt),

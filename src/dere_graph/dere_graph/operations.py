@@ -16,6 +16,7 @@ from dere_graph.models import (
     EpisodicNode,
     FactNode,
     FactRoleEdge,
+    FactRoleDetail,
     apply_edge_schema,
     apply_entity_schema,
     validate_edge_types,
@@ -24,6 +25,7 @@ from dere_graph.models import (
 from dere_graph.prompts import (
     EdgeDateUpdates,
     EdgeDuplicate,
+    FactDuplicate,
     EntityAttributeUpdates,
     EntitySummaries,
     ExtractedEdges,
@@ -34,6 +36,7 @@ from dere_graph.prompts import (
     dedupe_entities,
     extract_edge_dates_batch,
     extract_edges,
+    dedupe_facts,
     extract_facts,
     extract_entities_text,
     hydrate_entity_attributes,
@@ -153,6 +156,14 @@ async def add_episode(
         resolved_nodes,
         previous_episodes,
     )
+    if fact_nodes:
+        fact_nodes, fact_role_edges = await deduplicate_fact_nodes(
+            driver,
+            llm_client,
+            episode,
+            fact_nodes,
+            fact_role_edges,
+        )
 
     # 7. Generate embeddings for nodes, edges, and facts
     # Find nodes that need embeddings (either new or existing without embeddings)
@@ -895,6 +906,130 @@ Avoid purely narrative or speculative statements.
 
     logger.debug(f"[FactExtraction] Extracted {len(resolved_facts)} fact nodes")
     return resolved_facts, fact_roles
+
+
+async def deduplicate_fact_nodes(
+    driver: FalkorDriver,
+    llm_client: ClaudeClient,
+    episode: EpisodicNode,
+    facts: list[FactNode],
+    fact_roles: list[FactRoleEdge],
+) -> tuple[list[FactNode], list[FactRoleEdge]]:
+    """Deduplicate fact nodes and invalidate contradicted facts."""
+    if not facts:
+        return [], []
+
+    roles_by_fact: dict[str, list[FactRoleEdge]] = {}
+    for role_edge in fact_roles:
+        roles_by_fact.setdefault(role_edge.source_node_uuid, []).append(role_edge)
+
+    deduped_facts: list[FactNode] = []
+    deduped_roles: list[FactRoleEdge] = []
+    seen_fact_uuids: set[str] = set()
+
+    for fact in facts:
+        roles = roles_by_fact.get(fact.uuid, [])
+        entity_uuids = list({role.target_node_uuid for role in roles})
+        if not entity_uuids:
+            if fact.uuid not in seen_fact_uuids:
+                deduped_facts.append(fact)
+                seen_fact_uuids.add(fact.uuid)
+            deduped_roles.extend(roles)
+            continue
+
+        candidate_facts = await driver.get_facts_by_entities(
+            entity_uuids=entity_uuids,
+            group_id=episode.group_id,
+            limit=5,
+        )
+        candidate_facts = [c for c in candidate_facts if c.uuid != fact.uuid]
+
+        if not candidate_facts:
+            if fact.uuid not in seen_fact_uuids:
+                deduped_facts.append(fact)
+                seen_fact_uuids.add(fact.uuid)
+            deduped_roles.extend(roles)
+            continue
+
+        candidate_roles = await driver.get_fact_roles(
+            [candidate.uuid for candidate in candidate_facts],
+            episode.group_id,
+        )
+        roles_by_candidate: dict[str, list[FactRoleDetail]] = {}
+        for role in candidate_roles:
+            roles_by_candidate.setdefault(role.fact_uuid, []).append(role)
+
+        entity_names: dict[str, str] = {}
+        for entity_uuid in entity_uuids:
+            entity = await driver.get_entity_by_uuid(entity_uuid)
+            entity_names[entity_uuid] = entity.name if entity else entity_uuid
+
+        new_fact_payload = {
+            "fact": fact.fact,
+            "roles": [
+                {
+                    "role": role.role,
+                    "entity": entity_names.get(role.target_node_uuid, role.target_node_uuid),
+                }
+                for role in roles
+            ],
+        }
+        existing_facts_payload = []
+        for idx, candidate in enumerate(candidate_facts):
+            existing_facts_payload.append(
+                {
+                    "idx": idx,
+                    "fact": candidate.fact,
+                    "roles": [
+                        {
+                            "role": role.role,
+                            "entity_name": role.entity_name,
+                        }
+                        for role in roles_by_candidate.get(candidate.uuid, [])
+                    ],
+                }
+            )
+
+        response = await llm_client.generate_response(
+            dedupe_facts(new_fact_payload, existing_facts_payload),
+            FactDuplicate,
+        )
+
+        if response.contradicted_facts:
+            for idx in response.contradicted_facts:
+                if 0 <= idx < len(candidate_facts):
+                    await driver.invalidate_fact(
+                        candidate_facts[idx].uuid,
+                        episode.valid_at,
+                    )
+
+        if response.duplicate_facts:
+            duplicate_idx = response.duplicate_facts[0]
+            if 0 <= duplicate_idx < len(candidate_facts):
+                existing = candidate_facts[duplicate_idx]
+                if episode.uuid not in existing.episodes:
+                    existing.episodes.append(episode.uuid)
+                if existing.valid_at is None and fact.valid_at is not None:
+                    existing.valid_at = fact.valid_at
+                if existing.invalid_at is None and fact.invalid_at is not None:
+                    existing.invalid_at = fact.invalid_at
+                for key, value in fact.attributes.items():
+                    if key not in existing.attributes:
+                        existing.attributes[key] = value
+                fact = existing
+
+        for role_edge in roles:
+            role_edge.source_node_uuid = fact.uuid
+            deduped_roles.append(role_edge)
+
+        if fact.uuid not in seen_fact_uuids:
+            deduped_facts.append(fact)
+            seen_fact_uuids.add(fact.uuid)
+
+    logger.debug(
+        "[FactExtraction] Deduplicated facts to {} unique nodes", len(deduped_facts)
+    )
+    return deduped_facts, deduped_roles
 
 
 def _parse_edge_date(value: str | None) -> datetime | None:
