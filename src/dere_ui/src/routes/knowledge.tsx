@@ -71,13 +71,12 @@ function KnowledgePage() {
         </TabsContent>
 
         <TabsContent value="analytics" className="mt-4">
-          <AnalyticsDashboard />
+          <div className="space-y-6">
+            <TimelineSummary />
+            <AnalyticsDashboard />
+          </div>
         </TabsContent>
       </Tabs>
-
-      <div className="mt-6">
-        <TimelineSummary />
-      </div>
     </div>
   );
 }
