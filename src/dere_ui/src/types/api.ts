@@ -645,10 +645,13 @@ export interface KGTopEntity {
 
 export interface KGStatsResponse {
   total_entities: number;
+  total_facts: number;
   total_edges: number;
   total_communities: number;
   top_mentioned: KGTopEntity[];
   top_quality: KGTopEntity[];
+  top_fact_roles: { role: string; count: number }[];
+  top_fact_entities: { uuid: string; name: string; labels: string[]; count: number }[];
   label_distribution: Record<string, number>;
 }
 

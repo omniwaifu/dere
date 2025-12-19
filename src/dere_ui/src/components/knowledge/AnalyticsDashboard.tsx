@@ -1,4 +1,4 @@
-import { Brain, Network, Users, Hash, TrendingUp, Star } from "lucide-react";
+import { Brain, Network, Users, Hash, TrendingUp, Star, FileText, Target } from "lucide-react";
 import { useKGStats, useKGCommunities } from "@/hooks/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -115,6 +115,74 @@ function TopEntitiesList({
   );
 }
 
+function TopFactRolesList({ roles }: { roles: { role: string; count: number }[] }) {
+  if (roles.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+        No fact roles found
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {roles.map((role, index) => (
+        <div
+          key={`${role.role}-${index}`}
+          className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-sm"
+        >
+          <span className="font-medium">{role.role}</span>
+          <span className="text-muted-foreground">{role.count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TopFactEntitiesList({
+  entities,
+}: {
+  entities: { uuid: string; name: string; labels: string[]; count: number }[];
+}) {
+  if (entities.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+        No fact entities found
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-[200px]">
+      <div className="space-y-2 pr-4">
+        {entities.map((entity, index) => (
+          <div
+            key={entity.uuid}
+            className="flex items-center gap-3 rounded-lg border border-border bg-card p-2"
+          >
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
+              {index + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate text-sm">{entity.name}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                {entity.labels.slice(0, 2).map((label) => (
+                  <Badge key={label} variant="outline" className="text-xs py-0 px-1.5">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="text-sm font-medium text-muted-foreground">
+              {entity.count}
+            </div>
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
+  );
+}
+
 function CommunitiesList() {
   const { data, isLoading } = useKGCommunities(10);
 
@@ -190,12 +258,18 @@ export function AnalyticsDashboard() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatCard
           title="Entities"
           value={stats?.total_entities ?? 0}
           icon={<Brain className="h-4 w-4" />}
           description="Total knowledge entities"
+        />
+        <StatCard
+          title="Facts"
+          value={stats?.total_facts ?? 0}
+          icon={<FileText className="h-4 w-4" />}
+          description="Hyper-edge fact nodes"
         />
         <StatCard
           title="Relationships"
@@ -237,6 +311,21 @@ export function AnalyticsDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
+              <Target className="h-4 w-4" />
+              Top Fact Roles
+            </CardTitle>
+            <CardDescription>Most common roles in facts</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TopFactRolesList roles={stats?.top_fact_roles ?? []} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               <Star className="h-4 w-4" />
               Top by Quality
             </CardTitle>
@@ -247,6 +336,19 @@ export function AnalyticsDashboard() {
               entities={stats?.top_quality ?? []}
               metric="quality"
             />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Top Fact Entities
+            </CardTitle>
+            <CardDescription>Entities most referenced in facts</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TopFactEntitiesList entities={stats?.top_fact_entities ?? []} />
           </CardContent>
         </Card>
       </div>

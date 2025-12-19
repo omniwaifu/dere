@@ -111,14 +111,33 @@ class TopEntity(BaseModel):
     retrieval_quality: float
 
 
+class TopFactRole(BaseModel):
+    """Role summary for fact stats."""
+
+    role: str
+    count: int
+
+
+class TopFactEntity(BaseModel):
+    """Entity summary for fact stats."""
+
+    uuid: str
+    name: str
+    labels: list[str]
+    count: int
+
+
 class KGStatsResponse(BaseModel):
     """Knowledge graph statistics."""
 
     total_entities: int
+    total_facts: int
     total_edges: int
     total_communities: int
     top_mentioned: list[TopEntity]
     top_quality: list[TopEntity]
+    top_fact_roles: list[TopFactRole]
+    top_fact_entities: list[TopFactEntity]
     label_distribution: dict[str, int]
 
 
@@ -198,10 +217,13 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
     if not app_state.dere_graph:
         return KGStatsResponse(
             total_entities=0,
+            total_facts=0,
             total_edges=0,
             total_communities=0,
             top_mentioned=[],
             top_quality=[],
+            top_fact_roles=[],
+            top_fact_entities=[],
             label_distribution={},
         )
 
@@ -214,6 +236,13 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
             group_id=group_id,
         )
         total_entities = entity_count_result[0]["count"] if entity_count_result else 0
+
+        # Count fact nodes
+        fact_count_result = await driver.execute_query(
+            "MATCH (f:Fact {group_id: $group_id}) RETURN count(f) as count",
+            group_id=group_id,
+        )
+        total_facts = fact_count_result[0]["count"] if fact_count_result else 0
 
         # Count edges
         edge_count_result = await driver.execute_query(
@@ -265,6 +294,41 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
             for r in top_quality_result
         ]
 
+        # Top fact roles
+        top_role_result = await driver.execute_query(
+            """
+            MATCH (f:Fact {group_id: $group_id})-[r:HAS_ROLE]->()
+            WHERE r.role IS NOT NULL
+            RETURN r.role AS role, count(*) AS count
+            ORDER BY count DESC
+            LIMIT 5
+            """,
+            group_id=group_id,
+        )
+        top_fact_roles = [
+            TopFactRole(role=r["role"], count=r["count"]) for r in top_role_result
+        ]
+
+        # Top entities referenced by fact roles
+        top_fact_entities_result = await driver.execute_query(
+            """
+            MATCH (f:Fact {group_id: $group_id})-[r:HAS_ROLE]->(e:Entity {group_id: $group_id})
+            RETURN e.uuid AS uuid, e.name AS name, e.labels AS labels, count(*) AS count
+            ORDER BY count DESC
+            LIMIT 5
+            """,
+            group_id=group_id,
+        )
+        top_fact_entities = [
+            TopFactEntity(
+                uuid=r["uuid"],
+                name=r["name"],
+                labels=r.get("labels", []),
+                count=r["count"],
+            )
+            for r in top_fact_entities_result
+        ]
+
         # Get label distribution
         label_result = await driver.execute_query(
             """
@@ -292,20 +356,26 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
 
         return KGStatsResponse(
             total_entities=total_entities,
+            total_facts=total_facts,
             total_edges=total_edges,
             total_communities=total_communities,
             top_mentioned=top_mentioned,
             top_quality=top_quality,
+            top_fact_roles=top_fact_roles,
+            top_fact_entities=top_fact_entities,
             label_distribution=label_distribution,
         )
     except Exception as e:
         logger.error(f"KG stats retrieval failed: {e}")
         return KGStatsResponse(
             total_entities=0,
+            total_facts=0,
             total_edges=0,
             total_communities=0,
             top_mentioned=[],
             top_quality=[],
+            top_fact_roles=[],
+            top_fact_entities=[],
             label_distribution={},
         )
 
