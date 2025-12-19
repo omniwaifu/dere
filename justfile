@@ -20,7 +20,7 @@ test:
 
 # Run knowledge graph evals
 kg-eval ARGS="":
-    load-openai && uv run python -m dere_graph.eval_cli {{ARGS}}
+    zsh -ic 'load-openai && uv run python -m dere_graph.eval_cli {{ARGS}}'
 
 # Run linting
 lint:
