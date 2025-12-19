@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 import numpy as np
 from loguru import logger
@@ -8,6 +9,19 @@ from loguru import logger
 from dere_graph.driver import FalkorDriver
 from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import CommunityNode, EntityNode
+
+
+@dataclass
+class CommunityBuildResult:
+    community: CommunityNode
+    member_uuids: list[str]
+
+
+def _build_community_name(members: list[EntityNode], fallback: str) -> str:
+    names = sorted({member.name for member in members if member.name})
+    if not names:
+        return fallback
+    return "Community: " + ", ".join(names[:3])
 
 
 class CommunityDetector:
@@ -21,7 +35,7 @@ class CommunityDetector:
         self,
         group_id: str,
         resolution: float = 1.0,
-    ) -> list[CommunityNode]:
+    ) -> list[CommunityBuildResult]:
         """Build communities using Leiden algorithm and summarize with LLM.
 
         Args:
@@ -29,7 +43,7 @@ class CommunityDetector:
             resolution: Resolution parameter for Leiden (higher = more communities)
 
         Returns:
-            List of CommunityNode objects with summaries
+            List of CommunityBuildResult objects with summaries and member UUIDs
         """
         # Fetch all entities and edges for this group
         entities, edges = await self._fetch_graph_data(group_id)
@@ -54,20 +68,26 @@ class CommunityDetector:
         logger.info(f"Detected {len(community_groups)} communities")
 
         # Create CommunityNode objects and generate summaries
-        community_nodes = []
+        community_nodes: list[CommunityBuildResult] = []
         for community_id, members in community_groups.items():
             if len(members) < 2:
                 continue  # Skip single-entity communities
 
             # Generate summary using LLM
             summary = await self._summarize_community(members, edges, entity_to_idx)
+            name = _build_community_name(members, f"Community {community_id}")
 
             community_node = CommunityNode(
-                name=f"Community {community_id}",
+                name=name,
                 group_id=group_id,
                 summary=summary,
             )
-            community_nodes.append(community_node)
+            community_nodes.append(
+                CommunityBuildResult(
+                    community=community_node,
+                    member_uuids=[member.uuid for member in members],
+                )
+            )
 
         logger.info(f"Created {len(community_nodes)} community nodes")
         return community_nodes

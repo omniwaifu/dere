@@ -10,7 +10,7 @@ from loguru import logger
 from dere_graph.driver import FalkorDriver
 from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.filters import SearchFilters, build_temporal_query_clause
-from dere_graph.models import EntityEdge, EntityNode
+from dere_graph.models import CommunityNode, EntityEdge, EntityNode
 
 
 def parse_db_date(value: Any) -> datetime | None:
@@ -317,6 +317,58 @@ async def fulltext_node_search(
 
     logger.debug(f"Fulltext search found {len(nodes)} nodes")
     return nodes
+
+
+async def fulltext_community_search(
+    driver: FalkorDriver,
+    query: str,
+    group_id: str,
+    limit: int = 10,
+) -> list[CommunityNode]:
+    """BM25 fulltext search on community names and summaries."""
+    if not query or not query.strip():
+        return []
+
+    sanitized_query = sanitize_lucene_query(query)
+
+    cypher = """
+    CALL db.idx.fulltext.queryNodes("community_name_and_summary", $query)
+    YIELD node, score
+    WHERE node.group_id = $group_id
+    RETURN node.uuid AS uuid,
+           node.name AS name,
+           node.group_id AS group_id,
+           node.name_embedding AS name_embedding,
+           node.summary AS summary,
+           node.created_at AS created_at,
+           labels(node) AS labels,
+           score
+    ORDER BY score DESC
+    LIMIT $limit
+    """
+
+    records = await driver.execute_query(
+        cypher,
+        query=sanitized_query,
+        group_id=group_id,
+        limit=limit,
+    )
+
+    communities = []
+    for record in records:
+        community = CommunityNode(
+            uuid=record["uuid"],
+            name=record["name"],
+            group_id=record["group_id"],
+            name_embedding=record.get("name_embedding"),
+            summary=record.get("summary") or "",
+            created_at=parse_db_date(record.get("created_at")),
+            labels=[label for label in record["labels"] if label != "Community"],
+        )
+        communities.append(community)
+
+    logger.debug(f"Fulltext search found {len(communities)} communities")
+    return communities
 
 
 async def vector_node_search(

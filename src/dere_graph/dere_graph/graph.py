@@ -7,7 +7,7 @@ from typing import Protocol, TypeVar
 from loguru import logger
 from pydantic import BaseModel
 
-from dere_graph.communities import CommunityDetector
+from dere_graph.communities import CommunityBuildResult, CommunityDetector
 from dere_graph.driver import FalkorDriver
 from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.filters import SearchFilters
@@ -15,7 +15,7 @@ from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import CommunityNode, EntityEdge, EntityNode, EpisodeType, EpisodicNode
 from dere_graph.operations import add_episode
 from dere_graph.reranking import mmr_rerank, score_by_recency
-from dere_graph.search import hybrid_edge_search, hybrid_node_search
+from dere_graph.search import fulltext_community_search, hybrid_edge_search, hybrid_node_search
 from dere_graph.traversal import (
     calculate_node_distances,
     edge_bfs_search,
@@ -582,6 +582,15 @@ class DereGraph:
         """
         return await self.driver.get_episodic_by_uuid(uuid)
 
+    async def search_communities(
+        self,
+        query: str,
+        group_id: str = "default",
+        limit: int = 10,
+    ) -> list[CommunityNode]:
+        """Search community nodes by name and summary."""
+        return await fulltext_community_search(self.driver, query, group_id, limit)
+
     async def build_communities(
         self,
         group_id: str = "default",
@@ -599,8 +608,19 @@ class DereGraph:
         logger.info(f"Building communities for group: {group_id}")
 
         detector = CommunityDetector(self.driver, self.llm_client)
-        communities = await detector.build_communities(group_id, resolution)
+        community_results = await detector.build_communities(group_id, resolution)
+        if not community_results:
+            logger.info("No communities found to persist")
+            return []
 
+        await self.driver.delete_communities_by_group(group_id)
+        for result in community_results:
+            await self.driver.save_community_node(result.community)
+            await self.driver.save_community_members(
+                result.community.uuid, result.member_uuids, group_id
+            )
+
+        communities = [result.community for result in community_results]
         logger.info(f"Built {len(communities)} communities")
         return communities
 

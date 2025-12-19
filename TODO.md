@@ -110,11 +110,11 @@ These unlock everything else; do them first.
   - Why: the paper highlights using recent episodes to pull in recently-mentioned entities/edges that match current context.
   - Current state: BFS seeding now includes entities mentioned in recent episodes (optionally scoped by conversation ID).
 
-- [ ] **Community subgraph parity (persisted communities + searchable community names)**
+- [x] **Community subgraph parity (persisted communities + searchable community names)**
   - Why: communities can summarize large regions and provide higher-level retrieval anchors.
   - Paper/Graphiti: label propagation + dynamic extension + periodic refresh + embedded community names.
-  - Current state: we can detect/summarize communities, but don’t persist them as first-class retrievable objects.
-  - Files: `src/dere_graph/dere_graph/communities.py`
+  - Current state: communities are persisted as `Community` nodes with `HAS_MEMBER` edges and are searchable by name/summary.
+  - Files: `src/dere_graph/dere_graph/communities.py`, `src/dere_graph/dere_graph/driver.py`, `src/dere_graph/dere_graph/search.py`
 
 - [ ] **Cross-encoder reranker (optional / feature-flagged)**
   - Why: highest precision; most expensive. Use only when you can afford latency/cost.

@@ -9,6 +9,7 @@ from loguru import logger
 from dere_graph.models import (
     EntityEdge,
     EntityNode,
+    CommunityNode,
     EpisodicEdge,
     EpisodicNode,
 )
@@ -117,6 +118,13 @@ class FalkorDriver:
             """
         )
 
+        # Fulltext index for community names and summaries
+        await self.execute_query(
+            """
+            CREATE FULLTEXT INDEX FOR (c:Community) ON (c.name, c.summary, c.group_id)
+            """
+        )
+
         # Fulltext index for edges
         await self.execute_query(
             """
@@ -158,6 +166,58 @@ class FalkorDriver:
             entity_data=entity_data,
         )
         logger.debug(f"Saved EntityNode: {node.uuid}")
+
+    async def save_community_node(self, node: CommunityNode) -> None:
+        await self.execute_query(
+            """
+            MERGE (c:Community {uuid: $uuid})
+            SET c.name = $name,
+                c.group_id = $group_id,
+                c.summary = $summary,
+                c.name_embedding = $name_embedding,
+                c.created_at = $created_at,
+                c.expired_at = $expired_at
+            """,
+            uuid=node.uuid,
+            name=node.name,
+            group_id=node.group_id,
+            summary=node.summary,
+            name_embedding=node.name_embedding,
+            created_at=node.created_at,
+            expired_at=node.expired_at,
+        )
+        logger.debug(f"Saved CommunityNode: {node.uuid}")
+
+    async def save_community_members(
+        self,
+        community_uuid: str,
+        member_uuids: list[str],
+        group_id: str,
+    ) -> None:
+        if not member_uuids:
+            return
+
+        await self.execute_query(
+            """
+            MATCH (c:Community {uuid: $community_uuid})
+            UNWIND $member_uuids AS member_uuid
+            MATCH (e:Entity {uuid: member_uuid})
+            MERGE (c)-[r:HAS_MEMBER]->(e)
+            SET r.group_id = $group_id
+            """,
+            community_uuid=community_uuid,
+            member_uuids=member_uuids,
+            group_id=group_id,
+        )
+
+    async def delete_communities_by_group(self, group_id: str) -> None:
+        await self.execute_query(
+            """
+            MATCH (c:Community {group_id: $group_id})
+            DETACH DELETE c
+            """,
+            group_id=group_id,
+        )
 
     async def save_episodic_node(self, node: EpisodicNode) -> None:
         await self.execute_query(
