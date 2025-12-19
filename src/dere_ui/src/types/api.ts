@@ -588,6 +588,23 @@ export interface KGEdgeSummary {
   created_at: string;
 }
 
+export interface KGFactRoleSummary {
+  entity_uuid: string;
+  entity_name: string;
+  role: string;
+  role_description: string | null;
+}
+
+export interface KGFactSummary {
+  uuid: string;
+  fact: string;
+  roles: KGFactRoleSummary[];
+  attributes: Record<string, unknown> | null;
+  valid_at: string | null;
+  invalid_at: string | null;
+  created_at: string;
+}
+
 export interface KGEntityListResponse {
   entities: KGEntitySummary[];
   total: number;
@@ -598,6 +615,7 @@ export interface KGEntityListResponse {
 export interface KGSearchResultsResponse {
   entities: KGEntitySummary[];
   edges: KGEdgeSummary[];
+  facts: KGFactSummary[];
   query: string;
 }
 

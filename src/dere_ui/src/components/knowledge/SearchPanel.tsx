@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, Network, ArrowRight, Filter } from "lucide-react";
+import { Search, Network, ArrowRight, Filter, FileText } from "lucide-react";
 import { useKGSearch, useKGLabels } from "@/hooks/queries";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { KGEntitySummary, KGEdgeSummary } from "@/types/api";
+import type { KGEntitySummary, KGEdgeSummary, KGFactSummary } from "@/types/api";
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -79,9 +79,41 @@ function EdgeResult({ edge }: { edge: KGEdgeSummary }) {
   );
 }
 
+function FactResult({ fact }: { fact: KGFactSummary }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 hover:bg-accent/50 transition-colors">
+      <p className="text-sm text-muted-foreground line-clamp-3">
+        {fact.fact}
+      </p>
+      {fact.roles.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {fact.roles.map((role) => (
+            <Badge
+              key={`${fact.uuid}-${role.entity_uuid}-${role.role}`}
+              variant="outline"
+              className="text-xs"
+            >
+              {role.role}: {role.entity_name}
+            </Badge>
+          ))}
+        </div>
+      )}
+      {fact.valid_at && (
+        <div className="mt-2 text-xs text-muted-foreground">
+          Valid: {new Date(fact.valid_at).toLocaleDateString()}
+          {fact.invalid_at && (
+            <span> - {new Date(fact.invalid_at).toLocaleDateString()}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SearchPanel() {
   const [query, setQuery] = useState("");
   const [includeEdges, setIncludeEdges] = useState(true);
+  const [includeFacts, setIncludeFacts] = useState(true);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
 
   const debouncedQuery = useDebounce(query, 300);
@@ -91,6 +123,8 @@ export function SearchPanel() {
     debouncedQuery,
     {
       include_edges: includeEdges,
+      include_facts: includeFacts,
+      include_fact_roles: includeFacts,
       labels: selectedLabels.length > 0 ? selectedLabels : undefined,
       limit: 30,
     },
@@ -106,6 +140,16 @@ export function SearchPanel() {
   };
 
   const showLoading = isLoading || (isFetching && query !== debouncedQuery);
+  const showEntities = !!(data?.entities && data.entities.length > 0);
+  const showFacts = includeFacts && !!(data?.facts && data.facts.length > 0);
+  const showEdges = includeEdges && !!(data?.edges && data.edges.length > 0);
+  const sectionsCount = [showEntities, showFacts, showEdges].filter(Boolean).length;
+  const scrollHeight =
+    sectionsCount <= 1
+      ? "h-[calc(100vh-18rem)]"
+      : sectionsCount === 2
+        ? "h-[calc(50vh-12rem)]"
+        : "h-[calc(33vh-10rem)]";
 
   return (
     <div className="space-y-4">
@@ -113,7 +157,7 @@ export function SearchPanel() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search entities and facts..."
+            placeholder="Search entities, facts, and relationships..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
@@ -121,6 +165,16 @@ export function SearchPanel() {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="include-facts"
+              checked={includeFacts}
+              onCheckedChange={setIncludeFacts}
+            />
+            <Label htmlFor="include-facts" className="text-sm">
+              Show facts
+            </Label>
+          </div>
           <div className="flex items-center gap-2">
             <Switch
               id="include-edges"
@@ -179,13 +233,13 @@ export function SearchPanel() {
         </div>
       ) : (
         <>
-          {data?.entities && data.entities.length > 0 && (
+          {showEntities && (
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Search className="h-4 w-4" />
                 Entities ({data.entities.length})
               </h2>
-              <ScrollArea className={includeEdges && data.edges?.length ? "h-[calc(50vh-12rem)]" : "h-[calc(100vh-18rem)]"}>
+              <ScrollArea className={scrollHeight}>
                 <div className="space-y-2 pr-4">
                   {data.entities.map((entity) => (
                     <EntityResult key={entity.uuid} entity={entity} />
@@ -195,13 +249,29 @@ export function SearchPanel() {
             </div>
           )}
 
-          {includeEdges && data?.edges && data.edges.length > 0 && (
+          {showFacts && (
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Facts ({data?.facts?.length ?? 0})
+              </h2>
+              <ScrollArea className={scrollHeight}>
+                <div className="space-y-2 pr-4">
+                  {data?.facts?.map((fact) => (
+                    <FactResult key={fact.uuid} fact={fact} />
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
+
+          {showEdges && (
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Network className="h-4 w-4" />
                 Relationships ({data.edges.length})
               </h2>
-              <ScrollArea className={data.entities?.length ? "h-[calc(50vh-12rem)]" : "h-[calc(100vh-18rem)]"}>
+              <ScrollArea className={scrollHeight}>
                 <div className="space-y-2 pr-4">
                   {data.edges.map((edge) => (
                     <EdgeResult key={edge.uuid} edge={edge} />
@@ -211,8 +281,7 @@ export function SearchPanel() {
             </div>
           )}
 
-          {(!data?.entities || data.entities.length === 0) &&
-            (!data?.edges || data.edges.length === 0) && (
+          {!showEntities && !showFacts && !showEdges && (
               <div className="flex flex-col items-center justify-center py-16">
                 <Search className="h-12 w-12 text-muted-foreground/50" />
                 <p className="mt-4 text-muted-foreground">
@@ -228,7 +297,7 @@ export function SearchPanel() {
                   </Button>
                 )}
               </div>
-            )}
+          )}
         </>
       )}
     </div>

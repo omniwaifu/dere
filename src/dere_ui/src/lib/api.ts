@@ -248,6 +248,8 @@ export const api = {
       query: string;
       limit?: number;
       include_edges?: boolean;
+      include_facts?: boolean;
+      include_fact_roles?: boolean;
       rerank_method?: string;
       labels?: string[];
     }) => {
@@ -256,6 +258,10 @@ export const api = {
       if (params.limit) searchParams.set("limit", String(params.limit));
       if (params.include_edges !== undefined)
         searchParams.set("include_edges", String(params.include_edges));
+      if (params.include_facts !== undefined)
+        searchParams.set("include_facts", String(params.include_facts));
+      if (params.include_fact_roles !== undefined)
+        searchParams.set("include_fact_roles", String(params.include_fact_roles));
       if (params.rerank_method) searchParams.set("rerank_method", params.rerank_method);
       if (params.labels) params.labels.forEach((l) => searchParams.append("labels", l));
       return fetchJson<KGSearchResultsResponse>(`/kg/search?${searchParams.toString()}`);

@@ -368,6 +368,8 @@ export function useKGSearch(
   params?: {
     limit?: number;
     include_edges?: boolean;
+    include_facts?: boolean;
+    include_fact_roles?: boolean;
     rerank_method?: string;
     labels?: string[];
   },
