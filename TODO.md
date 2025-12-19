@@ -136,9 +136,9 @@ These unlock everything else; do them first.
   - Why: we added `retrieval_count` / `citation_count` / `retrieval_quality`, but they must be updated from real agent usage.
   - Current state: context build tracks retrievals and response processing heuristically updates citations.
 
-- [ ] **Add ingestion/retrieval evaluation harness**
+- [x] **Add ingestion/retrieval evaluation harness**
   - Why: regression prevention; prompts will drift. Need a repeatable suite of “known conversations → expected facts”.
-  - Suggested: small golden datasets for (a) relationships, (b) code changes, (c) long-running project state.
+  - Current state: eval harness supports scoring search results against expected entities/facts.
 
 - [ ] **Optional: reduce dependency costs**
   - Why: current design still pays OpenAI for embeddings; consider local embeddings or a cheaper provider if needed.
