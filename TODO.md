@@ -116,9 +116,9 @@ These unlock everything else; do them first.
   - Current state: communities are persisted as `Community` nodes with `HAS_MEMBER` edges and are searchable by name/summary.
   - Files: `src/dere_graph/dere_graph/communities.py`, `src/dere_graph/dere_graph/driver.py`, `src/dere_graph/dere_graph/search.py`
 
-- [ ] **Cross-encoder reranker (optional / feature-flagged)**
+- [x] **Cross-encoder reranker (optional / feature-flagged)**
   - Why: highest precision; most expensive. Use only when you can afford latency/cost.
-  - Current state: not implemented.
+  - Current state: optional cross-encoder scorer can rerank nodes/edges when configured.
 
 - [x] **Domain-aware query routing (“brain views”)**
   - Why: a user asking “Where is this bug?” should hit code+git+issues; “How does Alice feel?” should hit relationship memory.

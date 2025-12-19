@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 from loguru import logger
+from typing import Protocol
 
 from dere_graph.models import EntityEdge, EntityNode
+
+
+class CrossEncoderScorer(Protocol):
+    async def score(self, query: str, candidates: list[str]) -> list[float]:
+        ...
 
 
 def mmr_rerank(
@@ -92,6 +98,43 @@ def mmr_rerank(
     reranked = [items[idx] for idx in selected_indices]
 
     logger.debug(f"MMR reranked {len(items)} items to {len(reranked)} (lambda={lambda_param})")
+    return reranked
+
+
+def _cross_encoder_text(item: EntityNode | EntityEdge) -> str:
+    if isinstance(item, EntityNode):
+        if item.summary:
+            return f"{item.name}: {item.summary}"
+        return item.name
+    if item.fact:
+        return item.fact
+    return item.name
+
+
+async def cross_encoder_rerank(
+    items: list[EntityNode] | list[EntityEdge],
+    query: str,
+    scorer: CrossEncoderScorer,
+    limit: int = 10,
+) -> list[EntityNode] | list[EntityEdge]:
+    """Rerank items with a cross-encoder scoring function."""
+    if not items or limit == 0:
+        return []
+
+    candidates = [_cross_encoder_text(item) for item in items]
+    scores = await scorer.score(query, candidates)
+
+    if len(scores) != len(items):
+        logger.warning(
+            "Cross-encoder score count mismatch; returning original ordering "
+            f"(scores={len(scores)}, items={len(items)})"
+        )
+        return items[:limit]
+
+    scored_items = sorted(zip(items, scores), key=lambda pair: pair[1], reverse=True)
+    reranked = [item for item, _ in scored_items[:limit]]
+
+    logger.debug(f"Cross-encoder reranked {len(items)} items to {len(reranked)}")
     return reranked
 
 

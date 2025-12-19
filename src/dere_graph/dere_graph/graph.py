@@ -14,7 +14,7 @@ from dere_graph.filters import SearchFilters
 from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import CommunityNode, EntityEdge, EntityNode, EpisodeType, EpisodicNode
 from dere_graph.operations import add_episode
-from dere_graph.reranking import mmr_rerank, score_by_recency
+from dere_graph.reranking import CrossEncoderScorer, cross_encoder_rerank, mmr_rerank, score_by_recency
 from dere_graph.search import (
     fulltext_community_search,
     hybrid_edge_search,
@@ -186,6 +186,7 @@ class DereGraph:
         search_domain_max_routes: int = 2,
         search_domain_limit: int = 10,
         domain_routes: list[DomainRoute] | None = None,
+        cross_encoder: CrossEncoderScorer | None = None,
     ):
         """Initialize DereGraph with database and AI clients.
 
@@ -213,6 +214,7 @@ class DereGraph:
             search_domain_max_routes: Maximum number of domain routes to apply per query
             search_domain_limit: Max results per domain-specific search
             domain_routes: Optional custom domain routes for query routing
+            cross_encoder: Optional cross-encoder scorer for reranking
         """
         self.driver = FalkorDriver(
             host=falkor_host,
@@ -240,6 +242,7 @@ class DereGraph:
         self.search_domain_max_routes = search_domain_max_routes
         self.search_domain_limit = search_domain_limit
         self.domain_routes = domain_routes or DEFAULT_DOMAIN_ROUTES
+        self.cross_encoder = cross_encoder
 
         # Optional Postgres for entity meta-context
         if postgres_db_url:
@@ -481,7 +484,7 @@ class DereGraph:
             limit: Maximum number of results
             filters: Optional temporal/attribute filters
             center_node_uuid: Optional center node for distance-based reranking
-            rerank_method: Optional reranking method ("mmr", "distance", "episode_mentions", "recency", or None)
+            rerank_method: Optional reranking method ("mmr", "distance", "episode_mentions", "recency", "cross_encoder", or None)
             lambda_param: MMR lambda parameter (1=pure relevance, 0=pure diversity)
             rerank_alpha: Alpha parameter for episode_mentions/recency reranking (0-1)
             recency_weight: Weight for recency boost (0-1, 0=no boost)
@@ -609,7 +612,7 @@ class DereGraph:
                     edge_fetch_limit,
                 )
 
-        # Apply reranking if requested (for MMR and distance methods)
+        # Apply reranking if requested (for MMR, distance, and cross-encoder methods)
         if rerank_method == "mmr" and node_candidates:
             ranked_nodes = mmr_rerank(
                 node_candidates, query_embedding, lambda_param, node_fetch_limit
@@ -621,6 +624,17 @@ class DereGraph:
             )
             ranked_nodes = node_distance_reranker(node_candidates, center_node_uuid, distances)
             ranked_nodes = ranked_nodes[:node_fetch_limit]
+        elif rerank_method in ("cross_encoder", "cross-encoder") and node_candidates:
+            if self.cross_encoder:
+                ranked_nodes = await cross_encoder_rerank(
+                    node_candidates, query, self.cross_encoder, node_fetch_limit
+                )
+                edge_candidates = await cross_encoder_rerank(
+                    edge_candidates, query, self.cross_encoder, edge_fetch_limit
+                )
+            else:
+                logger.warning("Cross-encoder rerank requested but no scorer is configured")
+                ranked_nodes = node_candidates[:node_fetch_limit]
         else:
             ranked_nodes = node_candidates[:node_fetch_limit]
 
