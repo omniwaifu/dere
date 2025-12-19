@@ -240,6 +240,48 @@ class FalkorDriver:
 
         return episodes
 
+    async def get_recent_episode_entity_uuids(
+        self,
+        group_id: str,
+        limit_episodes: int = 5,
+        limit_entities: int = 10,
+        conversation_id: str | None = None,
+    ) -> list[str]:
+        """Get entity UUIDs mentioned in recent episodes."""
+        if limit_episodes <= 0 or limit_entities <= 0:
+            return []
+
+        where_parts = ["e.group_id = $group_id"]
+        params: dict[str, Any] = {
+            "group_id": group_id,
+            "limit_episodes": limit_episodes,
+            "limit_entities": limit_entities,
+        }
+        if conversation_id:
+            where_parts.append("e.conversation_id = $conversation_id")
+            params["conversation_id"] = conversation_id
+
+        where_clause = "WHERE " + " AND ".join(where_parts)
+
+        records = await self.execute_query(
+            f"""
+            MATCH (e:Episodic)
+            {where_clause}
+            WITH e
+            ORDER BY e.created_at DESC
+            LIMIT $limit_episodes
+            MATCH (e)-[:MENTIONS]->(entity:Entity)
+            WHERE entity.group_id = $group_id
+            WITH entity, max(e.created_at) AS last_seen
+            ORDER BY last_seen DESC
+            RETURN entity.uuid AS uuid
+            LIMIT $limit_entities
+            """,
+            **params,
+        )
+
+        return [record["uuid"] for record in records if record.get("uuid")]
+
     async def get_episodes_by_conversation_id(
         self, conversation_id: str, group_id: str
     ) -> list[EpisodicNode]:

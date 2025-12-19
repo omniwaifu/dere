@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dere_graph.graph import _collect_bfs_seed_uuids, _select_with_bfs
+from dere_graph.graph import _collect_bfs_seed_uuids, _extend_seed_uuids, _select_with_bfs
 from dere_graph.models import EntityEdge, EntityNode
 
 
@@ -44,3 +44,12 @@ def test_select_with_bfs_backfills_when_bfs_is_sparse() -> None:
     selected = _select_with_bfs(ranked, bfs, limit=4, bfs_slots=2)
 
     assert [node.uuid for node in selected] == ["n1", "n2", "n3", "n4"]
+
+
+def test_extend_seed_uuids_adds_unique_extras() -> None:
+    seeds = ["n1", "n2"]
+    extras = ["n2", "n3", "n4"]
+
+    extended = _extend_seed_uuids(seeds, extras, limit=4)
+
+    assert extended == ["n1", "n2", "n3", "n4"]

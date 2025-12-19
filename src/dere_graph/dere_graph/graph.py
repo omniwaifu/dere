@@ -108,6 +108,22 @@ def _collect_bfs_seed_uuids(
     return seeds
 
 
+def _extend_seed_uuids(seeds: list[str], extras: list[str], limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+
+    seen = set(seeds)
+    for uuid in extras:
+        if len(seeds) >= limit:
+            break
+        if uuid in seen:
+            continue
+        seeds.append(uuid)
+        seen.add(uuid)
+
+    return seeds
+
+
 class DereGraph:
     """Main API for dere_graph - minimal Graphiti clone."""
 
@@ -130,6 +146,8 @@ class DereGraph:
         search_bfs_max_depth: int = 2,
         search_bfs_limit: int = 5,
         search_bfs_seed_limit: int = 5,
+        search_recent_episode_limit: int = 3,
+        search_bfs_episode_seed_limit: int = 5,
     ):
         """Initialize DereGraph with database and AI clients.
 
@@ -151,6 +169,8 @@ class DereGraph:
             search_bfs_max_depth: Maximum traversal depth for BFS expansion
             search_bfs_limit: Maximum number of BFS-expanded nodes/edges to consider
             search_bfs_seed_limit: Maximum number of seed nodes for BFS expansion
+            search_recent_episode_limit: Number of recent episodes to seed BFS from
+            search_bfs_episode_seed_limit: Maximum number of episode-derived seed entities
         """
         self.driver = FalkorDriver(
             host=falkor_host,
@@ -172,6 +192,8 @@ class DereGraph:
         self.search_bfs_max_depth = search_bfs_max_depth
         self.search_bfs_limit = search_bfs_limit
         self.search_bfs_seed_limit = search_bfs_seed_limit
+        self.search_recent_episode_limit = search_recent_episode_limit
+        self.search_bfs_episode_seed_limit = search_bfs_episode_seed_limit
 
         # Optional Postgres for entity meta-context
         if postgres_db_url:
@@ -399,6 +421,7 @@ class DereGraph:
         lambda_param: float = 0.5,
         rerank_alpha: float = 0.5,
         recency_weight: float = 0.0,
+        conversation_id: str | None = None,
     ) -> SearchResults:
         """Search the knowledge graph using hybrid search with optional reranking.
 
@@ -415,6 +438,7 @@ class DereGraph:
             lambda_param: MMR lambda parameter (1=pure relevance, 0=pure diversity)
             rerank_alpha: Alpha parameter for episode_mentions/recency reranking (0-1)
             recency_weight: Weight for recency boost (0-1, 0=no boost)
+            conversation_id: Optional conversation grouping ID for BFS seeding
 
         Returns:
             SearchResults with matching nodes and edges
@@ -495,6 +519,18 @@ class DereGraph:
                 primary_edges,
                 self.search_bfs_seed_limit,
             )
+            if self.search_recent_episode_limit > 0 and self.search_bfs_episode_seed_limit > 0:
+                episode_seeds = await self.driver.get_recent_episode_entity_uuids(
+                    group_id=group_id,
+                    limit_episodes=self.search_recent_episode_limit,
+                    limit_entities=self.search_bfs_episode_seed_limit,
+                    conversation_id=conversation_id,
+                )
+                seed_uuids = _extend_seed_uuids(
+                    seed_uuids,
+                    episode_seeds,
+                    self.search_bfs_seed_limit + self.search_bfs_episode_seed_limit,
+                )
             if seed_uuids:
                 bfs_nodes, bfs_edges = await asyncio.gather(
                     node_bfs_search(

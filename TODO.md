@@ -106,9 +106,9 @@ These unlock everything else; do them first.
   - Current state: `DereGraph.search()` now reserves a small slot for BFS-expanded nodes/edges, seeded from top results.
   - Files: `src/dere_graph/dere_graph/graph.py`, `src/dere_graph/dere_graph/traversal.py`
 
-- [ ] **Seed BFS from “recent / conversation-relevant episodes”**
+- [x] **Seed BFS from “recent / conversation-relevant episodes”**
   - Why: the paper highlights using recent episodes to pull in recently-mentioned entities/edges that match current context.
-  - Current state: we fetch previous episodes for ingestion, but retrieval doesn’t use them as BFS seeds.
+  - Current state: BFS seeding now includes entities mentioned in recent episodes (optionally scoped by conversation ID).
 
 - [ ] **Community subgraph parity (persisted communities + searchable community names)**
   - Why: communities can summarize large regions and provide higher-level retrieval anchors.
