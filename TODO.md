@@ -124,9 +124,9 @@ These unlock everything else; do them first.
   - Why: a user asking “Where is this bug?” should hit code+git+issues; “How does Alice feel?” should hit relationship memory.
   - Approach: classify query intent → choose subgraphs (by labels/types) → run searches → merge with RRF/MMR.
 
-- [ ] **Context assembly + citations back to episodes**
+- [x] **Context assembly + citations back to episodes**
   - Why: “brain” is only useful if the agent can quote/prove where facts came from (and avoid stale/invalid facts).
-  - Current state: we store `EntityEdge.episodes` but don’t expose a robust “cite this fact” retrieval path.
+  - Current state: context building now annotates facts with episode-derived citations and short excerpts.
 
 ---
 

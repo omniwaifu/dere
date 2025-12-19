@@ -442,6 +442,59 @@ class FalkorDriver:
 
         return episodes
 
+    async def get_episodes_by_uuids(
+        self, episode_uuids: list[str], group_id: str
+    ) -> list[EpisodicNode]:
+        """Fetch episodic nodes by UUID."""
+        from dere_graph.models import EpisodeType
+
+        if not episode_uuids:
+            return []
+
+        records = await self.execute_query(
+            """
+            MATCH (e:Episodic)
+            WHERE e.uuid IN $episode_uuids
+              AND e.group_id = $group_id
+            RETURN e.uuid AS uuid,
+                   e.name AS name,
+                   e.content AS content,
+                   e.source_description AS source_description,
+                   e.source AS source,
+                   e.group_id AS group_id,
+                   e.valid_at AS valid_at,
+                   e.conversation_id AS conversation_id,
+                   e.entity_edges AS entity_edges,
+                   e.speaker_id AS speaker_id,
+                   e.speaker_name AS speaker_name,
+                   e.personality AS personality,
+                   e.created_at AS created_at
+            """,
+            episode_uuids=episode_uuids,
+            group_id=group_id,
+        )
+
+        episodes = []
+        for record in records:
+            episode = EpisodicNode(
+                uuid=record["uuid"],
+                name=record["name"],
+                content=record["content"],
+                source_description=record["source_description"],
+                source=EpisodeType(record["source"]),
+                group_id=record["group_id"],
+                conversation_id=record.get("conversation_id", "default"),
+                entity_edges=record.get("entity_edges") or [],
+                speaker_id=record.get("speaker_id"),
+                speaker_name=record.get("speaker_name"),
+                personality=record.get("personality"),
+                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
+                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
+            )
+            episodes.append(episode)
+
+        return episodes
+
     async def get_entity_by_uuid(self, uuid: str) -> EntityNode | None:
         records = await self.execute_query(
             """

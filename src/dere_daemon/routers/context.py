@@ -25,6 +25,9 @@ class ContextBuildRequest(BaseModel):
     user_id: str | None = None
     context_depth: int = 5
     include_entities: bool = False
+    include_citations: bool = True
+    citation_limit_per_edge: int = 2
+    citation_max_chars: int = 160
     max_tokens: int = 2000
     context_mode: str = "smart"
     current_prompt: str
@@ -106,6 +109,27 @@ async def context_build(
 
                 search_results.nodes = unique_nodes[:context_depth]
 
+            citations_lookup = {}
+            if req.include_citations and search_results.edges:
+                citations = await app_state.dere_graph.get_edge_citations(
+                    search_results.edges,
+                    group_id=req.user_id or "default",
+                    max_episodes_per_edge=req.citation_limit_per_edge,
+                )
+                citations_lookup = {c.edge_uuid: c.episodes for c in citations}
+
+            def format_citation(episode) -> str:
+                header_parts = [episode.name, episode.source_description]
+                if episode.valid_at:
+                    header_parts.append(episode.valid_at.date().isoformat())
+                header = " - ".join([part for part in header_parts if part])
+                snippet = " ".join(episode.content.split())
+                if req.citation_max_chars > 0 and len(snippet) > req.citation_max_chars:
+                    snippet = snippet[: req.citation_max_chars].rstrip() + "..."
+                if snippet:
+                    return f"{header}: {snippet}"
+                return header
+
             # Format results into context text
             context_parts = []
 
@@ -119,7 +143,13 @@ async def context_build(
             if search_results.edges:
                 context_parts.append("\n# Relevant Facts")
                 for edge in search_results.edges:
-                    context_parts.append(f"- {edge.fact}")
+                    fact_line = f"- {edge.fact}"
+                    if req.include_citations:
+                        episodes = citations_lookup.get(edge.uuid, [])
+                        if episodes:
+                            citations_text = "; ".join(format_citation(ep) for ep in episodes)
+                            fact_line = f"{fact_line} (sources: {citations_text})"
+                    context_parts.append(fact_line)
 
             context_text = "\n".join(context_parts) if context_parts else ""
 

@@ -35,6 +35,11 @@ class SearchResults(BaseModel):
     edges: list[EntityEdge]
 
 
+class EdgeCitation(BaseModel):
+    edge_uuid: str
+    episodes: list[EpisodicNode]
+
+
 class _HasUUID(Protocol):
     uuid: str
 
@@ -590,6 +595,42 @@ class DereGraph:
     ) -> list[CommunityNode]:
         """Search community nodes by name and summary."""
         return await fulltext_community_search(self.driver, query, group_id, limit)
+
+    async def get_edge_citations(
+        self,
+        edges: list[EntityEdge],
+        group_id: str = "default",
+        max_episodes_per_edge: int = 2,
+    ) -> list[EdgeCitation]:
+        """Fetch episodic citations for edges based on stored episode UUIDs."""
+        if not edges or max_episodes_per_edge <= 0:
+            return []
+
+        edge_episode_ids: dict[str, list[str]] = {}
+        all_episode_ids: list[str] = []
+        for edge in edges:
+            episode_ids = (edge.episodes or [])[:max_episodes_per_edge]
+            edge_episode_ids[edge.uuid] = episode_ids
+            all_episode_ids.extend(episode_ids)
+
+        if not all_episode_ids:
+            return []
+
+        unique_episode_ids = list(dict.fromkeys(all_episode_ids))
+        episodes = await self.driver.get_episodes_by_uuids(unique_episode_ids, group_id)
+        episodes_by_uuid = {episode.uuid: episode for episode in episodes}
+
+        citations = []
+        for edge_uuid, episode_ids in edge_episode_ids.items():
+            resolved = [
+                episodes_by_uuid[episode_id]
+                for episode_id in episode_ids
+                if episode_id in episodes_by_uuid
+            ]
+            if resolved:
+                citations.append(EdgeCitation(edge_uuid=edge_uuid, episodes=resolved))
+
+        return citations
 
     async def build_communities(
         self,
