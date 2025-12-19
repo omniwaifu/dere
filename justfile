@@ -18,6 +18,10 @@ clean:
 test:
     uv run pytest -v
 
+# Run knowledge graph evals
+kg-eval ARGS="":
+    load-openai && uv run python -m dere_graph.eval_cli {{ARGS}}
+
 # Run linting
 lint:
     uv run ruff check .
