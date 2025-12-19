@@ -139,8 +139,9 @@ These unlock everything else; do them first.
   - Files: `src/dere_daemon/routers/knowledge_graph.py`, `src/dere_graph/dere_graph/graph.py`, `src/dere_graph/dere_graph/driver.py`
 - [x] **Surface hyper-edge facts in dere_ui knowledge views**
   - Why: UI should expose fact roles + point-in-time browsing for real-world use.
-  - Current state: knowledge search shows fact nodes with role badges, and a Facts tab provides search + snapshots.
-  - Files: `src/dere_ui/src/components/knowledge/FactExplorer.tsx`, `src/dere_ui/src/routes/knowledge.tsx`, `src/dere_ui/src/lib/api.ts`
+  - Current state: knowledge search shows fact nodes with role badges, a Facts tab provides search + snapshots, and timeline
+    includes a fact snapshot panel.
+  - Files: `src/dere_ui/src/components/knowledge/FactExplorer.tsx`, `src/dere_ui/src/components/knowledge/FactsTimeline.tsx`, `src/dere_ui/src/routes/knowledge.tsx`
 
 ---
 

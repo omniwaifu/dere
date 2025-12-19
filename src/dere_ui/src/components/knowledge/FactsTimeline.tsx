@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { Clock, ArrowRight, ChevronLeft, ChevronRight, Calendar, CheckCircle, XCircle, Clock4 } from "lucide-react";
-import { useKGFactsTimeline } from "@/hooks/queries";
+import { useMemo, useState } from "react";
+import { Clock, ArrowRight, ChevronLeft, ChevronRight, Calendar, CheckCircle, XCircle, Clock4, FileText } from "lucide-react";
+import { useKGFactsTimeline, useKGFactsAtTime } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { KGTimelineFact } from "@/types/api";
+import type { KGFactSummary, KGTimelineFact } from "@/types/api";
 
 const PAGE_SIZE = 30;
 
@@ -109,10 +109,49 @@ function DateGroup({ dateKey, facts }: { dateKey: string; facts: KGTimelineFact[
   );
 }
 
+function FactSnapshotCard({ fact }: { fact: KGFactSummary }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 hover:bg-accent/50 transition-colors">
+      <div className="flex items-start gap-2">
+        <FileText className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-foreground line-clamp-3">{fact.fact}</p>
+          {fact.roles.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {fact.roles.slice(0, 4).map((role) => (
+                <Badge
+                  key={`${fact.uuid}-${role.entity_uuid}-${role.role}`}
+                  variant="outline"
+                  className="text-xs"
+                >
+                  {role.role}: {role.entity_name}
+                </Badge>
+              ))}
+              {fact.roles.length > 4 && (
+                <Badge variant="secondary" className="text-xs">
+                  +{fact.roles.length - 4} more
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FactsTimeline() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [offset, setOffset] = useState(0);
+  const [snapshotTime, setSnapshotTime] = useState("");
+
+  const snapshotIso = useMemo(() => {
+    if (!snapshotTime) return "";
+    const parsed = new Date(snapshotTime);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString();
+  }, [snapshotTime]);
 
   const { data, isLoading, isError } = useKGFactsTimeline({
     start_date: startDate || undefined,
@@ -120,6 +159,15 @@ export function FactsTimeline() {
     limit: PAGE_SIZE,
     offset,
   });
+
+  const {
+    data: snapshotData,
+    isLoading: snapshotLoading,
+  } = useKGFactsAtTime(
+    snapshotIso,
+    { include_roles: true, limit: 20 },
+    { enabled: snapshotIso.length > 0 }
+  );
 
   const totalPages = Math.ceil((data?.total ?? 0) / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
@@ -203,11 +251,59 @@ export function FactsTimeline() {
             Clear dates
           </Button>
         )}
+        <div className="space-y-1.5">
+          <Label htmlFor="snapshot-time" className="text-xs">Snapshot</Label>
+          <Input
+            id="snapshot-time"
+            type="datetime-local"
+            value={snapshotTime}
+            onChange={(e) => setSnapshotTime(e.target.value)}
+            className="w-52"
+          />
+        </div>
+        {snapshotTime && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSnapshotTime("")}
+          >
+            Clear snapshot
+          </Button>
+        )}
         <div className="flex-1" />
         <span className="text-sm text-muted-foreground">
           {data?.total ?? 0} facts
         </span>
       </div>
+
+      {snapshotIso && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              Fact snapshot at {new Date(snapshotIso).toLocaleString()}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {snapshotData?.facts?.length ?? 0} facts
+            </span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {snapshotLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))
+            ) : snapshotData?.facts?.length ? (
+              snapshotData.facts.map((fact) => (
+                <FactSnapshotCard key={fact.uuid} fact={fact} />
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No facts found at this time.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {sortedDateKeys.length > 0 ? (
         <>
