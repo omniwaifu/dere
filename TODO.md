@@ -138,7 +138,7 @@ These unlock everything else; do them first.
 
 - [x] **Add ingestion/retrieval evaluation harness**
   - Why: regression prevention; prompts will drift. Need a repeatable suite of “known conversations → expected facts”.
-  - Current state: eval harness supports scoring search results against expected entities/facts.
+  - Current state: eval harness supports scoring search results against expected entities/facts with a sample dataset.
 
 - [ ] **Optional: reduce dependency costs**
   - Why: current design still pays OpenAI for embeddings; consider local embeddings or a cheaper provider if needed.

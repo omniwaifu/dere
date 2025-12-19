@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Iterable
 
 from dere_graph.models import EntityEdge, EntityNode, EpisodeType
@@ -62,6 +64,47 @@ def _match_expected(expected: Iterable[str], candidates: Iterable[str]) -> list[
         if any(normalized_item in candidate for candidate in normalized_candidates):
             hits.append(item)
     return hits
+
+
+def _parse_reference_time(value: str) -> datetime:
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def load_eval_cases(path: str | Path) -> list[EvalCase]:
+    dataset_path = Path(path)
+    data = json.loads(dataset_path.read_text(encoding="utf-8"))
+    cases_data = data.get("cases", []) if isinstance(data, dict) else data
+
+    cases: list[EvalCase] = []
+    for case in cases_data:
+        episodes = [
+            EvalEpisode(
+                body=episode["body"],
+                source_description=episode.get("source_description", "eval"),
+                reference_time=_parse_reference_time(episode["reference_time"]),
+                source=EpisodeType.from_str(episode.get("source", "text")),
+            )
+            for episode in case.get("episodes", [])
+        ]
+        queries = [
+            EvalQuery(
+                query=query["query"],
+                expected_entities=query.get("expected_entities", []),
+                expected_facts=query.get("expected_facts", []),
+                min_entity_hits=query.get("min_entity_hits"),
+                min_fact_hits=query.get("min_fact_hits"),
+            )
+            for query in case.get("queries", [])
+        ]
+        cases.append(EvalCase(name=case["name"], episodes=episodes, queries=queries))
+
+    return cases
 
 
 def score_query_results(
