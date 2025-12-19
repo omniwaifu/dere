@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FactDetailPanel } from "@/components/knowledge/FactDetailPanel";
 import type { KGFactSummary, KGTimelineFact } from "@/types/api";
 
 const PAGE_SIZE = 30;
@@ -30,13 +31,21 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+function getTimelineDateKey(item: KGTimelineFact): string {
+  const timestamp =
+    item.kind === "edge"
+      ? item.edge?.valid_at || item.edge?.created_at
+      : item.fact?.valid_at || item.fact?.created_at;
+
+  if (!timestamp) return "undated";
+  return new Date(timestamp).toISOString().split("T")[0];
+}
+
 function groupFactsByDate(facts: KGTimelineFact[]): Map<string, KGTimelineFact[]> {
   const groups = new Map<string, KGTimelineFact[]>();
 
   for (const fact of facts) {
-    const dateKey = fact.edge.valid_at
-      ? new Date(fact.edge.valid_at).toISOString().split("T")[0]
-      : "undated";
+    const dateKey = getTimelineDateKey(fact);
 
     if (!groups.has(dateKey)) {
       groups.set(dateKey, []);
@@ -47,43 +56,105 @@ function groupFactsByDate(facts: KGTimelineFact[]): Map<string, KGTimelineFact[]
   return groups;
 }
 
-function FactCard({ fact }: { fact: KGTimelineFact }) {
-  const statusConfig = TEMPORAL_STATUS_CONFIG[fact.temporal_status] ?? TEMPORAL_STATUS_CONFIG.valid;
+function FactCard({
+  fact,
+  onSelectFact,
+}: {
+  fact: KGTimelineFact;
+  onSelectFact?: (fact: KGFactSummary) => void;
+}) {
+  const statusConfig =
+    TEMPORAL_STATUS_CONFIG[fact.temporal_status] ?? TEMPORAL_STATUS_CONFIG.valid;
   const StatusIcon = statusConfig.icon;
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 hover:bg-accent/50 transition-colors">
+    <button
+      type="button"
+      onClick={() => {
+        if (fact.kind === "fact" && fact.fact) {
+          onSelectFact?.(fact.fact);
+        }
+      }}
+      className="w-full rounded-lg border border-border bg-card p-3 text-left hover:bg-accent/50 transition-colors"
+    >
       <div className="flex items-start gap-2">
         <StatusIcon className={`h-4 w-4 mt-0.5 shrink-0 ${statusConfig.color}`} />
         <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5 text-sm">
-            <span className="font-medium">{fact.edge.source_name}</span>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            <Badge variant="secondary" className="text-xs">{fact.edge.relation}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            <span className="font-medium">{fact.edge.target_name}</span>
-          </div>
-          <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2">
-            {fact.edge.fact}
-          </p>
-          <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-            {fact.edge.valid_at && (
-              <span>From: {formatDate(fact.edge.valid_at)}</span>
-            )}
-            {fact.edge.invalid_at && (
-              <span>Until: {formatDate(fact.edge.invalid_at)}</span>
-            )}
-            {fact.edge.strength !== null && (
-              <span>Strength: {fact.edge.strength.toFixed(2)}</span>
-            )}
-          </div>
+          {fact.kind === "edge" && fact.edge ? (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                <span className="font-medium">{fact.edge.source_name}</span>
+                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                <Badge variant="secondary" className="text-xs">{fact.edge.relation}</Badge>
+                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                <span className="font-medium">{fact.edge.target_name}</span>
+              </div>
+              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2">
+                {fact.edge.fact}
+              </p>
+              <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                {fact.edge.valid_at && (
+                  <span>From: {formatDate(fact.edge.valid_at)}</span>
+                )}
+                {fact.edge.invalid_at && (
+                  <span>Until: {formatDate(fact.edge.invalid_at)}</span>
+                )}
+                {fact.edge.strength !== null && (
+                  <span>Strength: {fact.edge.strength.toFixed(2)}</span>
+                )}
+              </div>
+            </>
+          ) : fact.fact ? (
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <Badge variant="secondary" className="text-xs">Fact</Badge>
+              </div>
+              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-3">
+                {fact.fact.fact}
+              </p>
+              {fact.fact.roles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {fact.fact.roles.slice(0, 4).map((role) => (
+                    <Badge
+                      key={`${fact.fact?.uuid}-${role.entity_uuid}-${role.role}`}
+                      variant="outline"
+                      className="text-xs"
+                    >
+                      {role.role}: {role.entity_name}
+                    </Badge>
+                  ))}
+                  {fact.fact.roles.length > 4 && (
+                    <Badge variant="secondary" className="text-xs">
+                      +{fact.fact.roles.length - 4} more
+                    </Badge>
+                  )}
+                </div>
+              )}
+              <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                {fact.fact.valid_at && (
+                  <span>From: {formatDate(fact.fact.valid_at)}</span>
+                )}
+                {fact.fact.invalid_at && (
+                  <span>Until: {formatDate(fact.fact.invalid_at)}</span>
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
-function DateGroup({ dateKey, facts }: { dateKey: string; facts: KGTimelineFact[] }) {
+function DateGroup({
+  dateKey,
+  facts,
+  onSelectFact,
+}: {
+  dateKey: string;
+  facts: KGTimelineFact[];
+  onSelectFact?: (fact: KGFactSummary) => void;
+}) {
   const displayDate = dateKey === "undated"
     ? "Undated"
     : new Date(dateKey).toLocaleDateString(undefined, {
@@ -101,8 +172,12 @@ function DateGroup({ dateKey, facts }: { dateKey: string; facts: KGTimelineFact[
         <Badge variant="outline" className="text-xs">{facts.length}</Badge>
       </div>
       <div className="space-y-2 pl-6 border-l border-border">
-        {facts.map((fact) => (
-          <FactCard key={fact.edge.uuid} fact={fact} />
+        {facts.map((fact, index) => (
+          <FactCard
+            key={fact.kind === "edge" ? fact.edge?.uuid : fact.fact?.uuid || `${dateKey}-${index}`}
+            fact={fact}
+            onSelectFact={onSelectFact}
+          />
         ))}
       </div>
     </div>
@@ -145,6 +220,7 @@ export function FactsTimeline() {
   const [endDate, setEndDate] = useState("");
   const [offset, setOffset] = useState(0);
   const [snapshotTime, setSnapshotTime] = useState("");
+  const [selectedFact, setSelectedFact] = useState<KGFactSummary | null>(null);
 
   const snapshotIso = useMemo(() => {
     if (!snapshotTime) return "";
@@ -314,6 +390,7 @@ export function FactsTimeline() {
                   key={dateKey}
                   dateKey={dateKey}
                   facts={groupedFacts.get(dateKey)!}
+                  onSelectFact={setSelectedFact}
                 />
               ))}
             </div>
@@ -361,6 +438,11 @@ export function FactsTimeline() {
           )}
         </div>
       )}
+
+      <FactDetailPanel
+        fact={selectedFact}
+        onClose={() => setSelectedFact(null)}
+      />
     </div>
   );
 }

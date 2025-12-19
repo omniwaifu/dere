@@ -80,9 +80,11 @@ class SearchResultsResponse(BaseModel):
 
 
 class TimelineFact(BaseModel):
-    """A fact with temporal status."""
+    """A timeline entry for edges or hyper-edge facts."""
 
-    edge: EdgeSummary
+    kind: str  # "edge" | "fact"
+    edge: EdgeSummary | None = None
+    fact: FactSummary | None = None
     temporal_status: str  # "valid", "expired", "future"
 
 
@@ -668,6 +670,8 @@ async def get_facts_timeline(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     entity_uuid: str | None = None,
+    include_facts: bool = True,
+    include_fact_roles: bool = True,
     limit: int = 100,
     offset: int = 0,
 ):
@@ -682,57 +686,90 @@ async def get_facts_timeline(
         driver = app_state.dere_graph.driver
         now = datetime.utcnow()
 
+        def _parse_dt(value):
+            if isinstance(value, datetime):
+                return value
+            if not value:
+                return None
+            try:
+                return datetime.fromisoformat(value)
+            except Exception:
+                return None
+
         # Build filters
-        filters = []
-        params = {"group_id": group_id, "offset": offset, "limit": limit}
+        edge_filters = []
+        fact_filters = []
+        params = {"group_id": group_id}
 
         if start_date:
-            filters.append("r.created_at >= $start_date")
+            edge_filters.append("r.created_at >= $start_date")
+            fact_filters.append("f.created_at >= $start_date")
             params["start_date"] = start_date.isoformat()
         if end_date:
-            filters.append("r.created_at <= $end_date")
+            edge_filters.append("r.created_at <= $end_date")
+            fact_filters.append("f.created_at <= $end_date")
             params["end_date"] = end_date.isoformat()
         if entity_uuid:
-            filters.append("(src.uuid = $entity_uuid OR tgt.uuid = $entity_uuid)")
+            edge_filters.append("(src.uuid = $entity_uuid OR tgt.uuid = $entity_uuid)")
             params["entity_uuid"] = entity_uuid
 
-        where_clause = " AND ".join(filters) if filters else "true"
+        edge_where = " AND ".join(edge_filters) if edge_filters else "true"
+        fact_where = " AND ".join(fact_filters) if fact_filters else "true"
 
-        # Count total
-        count_query = f"""
+        # Count totals
+        edge_count_query = f"""
             MATCH (src:Entity)-[r:RELATES_TO {{group_id: $group_id}}]->(tgt:Entity)
-            WHERE {where_clause}
+            WHERE {edge_where}
             RETURN count(r) as total
         """
-        count_result = await driver.execute_query(count_query, **params)
-        total = count_result[0]["total"] if count_result else 0
+        edge_count_result = await driver.execute_query(edge_count_query, **params)
+        edge_total = edge_count_result[0]["total"] if edge_count_result else 0
+
+        fact_total = 0
+        if include_facts:
+            fact_count_query = f"""
+                MATCH (f:Fact {{group_id: $group_id}})
+                WHERE {fact_where}
+                RETURN count(f) as total
+            """
+            if entity_uuid:
+                fact_count_query = f"""
+                    MATCH (f:Fact {{group_id: $group_id}})-[:HAS_ROLE]->(e:Entity {{uuid: $entity_uuid}})
+                    WHERE {fact_where}
+                    RETURN count(DISTINCT f) as total
+                """
+            fact_count_result = await driver.execute_query(fact_count_query, **params)
+            fact_total = fact_count_result[0]["total"] if fact_count_result else 0
+
+        total = edge_total + fact_total
+        limit_total = offset + limit
+        params["limit_total"] = limit_total
 
         # Fetch edges with source/target names
-        query = f"""
+        edge_query = f"""
             MATCH (src:Entity)-[r:RELATES_TO {{group_id: $group_id}}]->(tgt:Entity)
-            WHERE {where_clause}
+            WHERE {edge_where}
             RETURN r, src.uuid as source_uuid, src.name as source_name,
                    tgt.uuid as target_uuid, tgt.name as target_name
             ORDER BY r.created_at DESC
-            SKIP $offset
-            LIMIT $limit
+            LIMIT $limit_total
         """
-        result = await driver.execute_query(query, **params)
+        edge_rows = await driver.execute_query(edge_query, **params)
 
-        facts = []
-        for row in result:
+        timeline_entries = []
+        for row in edge_rows:
             edge_data = row["r"]
 
             # Determine temporal status
-            valid_at = edge_data.get("valid_at")
-            invalid_at = edge_data.get("invalid_at")
-            expired_at = edge_data.get("expired_at")
+            valid_at = _parse_dt(edge_data.get("valid_at"))
+            invalid_at = _parse_dt(edge_data.get("invalid_at"))
+            expired_at = _parse_dt(edge_data.get("expired_at"))
 
             if expired_at:
                 temporal_status = "expired"
-            elif invalid_at and datetime.fromisoformat(invalid_at) < now:
+            elif invalid_at and invalid_at < now:
                 temporal_status = "expired"
-            elif valid_at and datetime.fromisoformat(valid_at) > now:
+            elif valid_at and valid_at > now:
                 temporal_status = "future"
             else:
                 temporal_status = "valid"
@@ -750,9 +787,86 @@ async def get_facts_timeline(
                 invalid_at=edge_data.get("invalid_at"),
                 created_at=edge_data.get("created_at", ""),
             )
-            facts.append(TimelineFact(edge=edge_summary, temporal_status=temporal_status))
+            entry_time = valid_at or _parse_dt(edge_data.get("created_at")) or now
+            timeline_entries.append(
+                {
+                    "timestamp": entry_time,
+                    "entry": TimelineFact(
+                        kind="edge",
+                        edge=edge_summary,
+                        temporal_status=temporal_status,
+                    ),
+                }
+            )
 
-        return FactsTimelineResponse(facts=facts, total=total, offset=offset)
+        if include_facts and limit_total > 0:
+            if entity_uuid:
+                fact_query = f"""
+                    MATCH (f:Fact {{group_id: $group_id}})-[:HAS_ROLE]->(e:Entity {{uuid: $entity_uuid}})
+                    WHERE {fact_where}
+                    RETURN DISTINCT f AS fact
+                    ORDER BY f.created_at DESC
+                    LIMIT $limit_total
+                """
+            else:
+                fact_query = f"""
+                    MATCH (f:Fact {{group_id: $group_id}})
+                    WHERE {fact_where}
+                    RETURN f AS fact
+                    ORDER BY f.created_at DESC
+                    LIMIT $limit_total
+                """
+            fact_rows = await driver.execute_query(fact_query, **params)
+            fact_nodes = [driver._dict_to_fact_node(row["fact"]) for row in fact_rows]
+
+            roles_lookup = {}
+            if include_fact_roles and fact_nodes:
+                roles_lookup = await app_state.dere_graph.get_fact_roles(
+                    fact_nodes,
+                    group_id=group_id,
+                )
+
+            for fact in fact_nodes:
+                role_entries = roles_lookup.get(fact.uuid, [])
+                roles = [
+                    FactRoleSummary(
+                        entity_uuid=role.entity_uuid,
+                        entity_name=role.entity_name,
+                        role=role.role,
+                        role_description=role.role_description,
+                    )
+                    for role in role_entries
+                ]
+
+                valid_at = _parse_dt(fact.valid_at)
+                invalid_at = _parse_dt(fact.invalid_at)
+                expired_at = _parse_dt(fact.expired_at)
+                if expired_at:
+                    temporal_status = "expired"
+                elif invalid_at and invalid_at < now:
+                    temporal_status = "expired"
+                elif valid_at and valid_at > now:
+                    temporal_status = "future"
+                else:
+                    temporal_status = "valid"
+
+                entry_time = valid_at or _parse_dt(fact.created_at) or now
+                timeline_entries.append(
+                    {
+                        "timestamp": entry_time,
+                        "entry": TimelineFact(
+                            kind="fact",
+                            fact=_fact_to_summary(fact, roles),
+                            temporal_status=temporal_status,
+                        ),
+                    }
+                )
+
+        timeline_entries.sort(key=lambda item: item["timestamp"], reverse=True)
+        page = timeline_entries[offset : offset + limit]
+        timeline = [item["entry"] for item in page]
+
+        return FactsTimelineResponse(facts=timeline, total=total, offset=offset)
     except Exception as e:
         logger.error(f"Facts timeline retrieval failed: {e}")
         return FactsTimelineResponse(facts=[], total=0, offset=offset)

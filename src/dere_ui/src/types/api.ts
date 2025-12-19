@@ -625,7 +625,9 @@ export interface KGFactSearchResponse {
 }
 
 export interface KGTimelineFact {
-  edge: KGEdgeSummary;
+  kind: "edge" | "fact";
+  edge?: KGEdgeSummary;
+  fact?: KGFactSummary;
   temporal_status: "valid" | "expired" | "future";
 }
 
