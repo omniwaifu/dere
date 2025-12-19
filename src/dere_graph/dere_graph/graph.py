@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from typing import Protocol, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel
@@ -34,6 +35,79 @@ class SearchResults(BaseModel):
     edges: list[EntityEdge]
 
 
+class _HasUUID(Protocol):
+    uuid: str
+
+
+T = TypeVar("T", bound=_HasUUID)
+
+
+def _select_with_bfs(
+    ranked: list[T],
+    bfs: list[T],
+    limit: int,
+    bfs_slots: int,
+) -> list[T]:
+    if limit <= 0:
+        return []
+
+    bfs_slots = max(0, min(bfs_slots, limit))
+    primary_limit = max(0, limit - bfs_slots)
+    primary = ranked[:primary_limit]
+    seen = {item.uuid for item in primary}
+    ranked_uuids = {item.uuid for item in ranked}
+    combined = list(primary)
+
+    for item in bfs:
+        if len(combined) >= limit:
+            break
+        if item.uuid in seen or item.uuid in ranked_uuids:
+            continue
+        combined.append(item)
+        seen.add(item.uuid)
+
+    for item in ranked[primary_limit:]:
+        if len(combined) >= limit:
+            break
+        if item.uuid in seen:
+            continue
+        combined.append(item)
+        seen.add(item.uuid)
+
+    return combined
+
+
+def _collect_bfs_seed_uuids(
+    nodes: list[EntityNode],
+    edges: list[EntityEdge],
+    seed_limit: int,
+) -> list[str]:
+    if seed_limit <= 0:
+        return []
+
+    seeds: list[str] = []
+    seen: set[str] = set()
+
+    for node in nodes:
+        if node.uuid in seen:
+            continue
+        seeds.append(node.uuid)
+        seen.add(node.uuid)
+        if len(seeds) >= seed_limit:
+            return seeds
+
+    for edge in edges:
+        for uuid in (edge.source_node_uuid, edge.target_node_uuid):
+            if uuid in seen:
+                continue
+            seeds.append(uuid)
+            seen.add(uuid)
+            if len(seeds) >= seed_limit:
+                return seeds
+
+    return seeds
+
+
 class DereGraph:
     """Main API for dere_graph - minimal Graphiti clone."""
 
@@ -52,6 +126,10 @@ class DereGraph:
         enable_attribute_hydration: bool = False,
         enable_edge_date_refinement: bool = False,
         idle_threshold_minutes: int = 15,
+        enable_bfs_search: bool = True,
+        search_bfs_max_depth: int = 2,
+        search_bfs_limit: int = 5,
+        search_bfs_seed_limit: int = 5,
     ):
         """Initialize DereGraph with database and AI clients.
 
@@ -69,6 +147,10 @@ class DereGraph:
             enable_attribute_hydration: Run a dedicated attribute hydration pass after deduplication
             enable_edge_date_refinement: Run a dedicated edge date extraction pass post-deduplication
             idle_threshold_minutes: Minutes of idle time before creating new conversation_id
+            enable_bfs_search: Enable BFS expansion in search
+            search_bfs_max_depth: Maximum traversal depth for BFS expansion
+            search_bfs_limit: Maximum number of BFS-expanded nodes/edges to consider
+            search_bfs_seed_limit: Maximum number of seed nodes for BFS expansion
         """
         self.driver = FalkorDriver(
             host=falkor_host,
@@ -86,6 +168,10 @@ class DereGraph:
         self.enable_attribute_hydration = enable_attribute_hydration
         self.enable_edge_date_refinement = enable_edge_date_refinement
         self.idle_threshold_minutes = idle_threshold_minutes
+        self.enable_bfs_search = enable_bfs_search
+        self.search_bfs_max_depth = search_bfs_max_depth
+        self.search_bfs_limit = search_bfs_limit
+        self.search_bfs_seed_limit = search_bfs_seed_limit
 
         # Optional Postgres for entity meta-context
         if postgres_db_url:
@@ -317,7 +403,7 @@ class DereGraph:
         """Search the knowledge graph using hybrid search with optional reranking.
 
         Combines BM25 fulltext search and vector similarity search
-        using Reciprocal Rank Fusion, with optional reranking strategies.
+        using Reciprocal Rank Fusion, with optional reranking strategies and BFS expansion.
 
         Args:
             query: Search query
@@ -335,60 +421,104 @@ class DereGraph:
         """
         logger.info(f"Searching for: {query}")
 
+        if limit <= 0:
+            return SearchResults(nodes=[], edges=[])
+
+        bfs_slots = 0
+        if self.enable_bfs_search and self.search_bfs_limit > 0 and limit > 1:
+            bfs_slots = min(self.search_bfs_limit, limit - 1)
+        primary_limit = limit - bfs_slots
+
         # Generate query embedding for MMR
         query_embedding = await self.embedder.create(query.replace("\n", " "))
 
         # Search nodes and edges in parallel
         # For episode_mentions and recency, reranking is done in hybrid_node_search
+        node_fetch_limit = limit + bfs_slots
+        edge_fetch_limit = limit + bfs_slots
+
         if rerank_method in ("episode_mentions", "recency"):
-            nodes = await hybrid_node_search(
+            node_candidates = await hybrid_node_search(
                 self.driver,
                 self.embedder,
                 query,
                 group_id,
-                limit,
+                node_fetch_limit,
                 filters,
                 rerank_method=rerank_method,
                 rerank_alpha=rerank_alpha,
             )
         else:
-            nodes = await hybrid_node_search(
+            hybrid_limit = node_fetch_limit * 2 if rerank_method else node_fetch_limit
+            node_candidates = await hybrid_node_search(
                 self.driver,
                 self.embedder,
                 query,
                 group_id,
-                limit * 2 if rerank_method else limit,
+                hybrid_limit,
                 filters,
             )
 
-        edges = await hybrid_edge_search(
+        edge_candidates = await hybrid_edge_search(
             self.driver,
             self.embedder,
             query,
             group_id,
-            limit * 2 if rerank_method else limit,
+            edge_fetch_limit,
             filters,
         )
 
         # Apply reranking if requested (for MMR and distance methods)
-        if rerank_method == "mmr" and nodes:
-            nodes = mmr_rerank(nodes, query_embedding, lambda_param, limit)
-        elif rerank_method == "distance" and center_node_uuid and nodes:
-            node_uuids = [n.uuid for n in nodes]
+        if rerank_method == "mmr" and node_candidates:
+            ranked_nodes = mmr_rerank(
+                node_candidates, query_embedding, lambda_param, node_fetch_limit
+            )
+        elif rerank_method == "distance" and center_node_uuid and node_candidates:
+            node_uuids = [n.uuid for n in node_candidates]
             distances = await calculate_node_distances(
                 self.driver, center_node_uuid, node_uuids, group_id
             )
-            nodes = node_distance_reranker(nodes, center_node_uuid, distances)
-            nodes = nodes[:limit]
-        elif rerank_method not in ("episode_mentions", "recency"):
-            nodes = nodes[:limit]
+            ranked_nodes = node_distance_reranker(node_candidates, center_node_uuid, distances)
+            ranked_nodes = ranked_nodes[:node_fetch_limit]
+        else:
+            ranked_nodes = node_candidates[:node_fetch_limit]
 
         # Apply recency boost if requested (separate from rerank_method="recency")
+        primary_nodes = ranked_nodes[:primary_limit]
+        primary_edges = edge_candidates[:primary_limit]
+
+        bfs_nodes: list[EntityNode] = []
+        bfs_edges: list[EntityEdge] = []
+        if bfs_slots > 0:
+            seed_uuids = _collect_bfs_seed_uuids(
+                primary_nodes,
+                primary_edges,
+                self.search_bfs_seed_limit,
+            )
+            if seed_uuids:
+                bfs_nodes, bfs_edges = await asyncio.gather(
+                    node_bfs_search(
+                        self.driver,
+                        seed_uuids,
+                        group_id,
+                        self.search_bfs_max_depth,
+                        self.search_bfs_limit,
+                    ),
+                    edge_bfs_search(
+                        self.driver,
+                        seed_uuids,
+                        group_id,
+                        self.search_bfs_max_depth,
+                        self.search_bfs_limit,
+                    ),
+                )
+
+        nodes = _select_with_bfs(ranked_nodes, bfs_nodes, limit, bfs_slots)
+        edges = _select_with_bfs(edge_candidates, bfs_edges, limit, bfs_slots)
+
         if recency_weight > 0 and nodes:
             scored_nodes = score_by_recency(nodes)
             nodes = [node for node, score in sorted(scored_nodes, key=lambda x: x[1], reverse=True)]
-
-        edges = edges[:limit]
 
         logger.info(f"Search found {len(nodes)} nodes, {len(edges)} edges")
 

@@ -1,6 +1,7 @@
 # TODO — `dere_graph` “Brain” Roadmap (Graphiti/Zep Parity + Extensions)
 
 This repo’s `src/dere_graph` is a minimal Graphiti-like “agent memory” graph:
+
 - Storage: FalkorDB
 - Embeddings: OpenAI
 - Extraction/Resolution: Claude via `claude-agent-sdk` structured output (`src/dere_shared/llm_client.py`)
@@ -15,7 +16,10 @@ in a logical build order with the “why”.
 
 ## Guiding Architecture (code + relationships + everything)
 
+- NOTE: we use uv, please don't run vanilla python scripts.
+
 Recommendation: **one graph, multiple domains**, not totally separate “brains”.
+
 - Use a single backing graph DB (so entities can connect across domains), but **tag everything**:
   - `group_id` for tenant/workspace/user partitioning
   - labels / types for domain: `Person`, `Repo`, `File`, `Symbol`, `Project`, `Task`, `Preference`, etc.
@@ -24,6 +28,7 @@ Recommendation: **one graph, multiple domains**, not totally separate “brains�
   actual repo/file/symbol nodes).
 
 When to split:
+
 - If code memory is rebuilt from source-of-truth (git) and conversational memory is append-only, you *can* split graphs for
   ops/perf; but you still need a unifying layer (shared IDs or cross-graph links). Prefer “one DB, multiple subgraphs” first.
 
@@ -96,8 +101,9 @@ These unlock everything else; do them first.
 
 ## Phase 2 — Retrieval parity (make it easy to get the right context)
 
-- [ ] **Integrate BFS expansion into the default search path**
-  - Why: paper uses cosine + BM25 + BFS for recall; our BFS utilities exist but aren’t part of `DereGraph.search()`.
+- [x] **Integrate BFS expansion into the default search path**
+  - Why: paper uses cosine + BM25 + BFS for recall; our BFS utilities exist but weren’t part of `DereGraph.search()`.
+  - Current state: `DereGraph.search()` now reserves a small slot for BFS-expanded nodes/edges, seeded from top results.
   - Files: `src/dere_graph/dere_graph/graph.py`, `src/dere_graph/dere_graph/traversal.py`
 
 - [ ] **Seed BFS from “recent / conversation-relevant episodes”**
