@@ -24,3 +24,5 @@ def test_load_eval_cases_reads_min_hits() -> None:
 
     project_case = next(case for case in cases if case.name == "project_state")
     assert project_case.queries[0].min_fact_hits == 1
+    assert project_case.queries[0].min_fact_role_hits == 1
+    assert project_case.queries[0].expected_fact_roles

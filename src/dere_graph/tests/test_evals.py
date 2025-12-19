@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from dere_graph.evals import EvalQuery, score_query_results
-from dere_graph.models import EntityEdge, EntityNode, FactNode
+from dere_graph.evals import (
+    EvalFactRoleExpectation,
+    EvalQuery,
+    EvalRoleBinding,
+    score_query_results,
+)
+from dere_graph.models import EntityEdge, EntityNode, FactNode, FactRoleDetail
 
 
 def _node(uuid: str, name: str, aliases: list[str] | None = None) -> EntityNode:
@@ -85,4 +90,49 @@ def test_score_query_results_counts_fact_nodes() -> None:
     score = score_query_results(nodes, edges, facts, query)
 
     assert score.fact_hits == 1
+    assert score.passed is True
+
+
+def test_score_query_results_counts_fact_roles() -> None:
+    facts = [_fact("f1", "Project Apollo is blocked by an authentication bug")]
+    roles = {
+        "f1": [
+            FactRoleDetail(
+                fact_uuid="f1",
+                entity_uuid="e1",
+                entity_name="Project Apollo",
+                role="blocked_project",
+            ),
+            FactRoleDetail(
+                fact_uuid="f1",
+                entity_uuid="e2",
+                entity_name="authentication bug",
+                role="blocking_bug",
+            ),
+        ]
+    }
+    query = EvalQuery(
+        query="What is blocking Apollo?",
+        expected_fact_roles=[
+            EvalFactRoleExpectation(
+                fact="blocked",
+                roles=[
+                    EvalRoleBinding(
+                        entity="Project Apollo",
+                        role="blocked_project",
+                        role_aliases=["project"],
+                    ),
+                    EvalRoleBinding(
+                        entity="authentication bug",
+                        role="blocking_bug",
+                        role_aliases=["bug"],
+                    ),
+                ],
+            )
+        ],
+    )
+
+    score = score_query_results([], [], facts, query, fact_roles=roles)
+
+    assert score.fact_role_hits == 1
     assert score.passed is True

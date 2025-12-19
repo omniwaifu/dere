@@ -52,7 +52,27 @@
           "expected_entities": ["Project Apollo", "Apollo milestone", "Apollo"],
           "expected_facts": ["blocked by an auth bug", "authentication bug", "auth bug"],
           "min_entity_hits": 1,
-          "min_fact_hits": 1
+          "min_fact_hits": 1,
+          "expected_fact_roles": [
+            {
+              "fact": "blocked",
+              "roles": [
+                {
+                  "entity": ["Project Apollo", "Apollo milestone", "Apollo"],
+                  "role": ["blocked_project", "project", "milestone"]
+                },
+                {
+                  "entity": ["authentication bug", "auth bug"],
+                  "role": ["blocking_bug", "bug", "issue"]
+                },
+                {
+                  "entity": "login handler",
+                  "role": ["bug_location", "component", "location"]
+                }
+              ]
+            }
+          ],
+          "min_fact_role_hits": 1
         }
       ]
     }
