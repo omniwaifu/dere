@@ -15,7 +15,18 @@ from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import CommunityNode, EntityEdge, EntityNode, EpisodeType, EpisodicNode
 from dere_graph.operations import add_episode
 from dere_graph.reranking import mmr_rerank, score_by_recency
-from dere_graph.search import fulltext_community_search, hybrid_edge_search, hybrid_node_search
+from dere_graph.search import (
+    fulltext_community_search,
+    hybrid_edge_search,
+    hybrid_node_search,
+    rrf,
+)
+from dere_graph.routing import (
+    DEFAULT_DOMAIN_ROUTES,
+    DomainRoute,
+    merge_filters,
+    select_domain_filters,
+)
 from dere_graph.traversal import (
     calculate_node_distances,
     edge_bfs_search,
@@ -129,6 +140,24 @@ def _extend_seed_uuids(seeds: list[str], extras: list[str], limit: int) -> list[
     return seeds
 
 
+def _merge_ranked_items(result_lists: list[list[T]], limit: int) -> list[T]:
+    if limit <= 0:
+        return []
+
+    uuid_lists = [[item.uuid for item in items] for items in result_lists if items]
+    if not uuid_lists:
+        return []
+
+    merged_uuids, _ = rrf(uuid_lists)
+    item_by_uuid: dict[str, T] = {}
+    for items in result_lists:
+        for item in items:
+            item_by_uuid.setdefault(item.uuid, item)
+
+    merged = [item_by_uuid[uuid] for uuid in merged_uuids if uuid in item_by_uuid]
+    return merged[:limit]
+
+
 class DereGraph:
     """Main API for dere_graph - minimal Graphiti clone."""
 
@@ -153,6 +182,10 @@ class DereGraph:
         search_bfs_seed_limit: int = 5,
         search_recent_episode_limit: int = 3,
         search_bfs_episode_seed_limit: int = 5,
+        enable_domain_routing: bool = True,
+        search_domain_max_routes: int = 2,
+        search_domain_limit: int = 10,
+        domain_routes: list[DomainRoute] | None = None,
     ):
         """Initialize DereGraph with database and AI clients.
 
@@ -176,6 +209,10 @@ class DereGraph:
             search_bfs_seed_limit: Maximum number of seed nodes for BFS expansion
             search_recent_episode_limit: Number of recent episodes to seed BFS from
             search_bfs_episode_seed_limit: Maximum number of episode-derived seed entities
+            enable_domain_routing: Enable domain-aware query routing ("brain views")
+            search_domain_max_routes: Maximum number of domain routes to apply per query
+            search_domain_limit: Max results per domain-specific search
+            domain_routes: Optional custom domain routes for query routing
         """
         self.driver = FalkorDriver(
             host=falkor_host,
@@ -199,6 +236,10 @@ class DereGraph:
         self.search_bfs_seed_limit = search_bfs_seed_limit
         self.search_recent_episode_limit = search_recent_episode_limit
         self.search_bfs_episode_seed_limit = search_bfs_episode_seed_limit
+        self.enable_domain_routing = enable_domain_routing
+        self.search_domain_max_routes = search_domain_max_routes
+        self.search_domain_limit = search_domain_limit
+        self.domain_routes = domain_routes or DEFAULT_DOMAIN_ROUTES
 
         # Optional Postgres for entity meta-context
         if postgres_db_url:
@@ -427,6 +468,7 @@ class DereGraph:
         rerank_alpha: float = 0.5,
         recency_weight: float = 0.0,
         conversation_id: str | None = None,
+        domain_routing: bool | None = None,
     ) -> SearchResults:
         """Search the knowledge graph using hybrid search with optional reranking.
 
@@ -444,6 +486,7 @@ class DereGraph:
             rerank_alpha: Alpha parameter for episode_mentions/recency reranking (0-1)
             recency_weight: Weight for recency boost (0-1, 0=no boost)
             conversation_id: Optional conversation grouping ID for BFS seeding
+            domain_routing: Override domain routing for this search
 
         Returns:
             SearchResults with matching nodes and edges
@@ -460,6 +503,17 @@ class DereGraph:
 
         # Generate query embedding for MMR
         query_embedding = await self.embedder.create(query.replace("\n", " "))
+
+        domain_filters: list[SearchFilters] = []
+        if (
+            (self.enable_domain_routing if domain_routing is None else domain_routing)
+            and query.strip()
+            and not (filters and (filters.node_labels or filters.edge_types))
+            and self.search_domain_max_routes > 0
+        ):
+            domain_filters = select_domain_filters(
+                query, self.domain_routes, self.search_domain_max_routes
+            )
 
         # Search nodes and edges in parallel
         # For episode_mentions and recency, reranking is done in hybrid_node_search
@@ -496,6 +550,64 @@ class DereGraph:
             edge_fetch_limit,
             filters,
         )
+
+        if domain_filters:
+            domain_limit = max(1, min(self.search_domain_limit, node_fetch_limit))
+            domain_tasks = []
+            for domain_filter in domain_filters:
+                merged_filter = merge_filters(filters, domain_filter)
+                if rerank_method in ("episode_mentions", "recency"):
+                    domain_tasks.append(
+                        hybrid_node_search(
+                            self.driver,
+                            self.embedder,
+                            query,
+                            group_id,
+                            domain_limit,
+                            merged_filter,
+                            rerank_method=rerank_method,
+                            rerank_alpha=rerank_alpha,
+                        )
+                    )
+                else:
+                    domain_tasks.append(
+                        hybrid_node_search(
+                            self.driver,
+                            self.embedder,
+                            query,
+                            group_id,
+                            domain_limit,
+                            merged_filter,
+                        )
+                    )
+
+            domain_node_lists = await asyncio.gather(*domain_tasks)
+            merge_limit = max(len(node_candidates), node_fetch_limit)
+            node_candidates = _merge_ranked_items(
+                [node_candidates] + list(domain_node_lists),
+                merge_limit,
+            )
+
+            if any(domain_filter.edge_types for domain_filter in domain_filters):
+                edge_tasks = []
+                edge_domain_limit = max(1, min(self.search_domain_limit, edge_fetch_limit))
+                for domain_filter in domain_filters:
+                    merged_filter = merge_filters(filters, domain_filter)
+                    edge_tasks.append(
+                        hybrid_edge_search(
+                            self.driver,
+                            self.embedder,
+                            query,
+                            group_id,
+                            edge_domain_limit,
+                            merged_filter,
+                        )
+                    )
+                domain_edge_lists = await asyncio.gather(*edge_tasks)
+                edge_candidates = _merge_ranked_items(
+                    [edge_candidates] + list(domain_edge_lists),
+                    edge_fetch_limit,
+                )
 
         # Apply reranking if requested (for MMR and distance methods)
         if rerank_method == "mmr" and node_candidates:

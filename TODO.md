@@ -120,9 +120,9 @@ These unlock everything else; do them first.
   - Why: highest precision; most expensive. Use only when you can afford latency/cost.
   - Current state: not implemented.
 
-- [ ] **Domain-aware query routing (“brain views”)**
+- [x] **Domain-aware query routing (“brain views”)**
   - Why: a user asking “Where is this bug?” should hit code+git+issues; “How does Alice feel?” should hit relationship memory.
-  - Approach: classify query intent → choose subgraphs (by labels/types) → run searches → merge with RRF/MMR.
+  - Current state: heuristic routing selects domain filters by keywords and merges per-domain searches with RRF.
 
 - [x] **Context assembly + citations back to episodes**
   - Why: “brain” is only useful if the agent can quote/prove where facts came from (and avoid stale/invalid facts).
