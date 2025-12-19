@@ -23,6 +23,7 @@ import type {
   DashboardStateResponse,
   SummaryContextResponse,
   KGEntityListResponse,
+  KGFactSearchResponse,
   KGSearchResultsResponse,
   KGFactsTimelineResponse,
   KGStatsResponse,
@@ -265,6 +266,24 @@ export const api = {
       if (params.rerank_method) searchParams.set("rerank_method", params.rerank_method);
       if (params.labels) params.labels.forEach((l) => searchParams.append("labels", l));
       return fetchJson<KGSearchResultsResponse>(`/kg/search?${searchParams.toString()}`);
+    },
+
+    factSearch: (params: { query: string; limit?: number; include_roles?: boolean }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set("query", params.query);
+      if (params.limit) searchParams.set("limit", String(params.limit));
+      if (params.include_roles !== undefined)
+        searchParams.set("include_roles", String(params.include_roles));
+      return fetchJson<KGFactSearchResponse>(`/kg/facts/search?${searchParams.toString()}`);
+    },
+
+    factsAtTime: (params: { timestamp: string; limit?: number; include_roles?: boolean }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set("timestamp", params.timestamp);
+      if (params.limit) searchParams.set("limit", String(params.limit));
+      if (params.include_roles !== undefined)
+        searchParams.set("include_roles", String(params.include_roles));
+      return fetchJson<KGFactSearchResponse>(`/kg/facts/at_time?${searchParams.toString()}`);
     },
 
     factsTimeline: (params?: {

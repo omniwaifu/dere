@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Brain, Search, Clock, BarChart3 } from "lucide-react";
+import { Brain, Search, Clock, BarChart3, FileText } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useKGStats } from "@/hooks/queries";
 import { EntitiesBrowser } from "@/components/knowledge/EntitiesBrowser";
 import { SearchPanel } from "@/components/knowledge/SearchPanel";
+import { FactExplorer } from "@/components/knowledge/FactExplorer";
 import { FactsTimeline } from "@/components/knowledge/FactsTimeline";
 import { AnalyticsDashboard } from "@/components/knowledge/AnalyticsDashboard";
 
@@ -23,7 +24,7 @@ function KnowledgePage() {
         </div>
         {stats && (
           <div className="text-sm text-muted-foreground">
-            {stats.total_entities} entities, {stats.total_edges} facts
+            {stats.total_entities} entities, {stats.total_edges} relationships
           </div>
         )}
       </div>
@@ -37,6 +38,10 @@ function KnowledgePage() {
           <TabsTrigger value="search" className="gap-1.5">
             <Search className="h-4 w-4" />
             Search
+          </TabsTrigger>
+          <TabsTrigger value="facts" className="gap-1.5">
+            <FileText className="h-4 w-4" />
+            Facts
           </TabsTrigger>
           <TabsTrigger value="timeline" className="gap-1.5">
             <Clock className="h-4 w-4" />
@@ -54,6 +59,10 @@ function KnowledgePage() {
 
         <TabsContent value="search" className="mt-4">
           <SearchPanel />
+        </TabsContent>
+
+        <TabsContent value="facts" className="mt-4">
+          <FactExplorer />
         </TabsContent>
 
         <TabsContent value="timeline" className="mt-4">

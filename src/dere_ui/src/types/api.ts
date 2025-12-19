@@ -619,6 +619,11 @@ export interface KGSearchResultsResponse {
   query: string;
 }
 
+export interface KGFactSearchResponse {
+  facts: KGFactSummary[];
+  query: string;
+}
+
 export interface KGTimelineFact {
   edge: KGEdgeSummary;
   temporal_status: "valid" | "expired" | "future";

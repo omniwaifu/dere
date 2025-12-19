@@ -471,7 +471,7 @@ function KnowledgePreview() {
         <span className="text-xs text-muted-foreground">entities</span>
       </div>
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        <span>{data?.total_edges ?? 0} facts</span>
+        <span>{data?.total_edges ?? 0} relationships</span>
         <span>{data?.total_communities ?? 0} clusters</span>
       </div>
       {topEntity && (

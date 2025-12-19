@@ -198,10 +198,10 @@ export function AnalyticsDashboard() {
           description="Total knowledge entities"
         />
         <StatCard
-          title="Facts"
+          title="Relationships"
           value={stats?.total_edges ?? 0}
           icon={<Network className="h-4 w-4" />}
-          description="Relationships between entities"
+          description="Edges between entities"
         />
         <StatCard
           title="Communities"

@@ -137,6 +137,10 @@ These unlock everything else; do them first.
   - Why: external callers need structured fact retrieval (including role bindings and point-in-time filters).
   - Current state: `/kg/search` returns facts + roles, with fact-only search and point-in-time fact endpoints.
   - Files: `src/dere_daemon/routers/knowledge_graph.py`, `src/dere_graph/dere_graph/graph.py`, `src/dere_graph/dere_graph/driver.py`
+- [x] **Surface hyper-edge facts in dere_ui knowledge views**
+  - Why: UI should expose fact roles + point-in-time browsing for real-world use.
+  - Current state: knowledge search shows fact nodes with role badges, and a Facts tab provides search + snapshots.
+  - Files: `src/dere_ui/src/components/knowledge/FactExplorer.tsx`, `src/dere_ui/src/routes/knowledge.tsx`, `src/dere_ui/src/lib/api.ts`
 
 ---
 

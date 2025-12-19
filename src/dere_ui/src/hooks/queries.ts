@@ -29,6 +29,10 @@ export const queryKeys = {
   kgEntities: (params?: { labels?: string[]; sort_by?: string; offset?: number }) =>
     ["kg", "entities", params] as const,
   kgSearch: (query: string, params?: object) => ["kg", "search", query, params] as const,
+  kgFactSearch: (query: string, params?: object) =>
+    ["kg", "facts", "search", query, params] as const,
+  kgFactsAtTime: (timestamp?: string, params?: object) =>
+    ["kg", "facts", "at_time", timestamp, params] as const,
   kgFactsTimeline: (params?: object) => ["kg", "facts", "timeline", params] as const,
   kgStats: ["kg", "stats"] as const,
   kgCommunities: ["kg", "communities"] as const,
@@ -379,6 +383,36 @@ export function useKGSearch(
     queryKey: queryKeys.kgSearch(query, params),
     queryFn: () => api.knowledge.search({ query, ...params }),
     enabled: options?.enabled ?? query.length > 0,
+  });
+}
+
+export function useKGFactSearch(
+  query: string,
+  params?: {
+    limit?: number;
+    include_roles?: boolean;
+  },
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.kgFactSearch(query, params),
+    queryFn: () => api.knowledge.factSearch({ query, ...params }),
+    enabled: options?.enabled ?? query.length > 0,
+  });
+}
+
+export function useKGFactsAtTime(
+  timestamp: string,
+  params?: {
+    limit?: number;
+    include_roles?: boolean;
+  },
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.kgFactsAtTime(timestamp, params),
+    queryFn: () => api.knowledge.factsAtTime({ timestamp, ...params }),
+    enabled: options?.enabled ?? timestamp.length > 0,
   });
 }
 
