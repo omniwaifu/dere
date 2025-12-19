@@ -341,6 +341,28 @@ class CentralizedAgentService:
                     except Exception as e:
                         logger.error(f"[emotion] Failed to process stimulus: {e}")
 
+                if self.dere_graph and response_text:
+                    try:
+                        from dere_daemon.context_tracking import extract_cited_entity_uuids
+                        from dere_shared.models import ContextCache
+
+                        async with self.session_factory() as db:
+                            cache = await db.get(ContextCache, session.session_id)
+
+                        if cache and cache.context_metadata:
+                            cited = extract_cited_entity_uuids(
+                                response_text, cache.context_metadata
+                            )
+                            if cited:
+                                await self.dere_graph.track_entity_citations(cited)
+                                logger.debug(
+                                    "[kg] Tracked {} cited entities for session {}",
+                                    len(cited),
+                                    session.session_id,
+                                )
+                    except Exception as e:
+                        logger.debug("[kg] Failed to track citations: {}", e)
+
             except Exception as e:
                 logger.error(f"[interaction] Background processing failed: {e}")
 

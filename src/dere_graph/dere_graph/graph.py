@@ -13,7 +13,7 @@ from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.filters import SearchFilters
 from dere_graph.llm_client import ClaudeClient
 from dere_graph.models import CommunityNode, EntityEdge, EntityNode, EpisodeType, EpisodicNode
-from dere_graph.operations import add_episode
+from dere_graph.operations import add_episode, track_entity_citation, track_entity_retrieval
 from dere_graph.reranking import CrossEncoderScorer, cross_encoder_rerank, mmr_rerank, score_by_recency
 from dere_graph.search import (
     fulltext_community_search,
@@ -721,6 +721,18 @@ class DereGraph:
     ) -> list[CommunityNode]:
         """Search community nodes by name and summary."""
         return await fulltext_community_search(self.driver, query, group_id, limit)
+
+    async def track_entity_retrievals(self, entity_uuids: list[str]) -> None:
+        """Track that entities were retrieved for context."""
+        if not entity_uuids:
+            return
+        await track_entity_retrieval(self.driver, entity_uuids)
+
+    async def track_entity_citations(self, entity_uuids: list[str]) -> None:
+        """Track that entities were cited in responses."""
+        if not entity_uuids:
+            return
+        await track_entity_citation(self.driver, entity_uuids)
 
     async def get_edge_citations(
         self,

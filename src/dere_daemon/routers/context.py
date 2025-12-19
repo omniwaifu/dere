@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dere_daemon.dependencies import get_db
+from dere_daemon.context_tracking import build_context_metadata
 from dere_shared.models import ContextCache, Session
 
 router = APIRouter(prefix="/context", tags=["context"])
@@ -109,6 +110,11 @@ async def context_build(
 
                 search_results.nodes = unique_nodes[:context_depth]
 
+            if search_results.nodes:
+                await app_state.dere_graph.track_entity_retrievals(
+                    [node.uuid for node in search_results.nodes]
+                )
+
             citations_lookup = {}
             if req.include_citations and search_results.edges:
                 citations = await app_state.dere_graph.get_edge_citations(
@@ -152,16 +158,22 @@ async def context_build(
                     context_parts.append(fact_line)
 
             context_text = "\n".join(context_parts) if context_parts else ""
+            context_metadata = build_context_metadata(
+                search_results.nodes,
+                search_results.edges,
+            )
 
             # Cache the result (upsert - update if exists, insert if not)
             existing = await db.get(ContextCache, req.session_id)
             if existing:
                 existing.context_text = context_text
+                existing.context_metadata = context_metadata
                 existing.updated_at = datetime.now(UTC)
             else:
                 cache = ContextCache(
                     session_id=req.session_id,
                     context_text=context_text,
+                    context_metadata=context_metadata,
                     created_at=datetime.now(UTC),
                     updated_at=datetime.now(UTC),
                 )

@@ -132,9 +132,9 @@ These unlock everything else; do them first.
 
 ## Phase 3 — Feedback loops, evals, and ops
 
-- [ ] **Wire retrospective signals into the agent runtime**
+- [x] **Wire retrospective signals into the agent runtime**
   - Why: we added `retrieval_count` / `citation_count` / `retrieval_quality`, but they must be updated from real agent usage.
-  - Files: `src/dere_graph/dere_graph/operations.py` (tracking helpers exist), dere daemon/agent integration needed.
+  - Current state: context build tracks retrievals and response processing heuristically updates citations.
 
 - [ ] **Add ingestion/retrieval evaluation harness**
   - Why: regression prevention; prompts will drift. Need a repeatable suite of “known conversations → expected facts”.
