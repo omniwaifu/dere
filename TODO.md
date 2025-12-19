@@ -92,10 +92,11 @@ These unlock everything else; do them first.
     (`enable_edge_date_refinement`) that batch-refines missing `valid_at`/`invalid_at` via `extract_edge_dates_batch`.
   - Files: `src/dere_graph/dere_graph/prompts.py`, `src/dere_graph/dere_graph/operations.py`, `src/dere_graph/dere_graph/graph.py`, `src/dere_daemon/main.py`, `config.toml.example`
 
-- [ ] **Support “hyper-edge” / n-ary fact representation (optional, but paper calls it out)**
+- [x] **Support “hyper-edge” / n-ary fact representation (optional, but paper calls it out)**
   - Why: a single fact can involve >2 entities (meeting, project, decision); forcing it into pairwise edges loses structure.
-  - Possible approach: represent Facts as nodes and connect entities via roles (reification), while still keeping pairwise
-    shortcuts for retrieval.
+  - Current state: facts are represented as `Fact` nodes with role edges (`HAS_ROLE`) to entities, embedded for retrieval,
+    indexed for fulltext search, and included in context with citations and role formatting; pairwise edges remain for fast
+    retrieval.
 
 ---
 

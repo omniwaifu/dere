@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable
 
-from dere_graph.models import EntityEdge, EntityNode, EpisodeType
+from dere_graph.models import EntityEdge, EntityNode, EpisodeType, FactNode
 
 
 @dataclass(frozen=True)
@@ -110,6 +110,7 @@ def load_eval_cases(path: str | Path) -> list[EvalCase]:
 def score_query_results(
     nodes: list[EntityNode],
     edges: list[EntityEdge],
+    facts: list[FactNode],
     query: EvalQuery,
 ) -> EvalQueryScore:
     expected_entities = query.expected_entities or []
@@ -120,6 +121,7 @@ def score_query_results(
         entity_candidates.extend(node.aliases or [])
 
     fact_candidates = [edge.fact for edge in edges if edge.fact]
+    fact_candidates.extend([fact.fact for fact in facts if fact.fact])
 
     entity_hits = _match_expected(expected_entities, entity_candidates)
     fact_hits = _match_expected(expected_facts, fact_candidates)
@@ -172,7 +174,9 @@ async def run_eval_case(
             group_id=group_id,
             limit=search_limit,
         )
-        query_scores.append(score_query_results(results.nodes, results.edges, query))
+        query_scores.append(
+            score_query_results(results.nodes, results.edges, results.facts, query)
+        )
 
     passed = all(score.passed for score in query_scores)
     return EvalCaseResult(name=case.name, query_scores=query_scores, passed=passed)

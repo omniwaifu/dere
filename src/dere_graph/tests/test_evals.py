@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from dere_graph.evals import EvalQuery, score_query_results
-from dere_graph.models import EntityEdge, EntityNode
+from dere_graph.models import EntityEdge, EntityNode, FactNode
 
 
 def _node(uuid: str, name: str, aliases: list[str] | None = None) -> EntityNode:
@@ -25,6 +25,16 @@ def _edge(uuid: str, source: str, target: str, fact: str) -> EntityEdge:
     )
 
 
+def _fact(uuid: str, fact: str) -> FactNode:
+    return FactNode(
+        uuid=uuid,
+        name=fact,
+        fact=fact,
+        group_id="test",
+        created_at=datetime.now(UTC),
+    )
+
+
 def test_score_query_results_counts_matches() -> None:
     nodes = [
         _node("1", "Alice"),
@@ -33,13 +43,14 @@ def test_score_query_results_counts_matches() -> None:
     edges = [
         _edge("e1", "1", "2", "Alice works at OpenAI"),
     ]
+    facts = []
     query = EvalQuery(
         query="Who works at OpenAI?",
         expected_entities=["Alice", "Bob"],
         expected_facts=["works at OpenAI"],
     )
 
-    score = score_query_results(nodes, edges, query)
+    score = score_query_results(nodes, edges, facts, query)
 
     assert score.entity_hits == 2
     assert score.fact_hits == 1
@@ -49,13 +60,29 @@ def test_score_query_results_counts_matches() -> None:
 def test_score_query_results_requires_min_hits() -> None:
     nodes = [_node("1", "Alice")]
     edges = []
+    facts = []
     query = EvalQuery(
         query="Who is involved?",
         expected_entities=["Alice", "Bob"],
         min_entity_hits=2,
     )
 
-    score = score_query_results(nodes, edges, query)
+    score = score_query_results(nodes, edges, facts, query)
 
     assert score.entity_hits == 1
     assert score.passed is False
+
+
+def test_score_query_results_counts_fact_nodes() -> None:
+    nodes = [_node("1", "Apollo")]
+    edges = []
+    facts = [_fact("f1", "Apollo milestone is blocked by authentication bug")]
+    query = EvalQuery(
+        query="What is blocking Apollo?",
+        expected_facts=["blocked by authentication bug"],
+    )
+
+    score = score_query_results(nodes, edges, facts, query)
+
+    assert score.fact_hits == 1
+    assert score.passed is True

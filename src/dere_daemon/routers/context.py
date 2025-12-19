@@ -124,6 +124,22 @@ async def context_build(
                 )
                 citations_lookup = {c.edge_uuid: c.episodes for c in citations}
 
+            fact_citations_lookup = {}
+            if req.include_citations and search_results.facts:
+                fact_citations = await app_state.dere_graph.get_fact_citations(
+                    search_results.facts,
+                    group_id=req.user_id or "default",
+                    max_episodes_per_fact=req.citation_limit_per_edge,
+                )
+                fact_citations_lookup = {c.fact_uuid: c.episodes for c in fact_citations}
+
+            fact_roles_lookup = {}
+            if search_results.facts:
+                fact_roles_lookup = await app_state.dere_graph.get_fact_roles(
+                    search_results.facts,
+                    group_id=req.user_id or "default",
+                )
+
             def format_citation(episode) -> str:
                 header_parts = [episode.name, episode.source_description]
                 if episode.valid_at:
@@ -135,6 +151,20 @@ async def context_build(
                 if snippet:
                     return f"{header}: {snippet}"
                 return header
+
+            def format_roles(roles) -> str:
+                parts = []
+                for role in roles:
+                    entity_name = getattr(role, "entity_name", "") or ""
+                    role_name = getattr(role, "role", "") or ""
+                    if not entity_name or not role_name:
+                        continue
+                    role_desc = getattr(role, "role_description", None)
+                    if role_desc:
+                        parts.append(f"{role_name}={entity_name} ({role_desc})")
+                    else:
+                        parts.append(f"{role_name}={entity_name}")
+                return "; ".join(parts)
 
             # Format results into context text
             context_parts = []
@@ -155,6 +185,24 @@ async def context_build(
                         if episodes:
                             citations_text = "; ".join(format_citation(ep) for ep in episodes)
                             fact_line = f"{fact_line} (sources: {citations_text})"
+                    context_parts.append(fact_line)
+
+            # Add hyper-edge facts with roles
+            if search_results.facts:
+                context_parts.append("\n# Relevant Events")
+                for fact in search_results.facts:
+                    fact_line = f"- {fact.fact}"
+                    suffixes = []
+                    roles_text = format_roles(fact_roles_lookup.get(fact.uuid, []))
+                    if roles_text:
+                        suffixes.append(f"roles: {roles_text}")
+                    if req.include_citations:
+                        episodes = fact_citations_lookup.get(fact.uuid, [])
+                        if episodes:
+                            citations_text = "; ".join(format_citation(ep) for ep in episodes)
+                            suffixes.append(f"sources: {citations_text}")
+                    if suffixes:
+                        fact_line = f"{fact_line} ({'; '.join(suffixes)})"
                     context_parts.append(fact_line)
 
             context_text = "\n".join(context_parts) if context_parts else ""
