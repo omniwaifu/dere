@@ -7,6 +7,7 @@ import { SearchPanel } from "@/components/knowledge/SearchPanel";
 import { FactExplorer } from "@/components/knowledge/FactExplorer";
 import { FactsTimeline } from "@/components/knowledge/FactsTimeline";
 import { AnalyticsDashboard } from "@/components/knowledge/AnalyticsDashboard";
+import { TimelineSummary } from "@/components/knowledge/TimelineSummary";
 
 export const Route = createFileRoute("/knowledge")({
   component: KnowledgePage,
@@ -73,6 +74,10 @@ function KnowledgePage() {
           <AnalyticsDashboard />
         </TabsContent>
       </Tabs>
+
+      <div className="mt-6">
+        <TimelineSummary />
+      </div>
     </div>
   );
 }
