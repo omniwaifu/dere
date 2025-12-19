@@ -86,8 +86,9 @@ function TaskList() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   const sortedTasks = useMemo(() => {
-    if (!data?.tasks) return [];
-    return [...data.tasks].sort((a, b) => {
+    const tasks = data?.tasks ?? [];
+    if (tasks.length === 0) return [];
+    return [...tasks].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case "urgency":
@@ -105,7 +106,7 @@ function TaskList() {
       }
       return sortOrder === "desc" ? -cmp : cmp;
     });
-  }, [data?.tasks, sortField, sortOrder]);
+  }, [data, sortField, sortOrder]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {

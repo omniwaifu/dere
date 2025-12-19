@@ -147,8 +147,7 @@ export function SchemaFormSection({ sectionKey, sectionSchema, values, onChange,
     ? resolveRef(sectionSchema.$ref, defs)
     : sectionSchema;
 
-  const properties = resolvedSchema?.properties;
-  if (!properties) return null;
+  const properties = useMemo(() => resolvedSchema?.properties ?? {}, [resolvedSchema]);
 
   // Group fields by ui_group
   const groups = useMemo(() => {
@@ -179,6 +178,8 @@ export function SchemaFormSection({ sectionKey, sectionSchema, values, onChange,
     }
     return result;
   }, [groups]);
+
+  if (Object.keys(properties).length === 0) return null;
 
   const groupNames = Object.keys(visibleGroups);
 

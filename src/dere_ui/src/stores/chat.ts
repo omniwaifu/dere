@@ -172,7 +172,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const state = get();
       if (ws.readyState === WebSocket.OPEN) {
         let queue = [...state.pendingPermissionQueue];
-        let decisions = { ...state.permissionDecisions };
+        const decisions = { ...state.permissionDecisions };
         let sentAny = false;
 
         while (queue.length > 0) {
@@ -422,7 +422,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (socket && status === "connected" && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(payload));
       const nextQueue = pendingPermissionQueue.slice(1);
-      const { [current.requestId]: _dropped, ...rest } = nextDecisions;
+      const rest = { ...nextDecisions };
+      delete rest[current.requestId];
       set({
         pendingPermissionQueue: nextQueue,
         permissionDecisions: rest,

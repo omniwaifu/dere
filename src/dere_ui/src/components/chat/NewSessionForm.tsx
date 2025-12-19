@@ -470,11 +470,15 @@ function DisconnectedHint() {
 
   useEffect(() => {
     if (status === "connected" || !disconnectedAt) {
-      setShow(false);
-      return;
+      const timeout = window.setTimeout(() => setShow(false), 0);
+      return () => clearTimeout(timeout);
     }
-    const timeout = window.setTimeout(() => setShow(true), 2000);
-    return () => clearTimeout(timeout);
+    const hideTimeout = window.setTimeout(() => setShow(false), 0);
+    const showTimeout = window.setTimeout(() => setShow(true), 2000);
+    return () => {
+      clearTimeout(hideTimeout);
+      clearTimeout(showTimeout);
+    };
   }, [status, disconnectedAt]);
 
   if (!show) return null;

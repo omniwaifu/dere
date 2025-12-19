@@ -86,13 +86,6 @@ function SettingsPage() {
     return Array.from(bySection.entries()).map(([, items]) => items[0]);
   }, [schema]);
 
-  // Set initial active section
-  useEffect(() => {
-    if (sections.length > 0 && !activeSection) {
-      setActiveSection(sections[0].id);
-    }
-  }, [sections, activeSection]);
-
   // Scroll spy to update active section
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -112,6 +105,8 @@ function SettingsPage() {
 
     return () => observer.disconnect();
   }, [config, sections]);
+
+  const resolvedActiveSection = activeSection || sections[0]?.id || "";
 
   const scrollToSection = (sectionId: string) => {
     sectionRefs.current[sectionId]?.scrollIntoView({ behavior: "smooth" });
@@ -224,7 +219,7 @@ function SettingsPage() {
               onClick={() => scrollToSection(id)}
               className={cn(
                 "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                activeSection === id
+                resolvedActiveSection === id
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
               )}

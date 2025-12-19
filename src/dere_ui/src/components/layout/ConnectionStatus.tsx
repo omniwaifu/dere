@@ -11,19 +11,19 @@ export function ConnectionStatus() {
 
   // Only show disconnected state after delay
   useEffect(() => {
+    let timer: number | undefined;
     if (status === "disconnected" && disconnectedAt) {
       const elapsed = Date.now() - disconnectedAt;
       const remaining = SHOW_DISCONNECTED_DELAY_MS - elapsed;
 
-      if (remaining <= 0) {
-        setShowDisconnected(true);
-      } else {
-        const timer = setTimeout(() => setShowDisconnected(true), remaining);
-        return () => clearTimeout(timer);
-      }
+      const delay = Math.max(0, remaining);
+      timer = window.setTimeout(() => setShowDisconnected(true), delay);
     } else {
-      setShowDisconnected(false);
+      timer = window.setTimeout(() => setShowDisconnected(false), 0);
     }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [status, disconnectedAt]);
 
   // Determine visual state

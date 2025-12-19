@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Heart,
@@ -225,21 +225,23 @@ const TIME_RANGES: Record<TimeRange, { label: string; ms: number }> = {
 
 function HistorySection() {
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
-
-  // Memoize to prevent query key changing every render
-  const startTime = useMemo(
-    () => Date.now() - TIME_RANGES[timeRange].ms,
-    [timeRange]
+  const [startTime, setStartTime] = useState(
+    () => Date.now() - TIME_RANGES["24h"].ms
   );
 
   const { data, isLoading, isError } = useEmotionHistoryDB(startTime, undefined, 500);
+
+  const handleRangeChange = (value: TimeRange) => {
+    setTimeRange(value);
+    setStartTime(Date.now() - TIME_RANGES[value].ms);
+  };
 
   return (
     <div className="space-y-4">
       {/* Time range selector */}
       <div className="flex items-center gap-3">
         <Calendar className="h-4 w-4 text-muted-foreground" />
-        <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
+        <Select value={timeRange} onValueChange={(v) => handleRangeChange(v as TimeRange)}>
           <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>

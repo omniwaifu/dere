@@ -175,7 +175,8 @@ function TasksPreview() {
   const { data, isLoading, isError } = useTasks({ include_completed: true });
 
   const completionData = useMemo(() => {
-    if (!data?.tasks) return [];
+    const tasks = data?.tasks ?? [];
+    if (tasks.length === 0) return [];
 
     const now = new Date();
     const days: { date: string; count: number }[] = [];
@@ -187,7 +188,7 @@ function TasksPreview() {
       days.push({ date: dateStr, count: 0 });
     }
 
-    for (const task of data.tasks) {
+    for (const task of tasks) {
       if (task.end) {
         const endDate = task.end.slice(0, 8);
         const formatted = `${endDate.slice(0, 4)}-${endDate.slice(4, 6)}-${endDate.slice(6, 8)}`;
@@ -197,7 +198,7 @@ function TasksPreview() {
     }
 
     return days;
-  }, [data?.tasks]);
+  }, [data]);
 
   if (isLoading) {
     return (

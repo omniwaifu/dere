@@ -17,7 +17,7 @@ export interface Preset {
 
 const STORAGE_KEY = "dere.presets.v1";
 
-const DEFAULT_PRESETS: Preset[] = [
+export const DEFAULT_PRESETS: Preset[] = [
   {
     id: "default-empty-web",
     name: "Empty Sandbox + Web",
@@ -102,4 +102,3 @@ export function createPreset(
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return { id, name, kind, config, is_default: false };
 }
-

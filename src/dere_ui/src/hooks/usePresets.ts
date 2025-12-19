@@ -1,16 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Preset, PresetConfig, PresetKind } from "@/lib/presets";
-import { createPreset, getAllPresets, loadCustomPresets, saveCustomPresets } from "@/lib/presets";
+import { DEFAULT_PRESETS, createPreset, loadCustomPresets, saveCustomPresets } from "@/lib/presets";
 
 export function usePresets(kindFilter: PresetKind) {
-  const [customPresets, setCustomPresets] = useState<Preset[]>([]);
-
-  useEffect(() => {
-    setCustomPresets(loadCustomPresets());
-  }, []);
+  const [customPresets, setCustomPresets] = useState<Preset[]>(() => loadCustomPresets());
 
   const presets = useMemo(() => {
-    const all = getAllPresets();
+    const all = [...DEFAULT_PRESETS, ...customPresets];
     return all.filter((p) => p.kind === "both" || p.kind === kindFilter);
   }, [customPresets, kindFilter]);
 
@@ -28,4 +24,3 @@ export function usePresets(kindFilter: PresetKind) {
 
   return { presets, customPresets, addPreset, deletePreset };
 }
-

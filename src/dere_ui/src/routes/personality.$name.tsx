@@ -60,36 +60,40 @@ function PersonalityEditPage() {
   const [formData, setFormData] = useState<PersonalityData>(createEmptyPersonality());
   const [aliasInput, setAliasInput] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [avatarCacheBust, setAvatarCacheBust] = useState(0);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   // Load data into form when fetched
   useEffect(() => {
-    if (data?.data && !hasChanges && !avatarPreviewUrl) {
-      const incomingAvatar = data.data.display?.avatar || "";
-      const keepAvatar = formData.display.avatar && !incomingAvatar;
-      setFormData({
-        metadata: {
-          name: data.data.metadata?.name || "",
-          short_name: data.data.metadata?.short_name || "",
-          aliases: data.data.metadata?.aliases || [],
-        },
-        display: {
-          color: data.data.display?.color || "#6366f1",
-          icon: data.data.display?.icon || "●",
-          announcement: data.data.display?.announcement || "",
-          avatar: keepAvatar ? formData.display.avatar : incomingAvatar,
-        },
-        prompt: {
-          content: data.data.prompt?.content || "",
-        },
-      });
+    if (!data?.data || hasChanges || avatarPreviewUrl) return;
+
+    const incomingAvatar = data.data.display?.avatar || "";
+    const keepAvatar = formData.display.avatar && !incomingAvatar;
+    const nextData: PersonalityData = {
+      metadata: {
+        name: data.data.metadata?.name || "",
+        short_name: data.data.metadata?.short_name || "",
+        aliases: data.data.metadata?.aliases || [],
+      },
+      display: {
+        color: data.data.display?.color || "#6366f1",
+        icon: data.data.display?.icon || "●",
+        announcement: data.data.display?.announcement || "",
+        avatar: keepAvatar ? formData.display.avatar : incomingAvatar,
+      },
+      prompt: {
+        content: data.data.prompt?.content || "",
+      },
+    };
+
+    const timeout = window.setTimeout(() => {
+      setFormData(nextData);
       if (!keepAvatar) setHasChanges(false);
-      setAvatarFile(null);
       setAvatarPreviewUrl(null);
-    }
+    }, 0);
+
+    return () => clearTimeout(timeout);
   }, [data, hasChanges, avatarPreviewUrl, formData.display.avatar]);
 
   const updateMetadata = (field: keyof PersonalityData["metadata"], value: string | string[]) => {
@@ -164,7 +168,6 @@ function PersonalityEditPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (isNew) return;
-    setAvatarFile(file);
     setAvatarPreviewUrl(URL.createObjectURL(file));
     setHasChanges(true);
     setAvatarError(null);
@@ -186,11 +189,10 @@ function PersonalityEditPage() {
             { onSuccess: () => setHasChanges(false) }
           );
           setAvatarCacheBust((v) => v + 1);
-          setAvatarFile(null);
           setAvatarPreviewUrl(null);
         },
-        onError: (err: any) => {
-          setAvatarError(err?.message || "Upload failed");
+        onError: (err: unknown) => {
+          setAvatarError(err instanceof Error ? err.message : "Upload failed");
         },
       }
     );
