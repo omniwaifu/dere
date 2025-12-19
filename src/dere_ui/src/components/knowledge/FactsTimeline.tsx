@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { FactDetailPanel } from "@/components/knowledge/FactDetailPanel";
 import type { KGFactSummary, KGTimelineFact } from "@/types/api";
 
@@ -221,6 +222,8 @@ export function FactsTimeline() {
   const [offset, setOffset] = useState(0);
   const [snapshotTime, setSnapshotTime] = useState("");
   const [selectedFact, setSelectedFact] = useState<KGFactSummary | null>(null);
+  const [showEdges, setShowEdges] = useState(true);
+  const [showFacts, setShowFacts] = useState(true);
 
   const snapshotIso = useMemo(() => {
     if (!snapshotTime) return "";
@@ -248,7 +251,17 @@ export function FactsTimeline() {
   const totalPages = Math.ceil((data?.total ?? 0) / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
-  const groupedFacts = data?.facts ? groupFactsByDate(data.facts) : new Map();
+  const filteredFacts = useMemo(() => {
+    const facts = data?.facts ?? [];
+    return facts.filter((item) => {
+      const kind = item.kind || "edge";
+      if (kind === "edge") return showEdges;
+      if (kind === "fact") return showFacts;
+      return true;
+    });
+  }, [data?.facts, showEdges, showFacts]);
+
+  const groupedFacts = filteredFacts.length ? groupFactsByDate(filteredFacts) : new Map();
   const sortedDateKeys = Array.from(groupedFacts.keys()).sort((a, b) => {
     if (a === "undated") return 1;
     if (b === "undated") return -1;
@@ -327,6 +340,22 @@ export function FactsTimeline() {
             Clear dates
           </Button>
         )}
+        <div className="flex items-center gap-2">
+          <Switch
+            id="show-edges"
+            checked={showEdges}
+            onCheckedChange={setShowEdges}
+          />
+          <Label htmlFor="show-edges" className="text-xs">Edges</Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="show-facts"
+            checked={showFacts}
+            onCheckedChange={setShowFacts}
+          />
+          <Label htmlFor="show-facts" className="text-xs">Facts</Label>
+        </div>
         <div className="space-y-1.5">
           <Label htmlFor="snapshot-time" className="text-xs">Snapshot</Label>
           <Input
@@ -348,7 +377,7 @@ export function FactsTimeline() {
         )}
         <div className="flex-1" />
         <span className="text-sm text-muted-foreground">
-          {data?.total ?? 0} facts
+          {filteredFacts.length} shown · {data?.total ?? 0} total
         </span>
       </div>
 
@@ -423,7 +452,11 @@ export function FactsTimeline() {
       ) : (
         <div className="flex flex-col items-center justify-center py-12">
           <Clock className="h-12 w-12 text-muted-foreground/50" />
-          <p className="mt-4 text-muted-foreground">No facts in timeline</p>
+          <p className="mt-4 text-muted-foreground">
+            {data?.facts?.length
+              ? "No timeline items match your filters"
+              : "No facts in timeline"}
+          </p>
           {(startDate || endDate) && (
             <Button
               variant="link"
