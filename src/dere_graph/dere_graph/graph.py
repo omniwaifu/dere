@@ -1021,6 +1021,15 @@ class DereGraph:
         """
         return await self.driver.get_edges_at_time(timestamp, group_id, limit)
 
+    async def get_facts_at_time(
+        self,
+        timestamp: datetime,
+        group_id: str = "default",
+        limit: int = 100,
+    ) -> list[FactNode]:
+        """Get fact nodes that were valid at a specific point in time."""
+        return await self.driver.get_facts_at_time(timestamp, group_id, limit)
+
     async def get_entities_by_uuids(self, uuids: list[str]) -> list[EntityNode]:
         """Get multiple entities by their UUIDs.
 

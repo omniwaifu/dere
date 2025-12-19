@@ -929,6 +929,35 @@ class FalkorDriver:
             for record in records
         ]
 
+    async def get_facts_at_time(
+        self, timestamp: datetime, group_id: str, limit: int = 100
+    ) -> list[FactNode]:
+        """Get fact nodes that were valid at a specific point in time."""
+        ts = (
+            timestamp.replace(tzinfo=UTC)
+            if timestamp.tzinfo is None
+            else timestamp.astimezone(UTC)
+        ).isoformat()
+
+        query = """
+        MATCH (f:Fact)
+        WHERE f.group_id = $group_id
+          AND f.created_at <= $timestamp
+          AND (f.expired_at IS NULL OR f.expired_at > $timestamp)
+          AND (f.valid_at IS NULL OR f.valid_at <= $timestamp)
+          AND (f.invalid_at IS NULL OR f.invalid_at > $timestamp)
+        RETURN f AS fact
+        LIMIT $limit
+        """
+
+        records = await self.execute_query(
+            query,
+            group_id=group_id,
+            timestamp=ts,
+            limit=limit,
+        )
+        return [self._dict_to_fact_node(record["fact"]) for record in records]
+
     async def get_by_uuids(
         self, uuids: list[str], node_type: str = "Entity"
     ) -> list[EntityNode | EpisodicNode]:

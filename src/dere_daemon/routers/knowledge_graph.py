@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from loguru import logger
@@ -39,6 +40,27 @@ class EdgeSummary(BaseModel):
     created_at: str
 
 
+class FactRoleSummary(BaseModel):
+    """Role binding for a fact node."""
+
+    entity_uuid: str
+    entity_name: str
+    role: str
+    role_description: str | None = None
+
+
+class FactSummary(BaseModel):
+    """Summary of a hyper-edge fact node."""
+
+    uuid: str
+    fact: str
+    roles: list[FactRoleSummary]
+    attributes: dict[str, Any] | None = None
+    valid_at: str | None
+    invalid_at: str | None
+    created_at: str
+
+
 class EntityListResponse(BaseModel):
     """Paginated list of entities."""
 
@@ -53,6 +75,7 @@ class SearchResultsResponse(BaseModel):
 
     entities: list[EntitySummary]
     edges: list[EdgeSummary]
+    facts: list[FactSummary]
     query: str
 
 
@@ -69,6 +92,13 @@ class FactsTimelineResponse(BaseModel):
     facts: list[TimelineFact]
     total: int
     offset: int
+
+
+class FactSearchResponse(BaseModel):
+    """Search results for fact nodes."""
+
+    facts: list[FactSummary]
+    query: str
 
 
 class TopEntity(BaseModel):
@@ -145,6 +175,19 @@ def _edge_to_summary(edge, source_name: str = "", target_name: str = "") -> Edge
         created_at=edge.created_at.isoformat() if edge.created_at else "",
     )
 
+
+def _fact_to_summary(fact, roles: list[FactRoleSummary]) -> FactSummary:
+    """Convert FactNode + roles to FactSummary."""
+    attributes = fact.attributes if hasattr(fact, "attributes") else None
+    return FactSummary(
+        uuid=fact.uuid,
+        fact=fact.fact,
+        roles=roles,
+        attributes=attributes,
+        valid_at=fact.valid_at.isoformat() if fact.valid_at else None,
+        invalid_at=fact.invalid_at.isoformat() if fact.invalid_at else None,
+        created_at=fact.created_at.isoformat() if fact.created_at else "",
+    )
 
 @router.get("/stats", response_model=KGStatsResponse)
 async def get_kg_stats(request: Request, user_id: str | None = None):
@@ -381,6 +424,8 @@ async def search_knowledge(
     user_id: str | None = None,
     limit: int = 20,
     include_edges: bool = True,
+    include_facts: bool = True,
+    include_fact_roles: bool = True,
     rerank_method: str | None = None,
     labels: list[str] | None = Query(None),
 ):
@@ -389,7 +434,7 @@ async def search_knowledge(
     group_id = user_id or "default"
 
     if not app_state.dere_graph:
-        return SearchResultsResponse(entities=[], edges=[], query=query)
+        return SearchResultsResponse(entities=[], edges=[], facts=[], query=query)
 
     try:
         # Use dere_graph search
@@ -420,10 +465,130 @@ async def search_knowledge(
                     )
                 )
 
-        return SearchResultsResponse(entities=entities, edges=edges, query=query)
+        facts = []
+        if include_facts and results.facts:
+            roles_lookup = {}
+            if include_fact_roles:
+                roles_lookup = await app_state.dere_graph.get_fact_roles(
+                    results.facts,
+                    group_id=group_id,
+                )
+
+            for fact in results.facts:
+                role_entries = roles_lookup.get(fact.uuid, [])
+                roles = [
+                    FactRoleSummary(
+                        entity_uuid=role.entity_uuid,
+                        entity_name=role.entity_name,
+                        role=role.role,
+                        role_description=role.role_description,
+                    )
+                    for role in role_entries
+                ]
+                facts.append(_fact_to_summary(fact, roles))
+
+        return SearchResultsResponse(entities=entities, edges=edges, facts=facts, query=query)
     except Exception as e:
         logger.error(f"Knowledge search failed: {e}")
-        return SearchResultsResponse(entities=[], edges=[], query=query)
+        return SearchResultsResponse(entities=[], edges=[], facts=[], query=query)
+
+
+@router.get("/facts/search", response_model=FactSearchResponse)
+async def search_facts(
+    request: Request,
+    query: str,
+    user_id: str | None = None,
+    limit: int = 20,
+    include_roles: bool = True,
+):
+    """Search fact nodes only."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return FactSearchResponse(facts=[], query=query)
+
+    try:
+        results = await app_state.dere_graph.search(
+            query=query,
+            group_id=group_id,
+            limit=limit,
+        )
+
+        roles_lookup = {}
+        if include_roles and results.facts:
+            roles_lookup = await app_state.dere_graph.get_fact_roles(
+                results.facts,
+                group_id=group_id,
+            )
+
+        facts = []
+        for fact in results.facts:
+            role_entries = roles_lookup.get(fact.uuid, [])
+            roles = [
+                FactRoleSummary(
+                    entity_uuid=role.entity_uuid,
+                    entity_name=role.entity_name,
+                    role=role.role,
+                    role_description=role.role_description,
+                )
+                for role in role_entries
+            ]
+            facts.append(_fact_to_summary(fact, roles))
+
+        return FactSearchResponse(facts=facts, query=query)
+    except Exception as e:
+        logger.error(f"Fact search failed: {e}")
+        return FactSearchResponse(facts=[], query=query)
+
+
+@router.get("/facts/at_time", response_model=FactSearchResponse)
+async def facts_at_time(
+    request: Request,
+    timestamp: datetime,
+    user_id: str | None = None,
+    limit: int = 100,
+    include_roles: bool = True,
+):
+    """Get facts valid at a specific time."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        return FactSearchResponse(facts=[], query="")
+
+    try:
+        facts = await app_state.dere_graph.get_facts_at_time(
+            timestamp=timestamp,
+            group_id=group_id,
+            limit=limit,
+        )
+
+        roles_lookup = {}
+        if include_roles and facts:
+            roles_lookup = await app_state.dere_graph.get_fact_roles(
+                facts,
+                group_id=group_id,
+            )
+
+        summaries = []
+        for fact in facts:
+            role_entries = roles_lookup.get(fact.uuid, [])
+            roles = [
+                FactRoleSummary(
+                    entity_uuid=role.entity_uuid,
+                    entity_name=role.entity_name,
+                    role=role.role,
+                    role_description=role.role_description,
+                )
+                for role in role_entries
+            ]
+            summaries.append(_fact_to_summary(fact, roles))
+
+        return FactSearchResponse(facts=summaries, query="")
+    except Exception as e:
+        logger.error(f"Fact at_time lookup failed: {e}")
+        return FactSearchResponse(facts=[], query="")
 
 
 @router.get("/facts/timeline", response_model=FactsTimelineResponse)
