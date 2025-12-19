@@ -100,8 +100,10 @@ export function SessionSidebar() {
   };
 
   const filteredSessions = data?.sessions.filter((session) => {
-    if (!searchQuery) return true;
     const name = session.name || session.config.working_dir;
+    const isSwarmRun = name.toLowerCase().startsWith("swarm:");
+    if (isSwarmRun) return false;
+    if (!searchQuery) return true;
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 

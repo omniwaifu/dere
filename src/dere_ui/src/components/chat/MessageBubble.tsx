@@ -322,6 +322,12 @@ function ToolUseBlock({
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  const inputIsEmpty =
+    tool.input == null ||
+    (typeof tool.input === "object" &&
+      !Array.isArray(tool.input) &&
+      Object.keys(tool.input).length === 0);
+
   const statusIcon = {
     pending: <Loader2 className="h-4 w-4 animate-spin text-blue-400" />,
     success: <CheckCircle className="h-4 w-4 text-green-400" />,
@@ -342,9 +348,13 @@ function ToolUseBlock({
         <div className="mt-2 space-y-2">
           <div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-3">
             <p className="mb-1 text-xs font-medium text-blue-300">Input</p>
-            <pre className="overflow-auto text-xs text-blue-200/80">
-              {JSON.stringify(tool.input, null, 2)}
-            </pre>
+            {inputIsEmpty ? (
+              <p className="text-xs text-blue-200/80">No input provided.</p>
+            ) : (
+              <pre className="overflow-auto text-xs text-blue-200/80">
+                {JSON.stringify(tool.input, null, 2)}
+              </pre>
+            )}
           </div>
 
           {result && (
