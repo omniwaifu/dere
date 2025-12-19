@@ -14,6 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FactDetailPanel } from "@/components/knowledge/FactDetailPanel";
 import type { KGEntitySummary, KGEdgeSummary, KGFactSummary } from "@/types/api";
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -79,9 +80,23 @@ function EdgeResult({ edge }: { edge: KGEdgeSummary }) {
   );
 }
 
-function FactResult({ fact }: { fact: KGFactSummary }) {
+function FactResult({
+  fact,
+  onSelect,
+  onRoleClick,
+  onEntityClick,
+}: {
+  fact: KGFactSummary;
+  onSelect?: (fact: KGFactSummary) => void;
+  onRoleClick?: (role: string) => void;
+  onEntityClick?: (entity: string) => void;
+}) {
   return (
-    <div className="rounded-lg border border-border bg-card p-3 hover:bg-accent/50 transition-colors">
+    <button
+      type="button"
+      onClick={() => onSelect?.(fact)}
+      className="w-full rounded-lg border border-border bg-card p-3 text-left hover:bg-accent/50 transition-colors"
+    >
       <p className="text-sm text-muted-foreground line-clamp-3">
         {fact.fact}
       </p>
@@ -92,6 +107,11 @@ function FactResult({ fact }: { fact: KGFactSummary }) {
               key={`${fact.uuid}-${role.entity_uuid}-${role.role}`}
               variant="outline"
               className="text-xs"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRoleClick?.(role.role);
+                onEntityClick?.(role.entity_name);
+              }}
             >
               {role.role}: {role.entity_name}
             </Badge>
@@ -106,7 +126,7 @@ function FactResult({ fact }: { fact: KGFactSummary }) {
           )}
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -115,6 +135,9 @@ export function SearchPanel() {
   const [includeEdges, setIncludeEdges] = useState(true);
   const [includeFacts, setIncludeFacts] = useState(true);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [factRoleFilter, setFactRoleFilter] = useState("");
+  const [factEntityFilter, setFactEntityFilter] = useState("");
+  const [selectedFact, setSelectedFact] = useState<KGFactSummary | null>(null);
 
   const debouncedQuery = useDebounce(query, 300);
 
@@ -141,7 +164,18 @@ export function SearchPanel() {
 
   const showLoading = isLoading || (isFetching && query !== debouncedQuery);
   const showEntities = !!(data?.entities && data.entities.length > 0);
-  const showFacts = includeFacts && !!(data?.facts && data.facts.length > 0);
+  const filteredFacts = useMemo(() => {
+    const facts = data?.facts ?? [];
+    if (!factRoleFilter && !factEntityFilter) return facts;
+    return facts.filter((fact) =>
+      fact.roles.some((role) => {
+        const roleMatch = !factRoleFilter || role.role.toLowerCase().includes(factRoleFilter.toLowerCase());
+        const entityMatch = !factEntityFilter || role.entity_name.toLowerCase().includes(factEntityFilter.toLowerCase());
+        return roleMatch && entityMatch;
+      })
+    );
+  }, [data?.facts, factRoleFilter, factEntityFilter]);
+  const showFacts = includeFacts && filteredFacts.length > 0;
   const showEdges = includeEdges && !!(data?.edges && data.edges.length > 0);
   const sectionsCount = [showEntities, showFacts, showEdges].filter(Boolean).length;
   const scrollHeight =
@@ -255,10 +289,41 @@ export function SearchPanel() {
                 <FileText className="h-4 w-4" />
                 Facts ({data?.facts?.length ?? 0})
               </h2>
+              {(factRoleFilter || factEntityFilter) && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>Filters:</span>
+                  {factRoleFilter && (
+                    <Badge variant="secondary" className="text-xs">
+                      role: {factRoleFilter}
+                    </Badge>
+                  )}
+                  {factEntityFilter && (
+                    <Badge variant="secondary" className="text-xs">
+                      entity: {factEntityFilter}
+                    </Badge>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setFactRoleFilter("");
+                      setFactEntityFilter("");
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
               <ScrollArea className={scrollHeight}>
                 <div className="space-y-2 pr-4">
-                  {data?.facts?.map((fact) => (
-                    <FactResult key={fact.uuid} fact={fact} />
+                  {filteredFacts.map((fact) => (
+                    <FactResult
+                      key={fact.uuid}
+                      fact={fact}
+                      onSelect={setSelectedFact}
+                      onRoleClick={(role) => setFactRoleFilter(role)}
+                      onEntityClick={(entity) => setFactEntityFilter(entity)}
+                    />
                   ))}
                 </div>
               </ScrollArea>
@@ -300,6 +365,11 @@ export function SearchPanel() {
           )}
         </>
       )}
+
+      <FactDetailPanel
+        fact={selectedFact}
+        onClose={() => setSelectedFact(null)}
+      />
     </div>
   );
 }

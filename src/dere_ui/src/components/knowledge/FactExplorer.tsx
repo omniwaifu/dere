@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Search, FileText, Clock } from "lucide-react";
 import { useKGFactSearch, useKGFactsAtTime } from "@/hooks/queries";
+import { FactDetailPanel } from "@/components/knowledge/FactDetailPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,12 +26,26 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-function FactCard({ fact }: { fact: KGFactSummary }) {
+function FactCard({
+  fact,
+  onSelect,
+  onRoleClick,
+  onEntityClick,
+}: {
+  fact: KGFactSummary;
+  onSelect?: (fact: KGFactSummary) => void;
+  onRoleClick?: (role: string) => void;
+  onEntityClick?: (entity: string) => void;
+}) {
   const visibleRoles = fact.roles.slice(0, ROLE_BADGE_LIMIT);
   const extraRoles = fact.roles.length - visibleRoles.length;
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 hover:bg-accent/50 transition-colors">
+    <button
+      type="button"
+      onClick={() => onSelect?.(fact)}
+      className="w-full rounded-lg border border-border bg-card p-3 text-left hover:bg-accent/50 transition-colors"
+    >
       <div className="flex items-start gap-2">
         <FileText className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
@@ -43,6 +58,11 @@ function FactCard({ fact }: { fact: KGFactSummary }) {
                   variant="outline"
                   className="text-xs"
                   title={role.role_description || role.role}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRoleClick?.(role.role);
+                    onEntityClick?.(role.entity_name);
+                  }}
                 >
                   {role.role}: {role.entity_name}
                 </Badge>
@@ -66,7 +86,7 @@ function FactCard({ fact }: { fact: KGFactSummary }) {
           )}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -75,11 +95,17 @@ function FactsList({
   isLoading,
   emptyLabel,
   emptyHint,
+  onSelectFact,
+  onRoleClick,
+  onEntityClick,
 }: {
   facts: KGFactSummary[] | undefined;
   isLoading: boolean;
   emptyLabel: string;
   emptyHint?: string;
+  onSelectFact?: (fact: KGFactSummary) => void;
+  onRoleClick?: (role: string) => void;
+  onEntityClick?: (entity: string) => void;
 }) {
   if (isLoading) {
     return (
@@ -107,7 +133,13 @@ function FactsList({
     <ScrollArea className="h-[calc(100vh-22rem)]">
       <div className="space-y-2 pr-4">
         {facts.map((fact) => (
-          <FactCard key={fact.uuid} fact={fact} />
+          <FactCard
+            key={fact.uuid}
+            fact={fact}
+            onSelect={onSelectFact}
+            onRoleClick={onRoleClick}
+            onEntityClick={onEntityClick}
+          />
         ))}
       </div>
     </ScrollArea>
@@ -120,6 +152,7 @@ export function FactExplorer() {
   const [entityFilter, setEntityFilter] = useState("");
   const [snapshotTime, setSnapshotTime] = useState("");
   const [includeRoles, setIncludeRoles] = useState(true);
+  const [selectedFact, setSelectedFact] = useState<KGFactSummary | null>(null);
 
   const debouncedQuery = useDebounce(query, 300);
   const snapshotIso = useMemo(() => {
@@ -257,6 +290,13 @@ export function FactExplorer() {
               isLoading={showSearchLoading}
               emptyLabel={`No facts found for "${query}"`}
               emptyHint={roleFilter || entityFilter ? "Try clearing the role/entity filters." : undefined}
+              onSelectFact={setSelectedFact}
+              onRoleClick={(role) => {
+                setRoleFilter(role);
+              }}
+              onEntityClick={(entity) => {
+                setEntityFilter(entity);
+              }}
             />
           )}
         </TabsContent>
@@ -294,9 +334,15 @@ export function FactExplorer() {
             facts={snapshotData?.facts}
             isLoading={snapshotLoading}
             emptyLabel="Pick a time to load facts"
+            onSelectFact={setSelectedFact}
           />
         </TabsContent>
       </Tabs>
+
+      <FactDetailPanel
+        fact={selectedFact}
+        onClose={() => setSelectedFact(null)}
+      />
     </div>
   );
 }
