@@ -87,8 +87,8 @@ async def edge_bfs_search(
     WITH DISTINCT r, startNode(r) as source, endNode(r) as target
     WHERE r.group_id = $group_id
       AND r.invalid_at IS NULL
-    LIMIT $limit
     RETURN r AS edge, source.uuid AS source_uuid, target.uuid AS target_uuid
+    LIMIT $limit
     """
 
     query = query.format(max_depth=max_depth)
