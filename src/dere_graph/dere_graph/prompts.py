@@ -79,6 +79,47 @@ class ExtractedEdges(BaseModel):
     edges: list[Edge]
 
 
+# Response Models for Hyper-Edge (Fact) Extraction
+class FactRole(BaseModel):
+    entity_id: int = Field(..., description="The id of the entity from the ENTITIES list")
+    role: str = Field(
+        ...,
+        description="Role of the entity in this fact (short snake_case label)",
+    )
+    role_description: str | None = Field(
+        None, description="Optional description of the role in this fact"
+    )
+
+
+class Fact(BaseModel):
+    fact: str = Field(
+        ...,
+        description="A natural language statement describing the fact/event",
+    )
+    roles: list[FactRole] = Field(
+        default_factory=list,
+        description="Entities involved in the fact with their roles",
+    )
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional structured attributes for the fact (status, priority, channel, etc.)",
+    )
+    fact_type: str | None = Field(
+        None,
+        description="Optional fact type label (SCREAMING_SNAKE_CASE), or DEFAULT",
+    )
+    valid_at: str | None = Field(
+        None, description="ISO 8601 datetime when the fact became true"
+    )
+    invalid_at: str | None = Field(
+        None, description="ISO 8601 datetime when the fact stopped being true"
+    )
+
+
+class ExtractedFacts(BaseModel):
+    facts: list[Fact]
+
+
 # Response Models for Edge Dates
 class EdgeDates(BaseModel):
     valid_at: str | None = Field(
@@ -496,6 +537,59 @@ You may use information from the PREVIOUS MESSAGES only to disambiguate referenc
 - If only a date is mentioned (no time), assume 00:00:00.
 - If only a year is mentioned, use January 1st at 00:00:00.
 """
+    return [
+        Message(role="system", content=sys_prompt),
+        Message(role="user", content=user_prompt),
+    ]
+
+
+def extract_facts(
+    episode_content: str,
+    previous_episodes: list[str] | None,
+    entities: list[dict[str, Any]],
+    reference_time: str,
+    custom_prompt: str = "",
+) -> list[Message]:
+    sys_prompt = """You are an expert fact extractor that extracts n-ary facts with roles.
+Return facts that involve 2+ distinct ENTITIES from the provided list.
+
+Rules:
+1. Each fact MUST include roles for each entity (2+ entities per fact).
+2. Role labels should be short, descriptive, and snake_case (e.g., subject, object, speaker, listener, project, issue).
+3. Facts must be durable, specific, and supported by the text (avoid transient or speculative claims).
+4. Do NOT invent entities or facts. Use only the provided ENTITIES.
+5. If the fact is ongoing or present tense, set valid_at to REFERENCE_TIME.
+6. Only set invalid_at if explicitly stated in the text.
+7. Avoid duplicate or redundant facts.
+"""
+
+    prev_context = "\n\n".join(previous_episodes or [])
+    entities_block = "\n".join(
+        f"- id={entity['id']}: {entity['name']} (types: {entity.get('entity_types', [])})"
+        for entity in entities
+    )
+
+    user_prompt = f"""
+<RECENT_CONTEXT>
+{prev_context}
+</RECENT_CONTEXT>
+
+<CURRENT_MESSAGE>
+{episode_content}
+</CURRENT_MESSAGE>
+
+<ENTITIES>
+{entities_block}
+</ENTITIES>
+
+REFERENCE_TIME: {reference_time}
+
+{custom_prompt}
+
+Extract all n-ary facts supported by CURRENT_MESSAGE.
+Each fact must include a role list referencing entity ids.
+"""
+
     return [
         Message(role="system", content=sys_prompt),
         Message(role="user", content=user_prompt),

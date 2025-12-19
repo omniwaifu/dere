@@ -1,7 +1,14 @@
 """dere_graph - Minimal Graphiti clone using Claude Agent SDK + FalkorDB."""
 
 from dere_graph.graph import AddEpisodeResults, DereGraph, SearchResults
-from dere_graph.models import EntityEdge, EntityNode, EpisodeType, EpisodicNode
+from dere_graph.models import (
+    EntityEdge,
+    EntityNode,
+    EpisodeType,
+    EpisodicNode,
+    FactNode,
+    FactRoleEdge,
+)
 
 __all__ = [
     "DereGraph",
@@ -11,4 +18,6 @@ __all__ = [
     "EntityEdge",
     "EpisodicNode",
     "EpisodeType",
+    "FactNode",
+    "FactRoleEdge",
 ]

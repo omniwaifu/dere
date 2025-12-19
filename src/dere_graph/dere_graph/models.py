@@ -101,6 +101,10 @@ class EpisodicNode(Node):
         description="list of entity edges referenced in this episode",
         default_factory=list,
     )
+    fact_nodes: list[str] = Field(
+        description="list of fact nodes referenced in this episode",
+        default_factory=list,
+    )
     speaker_id: str | None = Field(
         default=None,
         description="ID of the speaker (e.g., Discord user ID, system username)",
@@ -118,6 +122,25 @@ class EpisodicNode(Node):
 class CommunityNode(Node):
     name_embedding: list[float] | None = Field(default=None, description="embedding of the name")
     summary: str = Field(description="region summary of member nodes", default="")
+
+
+class FactNode(Node):
+    fact: str = Field(description="natural language statement of the fact")
+    fact_embedding: list[float] | None = Field(default=None, description="embedding of the fact")
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional attributes of the fact (status, priority, decision_type, etc.)",
+    )
+    episodes: list[str] = Field(
+        default_factory=list,
+        description="list of episode ids that reference this fact",
+    )
+    valid_at: datetime | None = Field(
+        default=None, description="datetime of when the fact became true"
+    )
+    invalid_at: datetime | None = Field(
+        default=None, description="datetime of when the fact stopped being true"
+    )
 
 
 class Edge(BaseModel, ABC):
@@ -170,6 +193,20 @@ class EpisodicEdge(Edge):
 class CommunityEdge(Edge):
     pass
 
+
+class FactRoleEdge(Edge):
+    role: str = Field(description="role of the entity in the fact")
+    role_description: str | None = Field(
+        default=None, description="optional description of the role"
+    )
+
+
+class FactRoleDetail(BaseModel):
+    fact_uuid: str
+    entity_uuid: str
+    entity_name: str
+    role: str
+    role_description: str | None = None
 
 # Entity and Edge Type Schema System
 

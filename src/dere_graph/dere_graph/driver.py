@@ -12,6 +12,9 @@ from dere_graph.models import (
     CommunityNode,
     EpisodicEdge,
     EpisodicNode,
+    FactNode,
+    FactRoleEdge,
+    FactRoleDetail,
 )
 
 
@@ -132,6 +135,13 @@ class FalkorDriver:
             """
         )
 
+        # Fulltext index for fact nodes
+        await self.execute_query(
+            """
+            CREATE FULLTEXT INDEX FOR (f:Fact) ON (f.name, f.fact, f.group_id)
+            """
+        )
+
         logger.info("FalkorDB indices built")
 
     async def save_entity_node(self, node: EntityNode) -> None:
@@ -166,6 +176,55 @@ class FalkorDriver:
             entity_data=entity_data,
         )
         logger.debug(f"Saved EntityNode: {node.uuid}")
+
+    async def save_fact_node(self, node: FactNode) -> None:
+        fact_data = {
+            "uuid": node.uuid,
+            "name": node.name,
+            "fact": node.fact,
+            "group_id": node.group_id,
+            "created_at": node.created_at,
+            "expired_at": node.expired_at,
+            "fact_embedding": node.fact_embedding,
+            "episodes": node.episodes,
+            "valid_at": node.valid_at,
+            "invalid_at": node.invalid_at,
+            **node.attributes,
+        }
+
+        await self.execute_query(
+            """
+            MERGE (f:Fact {uuid: $fact_data.uuid})
+            SET f = $fact_data
+            SET f.fact_embedding = vecf32($fact_data.fact_embedding)
+            """,
+            fact_data=fact_data,
+        )
+        logger.debug(f"Saved FactNode: {node.uuid}")
+
+    async def save_fact_role_edge(self, edge: FactRoleEdge) -> None:
+        await self.execute_query(
+            """
+            MATCH (fact:Fact {uuid: $fact_uuid})
+            MATCH (entity:Entity {uuid: $entity_uuid})
+            MERGE (fact)-[r:HAS_ROLE {role: $role, entity_uuid: $entity_uuid}]->(entity)
+            SET r.group_id = $group_id,
+                r.role_description = $role_description,
+                r.created_at = $created_at
+            """,
+            fact_uuid=edge.source_node_uuid,
+            entity_uuid=edge.target_node_uuid,
+            role=edge.role,
+            group_id=edge.group_id,
+            role_description=edge.role_description,
+            created_at=edge.created_at,
+        )
+        logger.debug(
+            "Saved FactRoleEdge: fact={} entity={} role={}",
+            edge.source_node_uuid,
+            edge.target_node_uuid,
+            edge.role,
+        )
 
     async def save_community_node(self, node: CommunityNode) -> None:
         await self.execute_query(
@@ -231,6 +290,7 @@ class FalkorDriver:
                 e.valid_at = $valid_at,
                 e.conversation_id = $conversation_id,
                 e.entity_edges = $entity_edges,
+                e.fact_nodes = $fact_nodes,
                 e.speaker_id = $speaker_id,
                 e.speaker_name = $speaker_name,
                 e.personality = $personality,
@@ -245,6 +305,7 @@ class FalkorDriver:
             valid_at=node.valid_at,
             conversation_id=node.conversation_id,
             entity_edges=node.entity_edges,
+            fact_nodes=node.fact_nodes,
             speaker_id=node.speaker_id,
             speaker_name=node.speaker_name,
             personality=node.personality,
@@ -268,6 +329,7 @@ class FalkorDriver:
 	                   e.valid_at AS valid_at,
 	                   e.conversation_id AS conversation_id,
 	                   e.entity_edges AS entity_edges,
+	                   e.fact_nodes AS fact_nodes,
 	                   e.speaker_id AS speaker_id,
 	                   e.speaker_name AS speaker_name,
 	                   e.personality AS personality,
@@ -290,6 +352,7 @@ class FalkorDriver:
 	                group_id=record["group_id"],
 	                conversation_id=record.get("conversation_id", "default"),
 	                entity_edges=record.get("entity_edges") or [],
+	                fact_nodes=record.get("fact_nodes") or [],
 	                speaker_id=record.get("speaker_id"),
 	                speaker_name=record.get("speaker_name"),
 	                personality=record.get("personality"),
@@ -360,6 +423,7 @@ class FalkorDriver:
 	                   e.valid_at AS valid_at,
 	                   e.conversation_id AS conversation_id,
 	                   e.entity_edges AS entity_edges,
+	                   e.fact_nodes AS fact_nodes,
 	                   e.speaker_id AS speaker_id,
 	                   e.speaker_name AS speaker_name,
 	                   e.personality AS personality,
@@ -382,6 +446,7 @@ class FalkorDriver:
 	                group_id=record["group_id"],
 	                conversation_id=record.get("conversation_id", "default"),
 	                entity_edges=record.get("entity_edges") or [],
+	                fact_nodes=record.get("fact_nodes") or [],
 	                speaker_id=record.get("speaker_id"),
 	                speaker_name=record.get("speaker_name"),
 	                personality=record.get("personality"),
@@ -415,6 +480,7 @@ class FalkorDriver:
 	                   episode.valid_at AS valid_at,
 	                   episode.conversation_id AS conversation_id,
 	                   episode.entity_edges AS entity_edges,
+	                   episode.fact_nodes AS fact_nodes,
 	                   episode.created_at AS created_at
             ORDER BY episode.created_at DESC
             LIMIT $limit
@@ -435,6 +501,7 @@ class FalkorDriver:
 	                group_id=record["group_id"],
 	                conversation_id=record.get("conversation_id", "default"),
 	                entity_edges=record.get("entity_edges") or [],
+	                fact_nodes=record.get("fact_nodes") or [],
 	                valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
 	                created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
             )
@@ -465,6 +532,7 @@ class FalkorDriver:
                    e.valid_at AS valid_at,
                    e.conversation_id AS conversation_id,
                    e.entity_edges AS entity_edges,
+                   e.fact_nodes AS fact_nodes,
                    e.speaker_id AS speaker_id,
                    e.speaker_name AS speaker_name,
                    e.personality AS personality,
@@ -485,6 +553,7 @@ class FalkorDriver:
                 group_id=record["group_id"],
                 conversation_id=record.get("conversation_id", "default"),
                 entity_edges=record.get("entity_edges") or [],
+                fact_nodes=record.get("fact_nodes") or [],
                 speaker_id=record.get("speaker_id"),
                 speaker_name=record.get("speaker_name"),
                 personality=record.get("personality"),
@@ -559,6 +628,71 @@ class FalkorDriver:
             attributes=attributes,
         )
 
+    async def get_fact_by_uuid(self, uuid: str) -> FactNode | None:
+        records = await self.execute_query(
+            """
+            MATCH (f:Fact {uuid: $uuid})
+            RETURN f AS fact
+            """,
+            uuid=uuid,
+        )
+        if not records:
+            return None
+        return self._dict_to_fact_node(records[0]["fact"])
+
+    async def get_fact_by_text(self, fact: str, group_id: str) -> FactNode | None:
+        records = await self.execute_query(
+            """
+            MATCH (f:Fact)
+            WHERE f.group_id = $group_id
+              AND toLower(f.fact) = toLower($fact)
+            RETURN f AS fact
+            LIMIT 1
+            """,
+            fact=fact,
+            group_id=group_id,
+        )
+        if not records:
+            return None
+        return self._dict_to_fact_node(records[0]["fact"])
+
+    async def get_fact_roles(
+        self,
+        fact_uuids: list[str],
+        group_id: str,
+    ) -> list[FactRoleDetail]:
+        if not fact_uuids:
+            return []
+
+        records = await self.execute_query(
+            """
+            MATCH (fact:Fact)-[r:HAS_ROLE]->(entity:Entity)
+            WHERE fact.uuid IN $fact_uuids
+              AND fact.group_id = $group_id
+              AND entity.group_id = $group_id
+            RETURN fact.uuid AS fact_uuid,
+                   entity.uuid AS entity_uuid,
+                   entity.name AS entity_name,
+                   r.role AS role,
+                   r.role_description AS role_description
+            """,
+            fact_uuids=fact_uuids,
+            group_id=group_id,
+        )
+
+        roles = []
+        for record in records:
+            role = FactRoleDetail(
+                fact_uuid=record.get("fact_uuid") or "",
+                entity_uuid=record.get("entity_uuid") or "",
+                entity_name=record.get("entity_name") or "",
+                role=record.get("role") or "",
+                role_description=record.get("role_description"),
+            )
+            roles.append(role)
+
+        return roles
+
     async def save_entity_edge(self, edge: EntityEdge) -> None:
         edge_data = {
             "uuid": edge.uuid,
@@ -630,6 +764,21 @@ class FalkorDriver:
         )
         return [record["uuid"] for record in records if record.get("uuid")]
 
+    async def get_fact_uuids_for_episode(self, episode_uuid: str, group_id: str) -> list[str]:
+        """Return all fact UUIDs that reference an episode UUID."""
+        records = await self.execute_query(
+            """
+            MATCH (f:Fact)
+            WHERE f.group_id = $group_id
+              AND f.episodes IS NOT NULL
+              AND $episode_uuid IN f.episodes
+            RETURN f.uuid AS uuid
+            """,
+            group_id=group_id,
+            episode_uuid=episode_uuid,
+        )
+        return [record["uuid"] for record in records if record.get("uuid")]
+
     async def invalidate_edge(self, edge_uuid: str, invalid_at: datetime) -> None:
         """Invalidate an edge by setting its invalid_at timestamp."""
         await self.execute_query(
@@ -674,6 +823,7 @@ class FalkorDriver:
                    e.group_id AS group_id,
                    e.valid_at AS valid_at,
                    e.entity_edges AS entity_edges,
+                   e.fact_nodes AS fact_nodes,
                    e.created_at AS created_at
             """,
             uuid=uuid,
@@ -692,6 +842,7 @@ class FalkorDriver:
             group_id=record["group_id"],
             valid_at=_parse_iso_datetime(record["valid_at"]) or datetime.now(UTC),
             entity_edges=record.get("entity_edges") or [],
+            fact_nodes=record.get("fact_nodes") or [],
             created_at=_parse_iso_datetime(record["created_at"]) or datetime.now(UTC),
         )
 
@@ -1024,8 +1175,10 @@ class FalkorDriver:
         valid_at_str = props.pop("valid_at", None)
         conversation_id = props.pop("conversation_id", "")
         entity_edges = props.pop("entity_edges", [])
+        fact_nodes = props.pop("fact_nodes", [])
         speaker_id = props.pop("speaker_id", None)
         speaker_name = props.pop("speaker_name", None)
+        personality = props.pop("personality", None)
         created_at_str = props.pop("created_at", None)
 
         valid_at = _parse_iso_datetime(valid_at_str) or datetime.now(UTC)
@@ -1041,9 +1194,47 @@ class FalkorDriver:
             valid_at=valid_at,
             conversation_id=conversation_id,
             entity_edges=entity_edges,
+            fact_nodes=fact_nodes,
             speaker_id=speaker_id,
             speaker_name=speaker_name,
+            personality=personality,
             created_at=created_at,
+        )
+
+    def _dict_to_fact_node(self, node_data: Any) -> FactNode:
+        """Convert FalkorDB node data to FactNode."""
+        props = dict(node_data.properties)
+
+        uuid = props.pop("uuid", "")
+        name = props.pop("name", "")
+        group_id = props.pop("group_id", "")
+        fact = props.pop("fact", "")
+        fact_embedding = props.pop("fact_embedding", None)
+        episodes = props.pop("episodes", [])
+        created_at_str = props.pop("created_at", None)
+        expired_at_str = props.pop("expired_at", None)
+        valid_at_str = props.pop("valid_at", None)
+        invalid_at_str = props.pop("invalid_at", None)
+
+        created_at = _parse_iso_datetime(created_at_str) or datetime.now(UTC)
+        expired_at = _parse_iso_datetime(expired_at_str)
+        valid_at = _parse_iso_datetime(valid_at_str)
+        invalid_at = _parse_iso_datetime(invalid_at_str)
+
+        attributes = props
+
+        return FactNode(
+            uuid=uuid,
+            name=name,
+            group_id=group_id,
+            fact=fact,
+            fact_embedding=fact_embedding,
+            episodes=episodes,
+            created_at=created_at,
+            expired_at=expired_at,
+            valid_at=valid_at,
+            invalid_at=invalid_at,
+            attributes=attributes,
         )
 
     def _dict_to_entity_edge(

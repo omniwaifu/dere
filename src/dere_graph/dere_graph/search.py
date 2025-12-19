@@ -10,7 +10,7 @@ from loguru import logger
 from dere_graph.driver import FalkorDriver
 from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.filters import SearchFilters, build_temporal_query_clause
-from dere_graph.models import CommunityNode, EntityEdge, EntityNode
+from dere_graph.models import CommunityNode, EntityEdge, EntityNode, FactNode
 
 
 def parse_db_date(value: Any) -> datetime | None:
@@ -461,6 +461,251 @@ async def vector_node_search(
 
     logger.debug(f"Vector search found {len(nodes)} nodes")
     return nodes
+
+
+async def hybrid_fact_search(
+    driver: FalkorDriver,
+    embedder: OpenAIEmbedder,
+    query: str,
+    group_id: str,
+    limit: int = 10,
+    filters: SearchFilters | None = None,
+) -> list[FactNode]:
+    """Hybrid search for fact nodes combining BM25 and vector similarity."""
+    if not query or not query.strip():
+        return await fulltext_fact_search(driver, query, group_id, limit, filters)
+
+    query_vector = await embedder.create(query.replace("\n", " "))
+
+    fulltext_results = await fulltext_fact_search(driver, query, group_id, limit * 2, filters)
+    fulltext_uuids = [fact.uuid for fact in fulltext_results]
+
+    similarity_results = await vector_fact_search(
+        driver, query_vector, group_id, limit * 2, filters=filters
+    )
+    similarity_uuids = [fact.uuid for fact in similarity_results]
+
+    combined_uuids, _scores = rrf([fulltext_uuids, similarity_uuids])
+    result_uuids = set(combined_uuids[:limit])
+    result_facts = [
+        fact for fact in (fulltext_results + similarity_results) if fact.uuid in result_uuids
+    ]
+
+    seen = set()
+    unique_facts = []
+    for fact in result_facts:
+        if fact.uuid in seen:
+            continue
+        seen.add(fact.uuid)
+        unique_facts.append(fact)
+
+    logger.debug(f"Hybrid fact search returned {len(unique_facts)} facts")
+    return unique_facts[:limit]
+
+
+async def fulltext_fact_search(
+    driver: FalkorDriver,
+    query: str,
+    group_id: str,
+    limit: int = 10,
+    filters: SearchFilters | None = None,
+) -> list[FactNode]:
+    """BM25 fulltext search on fact nodes."""
+    filter_clause, filter_params = build_temporal_query_clause(filters, "fact", "fact")
+
+    where_parts = [
+        "fact.group_id = $group_id",
+        "fact.invalid_at IS NULL",
+    ]
+    if filter_clause:
+        conditions = filter_clause.replace("WHERE ", "")
+        where_parts.append(conditions)
+    where_clause = "WHERE " + " AND ".join(where_parts)
+
+    if not query or not query.strip():
+        cypher = f"""
+        MATCH (fact:Fact)
+        {where_clause}
+        RETURN fact.uuid AS uuid,
+               fact.name AS name,
+               fact.group_id AS group_id,
+               fact.fact AS fact,
+               fact.fact_embedding AS fact_embedding,
+               fact.episodes AS episodes,
+               fact.created_at AS created_at,
+               fact.expired_at AS expired_at,
+               fact.valid_at AS valid_at,
+               fact.invalid_at AS invalid_at,
+               fact AS attributes,
+               1.0 AS score
+        ORDER BY fact.created_at DESC
+        LIMIT $limit
+        """
+
+        records = await driver.execute_query(
+            cypher,
+            group_id=group_id,
+            limit=limit,
+            **filter_params,
+        )
+    else:
+        sanitized_query = sanitize_lucene_query(query)
+
+        cypher = f"""
+        CALL db.idx.fulltext.queryNodes("fact_name_and_fact", $query)
+        YIELD node, score
+        {where_clause.replace("fact", "node")}
+        RETURN node.uuid AS uuid,
+               node.name AS name,
+               node.group_id AS group_id,
+               node.fact AS fact,
+               node.fact_embedding AS fact_embedding,
+               node.episodes AS episodes,
+               node.created_at AS created_at,
+               node.expired_at AS expired_at,
+               node.valid_at AS valid_at,
+               node.invalid_at AS invalid_at,
+               node AS attributes,
+               score
+        ORDER BY score DESC
+        LIMIT $limit
+        """
+
+        records = await driver.execute_query(
+            cypher,
+            query=sanitized_query,
+            group_id=group_id,
+            limit=limit,
+            **filter_params,
+        )
+
+    facts = []
+    for record in records:
+        fact_obj = record["attributes"]
+        attributes = dict(fact_obj.properties)
+
+        for key in [
+            "uuid",
+            "name",
+            "group_id",
+            "fact",
+            "fact_embedding",
+            "episodes",
+            "created_at",
+            "expired_at",
+            "valid_at",
+            "invalid_at",
+        ]:
+            attributes.pop(key, None)
+
+        fact_node = FactNode(
+            uuid=record["uuid"],
+            name=record["name"],
+            group_id=record["group_id"],
+            fact=record["fact"],
+            fact_embedding=record["fact_embedding"],
+            episodes=record.get("episodes") or [],
+            created_at=parse_db_date(record["created_at"]) or datetime.now(UTC),
+            expired_at=parse_db_date(record.get("expired_at")),
+            valid_at=parse_db_date(record.get("valid_at")),
+            invalid_at=parse_db_date(record.get("invalid_at")),
+            attributes=attributes,
+        )
+        facts.append(fact_node)
+
+    logger.debug(f"Fulltext fact search found {len(facts)} facts")
+    return facts
+
+
+async def vector_fact_search(
+    driver: FalkorDriver,
+    query_vector: list[float],
+    group_id: str,
+    limit: int = 10,
+    min_score: float = 0.5,
+    filters: SearchFilters | None = None,
+) -> list[FactNode]:
+    """Vector similarity search on fact node embeddings."""
+    filter_clause, filter_params = build_temporal_query_clause(filters, "f", "f")
+
+    filter_conditions = filter_clause.replace("WHERE ", "") if filter_clause else ""
+
+    where_parts = [
+        "f.group_id = $group_id",
+        "f.fact_embedding IS NOT NULL",
+        "f.invalid_at IS NULL",
+    ]
+    if filter_conditions:
+        where_parts.append(filter_conditions)
+
+    where_clause = "WHERE " + " AND ".join(where_parts)
+
+    cypher = f"""
+    MATCH (f:Fact)
+    {where_clause}
+    WITH f, (2 - vec.cosineDistance(f.fact_embedding, vecf32($search_vector)))/2 AS score
+    WHERE score >= $min_score
+    RETURN f.uuid AS uuid,
+           f.name AS name,
+           f.group_id AS group_id,
+           f.fact AS fact,
+           f.fact_embedding AS fact_embedding,
+           f.episodes AS episodes,
+           f.created_at AS created_at,
+           f.expired_at AS expired_at,
+           f.valid_at AS valid_at,
+           f.invalid_at AS invalid_at,
+           f AS attributes,
+           score
+    ORDER BY score DESC
+    LIMIT $limit
+    """
+
+    records = await driver.execute_query(
+        cypher,
+        search_vector=query_vector,
+        group_id=group_id,
+        min_score=min_score,
+        limit=limit,
+        **filter_params,
+    )
+
+    facts = []
+    for record in records:
+        fact_obj = record["attributes"]
+        attributes = dict(fact_obj.properties)
+
+        for key in [
+            "uuid",
+            "name",
+            "group_id",
+            "fact",
+            "fact_embedding",
+            "episodes",
+            "created_at",
+            "expired_at",
+            "valid_at",
+            "invalid_at",
+        ]:
+            attributes.pop(key, None)
+
+        fact_node = FactNode(
+            uuid=record["uuid"],
+            name=record["name"],
+            group_id=record["group_id"],
+            fact=record["fact"],
+            fact_embedding=record["fact_embedding"],
+            episodes=record.get("episodes") or [],
+            created_at=parse_db_date(record["created_at"]) or datetime.now(UTC),
+            expired_at=parse_db_date(record.get("expired_at")),
+            valid_at=parse_db_date(record.get("valid_at")),
+            invalid_at=parse_db_date(record.get("invalid_at")),
+            attributes=attributes,
+        )
+        facts.append(fact_node)
+
+    logger.debug(f"Vector fact search found {len(facts)} facts")
+    return facts
 
 
 async def hybrid_edge_search(

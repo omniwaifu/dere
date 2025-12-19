@@ -14,6 +14,8 @@ from dere_graph.models import (
     EpisodeType,
     EpisodicEdge,
     EpisodicNode,
+    FactNode,
+    FactRoleEdge,
     apply_edge_schema,
     apply_entity_schema,
     validate_edge_types,
@@ -25,12 +27,14 @@ from dere_graph.prompts import (
     EntityAttributeUpdates,
     EntitySummaries,
     ExtractedEdges,
+    ExtractedFacts,
     ExtractedEntities,
     NodeResolutions,
     dedupe_edges,
     dedupe_entities,
     extract_edge_dates_batch,
     extract_edges,
+    extract_facts,
     extract_entities_text,
     hydrate_entity_attributes,
     summarize_entities,
@@ -51,11 +55,11 @@ async def add_episode(
     excluded_entity_types: list[str] | None = None,
     edge_types: dict[str, type[BaseModel]] | None = None,
     excluded_edge_types: list[str] | None = None,
-) -> tuple[list[EntityNode], list[EntityEdge]]:
+) -> tuple[list[EntityNode], list[EntityEdge], list[FactNode], list[FactRoleEdge]]:
     """Main ingestion pipeline for adding an episode to the graph.
 
     Returns:
-        tuple: (new_nodes, new_edges) created during ingestion
+        tuple: (new_nodes, new_edges, fact_nodes, fact_role_edges) created during ingestion
     """
     if entity_types:
         validate_entity_types(entity_types)
@@ -141,7 +145,16 @@ async def add_episode(
             except Exception as e:
                 logger.warning(f"[EdgeExtraction] Edge schema validation skipped: {e}")
 
-    # 6. Generate embeddings for nodes and edges
+    # 6. Extract hyper-edge facts (n-ary facts with roles)
+    fact_nodes, fact_role_edges = await extract_fact_nodes(
+        driver,
+        llm_client,
+        episode,
+        resolved_nodes,
+        previous_episodes,
+    )
+
+    # 7. Generate embeddings for nodes, edges, and facts
     # Find nodes that need embeddings (either new or existing without embeddings)
     nodes_needing_embeddings = [node for node in resolved_nodes if node.name_embedding is None]
     if nodes_needing_embeddings:
@@ -154,15 +167,31 @@ async def add_episode(
     if deduped_edges:
         await generate_edge_embeddings(embedder, deduped_edges)
 
-    # 7. Save to FalkorDB and Postgres
+    facts_needing_embeddings = [fact for fact in fact_nodes if fact.fact_embedding is None]
+    if facts_needing_embeddings:
+        await generate_fact_embeddings(embedder, facts_needing_embeddings)
+
+    # 8. Save to FalkorDB and Postgres
     await save_nodes_and_edges(
-        driver, new_nodes, deduped_edges, episode, resolved_nodes, postgres_driver
+        driver,
+        new_nodes,
+        deduped_edges,
+        episode,
+        resolved_nodes,
+        postgres_driver,
+        fact_nodes=fact_nodes,
+        fact_role_edges=fact_role_edges,
     )
 
-    logger.info(f"Ingestion complete: {len(new_nodes)} new nodes, {len(deduped_edges)} edges")
+    logger.info(
+        "Ingestion complete: {} new nodes, {} edges, {} facts",
+        len(new_nodes),
+        len(deduped_edges),
+        len(fact_nodes),
+    )
 
     # Return the created nodes and edges
-    return new_nodes, deduped_edges
+    return new_nodes, deduped_edges, fact_nodes, fact_role_edges
 
 
 async def extract_nodes(
@@ -729,6 +758,145 @@ Only extract facts that are clearly supported by the text and involve two distin
     return edges
 
 
+async def extract_fact_nodes(
+    driver: FalkorDriver,
+    llm_client: ClaudeClient,
+    episode: EpisodicNode,
+    nodes: list[EntityNode],
+    previous_episodes: list[EpisodicNode],
+) -> tuple[list[FactNode], list[FactRoleEdge]]:
+    """Extract n-ary facts with roles between entities."""
+    if len(nodes) < 2:
+        logger.debug("Not enough entities to extract hyper-edge facts")
+        return [], []
+
+    nodes_context = [
+        {"id": i, "name": node.name, "entity_types": node.labels} for i, node in enumerate(nodes)
+    ]
+
+    episode_content = episode.content
+    custom_prompt = ""
+    if episode.source == EpisodeType.json:
+        import json
+
+        try:
+            parsed = json.loads(episode.content)
+            episode_content = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            episode_content = episode.content
+
+        custom_prompt = f"""
+This episode source is JSON from: {episode.source_description}
+Extract only durable, semantically meaningful facts (ownership, membership, assignments, configuration).
+Avoid transient telemetry or structural adjacency in JSON.
+"""
+    elif episode.source == EpisodeType.code:
+        custom_prompt = f"""
+This episode source is CODE from: {episode.source_description}
+Extract only durable code facts (ownership, definitions, dependencies, incidents, decisions).
+Avoid transient runtime details or purely local variables.
+"""
+    elif episode.source == EpisodeType.doc:
+        custom_prompt = f"""
+This episode source is DOCUMENTATION from: {episode.source_description}
+Extract only durable facts (decisions, requirements, constraints, roles, responsibilities).
+Avoid purely narrative or speculative statements.
+"""
+
+    messages = extract_facts(
+        episode_content,
+        [ep.content for ep in previous_episodes],
+        nodes_context,
+        episode.valid_at.isoformat(),
+        custom_prompt=custom_prompt,
+    )
+
+    try:
+        response = await llm_client.generate_response(messages, ExtractedFacts)
+    except Exception as e:
+        logger.warning(f"[FactExtraction] Hyper-edge extraction failed: {e}")
+        return [], []
+
+    resolved_facts: list[FactNode] = []
+    fact_roles: list[FactRoleEdge] = []
+    seen_fact_uuids: set[str] = set()
+
+    for fact_data in response.facts:
+        fact_text = (fact_data.fact or "").strip()
+        if not fact_text:
+            continue
+
+        role_entries: list[tuple[str, str, str | None]] = []
+        seen_roles: set[tuple[str, str]] = set()
+        entity_uuids: set[str] = set()
+
+        for role in fact_data.roles:
+            if role.entity_id is None or role.entity_id < 0 or role.entity_id >= len(nodes):
+                continue
+            role_name = (role.role or "").strip()
+            if not role_name:
+                continue
+            entity_uuid = nodes[role.entity_id].uuid
+            role_key = (entity_uuid, role_name)
+            if role_key in seen_roles:
+                continue
+            seen_roles.add(role_key)
+            entity_uuids.add(entity_uuid)
+            role_entries.append((entity_uuid, role_name, role.role_description))
+
+        if len(entity_uuids) < 2:
+            continue
+
+        fact_attributes = dict(fact_data.attributes or {})
+        fact_type = (fact_data.fact_type or "").strip()
+        if fact_type and fact_type.upper() != "DEFAULT":
+            fact_attributes.setdefault("fact_type", fact_type)
+
+        valid_at = _parse_edge_date(fact_data.valid_at)
+        invalid_at = _parse_edge_date(fact_data.invalid_at)
+
+        fact_node = FactNode(
+            name=fact_text,
+            fact=fact_text,
+            group_id=episode.group_id,
+            attributes=fact_attributes,
+            episodes=[episode.uuid],
+            valid_at=valid_at,
+            invalid_at=invalid_at,
+        )
+
+        existing_fact = await driver.get_fact_by_text(fact_text, episode.group_id)
+        if existing_fact:
+            if episode.uuid not in existing_fact.episodes:
+                existing_fact.episodes.append(episode.uuid)
+            if existing_fact.valid_at is None and valid_at is not None:
+                existing_fact.valid_at = valid_at
+            if existing_fact.invalid_at is None and invalid_at is not None:
+                existing_fact.invalid_at = invalid_at
+            for key, value in fact_attributes.items():
+                if key not in existing_fact.attributes:
+                    existing_fact.attributes[key] = value
+            fact_node = existing_fact
+
+        if fact_node.uuid not in seen_fact_uuids:
+            resolved_facts.append(fact_node)
+            seen_fact_uuids.add(fact_node.uuid)
+
+        for entity_uuid, role_name, role_description in role_entries:
+            fact_roles.append(
+                FactRoleEdge(
+                    source_node_uuid=fact_node.uuid,
+                    target_node_uuid=entity_uuid,
+                    group_id=episode.group_id,
+                    role=role_name,
+                    role_description=role_description,
+                )
+            )
+
+    logger.debug(f"[FactExtraction] Extracted {len(resolved_facts)} fact nodes")
+    return resolved_facts, fact_roles
+
+
 def _parse_edge_date(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -945,6 +1113,23 @@ async def generate_edge_embeddings(
     logger.debug(f"Generated embeddings for {len(edges)} edges")
 
 
+async def generate_fact_embeddings(
+    embedder: OpenAIEmbedder,
+    facts: list[FactNode],
+) -> None:
+    """Generate embeddings for fact nodes."""
+    if not facts:
+        return
+
+    texts = [fact.fact.replace("\n", " ") for fact in facts]
+    embeddings = await embedder.create_batch(texts)
+
+    for fact, embedding in zip(facts, embeddings):
+        fact.fact_embedding = embedding
+
+    logger.debug(f"Generated embeddings for {len(facts)} fact nodes")
+
+
 async def save_nodes_and_edges(
     driver: FalkorDriver,
     new_nodes: list[EntityNode],
@@ -952,6 +1137,8 @@ async def save_nodes_and_edges(
     episode: EpisodicNode,
     all_nodes: list[EntityNode],
     postgres_driver=None,
+    fact_nodes: list[FactNode] | None = None,
+    fact_role_edges: list[FactRoleEdge] | None = None,
 ) -> None:
     """Save nodes and edges to FalkorDB and optionally sync to Postgres."""
     # Save/update all nodes that have embeddings (new or deduplicated with fresh embeddings)
@@ -972,6 +1159,15 @@ async def save_nodes_and_edges(
     for edge in edges:
         await driver.save_entity_edge(edge)
 
+    # Save fact nodes and roles
+    if fact_nodes:
+        for fact in fact_nodes:
+            await driver.save_fact_node(fact)
+
+    if fact_role_edges:
+        for fact_role in fact_role_edges:
+            await driver.save_fact_role_edge(fact_role)
+
     # Save episodic edges (episode -> entities mentioned)
     for node in all_nodes:
         episodic_edge = EpisodicEdge(
@@ -981,12 +1177,20 @@ async def save_nodes_and_edges(
         )
         await driver.save_episodic_edge(episodic_edge)
 
-    # Persist bidirectional episode ↔ fact index (episode.entity_edges)
+    # Persist bidirectional episode ↔ fact index (episode.entity_edges / episode.fact_nodes)
     episode.entity_edges = await driver.get_edge_uuids_for_episode(episode.uuid, episode.group_id)
+    if fact_nodes is not None:
+        episode.fact_nodes = await driver.get_fact_uuids_for_episode(
+            episode.uuid, episode.group_id
+        )
     await driver.save_episodic_node(episode)
 
     logger.debug(
-        f"Saved {len(nodes_with_embeddings)} nodes (with embeddings), {len(edges)} entity edges, {len(all_nodes)} episodic edges"
+        "Saved {} nodes (with embeddings), {} entity edges, {} fact nodes, {} episodic edges",
+        len(nodes_with_embeddings),
+        len(edges),
+        len(fact_nodes or []),
+        len(all_nodes),
     )
 
 

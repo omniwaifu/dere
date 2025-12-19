@@ -6,7 +6,7 @@ import numpy as np
 from loguru import logger
 from typing import Protocol
 
-from dere_graph.models import EntityEdge, EntityNode
+from dere_graph.models import EntityEdge, EntityNode, FactNode
 
 
 class CrossEncoderScorer(Protocol):
@@ -15,11 +15,11 @@ class CrossEncoderScorer(Protocol):
 
 
 def mmr_rerank(
-    items: list[EntityNode] | list[EntityEdge],
+    items: list[EntityNode] | list[EntityEdge] | list[FactNode],
     query_embedding: list[float],
     lambda_param: float = 0.5,
     limit: int = 10,
-) -> list[EntityNode] | list[EntityEdge]:
+) -> list[EntityNode] | list[EntityEdge] | list[FactNode]:
     """Maximal Marginal Relevance reranking for diversity.
 
     Balances relevance to query with diversity among results.
@@ -42,6 +42,8 @@ def mmr_rerank(
         if isinstance(item, EntityNode):
             emb = item.name_embedding
         elif isinstance(item, EntityEdge):
+            emb = item.fact_embedding
+        elif isinstance(item, FactNode):
             emb = item.fact_embedding
         else:
             emb = None
@@ -101,22 +103,24 @@ def mmr_rerank(
     return reranked
 
 
-def _cross_encoder_text(item: EntityNode | EntityEdge) -> str:
+def _cross_encoder_text(item: EntityNode | EntityEdge | FactNode) -> str:
     if isinstance(item, EntityNode):
         if item.summary:
             return f"{item.name}: {item.summary}"
         return item.name
+    if isinstance(item, FactNode):
+        return item.fact or item.name
     if item.fact:
         return item.fact
     return item.name
 
 
 async def cross_encoder_rerank(
-    items: list[EntityNode] | list[EntityEdge],
+    items: list[EntityNode] | list[EntityEdge] | list[FactNode],
     query: str,
     scorer: CrossEncoderScorer,
     limit: int = 10,
-) -> list[EntityNode] | list[EntityEdge]:
+) -> list[EntityNode] | list[EntityEdge] | list[FactNode]:
     """Rerank items with a cross-encoder scoring function."""
     if not items or limit == 0:
         return []
@@ -167,9 +171,9 @@ def reciprocal_rank_fusion(
 
 
 def score_by_recency(
-    items: list[EntityNode] | list[EntityEdge],
+    items: list[EntityNode] | list[EntityEdge] | list[FactNode],
     decay_factor: float = 0.1,
-) -> list[tuple[EntityNode | EntityEdge, float]]:
+) -> list[tuple[EntityNode | EntityEdge | FactNode, float]]:
     """Score items by recency (newer = higher score).
 
     Args:

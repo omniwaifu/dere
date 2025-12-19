@@ -5,19 +5,29 @@ from datetime import datetime
 from typing import Protocol, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dere_graph.communities import CommunityBuildResult, CommunityDetector
 from dere_graph.driver import FalkorDriver
 from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.filters import SearchFilters
 from dere_graph.llm_client import ClaudeClient
-from dere_graph.models import CommunityNode, EntityEdge, EntityNode, EpisodeType, EpisodicNode
+from dere_graph.models import (
+    CommunityNode,
+    EntityEdge,
+    EntityNode,
+    EpisodeType,
+    EpisodicNode,
+    FactNode,
+    FactRoleEdge,
+    FactRoleDetail,
+)
 from dere_graph.operations import add_episode, track_entity_citation, track_entity_retrieval
 from dere_graph.reranking import CrossEncoderScorer, cross_encoder_rerank, mmr_rerank, score_by_recency
 from dere_graph.search import (
     fulltext_community_search,
     hybrid_edge_search,
+    hybrid_fact_search,
     hybrid_node_search,
     rrf,
 )
@@ -39,15 +49,23 @@ class AddEpisodeResults(BaseModel):
     episode: EpisodicNode
     nodes: list[EntityNode]
     edges: list[EntityEdge]
+    facts: list[FactNode] = Field(default_factory=list)
+    fact_roles: list[FactRoleEdge] = Field(default_factory=list)
 
 
 class SearchResults(BaseModel):
     nodes: list[EntityNode]
     edges: list[EntityEdge]
+    facts: list[FactNode] = Field(default_factory=list)
 
 
 class EdgeCitation(BaseModel):
     edge_uuid: str
+    episodes: list[EpisodicNode]
+
+
+class FactCitation(BaseModel):
+    fact_uuid: str
     episodes: list[EpisodicNode]
 
 
@@ -373,7 +391,7 @@ class DereGraph:
         previous_episodes = await self.driver.get_recent_episodes(group_id, limit=5)
 
         # Run ingestion pipeline
-        created_nodes, created_edges = await add_episode(
+        created_nodes, created_edges, fact_nodes, fact_role_edges = await add_episode(
             self.driver,
             self.llm_client,
             self.embedder,
@@ -404,6 +422,8 @@ class DereGraph:
             episode=episode,
             nodes=created_nodes,
             edges=created_edges,
+            facts=fact_nodes,
+            fact_roles=fact_role_edges,
         )
 
     async def add_episodes_bulk(
@@ -497,7 +517,7 @@ class DereGraph:
         logger.info(f"Searching for: {query}")
 
         if limit <= 0:
-            return SearchResults(nodes=[], edges=[])
+            return SearchResults(nodes=[], edges=[], facts=[])
 
         bfs_slots = 0
         if self.enable_bfs_search and self.search_bfs_limit > 0 and limit > 1:
@@ -522,6 +542,7 @@ class DereGraph:
         # For episode_mentions and recency, reranking is done in hybrid_node_search
         node_fetch_limit = limit + bfs_slots
         edge_fetch_limit = limit + bfs_slots
+        fact_fetch_limit = limit + bfs_slots
 
         if rerank_method in ("episode_mentions", "recency"):
             node_candidates = await hybrid_node_search(
@@ -551,6 +572,15 @@ class DereGraph:
             query,
             group_id,
             edge_fetch_limit,
+            filters,
+        )
+
+        fact_candidates = await hybrid_fact_search(
+            self.driver,
+            self.embedder,
+            query,
+            group_id,
+            fact_fetch_limit,
             filters,
         )
 
@@ -632,6 +662,9 @@ class DereGraph:
                 edge_candidates = await cross_encoder_rerank(
                     edge_candidates, query, self.cross_encoder, edge_fetch_limit
                 )
+                fact_candidates = await cross_encoder_rerank(
+                    fact_candidates, query, self.cross_encoder, fact_fetch_limit
+                )
             else:
                 logger.warning("Cross-encoder rerank requested but no scorer is configured")
                 ranked_nodes = node_candidates[:node_fetch_limit]
@@ -682,14 +715,20 @@ class DereGraph:
 
         nodes = _select_with_bfs(ranked_nodes, bfs_nodes, limit, bfs_slots)
         edges = _select_with_bfs(edge_candidates, bfs_edges, limit, bfs_slots)
+        facts = fact_candidates[:limit]
 
         if recency_weight > 0 and nodes:
             scored_nodes = score_by_recency(nodes)
             nodes = [node for node, score in sorted(scored_nodes, key=lambda x: x[1], reverse=True)]
 
-        logger.info(f"Search found {len(nodes)} nodes, {len(edges)} edges")
+        logger.info(
+            "Search found {} nodes, {} edges, {} facts",
+            len(nodes),
+            len(edges),
+            len(facts),
+        )
 
-        return SearchResults(nodes=nodes, edges=edges)
+        return SearchResults(nodes=nodes, edges=edges, facts=facts)
 
     async def get_node(self, uuid: str) -> EntityNode | None:
         """Get a node by UUID.
@@ -769,6 +808,60 @@ class DereGraph:
                 citations.append(EdgeCitation(edge_uuid=edge_uuid, episodes=resolved))
 
         return citations
+
+    async def get_fact_citations(
+        self,
+        facts: list[FactNode],
+        group_id: str = "default",
+        max_episodes_per_fact: int = 2,
+    ) -> list[FactCitation]:
+        """Fetch episodic citations for fact nodes based on stored episode UUIDs."""
+        if not facts or max_episodes_per_fact <= 0:
+            return []
+
+        fact_episode_ids: dict[str, list[str]] = {}
+        all_episode_ids: list[str] = []
+        for fact in facts:
+            episode_ids = (fact.episodes or [])[:max_episodes_per_fact]
+            fact_episode_ids[fact.uuid] = episode_ids
+            all_episode_ids.extend(episode_ids)
+
+        if not all_episode_ids:
+            return []
+
+        unique_episode_ids = list(dict.fromkeys(all_episode_ids))
+        episodes = await self.driver.get_episodes_by_uuids(unique_episode_ids, group_id)
+        episodes_by_uuid = {episode.uuid: episode for episode in episodes}
+
+        citations = []
+        for fact_uuid, episode_ids in fact_episode_ids.items():
+            resolved = [
+                episodes_by_uuid[episode_id]
+                for episode_id in episode_ids
+                if episode_id in episodes_by_uuid
+            ]
+            if resolved:
+                citations.append(FactCitation(fact_uuid=fact_uuid, episodes=resolved))
+
+        return citations
+
+    async def get_fact_roles(
+        self,
+        facts: list[FactNode],
+        group_id: str = "default",
+    ) -> dict[str, list[FactRoleDetail]]:
+        """Fetch role edges for fact nodes and group them by fact UUID."""
+        if not facts:
+            return {}
+
+        fact_uuids = [fact.uuid for fact in facts]
+        roles = await self.driver.get_fact_roles(fact_uuids, group_id)
+
+        roles_by_fact: dict[str, list[FactRoleDetail]] = {}
+        for role in roles:
+            roles_by_fact.setdefault(role.fact_uuid, []).append(role)
+
+        return roles_by_fact
 
     async def build_communities(
         self,
