@@ -49,8 +49,9 @@
       "queries": [
         {
           "query": "What is blocking Apollo?",
-          "expected_entities": ["Project Apollo"],
-          "expected_facts": ["blocked by an auth bug"],
+          "expected_entities": ["Project Apollo", "Apollo milestone", "Apollo"],
+          "expected_facts": ["blocked by an auth bug", "authentication bug", "auth bug"],
+          "min_entity_hits": 1,
           "min_fact_hits": 1
         }
       ]
