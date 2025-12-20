@@ -165,12 +165,21 @@ class ClaudeClient:
 
     async def generate_text_response(self, messages: list[Message]) -> str:
         """Generate a simple text response without structured output."""
+        from pathlib import Path
+
         from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, query
+
+        # Isolate sessions from user projects to prevent dere -c contamination
+        isolated_cwd = Path("/tmp/dere-llm-sessions")
+        isolated_cwd.mkdir(exist_ok=True)
 
         prompt = format_messages(messages)
 
         response_text = ""
-        async for msg in query(prompt=prompt, options=ClaudeAgentOptions(model=self.model)):
+        async for msg in query(
+            prompt=prompt,
+            options=ClaudeAgentOptions(model=self.model, cwd=str(isolated_cwd)),
+        ):
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if hasattr(block, "text"):
