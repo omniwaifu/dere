@@ -297,8 +297,8 @@ async def _init_dere_graph(config: dict[str, Any], db_url: str, app_state: AppSt
         app_state.dere_graph = None
 
 
-async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
-    """Initialize personality loader and ambient monitor."""
+async def _init_personality_loader(app_state: AppState) -> None:
+    """Initialize personality loader."""
     from dere_shared.paths import get_config_dir
     from dere_shared.personalities import PersonalityLoader
 
@@ -306,12 +306,18 @@ async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
     config_dir.mkdir(parents=True, exist_ok=True)
     app_state.personality_loader = PersonalityLoader(config_dir)
 
+
+async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
+    """Initialize ambient monitor."""
     try:
         from dere_ambient import AmbientMonitor, load_ambient_config
 
         ambient_config = load_ambient_config()
         app_state.ambient_monitor = AmbientMonitor(
-            ambient_config, personality_loader=app_state.personality_loader
+            ambient_config,
+            personality_loader=app_state.personality_loader,
+            mission_executor=app_state.mission_executor,
+            session_factory=app_state.session_factory,
         )
         await app_state.ambient_monitor.start()
     except Exception as e:
@@ -372,6 +378,13 @@ EMOTION_CHECK_INTERVAL = 60  # Check every 60 seconds
 SUMMARY_IDLE_TIMEOUT = 1800  # 30 minutes in seconds
 SUMMARY_CHECK_INTERVAL = 300  # Check every 5 minutes
 SUMMARY_MIN_MESSAGES = 5  # Minimum messages before generating summary
+
+# Memory consolidation settings
+MEMORY_CONSOLIDATION_CHECK_INTERVAL = 60  # Check queue every 60 seconds
+MEMORY_CONSOLIDATION_DEFAULT_DAYS = 30
+MEMORY_CONSOLIDATION_COMMUNITY_RESOLUTION = 1.0
+MEMORY_CONSOLIDATION_SCHEDULE_DAYS = 7
+MEMORY_CONSOLIDATION_SCHEDULE_CHECK_INTERVAL = 3600  # Check schedule every hour
 
 
 async def _update_summary_context(session_factory) -> None:
@@ -437,8 +450,106 @@ Merge into 1-2 sentences. No headers, no preambles."""
         logger.error(f"[SummaryContext] Failed to update: {e}")
 
 
-def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.Task, asyncio.Task]:
-    """Start background tasks for presence cleanup, emotion decay, and session summaries."""
+async def _run_memory_consolidation(
+    app_state: AppState,
+    *,
+    group_id: str = "default",
+    recency_days: int = MEMORY_CONSOLIDATION_DEFAULT_DAYS,
+    community_resolution: float = MEMORY_CONSOLIDATION_COMMUNITY_RESOLUTION,
+) -> dict[str, int]:
+    """Run a memory consolidation pass for the graph."""
+    if not app_state.dere_graph:
+        raise RuntimeError("Knowledge graph not available")
+
+    from datetime import timedelta
+
+    recency_days = max(1, int(recency_days))
+    cutoff = datetime.now(UTC) - timedelta(days=recency_days)
+
+    pruned_edges = await app_state.dere_graph.invalidate_stale_edges(
+        group_id=group_id,
+        cutoff=cutoff,
+    )
+    pruned_facts = await app_state.dere_graph.invalidate_stale_facts(
+        group_id=group_id,
+        cutoff=cutoff,
+    )
+    communities = await app_state.dere_graph.build_communities(
+        group_id=group_id,
+        resolution=community_resolution,
+    )
+
+    return {
+        "pruned_edges": pruned_edges,
+        "pruned_facts": pruned_facts,
+        "communities": len(communities),
+    }
+
+
+async def _maybe_schedule_weekly_consolidation(
+    app_state: AppState,
+    *,
+    group_id: str = "default",
+) -> bool:
+    """Schedule a weekly consolidation task if no recent run exists."""
+    from datetime import timedelta
+
+    from sqlalchemy import func, select
+
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=MEMORY_CONSOLIDATION_SCHEDULE_DAYS)
+
+    async with app_state.session_factory() as db:
+        inflight_stmt = select(func.count(TaskQueue.id)).where(
+            TaskQueue.task_type == "memory_consolidation",
+            TaskQueue.status.in_(
+                [TaskStatus.PENDING.value, TaskStatus.PROCESSING.value]
+            ),
+        )
+        inflight = (await db.execute(inflight_stmt)).scalar() or 0
+        if inflight:
+            return False
+
+        last_stmt = (
+            select(TaskQueue.processed_at)
+            .where(TaskQueue.task_type == "memory_consolidation")
+            .where(TaskQueue.status == TaskStatus.COMPLETED.value)
+            .order_by(TaskQueue.processed_at.desc())
+            .limit(1)
+        )
+        last_result = await db.execute(last_stmt)
+        last_processed = last_result.scalar_one_or_none()
+
+        if last_processed and last_processed >= cutoff:
+            return False
+
+        task = TaskQueue(
+            task_type="memory_consolidation",
+            model_name="scheduled",
+            content=f"Scheduled memory consolidation for group {group_id}",
+            session_id=None,
+            task_metadata={
+                "user_id": None,
+                "recency_days": MEMORY_CONSOLIDATION_DEFAULT_DAYS,
+                "scheduled": True,
+            },
+            priority=5,
+            status=TaskStatus.PENDING.value,
+        )
+        db.add(task)
+        await db.commit()
+
+    logger.info(
+        "[Consolidation] Scheduled weekly consolidation for group {}",
+        group_id,
+    )
+    return True
+
+
+def _start_background_tasks(
+    app_state: AppState,
+) -> tuple[asyncio.Task, asyncio.Task, asyncio.Task, asyncio.Task]:
+    """Start background tasks for presence cleanup, emotion decay, session summaries, and consolidation."""
 
     async def cleanup_presence_loop():
         """Background task placeholder for future presence maintenance."""
@@ -622,11 +733,100 @@ def _start_background_tasks(app_state: AppState) -> tuple[asyncio.Task, asyncio.
             except Exception as e:
                 logger.error(f"[Summary] Periodic summary loop failed: {e}")
 
+    async def memory_consolidation_loop():
+        """Background task to process memory consolidation tasks."""
+        from sqlalchemy import select
+
+        last_schedule_check = 0.0
+
+        while True:
+            task_id: int | None = None
+            try:
+                if not app_state.dere_graph:
+                    await asyncio.sleep(MEMORY_CONSOLIDATION_CHECK_INTERVAL)
+                    continue
+
+                now = time.monotonic()
+                if (
+                    now - last_schedule_check
+                    >= MEMORY_CONSOLIDATION_SCHEDULE_CHECK_INTERVAL
+                ):
+                    try:
+                        await _maybe_schedule_weekly_consolidation(app_state)
+                    except Exception as e:
+                        logger.error("[Consolidation] Schedule check failed: {}", e)
+                    last_schedule_check = now
+
+                async with app_state.session_factory() as db:
+                    stmt = (
+                        select(TaskQueue)
+                        .where(TaskQueue.status == TaskStatus.PENDING.value)
+                        .where(TaskQueue.task_type == "memory_consolidation")
+                        .order_by(TaskQueue.priority.desc(), TaskQueue.created_at.asc())
+                        .limit(1)
+                        .with_for_update(skip_locked=True)
+                    )
+                    result = await db.execute(stmt)
+                    task = result.scalar_one_or_none()
+
+                    if not task:
+                        await asyncio.sleep(MEMORY_CONSOLIDATION_CHECK_INTERVAL)
+                        continue
+
+                    task_id = task.id
+                    task.status = TaskStatus.PROCESSING.value
+                    await db.commit()
+
+                    metadata = task.task_metadata or {}
+
+                group_id = metadata.get("user_id") or "default"
+                raw_days = metadata.get("recency_days", MEMORY_CONSOLIDATION_DEFAULT_DAYS)
+                try:
+                    recency_days = int(raw_days)
+                except (TypeError, ValueError):
+                    recency_days = MEMORY_CONSOLIDATION_DEFAULT_DAYS
+
+                stats = await _run_memory_consolidation(
+                    app_state,
+                    group_id=group_id,
+                    recency_days=recency_days,
+                )
+
+                async with app_state.session_factory() as db:
+                    task = await db.get(TaskQueue, task_id)
+                    if task:
+                        task.status = TaskStatus.COMPLETED.value
+                        task.processed_at = datetime.now(UTC)
+                        task.error_message = None
+                        await db.commit()
+
+                logger.info(
+                    "[Consolidation] Completed (group={}, days={}): {}",
+                    group_id,
+                    recency_days,
+                    stats,
+                )
+
+            except Exception as e:
+                logger.error("[Consolidation] Failed: {}", e)
+                if task_id is not None:
+                    async with app_state.session_factory() as db:
+                        task = await db.get(TaskQueue, task_id)
+                        if task:
+                            task.status = TaskStatus.FAILED.value
+                            task.processed_at = datetime.now(UTC)
+                            task.retry_count = (task.retry_count or 0) + 1
+                            task.error_message = str(e)
+                            await db.commit()
+
+                await asyncio.sleep(MEMORY_CONSOLIDATION_CHECK_INTERVAL)
+
     cleanup_task = asyncio.create_task(cleanup_presence_loop())
     emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
     summary_task = asyncio.create_task(periodic_session_summary_loop())
+    memory_task = asyncio.create_task(memory_consolidation_loop())
 
-    return cleanup_task, emotion_decay_task, summary_task
+    return cleanup_task, emotion_decay_task, summary_task, memory_task
 
 
 async def _shutdown_cleanup(
@@ -635,11 +835,12 @@ async def _shutdown_cleanup(
     cleanup_task: asyncio.Task,
     emotion_decay_task: asyncio.Task,
     summary_task: asyncio.Task,
+    memory_task: asyncio.Task,
 ) -> None:
     """Shutdown all services and cleanup resources."""
     errors = []
 
-    for task in [cleanup_task, emotion_decay_task, summary_task]:
+    for task in [cleanup_task, emotion_decay_task, summary_task, memory_task]:
         task.cancel()
         try:
             await task
@@ -711,16 +912,26 @@ async def lifespan(app: FastAPI):
 
     await _init_database(db_url, app.state)
     await _init_dere_graph(config, db_url, app.state)
-    await _init_ambient_monitor(data_dir, app.state)
+    await _init_personality_loader(app.state)
     await _init_agent_service(app.state)
+    await _init_ambient_monitor(data_dir, app.state)
 
-    cleanup_task, emotion_decay_task, summary_task = _start_background_tasks(app.state)
+    cleanup_task, emotion_decay_task, summary_task, memory_task = _start_background_tasks(
+        app.state
+    )
 
     print(f"Dere daemon started - database: {db_path}")
 
     yield
 
-    await _shutdown_cleanup(app.state, pid_file, cleanup_task, emotion_decay_task, summary_task)
+    await _shutdown_cleanup(
+        app.state,
+        pid_file,
+        cleanup_task,
+        emotion_decay_task,
+        summary_task,
+        memory_task,
+    )
 
 
 app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
@@ -1472,14 +1683,6 @@ async def queue_status(db: AsyncSession = Depends(get_db)):
     return stats
 
 
-# FIXME(sweep): Stub endpoint - implement hook capture logic or remove if not needed
-@app.post("/hooks/capture")
-async def hook_capture(req: HookCaptureRequest):
-    """Hook endpoint for capturing conversation data"""
-    # Store the hook data
-    return {"status": "received"}
-
-
 @app.post("/llm/generate")
 async def llm_generate(req: LLMGenerateRequest):
     """Generate LLM response with optional personality/emotion context using Claude CLI."""
@@ -1652,7 +1855,7 @@ async def get_last_dm_message(user_id: str, db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/consolidate/memory")
 async def consolidate_memory(
-    user_id: str,
+    user_id: str | None = None,
     recency_days: int = 30,
     model: str = "gemma3n:latest",
     db: AsyncSession = Depends(get_db),
@@ -1662,7 +1865,7 @@ async def consolidate_memory(
     Analyzes entity patterns, generates LLM summary, stores insights.
 
     Args:
-        user_id: User ID to consolidate memory for
+        user_id: Optional user ID partition (defaults to global graph)
         recency_days: Number of days to look back
         model: Model to use for summary generation
 
@@ -1670,10 +1873,11 @@ async def consolidate_memory(
         Consolidation summary and statistics
     """
     # Queue memory consolidation task
+    group_id = user_id or "default"
     task = TaskQueue(
         task_type="memory_consolidation",
         model_name=model,
-        content=f"Memory consolidation for user {user_id}",
+        content=f"Memory consolidation for group {group_id}",
         session_id=None,
         task_metadata={"user_id": user_id, "recency_days": recency_days},
         priority=5,
@@ -1687,7 +1891,7 @@ async def consolidate_memory(
     return {
         "success": True,
         "task_id": task.id,
-        "message": f"Memory consolidation queued for user {user_id}",
+        "message": f"Memory consolidation queued for group {group_id}",
     }
 
 

@@ -131,7 +131,9 @@ def detect_continuous_activities(
     for event in initial_events:
         if "data" in event:
             event_time = datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00"))
-            if event_time >= two_minutes_ago:
+            duration_seconds = float(event.get("duration") or 0)
+            event_end = event_time + timedelta(seconds=duration_seconds)
+            if event_end >= two_minutes_ago:
                 app = event["data"].get("app", "unknown")
                 title = event["data"].get("title", "")
                 key = f"{app}::{title}"
@@ -139,7 +141,7 @@ def detect_continuous_activities(
                     recent_activities[key] = {
                         "app": app,
                         "title": title,
-                        "last_seen": event_time,
+                        "last_seen": event_end,
                     }
 
     # For each active activity, look back to find when it really started

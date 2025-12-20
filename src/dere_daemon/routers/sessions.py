@@ -53,6 +53,21 @@ class StoreMessageResponse(BaseModel):
     message_id: int
 
 
+@router.get("/last_interaction")
+async def get_last_interaction(user_id: str | None = None, db: AsyncSession = Depends(get_db)):
+    """Get timestamp of most recent conversation message."""
+    stmt = select(Conversation.created_at).order_by(Conversation.created_at.desc()).limit(1)
+    if user_id:
+        stmt = stmt.where(Conversation.user_id == user_id)
+
+    result = await db.execute(stmt)
+    timestamp = result.scalar_one_or_none()
+
+    return {
+        "last_interaction_time": int(timestamp.timestamp()) if timestamp else None,
+    }
+
+
 @router.post("/create", response_model=CreateSessionResponse)
 async def create_session(req: CreateSessionRequest, db: AsyncSession = Depends(get_db)):
     """Create a new session"""

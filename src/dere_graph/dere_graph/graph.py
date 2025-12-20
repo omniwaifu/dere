@@ -896,6 +896,66 @@ class DereGraph:
         logger.info(f"Built {len(communities)} communities")
         return communities
 
+    async def invalidate_stale_edges(
+        self,
+        *,
+        group_id: str = "default",
+        cutoff: datetime,
+    ) -> int:
+        """Invalidate edges whose last supporting episode is older than cutoff."""
+        if cutoff is None:
+            return 0
+
+        results = await self.driver.execute_query(
+            """
+            MATCH ()-[r:RELATES_TO]->()
+            WHERE r.group_id = $group_id AND r.invalid_at IS NULL
+            WITH r
+            OPTIONAL MATCH (e:Episodic)
+            WHERE e.uuid IN coalesce(r.episodes, [])
+            WITH r, max(e.created_at) AS last_seen
+            WHERE last_seen IS NOT NULL AND last_seen < $cutoff
+            SET r.invalid_at = $cutoff
+            RETURN count(r) AS updated
+            """,
+            group_id=group_id,
+            cutoff=cutoff,
+        )
+
+        updated = int(results[0]["updated"]) if results else 0
+        logger.info("Invalidated {} stale edges for group {}", updated, group_id)
+        return updated
+
+    async def invalidate_stale_facts(
+        self,
+        *,
+        group_id: str = "default",
+        cutoff: datetime,
+    ) -> int:
+        """Invalidate facts whose last supporting episode is older than cutoff."""
+        if cutoff is None:
+            return 0
+
+        results = await self.driver.execute_query(
+            """
+            MATCH (f:Fact)
+            WHERE f.group_id = $group_id AND f.invalid_at IS NULL
+            WITH f
+            OPTIONAL MATCH (e:Episodic)
+            WHERE e.uuid IN coalesce(f.episodes, [])
+            WITH f, max(e.created_at) AS last_seen
+            WHERE last_seen IS NOT NULL AND last_seen < $cutoff
+            SET f.invalid_at = $cutoff
+            RETURN count(f) AS updated
+            """,
+            group_id=group_id,
+            cutoff=cutoff,
+        )
+
+        updated = int(results[0]["updated"]) if results else 0
+        logger.info("Invalidated {} stale facts for group {}", updated, group_id)
+        return updated
+
     async def remove_episode(self, episode_uuid: str) -> None:
         """Remove an episode from the graph.
 

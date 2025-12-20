@@ -21,6 +21,7 @@ class AmbientConfig:
     daemon_url: str = DEFAULT_DAEMON_URL
     user_id: str = "default_user"
     personality: str = "tsun"
+    notification_method: str = "both"
 
     escalation_enabled: bool = True
     escalation_lookback_hours: int = 12
@@ -70,6 +71,7 @@ def load_ambient_config() -> AmbientConfig:
         daemon_url=ambient_section.get("daemon_url", DEFAULT_DAEMON_URL),
         user_id=ambient_section.get("user_id") or config.get("user_id", "default_user"),
         personality=ambient_section.get("personality") or default_personality,
+        notification_method=ambient_section.get("notification_method", "both"),
         escalation_enabled=ambient_section.get("escalation_enabled", True),
         escalation_lookback_hours=ambient_section.get("escalation_lookback_hours", 12),
         min_notification_interval_minutes=ambient_section.get(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -14,6 +15,9 @@ from .fsm import AmbientFSM, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
     from dere_shared.personalities import PersonalityLoader
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from dere_daemon.missions.executor import MissionExecutor
 
 
 class AmbientMonitor:
@@ -23,11 +27,15 @@ class AmbientMonitor:
         self,
         config: AmbientConfig,
         personality_loader: PersonalityLoader | None = None,
+        mission_executor: MissionExecutor | None = None,
+        session_factory: Any | None = None,
     ):
         self.config = config
         self.analyzer = ContextAnalyzer(config, personality_loader=personality_loader)
         self._running = False
         self._task: asyncio.Task[Any] | None = None
+        self._mission_executor = mission_executor
+        self._session_factory = session_factory
 
         # Initialize FSM if enabled
         if config.fsm_enabled:
@@ -176,55 +184,177 @@ class AmbientMonitor:
             if self.fsm:
                 await self._evaluate_fsm_state()
 
-            (
-                should_engage,
-                message,
-                priority,
-                target_medium,
-                target_location,
-                parent_notification_id,
-            ) = await self.analyzer.should_engage()
+            should_engage, context_snapshot = await self.analyzer.should_engage()
 
-            if should_engage and message and target_medium and target_location:
-                # Create notification in queue for delivery by bots (Discord, Telegram, etc)
-                import httpx
+            if should_engage and context_snapshot:
+                result = await self._run_ambient_mission(context_snapshot)
+                if result:
+                    message, priority, confidence = result
+                    await self._deliver_notification(
+                        message=message,
+                        priority=priority,
+                        context_snapshot=context_snapshot,
+                    )
+                    if self.fsm:
+                        from .fsm import AmbientState
 
-                user_id = self.config.user_id
-                try:
-                    async with httpx.AsyncClient() as client:
-                        # Create notification via daemon API
-                        payload = {
-                            "user_id": user_id,
-                            "target_medium": target_medium,
-                            "target_location": target_location,
-                            "message": message,
-                            "priority": priority,
-                            "routing_reasoning": "LLM-based ambient engagement",
-                        }
-                        if parent_notification_id:
-                            payload["parent_notification_id"] = parent_notification_id
-
-                        response = await client.post(
-                            f"{self.config.daemon_url}/notifications/create",
-                            json=payload,
-                            timeout=10,
-                        )
-                        if response.status_code != 200:
-                            logger.warning("Failed to queue notification: {}", response.status_code)
-                        else:
-                            # Transition to ENGAGED state after successful notification
-                            if self.fsm:
-                                from .fsm import AmbientState
-
-                                self.fsm.transition_to(AmbientState.ENGAGED, "notification sent")
-                                self.fsm.last_notification_time = asyncio.get_event_loop().time()
-                except Exception as e:
-                    logger.error("Failed to queue notification: {}", e)
+                        self.fsm.transition_to(AmbientState.ENGAGED, "notification sent")
+                        self.fsm.last_notification_time = asyncio.get_event_loop().time()
+                else:
+                    logger.info("Ambient mission produced no actionable output")
             else:
                 logger.info("Ambient check complete: No engagement needed at this time")
 
         except Exception as e:
             logger.error("Error during ambient check and engage: {}", e)
+
+    async def _deliver_notification(
+        self,
+        *,
+        message: str,
+        priority: str,
+        context_snapshot: dict[str, Any],
+        parent_notification_id: int | None = None,
+    ) -> None:
+        import httpx
+
+        user_id = self.config.user_id
+
+        routing = await self.analyzer._route_message(
+            message=message,
+            priority=priority,
+            user_activity=context_snapshot.get("activity", {}),
+        )
+        if not routing:
+            logger.info("Ambient routing skipped notification delivery")
+            return
+
+        target_medium, target_location, routing_reason = routing
+        if parent_notification_id is None:
+            previous_notifications = context_snapshot.get("previous_notifications") or []
+            if previous_notifications:
+                parent_notification_id = previous_notifications[0].get("id")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                payload = {
+                    "user_id": user_id,
+                    "target_medium": target_medium,
+                    "target_location": target_location,
+                    "message": message,
+                    "priority": priority,
+                    "routing_reasoning": routing_reason or "ambient mission",
+                    "context_snapshot": context_snapshot,
+                    "trigger_type": "ambient_mission",
+                }
+                if parent_notification_id:
+                    payload["parent_notification_id"] = parent_notification_id
+
+                response = await client.post(
+                    f"{self.config.daemon_url}/notifications/create",
+                    json=payload,
+                    timeout=10,
+                )
+                if response.status_code != 200:
+                    logger.warning("Failed to queue notification: {}", response.status_code)
+        except Exception as e:
+            logger.error("Failed to queue notification: {}", e)
+
+    async def _run_ambient_mission(
+        self, context_snapshot: dict[str, Any]
+    ) -> tuple[str, str, float] | None:
+        if not self._mission_executor or not self._session_factory:
+            logger.warning("Ambient mission executor not configured")
+            return None
+
+        from datetime import UTC, datetime
+
+        from dere_shared.models import Mission, MissionStatus, MissionTriggerType
+
+        prompt = self._build_mission_prompt(context_snapshot)
+        now = datetime.now(UTC)
+        mission_name = f"ambient-{now.isoformat()}"
+
+        async with self._session_factory() as db:
+            mission = Mission(
+                name=mission_name,
+                description="Ambient micro-session",
+                prompt=prompt,
+                cron_expression="0 0 * * *",
+                run_once=True,
+                status=MissionStatus.PAUSED.value,
+                next_execution_at=None,
+                personality=self.config.personality,
+                model="claude-haiku-4-5",
+                sandbox_mode=True,
+                sandbox_mount_type="none",
+            )
+            db.add(mission)
+            await db.commit()
+            await db.refresh(mission)
+
+        execution = await self._mission_executor.execute(
+            mission,
+            trigger_type=MissionTriggerType.MANUAL.value,
+            triggered_by="ambient",
+        )
+
+        async with self._session_factory() as db:
+            db_mission = await db.get(Mission, mission.id)
+            if db_mission:
+                db_mission.status = MissionStatus.ARCHIVED.value
+                db_mission.updated_at = datetime.now(UTC)
+                await db.commit()
+
+        if not execution or not execution.output_text:
+            return None
+
+        parsed = self._parse_mission_output(execution.output_text)
+        if not parsed:
+            return None
+
+        if not parsed.get("send"):
+            return None
+
+        message = parsed.get("message")
+        priority = parsed.get("priority") or "conversation"
+        confidence = float(parsed.get("confidence") or 0)
+        if not message or confidence < 0.5:
+            return None
+
+        return message, priority, confidence
+
+    def _build_mission_prompt(self, context_snapshot: dict[str, Any]) -> str:
+        payload = json.dumps(context_snapshot, ensure_ascii=True)
+        return (
+            "You are an ambient agent. Use the context to decide if there is a high-signal, "
+            "actionable message to send. If there is nothing useful, respond with send=false.\n\n"
+            "Return JSON only with this schema:\n"
+            '{"send": true|false, "message": string, "priority": "alert"|"conversation", '
+            '"confidence": 0-1, "reasoning": string}\n\n'
+            f"Context:\n{payload}\n"
+        )
+
+    def _parse_mission_output(self, text: str) -> dict[str, Any] | None:
+        import json as _json
+        import re as _re
+
+        code_block = _re.search(r"```json\s*(\{.*?\})\s*```", text, _re.S)
+        if code_block:
+            try:
+                return _json.loads(code_block.group(1))
+            except Exception:
+                return None
+
+        decoder = _json.JSONDecoder()
+        for match in _re.finditer(r"\{", text):
+            try:
+                obj, _ = decoder.raw_decode(text[match.start():])
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+        return None
 
     async def _evaluate_fsm_state(self) -> None:
         """Evaluate FSM signals and transition state if appropriate."""

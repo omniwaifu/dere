@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import time
 from datetime import UTC, datetime
@@ -34,7 +35,97 @@ class ContextAnalyzer:
         self.aw_client = ActivityWatchClient()
         self.llm_client = ClaudeClient(model="claude-haiku-4-5")
         self.personality_loader = personality_loader
+        self._last_context: dict[str, Any] | None = None
 
+
+    def _parse_entity_tokens(self, text: str | None) -> set[str]:
+        if not text:
+            return set()
+        return {t.strip().lower() for t in text.split(",") if t.strip()}
+
+    def _extract_task_ids(self, text: str | None) -> set[str]:
+        if not text:
+            return set()
+        return set(re.findall(r"#\\d+", text))
+
+    def _build_context_fingerprint(
+        self,
+        current_activity: dict[str, Any],
+        entity_context: str | None,
+        task_context: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "activity_app": current_activity.get("app"),
+            "activity_title": current_activity.get("title"),
+            "entities": self._parse_entity_tokens(entity_context),
+            "tasks": self._extract_task_ids(task_context),
+        }
+
+    def _jaccard(self, a: set[str], b: set[str]) -> float:
+        if not a and not b:
+            return 1.0
+        if not a or not b:
+            return 0.0
+        return len(a & b) / len(a | b)
+
+    def _context_similarity(self, prev: dict[str, Any], current: dict[str, Any]) -> float:
+        activity_score = 0.0
+        prev_app = prev.get("activity_app")
+        curr_app = current.get("activity_app")
+        prev_title = prev.get("activity_title")
+        curr_title = current.get("activity_title")
+
+        if prev_app and curr_app and prev_app == curr_app:
+            activity_score = 0.5
+            if prev_title and curr_title and prev_title == curr_title:
+                activity_score = 1.0
+
+        entity_score = self._jaccard(prev.get("entities", set()), current.get("entities", set()))
+        task_score = self._jaccard(prev.get("tasks", set()), current.get("tasks", set()))
+
+        return (0.5 * activity_score) + (0.3 * entity_score) + (0.2 * task_score)
+
+    def _context_changed(self, current: dict[str, Any]) -> bool:
+        threshold = self.config.context_change_threshold
+        if threshold is None or threshold <= 0:
+            return True
+        if not self._last_context:
+            return True
+        similarity = self._context_similarity(self._last_context, current)
+        logger.info("Ambient context similarity {:.2f} (threshold {:.2f})", similarity, threshold)
+        return similarity < threshold
+
+    def _has_overdue_tasks(self, task_context: str | None) -> bool:
+        if not task_context:
+            return False
+        return "overdue:" in task_context.lower()
+
+    async def _is_user_afk(self) -> bool:
+        try:
+            hostname = socket.gethostname()
+            events = self.aw_client.get_afk_events(hostname, lookback_minutes=10)
+            if not events:
+                return False
+
+            latest_event = None
+            latest_time = None
+            for event in events:
+                timestamp = event.get("timestamp")
+                if not timestamp:
+                    continue
+                event_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                if latest_time is None or event_time > latest_time:
+                    latest_time = event_time
+                    latest_event = event
+
+            if not latest_event:
+                return False
+
+            status = (latest_event.get("data") or {}).get("status")
+            return status == "afk"
+        except Exception as e:
+            logger.debug("Failed to check AFK status: {}", e)
+            return False
 
     async def _get_recent_unacknowledged_notifications(self) -> list[dict[str, Any]]:
         """Query recent unacknowledged notifications for escalation context.
@@ -74,24 +165,22 @@ class ContextAnalyzer:
 
     async def should_engage(
         self,
-    ) -> tuple[bool, str | None, Literal["alert", "conversation"], str | None, str | None, int | None]:
+    ) -> tuple[bool, dict[str, Any] | None]:
         """Determine if bot should engage with user.
 
         Returns:
-            Tuple of (should_engage, message, priority, target_medium, target_location, parent_notification_id)
-            - should_engage: True if bot should reach out
-            - message: Optional message to send
-            - priority: 'alert' for simple notification, 'conversation' for chat request
-            - target_medium: Where to route (discord, telegram, desktop)
-            - target_location: Channel/DM ID within medium
-            - parent_notification_id: ID of notification being followed up on (if escalation)
+            Tuple of (should_engage, context_snapshot)
         """
         try:
+            if await self._is_user_afk():
+                logger.info("User AFK; skipping ambient engagement")
+                return False, None
+
             # Step 1: Check current activity first (most important)
             current_activity = await self._get_current_activity()
             if not current_activity:
                 logger.info("No current activity detected from ActivityWatch - skipping check")
-                return False, None, "alert", None, None, None
+                return False, None
 
             app = current_activity.get("app", "")
             duration_seconds = current_activity.get("duration", 0)
@@ -119,7 +208,7 @@ class ContextAnalyzer:
                         minutes_idle,
                         self.config.idle_threshold_minutes,
                     )
-                    return False, None, "alert", None, None, None
+                    return False, None
             else:
                 logger.info("No previous interactions found (cold start)")
 
@@ -144,32 +233,37 @@ class ContextAnalyzer:
             if previous_notifications:
                 logger.info("Found {} recent unacknowledged notifications", len(previous_notifications))
 
-            # Step 4: Evaluate engagement (using LLM)
-            engagement_reason = await self._evaluate_engagement(
-                current_activity, previous_context, minutes_idle, emotion_summary, entity_context, previous_notifications
+            task_context = get_task_context(limit=5, include_overdue=True, include_due_soon=True)
+            current_fingerprint = self._build_context_fingerprint(
+                current_activity, entity_context, task_context
             )
 
-            if engagement_reason:
-                message, priority, parent_notification_id = engagement_reason
-
-                # Step 5: Route the message using LLM-based routing
-                routing = await self._route_message(
-                    message=message, priority=priority, user_activity=current_activity
-                )
-                if routing:
-                    target_medium, target_location, routing_reason = routing
-                    return True, message, priority, target_medium, target_location, parent_notification_id
+            if not self._context_changed(current_fingerprint):
+                if not previous_notifications and not self._has_overdue_tasks(task_context):
+                    logger.info("Context stable; skipping ambient engagement")
+                    self._last_context = current_fingerprint
+                    return False, None
 
             logger.info(
-                "No engagement conditions met (activity: {}, duration: {:.1f}h)",
+                "Engagement conditions met (activity: {}, duration: {:.1f}h)",
                 app,
                 duration_hours,
             )
-            return False, None, "alert", None, None, None
+            self._last_context = current_fingerprint
+            context_snapshot = {
+                "activity": current_activity,
+                "minutes_idle": minutes_idle,
+                "previous_context": previous_context,
+                "emotion_summary": emotion_summary,
+                "entity_context": entity_context,
+                "task_context": task_context,
+                "previous_notifications": previous_notifications,
+            }
+            return True, context_snapshot
 
         except Exception as e:
             logger.error("Error in engagement analysis: {}", e)
-            return False, None, "alert", None, None, None
+            return False, None
 
     async def _get_last_interaction_time(self) -> float | None:
         """Get timestamp of last user interaction from daemon.
@@ -180,35 +274,14 @@ class ContextAnalyzer:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.daemon_url}/queue/status",
-                    timeout=5,
-                )
-                if response.status_code != 200:
-                    return None
-
-                # Query for most recent interaction using temporal filter
-                from datetime import datetime, timedelta
-
-                since_time = datetime.now(UTC) - timedelta(hours=24)
-
-                response = await client.post(
-                    f"{self.daemon_url}/search/hybrid",
-                    json={
-                        "query": "",  # Empty query = all results
-                        "limit": 1,
-                        "since": since_time.isoformat(),
-                        "entity_values": [],
-                        "user_id": self.config.user_id,
-                    },
+                    f"{self.daemon_url}/sessions/last_interaction",
+                    params={"user_id": self.config.user_id},
                     timeout=5,
                 )
                 if response.status_code == 200:
-                    results = response.json().get("results", [])
-                    if results:
-                        return float(results[0].get("timestamp", 0))
-                elif response.status_code == 500:
-                    logger.debug("dere_graph not available for search")
-                    return None
+                    value = response.json().get("last_interaction_time")
+                    if value:
+                        return float(value)
 
         except Exception as e:
             logger.debug("Failed to get last interaction time: {}", e)
@@ -324,24 +397,11 @@ class ContextAnalyzer:
             Human-readable emotion summary, or None if not available
         """
         try:
-            # If no session_id provided, try to get the most recent active session
-            if session_id is None:
-                session_id = await self._get_most_recent_session()
-                if session_id is None:
-                    logger.debug("No session_id provided and no recent session found")
-                    return None
-
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.daemon_url}/emotion/summary/{session_id}",
-                    timeout=5,
-                )
+                response = await client.get(f"{self.daemon_url}/emotion/summary", timeout=5)
                 if response.status_code == 200:
                     result = response.json()
                     return result.get("summary", None)
-                elif response.status_code == 404:
-                    logger.debug("No emotion state found for session {}", session_id)
-                    return None
 
         except Exception as e:
             logger.debug("Failed to get emotion summary: {}", e)
@@ -431,6 +491,7 @@ class ContextAnalyzer:
         minutes_idle: float | None,
         emotion_summary: str | None = None,
         entity_context: str | None = None,
+        task_context: str | None = None,
         previous_notifications: list[dict[str, Any]] | None = None,
     ) -> tuple[str, Literal["alert", "conversation"], int | None] | None:
         """Evaluate whether to engage based on context using LLM.
@@ -446,8 +507,6 @@ class ContextAnalyzer:
         Returns:
             Tuple of (message, priority, parent_notification_id) if should engage, None otherwise
         """
-        task_context = get_task_context(limit=5, include_overdue=True, include_due_soon=True)
-
         # Get last DM message for conversation continuity
         last_dm = await self._get_last_dm_message()
 
@@ -536,6 +595,10 @@ class ContextAnalyzer:
         Returns:
             Tuple of (medium, location, reasoning) or None if routing fails
         """
+        method = (self.config.notification_method or "both").lower()
+        if method == "notify-send":
+            return ("desktop", "notify-send", "notification_method=notify-send")
+
         # Get user_id from config
         user_id = self.config.user_id
 
@@ -550,9 +613,11 @@ class ContextAnalyzer:
                         "user_activity": user_activity,
                     },
                     timeout=30,
-                )
+                    )
                 if response.status_code == 200:
                     result = response.json()
+                    if method == "daemon" and result.get("fallback"):
+                        return None
                     return (
                         result.get("medium"),
                         result.get("location"),
