@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import socket
 from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from loguru import logger
 from pydantic import BaseModel
 
-from dere_shared.activitywatch import ActivityWatchClient
+from dere_shared.activitywatch import ActivityWatchService, classify_activity
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -49,77 +48,35 @@ class DashboardState(BaseModel):
     timestamp: datetime
 
 
-def classify_activity(app: str, title: str) -> str:
-    """Classify activity as productive, neutral, distracted, or absent."""
-    app_lower = app.lower() if app else ""
-    title_lower = title.lower() if title else ""
-
-    productive_apps = {
-        "code", "cursor", "neovim", "vim", "nvim", "emacs", "jetbrains",
-        "pycharm", "webstorm", "intellij", "goland", "rider", "datagrip",
-        "terminal", "konsole", "alacritty", "kitty", "wezterm", "zellij", "tmux",
-        "obsidian", "notion", "logseq", "zotero",
-        "postman", "insomnia", "dbeaver", "pgadmin",
-    }
-
-    distracted_apps = {
-        "discord", "slack", "telegram", "whatsapp", "signal",
-        "twitter", "x", "reddit", "facebook", "instagram", "tiktok",
-        "steam", "lutris", "heroic", "game", "gaming",
-        "youtube", "twitch", "netflix", "plex",
-    }
-
-    for prod_app in productive_apps:
-        if prod_app in app_lower:
-            return "productive"
-
-    for dist_app in distracted_apps:
-        if dist_app in app_lower:
-            return "distracted"
-
-    if any(browser in app_lower for browser in ["firefox", "chrome", "chromium", "brave", "zen"]):
-        if any(site in title_lower for site in ["github", "stackoverflow", "docs", "documentation", "api", "reference"]):
-            return "productive"
-        if any(site in title_lower for site in ["youtube", "reddit", "twitter", "facebook"]):
-            return "distracted"
-        return "neutral"
-
-    return "neutral"
-
-
 async def get_activity_state() -> ActivityState:
     """Get current activity state from ActivityWatch."""
     try:
-        hostname = socket.gethostname()
-        client = ActivityWatchClient()
-        now = datetime.now(UTC)
+        service = ActivityWatchService.from_config(cache_ttl_seconds=3)
+        if not service:
+            return ActivityState()
 
-        afk_events = client.get_afk_events(hostname, 5)
-        is_idle = True
-        idle_duration = 0
-
-        if afk_events:
-            latest_afk = afk_events[0]
-            status = latest_afk.get("data", {}).get("status", "afk")
-            is_idle = status == "afk"
-            if is_idle:
-                event_time = datetime.fromisoformat(
-                    latest_afk["timestamp"].replace("Z", "+00:00")
-                )
-                idle_duration = int((now - event_time).total_seconds())
-
-        window_events = client.get_window_events(hostname, 2)
+        snapshot = service.get_snapshot(lookback_minutes=5, top_n=3)
+        current = snapshot.get("current_window") or snapshot.get("current_media")
         current_app = None
         current_title = None
 
-        if window_events:
-            latest = window_events[0]
-            current_app = latest.get("data", {}).get("app")
-            current_title = latest.get("data", {}).get("title")
+        if current:
+            current_app = current.get("app") or current.get("player")
+            if current.get("app"):
+                current_title = current.get("title")
+            else:
+                artist = current.get("artist")
+                title = current.get("title")
+                current_title = f"{artist} - {title}" if artist else title
+
+        is_idle = snapshot.get("presence") == "away"
+        idle_duration = snapshot.get("idle_seconds", 0) if is_idle else 0
 
         category = "absent"
         if not is_idle and current_app:
-            category = classify_activity(current_app, current_title or "")
+            category = snapshot.get("current_category") or classify_activity(
+                current_app, current_title or ""
+            )
 
         return ActivityState(
             current_app=current_app,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import socket
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -11,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import httpx
 from loguru import logger
 
-from dere_shared.activitywatch import ActivityWatchClient, detect_continuous_activities
+from dere_shared.activitywatch import ActivityWatchService
 from dere_shared.llm_client import ClaudeClient
 from dere_shared.models import AmbientEngagementDecision
 from dere_shared.tasks import get_task_context
@@ -32,7 +31,7 @@ class ContextAnalyzer:
     ):
         self.config = config
         self.daemon_url = config.daemon_url
-        self.aw_client = ActivityWatchClient()
+        self.aw_service = ActivityWatchService.from_config(cache_ttl_seconds=5)
         self.llm_client = ClaudeClient(model="claude-haiku-4-5")
         self.personality_loader = personality_loader
         self._last_context: dict[str, Any] | None = None
@@ -102,27 +101,10 @@ class ContextAnalyzer:
 
     async def _is_user_afk(self) -> bool:
         try:
-            hostname = socket.gethostname()
-            events = self.aw_client.get_afk_events(hostname, lookback_minutes=10)
-            if not events:
+            snapshot = await self._get_activity_snapshot(lookback_minutes=10)
+            if not snapshot:
                 return False
-
-            latest_event = None
-            latest_time = None
-            for event in events:
-                timestamp = event.get("timestamp")
-                if not timestamp:
-                    continue
-                event_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                if latest_time is None or event_time > latest_time:
-                    latest_time = event_time
-                    latest_event = event
-
-            if not latest_event:
-                return False
-
-            status = (latest_event.get("data") or {}).get("status")
-            return status == "afk"
+            return snapshot.get("presence") == "away"
         except Exception as e:
             logger.debug("Failed to check AFK status: {}", e)
             return False
@@ -295,41 +277,49 @@ class ContextAnalyzer:
             Dictionary with current activity info, or None if no activity
         """
         try:
-            hostname = socket.gethostname()
-            now_utc = datetime.now(UTC)
-
-            window_events = self.aw_client.get_window_events(hostname, lookback_minutes=10)
-            if not window_events:
+            snapshot = await self._get_activity_snapshot(lookback_minutes=10)
+            if not snapshot:
                 return None
 
-            continuous_activities = detect_continuous_activities(
-                self.aw_client,
-                hostname,
-                now_utc,
-                window_events,
-                max_duration_hours=self.config.activity_lookback_hours,
-            )
+            current = snapshot.get("current_window")
+            if current:
+                return {
+                    "app": current.get("app"),
+                    "title": current.get("title"),
+                    "duration": current.get("duration_seconds", 0),
+                    "last_seen": current.get("last_seen"),
+                }
 
-            if continuous_activities:
-                sorted_activities = sorted(
-                    continuous_activities.items(),
-                    key=lambda x: x[1]["duration"],
-                    reverse=True,
-                )
-                if sorted_activities:
-                    key, data = sorted_activities[0]
-                    last_seen = data["last_seen"]
-                    return {
-                        "app": data["app"],
-                        "title": data["title"],
-                        "duration": data["duration"],
-                        "last_seen": last_seen.isoformat() if hasattr(last_seen, "isoformat") else last_seen,
-                    }
-
+            current_media = snapshot.get("current_media")
+            if current_media:
+                artist = current_media.get("artist")
+                title = current_media.get("title")
+                label = f"{artist} - {title}" if artist else title
+                return {
+                    "app": f"{current_media.get('player')} (media)",
+                    "title": label,
+                    "duration": current_media.get("duration_seconds", 0),
+                    "last_seen": current_media.get("last_seen"),
+                }
         except Exception as e:
             logger.warning("Failed to get current activity: {}", e)
 
         return None
+
+    async def _get_activity_snapshot(
+        self, lookback_minutes: int = 10, top_n: int = 5
+    ) -> dict[str, Any] | None:
+        if not self.aw_service:
+            return None
+        snapshot = self.aw_service.get_snapshot(
+            lookback_minutes=lookback_minutes,
+            top_n=top_n,
+        )
+        if not snapshot.get("enabled", True):
+            return None
+        if snapshot.get("status") == "empty":
+            return None
+        return snapshot
 
     async def _get_previous_context_summary(self) -> str | None:
         """Get summary of previous conversation context.

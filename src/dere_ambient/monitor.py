@@ -105,11 +105,8 @@ class AmbientMonitor:
 
         # Check ActivityWatch connectivity
         try:
-            import socket
-
-            hostname = socket.gethostname()
-            window_events = self.analyzer.aw_client.get_window_events(hostname, lookback_minutes=1)
-            if window_events:
+            snapshot = await self.analyzer._get_activity_snapshot(lookback_minutes=1, top_n=1)
+            if snapshot and snapshot.get("status") != "empty":
                 logger.info("ActivityWatch connected")
             else:
                 warnings.append(
@@ -367,19 +364,18 @@ class AmbientMonitor:
             # Gather signals for FSM evaluation
             async with httpx.AsyncClient() as client:
                 # Get current activity
-                import socket
-
-                hostname = socket.gethostname()
-                window_events = self.analyzer.aw_client.get_window_events(
-                    hostname, lookback_minutes=10
-                )
                 activity_data = {}
-                if window_events:
-                    latest = window_events[0]
-                    activity_data = {
-                        "app_name": latest.get("app", ""),
-                        "duration_seconds": latest.get("duration", 0),
-                    }
+                snapshot = await self.analyzer._get_activity_snapshot(
+                    lookback_minutes=10,
+                    top_n=1,
+                )
+                if snapshot:
+                    current = snapshot.get("current_window") or snapshot.get("current_media")
+                    if current:
+                        activity_data = {
+                            "app_name": current.get("app") or current.get("player") or "",
+                            "duration_seconds": current.get("duration_seconds", 0),
+                        }
 
                 # Get emotion state
                 emotion_data = {"emotion_type": "neutral", "intensity": 0}
