@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 from sqlalchemy import BigInteger, Column, DateTime, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from pgvector.sqlalchemy import Vector
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -140,6 +141,9 @@ class ConversationBlock(SQLModel, table=True):
     ordinal: int
     block_type: str
     text: str | None = None
+    content_embedding: Embedding | None = Field(
+        default=None, sa_column=Column(Vector(1536), nullable=True)
+    )
 
     tool_use_id: str | None = None
     tool_name: str | None = None
@@ -245,6 +249,103 @@ class SummaryContext(SQLModel, table=True):
     session_ids: list[int] | None = Field(
         default=None, sa_column=Column("session_ids", ARRAY(BigInteger))
     )
+    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+
+class ConsolidationRun(SQLModel, table=True):
+    """Track memory consolidation runs for audit/debugging."""
+
+    __tablename__ = "consolidation_runs"
+    __table_args__ = (
+        Index(
+            "consolidation_runs_user_idx",
+            "user_id",
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index("consolidation_runs_status_idx", "status"),
+        Index(
+            "consolidation_runs_started_idx",
+            "started_at",
+            postgresql_ops={"started_at": "DESC"},
+        ),
+        Index(
+            "consolidation_runs_task_idx",
+            "task_id",
+            postgresql_where=text("task_id IS NOT NULL"),
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: str | None = None
+    task_id: int | None = Field(default=None, foreign_key="task_queue.id")
+    status: str = Field(default="running")
+    started_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    finished_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    recency_days: int | None = None
+    community_resolution: float | None = None
+    update_core_memory: bool = Field(default=False)
+    triggered_by: str | None = None
+    stats: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
+    error_message: str | None = None
+
+
+class CoreMemoryBlock(SQLModel, table=True):
+    """Persistent memory block injected into the system prompt."""
+
+    __tablename__ = "core_memory_blocks"
+    __table_args__ = (
+        Index(
+            "core_memory_blocks_user_idx",
+            "user_id",
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "core_memory_blocks_session_idx",
+            "session_id",
+            postgresql_where=text("session_id IS NOT NULL"),
+        ),
+        Index("core_memory_blocks_type_idx", "block_type"),
+        Index(
+            "core_memory_blocks_user_type_unique",
+            "user_id",
+            "block_type",
+            unique=True,
+            postgresql_where=text("session_id IS NULL AND user_id IS NOT NULL"),
+        ),
+        Index(
+            "core_memory_blocks_session_type_unique",
+            "session_id",
+            "block_type",
+            unique=True,
+            postgresql_where=text("session_id IS NOT NULL"),
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: str | None = None
+    session_id: int | None = Field(default=None, foreign_key="sessions.id")
+    block_type: str
+    content: str
+    char_limit: int = 8192
+    version: int = 1
+    created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    updated_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+
+class CoreMemoryVersion(SQLModel, table=True):
+    """Version history for core memory blocks."""
+
+    __tablename__ = "core_memory_versions"
+    __table_args__ = (
+        Index("core_memory_versions_block_idx", "block_id"),
+        Index("core_memory_versions_block_version_unique", "block_id", "version", unique=True),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    block_id: int = Field(foreign_key="core_memory_blocks.id")
+    version: int
+    content: str
+    reason: str | None = None
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
 
 

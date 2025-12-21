@@ -309,6 +309,7 @@ export interface ContextConfig {
   format: string;
   max_title_length: number;
   show_duration_for_short: boolean;
+  line_numbered_xml: boolean;
   update_interval_seconds: number;
   weather_cache_minutes: number;
 }
@@ -560,6 +561,84 @@ export interface SummaryContextResponse {
   summary: string | null;
   session_ids: number[];
   created_at: string | null;
+}
+
+// Memory
+export type CoreMemoryScope = "user" | "session";
+export type CoreMemoryBlockType = "persona" | "human" | "task";
+
+export interface CoreMemoryBlock {
+  id: number;
+  block_type: CoreMemoryBlockType;
+  content: string;
+  scope: CoreMemoryScope;
+  session_id: number | null;
+  user_id: string | null;
+  char_limit: number;
+  version: number;
+  updated_at: string | null;
+}
+
+export interface CoreMemoryEditResponse {
+  block: CoreMemoryBlock;
+  created: boolean;
+}
+
+export interface CoreMemoryHistoryEntry {
+  block_id: number;
+  version: number;
+  content: string;
+  reason: string | null;
+  created_at: string | null;
+}
+
+export interface CoreMemoryRollbackResponse {
+  block: CoreMemoryBlock;
+  rolled_back_to: number;
+}
+
+export interface RecallSearchResult {
+  block_id: number;
+  conversation_id: number;
+  session_id: number;
+  message_type: string;
+  timestamp: number;
+  medium: string | null;
+  user_id: string | null;
+  text: string;
+  score: number;
+}
+
+export interface RecallSearchResponse {
+  query: string;
+  results: RecallSearchResult[];
+}
+
+export interface ArchivalFactInsertResponse {
+  created: boolean;
+  fact: KGFactSummary;
+}
+
+export interface ConsolidationRun {
+  id: number;
+  user_id: string | null;
+  task_id: number | null;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  recency_days: number | null;
+  community_resolution: number | null;
+  update_core_memory: boolean;
+  triggered_by: string | null;
+  stats: Record<string, number> | null;
+  error_message: string | null;
+}
+
+export interface ConsolidationRunsResponse {
+  runs: ConsolidationRun[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 // Knowledge Graph

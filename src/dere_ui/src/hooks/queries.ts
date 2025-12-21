@@ -25,6 +25,11 @@ export const queryKeys = {
   missions: ["missions"] as const,
   mission: (id: number) => ["missions", id] as const,
   missionExecutions: (id: number) => ["missions", id, "executions"] as const,
+  coreMemory: (params?: { user_id?: string; session_id?: number }) =>
+    ["memory", "core", params] as const,
+  coreMemoryHistory: (params?: object) => ["memory", "core", "history", params] as const,
+  recallSearch: (query: string, params?: object) => ["memory", "recall", query, params] as const,
+  consolidationRuns: (params?: object) => ["memory", "consolidation", "runs", params] as const,
   // Knowledge Graph
   kgEntities: (params?: { labels?: string[]; sort_by?: string; offset?: number }) =>
     ["kg", "entities", params] as const,
@@ -248,6 +253,101 @@ export function useConfigSchema() {
   });
 }
 
+// Memory
+export function useCoreMemoryBlocks(
+  params?: { user_id?: string; session_id?: number },
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.coreMemory(params),
+    queryFn: () => api.memory.core(params),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useUpdateCoreMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      block_type: "persona" | "human" | "task";
+      content: string;
+      reason?: string;
+      scope?: "user" | "session";
+      session_id?: number;
+      user_id?: string;
+      char_limit?: number;
+    }) => api.memory.editCore(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["memory", "core"] });
+      queryClient.invalidateQueries({ queryKey: ["memory", "core", "history"] });
+    },
+  });
+}
+
+export function useCoreMemoryHistory(
+  params: {
+    block_type: "persona" | "human" | "task";
+    limit?: number;
+    scope?: "user" | "session";
+    session_id?: number;
+    user_id?: string;
+  },
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.coreMemoryHistory(params),
+    queryFn: () => api.memory.history(params),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useRollbackCoreMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      block_type: "persona" | "human" | "task";
+      target_version: number;
+      reason?: string;
+      scope?: "user" | "session";
+      session_id?: number;
+      user_id?: string;
+    }) => api.memory.rollback(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["memory", "core"] });
+      queryClient.invalidateQueries({ queryKey: ["memory", "core", "history"] });
+    },
+  });
+}
+
+export function useRecallSearch(
+  query: string,
+  params?: {
+    limit?: number;
+    days_back?: number;
+    session_id?: number;
+    user_id?: string;
+  },
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.recallSearch(query, params),
+    queryFn: () => api.recall.search({ query, ...params }),
+    enabled: options?.enabled ?? query.length > 0,
+  });
+}
+
+export function useConsolidationRuns(params?: {
+  user_id?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: queryKeys.consolidationRuns(params),
+    queryFn: () => api.memory.consolidationRuns(params),
+  });
+}
+
 // Missions
 export function useMissions(status?: string) {
   return useQuery({
@@ -391,6 +491,11 @@ export function useKGFactSearch(
   params?: {
     limit?: number;
     include_roles?: boolean;
+    include_expired?: boolean;
+    start_date?: string;
+    end_date?: string;
+    archival_only?: boolean;
+    user_id?: string;
   },
   options?: { enabled?: boolean }
 ) {
@@ -398,6 +503,23 @@ export function useKGFactSearch(
     queryKey: queryKeys.kgFactSearch(query, params),
     queryFn: () => api.knowledge.factSearch({ query, ...params }),
     enabled: options?.enabled ?? query.length > 0,
+  });
+}
+
+export function useArchivalFactInsert() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      fact: string;
+      source?: string;
+      tags?: string[];
+      valid_at?: string;
+      invalid_at?: string;
+      user_id?: string;
+    }) => api.knowledge.archivalInsert(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["kg", "facts", "search"] });
+    },
   });
 }
 

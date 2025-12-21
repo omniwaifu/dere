@@ -22,6 +22,13 @@ import type {
   UpdateMissionRequest,
   DashboardStateResponse,
   SummaryContextResponse,
+  CoreMemoryBlock,
+  CoreMemoryEditResponse,
+  CoreMemoryHistoryEntry,
+  CoreMemoryRollbackResponse,
+  RecallSearchResponse,
+  ArchivalFactInsertResponse,
+  ConsolidationRunsResponse,
   KGEntityListResponse,
   KGFactSearchResponse,
   KGSearchResultsResponse,
@@ -227,6 +234,94 @@ export const api = {
     state: () => fetchJson<DashboardStateResponse>("/dashboard/state"),
   },
 
+  memory: {
+    core: (params?: { session_id?: number; user_id?: string }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.session_id) searchParams.set("session_id", String(params.session_id));
+      if (params?.user_id) searchParams.set("user_id", params.user_id);
+      const query = searchParams.toString();
+      return fetchJson<CoreMemoryBlock[]>(`/memory/core${query ? `?${query}` : ""}`);
+    },
+
+    editCore: (payload: {
+      block_type: "persona" | "human" | "task";
+      content: string;
+      reason?: string;
+      scope?: "user" | "session";
+      session_id?: number;
+      user_id?: string;
+      char_limit?: number;
+    }) =>
+      fetchJson<CoreMemoryEditResponse>("/memory/core/edit", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    history: (params: {
+      block_type: "persona" | "human" | "task";
+      limit?: number;
+      scope?: "user" | "session";
+      session_id?: number;
+      user_id?: string;
+    }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set("block_type", params.block_type);
+      if (params.limit) searchParams.set("limit", String(params.limit));
+      if (params.scope) searchParams.set("scope", params.scope);
+      if (params.session_id) searchParams.set("session_id", String(params.session_id));
+      if (params.user_id) searchParams.set("user_id", params.user_id);
+      return fetchJson<CoreMemoryHistoryEntry[]>(`/memory/core/history?${searchParams.toString()}`);
+    },
+
+    rollback: (payload: {
+      block_type: "persona" | "human" | "task";
+      target_version: number;
+      reason?: string;
+      scope?: "user" | "session";
+      session_id?: number;
+      user_id?: string;
+    }) =>
+      fetchJson<CoreMemoryRollbackResponse>("/memory/core/rollback", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    consolidationRuns: (params?: {
+      user_id?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.user_id) searchParams.set("user_id", params.user_id);
+      if (params?.status) searchParams.set("status", params.status);
+      if (params?.limit) searchParams.set("limit", String(params.limit));
+      if (params?.offset) searchParams.set("offset", String(params.offset));
+      const query = searchParams.toString();
+      return fetchJson<ConsolidationRunsResponse>(
+        `/memory/consolidation/runs${query ? `?${query}` : ""}`
+      );
+    },
+  },
+
+  recall: {
+    search: (params: {
+      query: string;
+      limit?: number;
+      days_back?: number;
+      session_id?: number;
+      user_id?: string;
+    }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set("query", params.query);
+      if (params.limit) searchParams.set("limit", String(params.limit));
+      if (params.days_back) searchParams.set("days_back", String(params.days_back));
+      if (params.session_id) searchParams.set("session_id", String(params.session_id));
+      if (params.user_id) searchParams.set("user_id", params.user_id);
+      return fetchJson<RecallSearchResponse>(`/recall/search?${searchParams.toString()}`);
+    },
+  },
+
   knowledge: {
     entities: (params?: {
       labels?: string[];
@@ -268,13 +363,50 @@ export const api = {
       return fetchJson<KGSearchResultsResponse>(`/kg/search?${searchParams.toString()}`);
     },
 
-    factSearch: (params: { query: string; limit?: number; include_roles?: boolean }) => {
+    factSearch: (params: {
+      query: string;
+      limit?: number;
+      include_roles?: boolean;
+      include_expired?: boolean;
+      start_date?: string;
+      end_date?: string;
+      archival_only?: boolean;
+      user_id?: string;
+    }) => {
       const searchParams = new URLSearchParams();
       searchParams.set("query", params.query);
       if (params.limit) searchParams.set("limit", String(params.limit));
       if (params.include_roles !== undefined)
         searchParams.set("include_roles", String(params.include_roles));
+      if (params.include_expired !== undefined)
+        searchParams.set("include_expired", String(params.include_expired));
+      if (params.start_date) searchParams.set("start_date", params.start_date);
+      if (params.end_date) searchParams.set("end_date", params.end_date);
+      if (params.archival_only !== undefined)
+        searchParams.set("archival_only", String(params.archival_only));
+      if (params.user_id) searchParams.set("user_id", params.user_id);
       return fetchJson<KGFactSearchResponse>(`/kg/facts/search?${searchParams.toString()}`);
+    },
+
+    archivalInsert: (payload: {
+      fact: string;
+      source?: string;
+      tags?: string[];
+      valid_at?: string;
+      invalid_at?: string;
+      user_id?: string;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (payload.user_id) searchParams.set("user_id", payload.user_id);
+      const query = searchParams.toString();
+      const { user_id, ...body } = payload;
+      return fetchJson<ArchivalFactInsertResponse>(
+        `/kg/facts/archival${query ? `?${query}` : ""}`,
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        }
+      );
     },
 
     factsAtTime: (params: { timestamp: string; limit?: number; include_roles?: boolean }) => {

@@ -22,6 +22,7 @@ from dere_shared.config import get_config_schema, load_dere_config, save_dere_co
 from dere_shared.database import create_engine, create_session_factory, get_session
 from dere_shared.models import (
     Conversation,
+    ConversationBlock,
     EmotionState,
     MessageType,
     Presence,
@@ -385,6 +386,16 @@ MEMORY_CONSOLIDATION_DEFAULT_DAYS = 30
 MEMORY_CONSOLIDATION_COMMUNITY_RESOLUTION = 1.0
 MEMORY_CONSOLIDATION_SCHEDULE_DAYS = 7
 MEMORY_CONSOLIDATION_SCHEDULE_CHECK_INTERVAL = 3600  # Check schedule every hour
+MEMORY_CONSOLIDATION_SUMMARY_SESSION_LIMIT = 5
+MEMORY_CONSOLIDATION_SUMMARY_BLOCK_LIMIT = 60
+MEMORY_CONSOLIDATION_SUMMARY_MIN_BLOCKS = 8
+MEMORY_CONSOLIDATION_FACT_QUALITY_THRESHOLD = 0.1
+MEMORY_CONSOLIDATION_FACT_MIN_RETRIEVALS = 5
+MEMORY_CONSOLIDATION_ENTITY_MERGE_LIMIT = 25
+
+# Recall embedding backfill settings
+RECALL_EMBEDDING_CHECK_INTERVAL = 120  # Check for missing embeddings every 2 minutes
+RECALL_EMBEDDING_BATCH_SIZE = 50
 
 
 async def _update_summary_context(session_factory) -> None:
@@ -450,12 +461,225 @@ Merge into 1-2 sentences. No headers, no preambles."""
         logger.error(f"[SummaryContext] Failed to update: {e}")
 
 
+async def _summarize_old_conversations(
+    app_state: AppState,
+    *,
+    cutoff_ts: int,
+    session_limit: int,
+    block_limit: int,
+    min_blocks: int,
+) -> int:
+    """Summarize older conversation blocks into compact memory entries."""
+    from sqlalchemy import select
+
+    from dere_shared.llm_client import ClaudeClient, Message
+
+    summary_count = 0
+    client = ClaudeClient()
+
+    async with app_state.session_factory() as db:
+        session_stmt = (
+            select(Conversation.session_id)
+            .join(ConversationBlock, ConversationBlock.conversation_id == Conversation.id)
+            .where(Conversation.timestamp < cutoff_ts)
+            .where(Conversation.message_type.in_(["user", "assistant"]))
+            .where(ConversationBlock.block_type == "text")
+            .where(ConversationBlock.text.is_not(None))
+            .where(ConversationBlock.text != "")
+            .distinct()
+            .limit(session_limit)
+        )
+        result = await db.execute(session_stmt)
+        session_ids = [row[0] for row in result.all()]
+
+        for session_id in session_ids:
+            session = await db.get(Session, session_id)
+            session_user_id = session.user_id if session else None
+
+            blocks_stmt = (
+                select(Conversation, ConversationBlock)
+                .join(ConversationBlock, ConversationBlock.conversation_id == Conversation.id)
+                .where(Conversation.session_id == session_id)
+                .where(Conversation.timestamp < cutoff_ts)
+                .where(Conversation.message_type.in_(["user", "assistant"]))
+                .where(ConversationBlock.block_type == "text")
+                .where(ConversationBlock.text.is_not(None))
+                .where(ConversationBlock.text != "")
+                .order_by(Conversation.timestamp.asc(), ConversationBlock.ordinal.asc())
+                .limit(block_limit)
+            )
+            block_rows = (await db.execute(blocks_stmt)).all()
+            if len(block_rows) < min_blocks:
+                continue
+
+            lines = []
+            last_ts = 0
+            for conv, block in block_rows:
+                if block.text:
+                    lines.append(f"{conv.message_type}: {block.text.strip()}")
+                if conv.timestamp and conv.timestamp > last_ts:
+                    last_ts = conv.timestamp
+
+            if not lines:
+                continue
+
+            summary_exists_stmt = (
+                select(Conversation.id)
+                .where(Conversation.session_id == session_id)
+                .where(Conversation.message_type == MessageType.SYSTEM)
+                .where(Conversation.prompt.ilike("[Memory Summary]%"))
+                .where(Conversation.timestamp >= last_ts)
+                .limit(1)
+            )
+            summary_exists = (await db.execute(summary_exists_stmt)).scalar_one_or_none()
+            if summary_exists:
+                continue
+
+            content = "\n".join(lines)
+            if len(content) > 8000:
+                content = content[-8000:]
+
+            prompt = (
+                "Summarize these conversation turns into 3-6 bullet points. "
+                "Focus on durable facts, decisions, and ongoing goals. "
+                "Avoid ephemeral details and tool noise.\n\n"
+                f"{content}"
+            )
+            try:
+                summary = await client.generate_text_response(
+                    [Message(role="user", content=prompt)]
+                )
+            except Exception as e:
+                logger.error(
+                    "[Consolidation] Summary generation failed for session {}: {}",
+                    session_id,
+                    e,
+                )
+                continue
+            summary_text = summary.strip()
+            if not summary_text:
+                continue
+
+            summary_payload = f"[Memory Summary]\n{summary_text}"
+
+            summary_conv = Conversation(
+                session_id=session_id,
+                prompt=summary_payload,
+                message_type=MessageType.SYSTEM,
+                timestamp=last_ts or int(time.time()),
+                medium="memory",
+                user_id=session_user_id,
+            )
+            db.add(summary_conv)
+            await db.flush()
+
+            db.add(
+                ConversationBlock(
+                    conversation_id=summary_conv.id,  # type: ignore[arg-type]
+                    ordinal=0,
+                    block_type="text",
+                    text=summary_payload,
+                )
+            )
+            await db.commit()
+
+            summary_count += 1
+
+    return summary_count
+
+
+async def _update_core_memory_from_summary(
+    app_state: AppState,
+    *,
+    user_id: str,
+) -> int:
+    """Seed or update core memory task block from latest session summary."""
+    from sqlalchemy import select
+
+    from dere_shared.models import CoreMemoryBlock, CoreMemoryVersion
+
+    if not user_id or user_id == "default":
+        return 0
+
+    async with app_state.session_factory() as db:
+        summary_stmt = (
+            select(Session.summary, Session.summary_updated_at)
+            .where(Session.user_id == user_id)
+            .where(Session.summary.is_not(None))
+            .order_by(Session.summary_updated_at.desc())
+            .limit(1)
+        )
+        summary_row = (await db.execute(summary_stmt)).first()
+        if not summary_row:
+            return 0
+
+        summary = (summary_row[0] or "").strip()
+        if not summary:
+            return 0
+
+        block_stmt = select(CoreMemoryBlock).where(
+            CoreMemoryBlock.user_id == user_id,
+            CoreMemoryBlock.session_id.is_(None),
+            CoreMemoryBlock.block_type == "task",
+        )
+        block = (await db.execute(block_stmt)).scalar_one_or_none()
+
+        now = datetime.now(UTC)
+        content_prefix = "Recent summary: "
+        updated = False
+
+        if block:
+            if summary in block.content:
+                return 0
+            new_content = block.content.rstrip()
+            if new_content:
+                new_content += "\n"
+            remaining = block.char_limit - len(new_content) - len(content_prefix)
+            trimmed_summary = summary[: max(0, remaining)]
+            new_content += f"{content_prefix}{trimmed_summary}"
+            block.content = new_content[: block.char_limit]
+            block.version = (block.version or 1) + 1
+            block.updated_at = now
+            updated = True
+        else:
+            new_content = f"{content_prefix}{summary}"
+            block = CoreMemoryBlock(
+                user_id=user_id,
+                session_id=None,
+                block_type="task",
+                content=new_content[:8192],
+                char_limit=8192,
+                version=1,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(block)
+            await db.flush()
+            updated = True
+
+        if updated:
+            db.add(
+                CoreMemoryVersion(
+                    block_id=block.id,  # type: ignore[arg-type]
+                    version=block.version,
+                    content=block.content,
+                    reason="memory consolidation summary",
+                    created_at=now,
+                )
+            )
+            await db.commit()
+            return 1
+
+    return 0
+
+
 async def _run_memory_consolidation(
     app_state: AppState,
     *,
     group_id: str = "default",
     recency_days: int = MEMORY_CONSOLIDATION_DEFAULT_DAYS,
     community_resolution: float = MEMORY_CONSOLIDATION_COMMUNITY_RESOLUTION,
+    update_core_memory: bool = False,
 ) -> dict[str, int]:
     """Run a memory consolidation pass for the graph."""
     if not app_state.dere_graph:
@@ -465,6 +689,15 @@ async def _run_memory_consolidation(
 
     recency_days = max(1, int(recency_days))
     cutoff = datetime.now(UTC) - timedelta(days=recency_days)
+    cutoff_ts = int(cutoff.timestamp())
+
+    summary_blocks = await _summarize_old_conversations(
+        app_state,
+        cutoff_ts=cutoff_ts,
+        session_limit=MEMORY_CONSOLIDATION_SUMMARY_SESSION_LIMIT,
+        block_limit=MEMORY_CONSOLIDATION_SUMMARY_BLOCK_LIMIT,
+        min_blocks=MEMORY_CONSOLIDATION_SUMMARY_MIN_BLOCKS,
+    )
 
     pruned_edges = await app_state.dere_graph.invalidate_stale_edges(
         group_id=group_id,
@@ -474,14 +707,34 @@ async def _run_memory_consolidation(
         group_id=group_id,
         cutoff=cutoff,
     )
+    pruned_low_quality_facts = await app_state.dere_graph.invalidate_low_quality_facts(
+        group_id=group_id,
+        cutoff=cutoff,
+        quality_threshold=MEMORY_CONSOLIDATION_FACT_QUALITY_THRESHOLD,
+        min_retrievals=MEMORY_CONSOLIDATION_FACT_MIN_RETRIEVALS,
+    )
+    merged_entities = await app_state.dere_graph.merge_duplicate_entities(
+        group_id=group_id,
+        limit=MEMORY_CONSOLIDATION_ENTITY_MERGE_LIMIT,
+    )
+    core_memory_updates = 0
+    if update_core_memory:
+        core_memory_updates = await _update_core_memory_from_summary(
+            app_state,
+            user_id=group_id,
+        )
     communities = await app_state.dere_graph.build_communities(
         group_id=group_id,
         resolution=community_resolution,
     )
 
     return {
+        "summary_blocks": summary_blocks,
         "pruned_edges": pruned_edges,
         "pruned_facts": pruned_facts,
+        "pruned_low_quality_facts": pruned_low_quality_facts,
+        "merged_entities": merged_entities,
+        "core_memory_updates": core_memory_updates,
         "communities": len(communities),
     }
 
@@ -532,6 +785,7 @@ async def _maybe_schedule_weekly_consolidation(
                 "user_id": None,
                 "recency_days": MEMORY_CONSOLIDATION_DEFAULT_DAYS,
                 "scheduled": True,
+                "trigger": "scheduled",
             },
             priority=5,
             status=TaskStatus.PENDING.value,
@@ -548,8 +802,8 @@ async def _maybe_schedule_weekly_consolidation(
 
 def _start_background_tasks(
     app_state: AppState,
-) -> tuple[asyncio.Task, asyncio.Task, asyncio.Task, asyncio.Task]:
-    """Start background tasks for presence cleanup, emotion decay, session summaries, and consolidation."""
+) -> tuple[asyncio.Task, asyncio.Task, asyncio.Task, asyncio.Task, asyncio.Task]:
+    """Start background tasks for presence cleanup, emotion decay, session summaries, consolidation, and recall embeddings."""
 
     async def cleanup_presence_loop():
         """Background task placeholder for future presence maintenance."""
@@ -741,6 +995,11 @@ def _start_background_tasks(
 
         while True:
             task_id: int | None = None
+            run_id: int | None = None
+            group_id = "default"
+            recency_days = MEMORY_CONSOLIDATION_DEFAULT_DAYS
+            update_core_memory = False
+            trigger_label = "manual"
             try:
                 if not app_state.dere_graph:
                     await asyncio.sleep(MEMORY_CONSOLIDATION_CHECK_INTERVAL)
@@ -775,21 +1034,39 @@ def _start_background_tasks(
 
                     task_id = task.id
                     task.status = TaskStatus.PROCESSING.value
-                    await db.commit()
 
                     metadata = task.task_metadata or {}
+                    group_id = metadata.get("user_id") or "default"
+                    raw_days = metadata.get("recency_days", MEMORY_CONSOLIDATION_DEFAULT_DAYS)
+                    try:
+                        recency_days = int(raw_days)
+                    except (TypeError, ValueError):
+                        recency_days = MEMORY_CONSOLIDATION_DEFAULT_DAYS
+                    update_core_memory = bool(metadata.get("update_core_memory", False))
+                    trigger_label = metadata.get("trigger") or (
+                        "scheduled" if metadata.get("scheduled") else "manual"
+                    )
 
-                group_id = metadata.get("user_id") or "default"
-                raw_days = metadata.get("recency_days", MEMORY_CONSOLIDATION_DEFAULT_DAYS)
-                try:
-                    recency_days = int(raw_days)
-                except (TypeError, ValueError):
-                    recency_days = MEMORY_CONSOLIDATION_DEFAULT_DAYS
+                    run = ConsolidationRun(
+                        user_id=group_id,
+                        task_id=task_id,
+                        status="running",
+                        started_at=datetime.now(UTC),
+                        recency_days=recency_days,
+                        community_resolution=MEMORY_CONSOLIDATION_COMMUNITY_RESOLUTION,
+                        update_core_memory=update_core_memory,
+                        triggered_by=trigger_label,
+                    )
+                    db.add(run)
+                    await db.flush()
+                    run_id = run.id
+                    await db.commit()
 
                 stats = await _run_memory_consolidation(
                     app_state,
                     group_id=group_id,
                     recency_days=recency_days,
+                    update_core_memory=update_core_memory,
                 )
 
                 async with app_state.session_factory() as db:
@@ -798,7 +1075,13 @@ def _start_background_tasks(
                         task.status = TaskStatus.COMPLETED.value
                         task.processed_at = datetime.now(UTC)
                         task.error_message = None
-                        await db.commit()
+                    if run_id is not None:
+                        run = await db.get(ConsolidationRun, run_id)
+                        if run:
+                            run.status = "completed"
+                            run.stats = stats
+                            run.finished_at = datetime.now(UTC)
+                    await db.commit()
 
                 logger.info(
                     "[Consolidation] Completed (group={}, days={}): {}",
@@ -817,16 +1100,89 @@ def _start_background_tasks(
                             task.processed_at = datetime.now(UTC)
                             task.retry_count = (task.retry_count or 0) + 1
                             task.error_message = str(e)
-                            await db.commit()
+                        if run_id is not None:
+                            run = await db.get(ConsolidationRun, run_id)
+                            if run:
+                                run.status = "failed"
+                                run.error_message = str(e)
+                                run.finished_at = datetime.now(UTC)
+                        await db.commit()
 
                 await asyncio.sleep(MEMORY_CONSOLIDATION_CHECK_INTERVAL)
+
+    async def recall_embedding_backfill_loop():
+        """Background task to backfill missing conversation block embeddings."""
+        from sqlalchemy import select
+
+        from dere_shared.models import Conversation, ConversationBlock
+
+        while True:
+            try:
+                await asyncio.sleep(RECALL_EMBEDDING_CHECK_INTERVAL)
+                if not app_state.dere_graph or not app_state.dere_graph.embedder:
+                    continue
+
+                async with app_state.session_factory() as db:
+                    missing_blocks_stmt = (
+                        select(Conversation)
+                        .outerjoin(
+                            ConversationBlock,
+                            ConversationBlock.conversation_id == Conversation.id,
+                        )
+                        .where(ConversationBlock.id.is_(None))
+                        .where(Conversation.prompt.is_not(None))
+                        .where(Conversation.prompt != "")
+                        .limit(RECALL_EMBEDDING_BATCH_SIZE)
+                    )
+                    missing_blocks_result = await db.execute(missing_blocks_stmt)
+                    missing_conversations = list(missing_blocks_result.scalars().all())
+
+                    if missing_conversations:
+                        db.add_all(
+                            [
+                                ConversationBlock(
+                                    conversation_id=conv.id,  # type: ignore[arg-type]
+                                    ordinal=0,
+                                    block_type="text",
+                                    text=conv.prompt,
+                                )
+                                for conv in missing_conversations
+                            ]
+                        )
+                        await db.commit()
+
+                    stmt = (
+                        select(ConversationBlock)
+                        .join(Conversation, Conversation.id == ConversationBlock.conversation_id)
+                        .where(ConversationBlock.content_embedding.is_(None))
+                        .where(ConversationBlock.block_type == "text")
+                        .where(ConversationBlock.text.is_not(None))
+                        .where(ConversationBlock.text != "")
+                        .limit(RECALL_EMBEDDING_BATCH_SIZE)
+                    )
+                    result = await db.execute(stmt)
+                    blocks = list(result.scalars().all())
+
+                    if not blocks:
+                        continue
+
+                    texts = [block.text.replace("\n", " ") for block in blocks]
+                    embeddings = await app_state.dere_graph.embedder.create_batch(texts)
+
+                    for block, embedding in zip(blocks, embeddings):
+                        block.content_embedding = embedding
+
+                    await db.commit()
+            except Exception as e:
+                logger.error("[Recall] Embedding backfill failed: {}", e)
 
     cleanup_task = asyncio.create_task(cleanup_presence_loop())
     emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
     summary_task = asyncio.create_task(periodic_session_summary_loop())
     memory_task = asyncio.create_task(memory_consolidation_loop())
+    recall_task = asyncio.create_task(recall_embedding_backfill_loop())
 
-    return cleanup_task, emotion_decay_task, summary_task, memory_task
+    return cleanup_task, emotion_decay_task, summary_task, memory_task, recall_task
 
 
 async def _shutdown_cleanup(
@@ -836,11 +1192,12 @@ async def _shutdown_cleanup(
     emotion_decay_task: asyncio.Task,
     summary_task: asyncio.Task,
     memory_task: asyncio.Task,
+    recall_task: asyncio.Task,
 ) -> None:
     """Shutdown all services and cleanup resources."""
     errors = []
 
-    for task in [cleanup_task, emotion_decay_task, summary_task, memory_task]:
+    for task in [cleanup_task, emotion_decay_task, summary_task, memory_task, recall_task]:
         task.cancel()
         try:
             await task
@@ -916,9 +1273,13 @@ async def lifespan(app: FastAPI):
     await _init_agent_service(app.state)
     await _init_ambient_monitor(data_dir, app.state)
 
-    cleanup_task, emotion_decay_task, summary_task, memory_task = _start_background_tasks(
-        app.state
-    )
+    (
+        cleanup_task,
+        emotion_decay_task,
+        summary_task,
+        memory_task,
+        recall_task,
+    ) = _start_background_tasks(app.state)
 
     print(f"Dere daemon started - database: {db_path}")
 
@@ -931,6 +1292,7 @@ async def lifespan(app: FastAPI):
         emotion_decay_task,
         summary_task,
         memory_task,
+        recall_task,
     )
 
 
@@ -940,6 +1302,7 @@ app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
 from dere_daemon.routers import (
     agent_router,
     activity_router,
+    core_memory_router,
     context_router,
     dashboard_router,
     emotions_router,
@@ -947,6 +1310,7 @@ from dere_daemon.routers import (
     missions_router,
     notifications_router,
     presence_router,
+    recall_router,
     sessions_router,
     swarm_router,
     taskwarrior_router,
@@ -959,7 +1323,9 @@ app.include_router(agent_router)
 app.include_router(activity_router)
 app.include_router(notifications_router)
 app.include_router(presence_router)
+app.include_router(core_memory_router)
 app.include_router(kg_router)
+app.include_router(recall_router)
 app.include_router(context_router)
 app.include_router(taskwarrior_router)
 app.include_router(missions_router)
@@ -1522,6 +1888,16 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
     await db.flush()
     conversation_id = conv.id
 
+    if req.prompt and req.prompt.strip():
+        db.add(
+            ConversationBlock(
+                conversation_id=conv.id,  # type: ignore[arg-type]
+                ordinal=0,
+                block_type="text",
+                text=req.prompt,
+            )
+        )
+
     # Queue background processing (don't block response)
     if req.message_type == "user":
         import asyncio
@@ -1860,6 +2236,7 @@ async def consolidate_memory(
     user_id: str | None = None,
     recency_days: int = 30,
     model: str = "gemma3n:latest",
+    update_core_memory: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger memory consolidation for a user.
@@ -1881,7 +2258,12 @@ async def consolidate_memory(
         model_name=model,
         content=f"Memory consolidation for group {group_id}",
         session_id=None,
-        task_metadata={"user_id": user_id, "recency_days": recency_days},
+        task_metadata={
+            "user_id": user_id,
+            "recency_days": recency_days,
+            "update_core_memory": update_core_memory,
+            "trigger": "manual",
+        },
         priority=5,
         status=TaskStatus.PENDING,
     )

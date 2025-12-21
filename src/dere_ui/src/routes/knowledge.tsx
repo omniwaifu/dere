@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Brain, Search, Clock, BarChart3, FileText } from "lucide-react";
+import { Brain, Search, Clock, BarChart3, FileText, Archive } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useKGStats } from "@/hooks/queries";
 import { EntitiesBrowser } from "@/components/knowledge/EntitiesBrowser";
@@ -8,6 +8,7 @@ import { FactExplorer } from "@/components/knowledge/FactExplorer";
 import { FactsTimeline } from "@/components/knowledge/FactsTimeline";
 import { AnalyticsDashboard } from "@/components/knowledge/AnalyticsDashboard";
 import { TimelineSummary } from "@/components/knowledge/TimelineSummary";
+import { MemoryPanel } from "@/components/knowledge/MemoryPanel";
 
 export const Route = createFileRoute("/knowledge")({
   component: KnowledgePage,
@@ -52,6 +53,10 @@ function KnowledgePage() {
             <BarChart3 className="h-4 w-4" />
             Analytics
           </TabsTrigger>
+          <TabsTrigger value="memory" className="gap-1.5">
+            <Archive className="h-4 w-4" />
+            Memory
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="entities" className="mt-4">
@@ -75,6 +80,10 @@ function KnowledgePage() {
             <TimelineSummary />
             <AnalyticsDashboard />
           </div>
+        </TabsContent>
+
+        <TabsContent value="memory" className="mt-4">
+          <MemoryPanel />
         </TabsContent>
       </Tabs>
     </div>

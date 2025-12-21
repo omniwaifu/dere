@@ -25,9 +25,10 @@ from sqlmodel import select
 
 from dere_shared.config import load_dere_config
 from dere_shared.context import get_time_context
-from dere_shared.models import Conversation, ConversationBlock, MessageType, Session
+from dere_shared.models import Conversation, ConversationBlock, CoreMemoryBlock, MessageType, Session
 from dere_shared.personalities import PersonalityLoader
 from dere_shared.weather import get_weather_context
+from dere_shared.xml_utils import add_line_numbers, render_tag, render_text_tag
 
 from .models import SessionConfig, StreamEvent, StreamEventType
 from .runners import DockerSessionRunner, LocalSessionRunner, SessionRunner
@@ -54,6 +55,7 @@ EVENT_BUFFER_SIZE = 500
 PERMISSION_TIMEOUT = 300  # 5 minutes to respond to permission request
 SANDBOX_IDLE_TIMEOUT = 1800  # 30 minutes before auto-closing idle sandbox sessions
 SANDBOX_CLEANUP_INTERVAL = 60  # Check for idle sandboxes every minute
+CORE_MEMORY_BLOCK_ORDER = ("persona", "human", "task")
 
 
 @dataclass
@@ -376,7 +378,21 @@ class CentralizedAgentService:
             if self.config.get("context", {}).get("time", True):
                 time_ctx = get_time_context()
                 if time_ctx:
-                    parts.append(f"Current time: {time_ctx['time']}, {time_ctx['date']}")
+                    time_parts = []
+                    if time_ctx.get("time"):
+                        time_parts.append(
+                            render_text_tag("time_of_day", time_ctx["time"], indent=6)
+                        )
+                    if time_ctx.get("date"):
+                        time_parts.append(
+                            render_text_tag("date", time_ctx["date"], indent=6)
+                        )
+                    if time_ctx.get("timezone"):
+                        time_parts.append(
+                            render_text_tag("timezone", time_ctx["timezone"], indent=6)
+                        )
+                    if time_parts:
+                        parts.append(render_tag("time", "\n".join(time_parts), indent=4))
         except Exception:
             pass
 
@@ -384,34 +400,130 @@ class CentralizedAgentService:
             if self.config.get("context", {}).get("weather", False):
                 weather_ctx = get_weather_context(self.config)
                 if weather_ctx:
-                    parts.append(
-                        f"Weather in {weather_ctx['location']}: "
-                        f"{weather_ctx['conditions']}, {weather_ctx['temperature']}"
-                    )
+                    weather_parts = []
+                    for key in (
+                        "location",
+                        "conditions",
+                        "temperature",
+                        "feels_like",
+                        "humidity",
+                        "pressure",
+                        "wind_speed",
+                    ):
+                        value = weather_ctx.get(key)
+                        if value:
+                            weather_parts.append(
+                                render_text_tag(key, value, indent=6)
+                            )
+                    if weather_parts:
+                        parts.append(
+                            render_tag("weather", "\n".join(weather_parts), indent=4)
+                        )
         except Exception:
             pass
 
-        if parts:
-            return "\n\n## Environmental Context\n" + " | ".join(parts)
-        return ""
+        if not parts:
+            return ""
 
-    def _build_personality_prompt(self, config: SessionConfig) -> str:
-        """Build personality prompt from config."""
+        return render_tag("environment", "\n".join(parts), indent=2)
+
+    def _load_personality_prompts(self, config: SessionConfig) -> list[tuple[str, str]]:
         personalities = config.personality
         if isinstance(personalities, str):
             personalities = [p.strip() for p in personalities.split(",") if p.strip()]
         if not personalities:
-            return ""
+            return []
 
-        prompts: list[str] = []
+        prompts: list[tuple[str, str]] = []
         for name in personalities:
             try:
                 personality = self.personality_loader.load(name)
-                prompts.append(personality.prompt_content)
+                prompts.append((name, personality.prompt_content))
             except ValueError as e:
                 logger.warning("Failed to load personality {}: {}", name, e)
 
-        return "\n\n".join(prompts)
+        return prompts
+
+    def _build_personality_prompt(self, config: SessionConfig) -> str:
+        """Build personality prompt from config."""
+        prompts = self._load_personality_prompts(config)
+        return "\n\n".join(prompt for _, prompt in prompts)
+
+    def _build_personality_sections(self, config: SessionConfig) -> list[str]:
+        sections = []
+        for name, content in self._load_personality_prompts(config):
+            cleaned = (content or "").strip()
+            if not cleaned:
+                continue
+            sections.append(
+                render_text_tag("personality", cleaned, indent=2, attrs={"name": name})
+            )
+        return sections
+
+    async def _build_core_memory_prompt(self, session_id: int) -> str:
+        """Build core memory XML for system prompt injection."""
+        async with self.session_factory() as db:
+            session = await db.get(Session, session_id)
+            user_id = session.user_id if session else None
+
+            blocks: dict[str, CoreMemoryBlock] = {}
+            stmt = select(CoreMemoryBlock).where(
+                CoreMemoryBlock.session_id == session_id,
+                CoreMemoryBlock.block_type.in_(CORE_MEMORY_BLOCK_ORDER),
+            )
+            result = await db.execute(stmt)
+            for block in result.scalars().all():
+                blocks[block.block_type] = block
+
+            if user_id:
+                stmt = select(CoreMemoryBlock).where(
+                    CoreMemoryBlock.user_id == user_id,
+                    CoreMemoryBlock.session_id.is_(None),
+                    CoreMemoryBlock.block_type.in_(CORE_MEMORY_BLOCK_ORDER),
+                )
+                result = await db.execute(stmt)
+                for block in result.scalars().all():
+                    if block.block_type not in blocks:
+                        blocks[block.block_type] = block
+
+        sections = []
+        for block_type in CORE_MEMORY_BLOCK_ORDER:
+            block = blocks.get(block_type)
+            if not block:
+                continue
+            content = (block.content or "").strip()
+            if not content:
+                continue
+            sections.append(render_text_tag(block_type, content, indent=4))
+
+        if not sections:
+            return ""
+
+        return render_tag("core_memory", "\n".join(sections), indent=2)
+
+    async def _build_session_context_xml(self, session_id: int, config: SessionConfig) -> str:
+        sections = []
+        sections.extend(self._build_personality_sections(config))
+
+        core_memory_prompt = await self._build_core_memory_prompt(session_id)
+        if core_memory_prompt:
+            sections.append(core_memory_prompt)
+
+        if config.include_context and not config.lean_mode:
+            env_context = self._build_environmental_context(session_id)
+            if env_context:
+                sections.append(env_context)
+            emotion_summary = await self._get_emotion_summary(session_id)
+            if emotion_summary:
+                sections.append(render_text_tag("emotion", emotion_summary, indent=2))
+
+        if not sections:
+            return ""
+
+        context_xml = render_tag("context", "\n".join(sections), indent=0)
+        if self.config.get("context", {}).get("line_numbered_xml", False):
+            context_xml = add_line_numbers(context_xml)
+        return context_xml
 
     async def _create_db_session(
         self,
@@ -510,17 +622,7 @@ class CentralizedAgentService:
 
             # Build system prompt components
             personality_prompt = self._build_personality_prompt(config)
-
-            env_context = ""
-            emotion_context = ""
-            # Skip context injection for lean mode (swarm agents) or when explicitly disabled
-            if config.include_context and not config.lean_mode:
-                env_context = self._build_environmental_context(session_id)
-                emotion_summary = await self._get_emotion_summary(session_id)
-                if emotion_summary:
-                    emotion_context = f"\n\n## Emotional State\n{emotion_summary}"
-
-            full_prompt = personality_prompt + env_context + emotion_context
+            full_prompt = await self._build_session_context_xml(session_id, config)
 
             # Determine plugin paths based on config
             # If plugins explicitly specified, use those; otherwise default to dere_core
@@ -761,6 +863,15 @@ class CentralizedAgentService:
                 )
                 db.add(conv_user)
                 await db.flush()
+                if prompt.strip():
+                    db.add(
+                        ConversationBlock(
+                            conversation_id=conv_user.id,  # type: ignore[arg-type]
+                            ordinal=0,
+                            block_type="text",
+                            text=prompt,
+                        )
+                    )
                 await db.commit()
         except Exception as e:
             logger.debug("Failed to persist user conversation: {}", e)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from typing import Protocol, TypeVar
+from datetime import UTC, datetime
+from typing import Any, Protocol, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -492,6 +492,7 @@ class DereGraph:
         recency_weight: float = 0.0,
         conversation_id: str | None = None,
         domain_routing: bool | None = None,
+        include_expired_facts: bool = False,
     ) -> SearchResults:
         """Search the knowledge graph using hybrid search with optional reranking.
 
@@ -510,6 +511,7 @@ class DereGraph:
             recency_weight: Weight for recency boost (0-1, 0=no boost)
             conversation_id: Optional conversation grouping ID for BFS seeding
             domain_routing: Override domain routing for this search
+            include_expired_facts: Whether to include facts with invalid_at set
 
         Returns:
             SearchResults with matching nodes and edges
@@ -582,6 +584,7 @@ class DereGraph:
             group_id,
             fact_fetch_limit,
             filters,
+            include_expired=include_expired_facts,
         )
 
         if domain_filters:
@@ -729,6 +732,28 @@ class DereGraph:
         )
 
         return SearchResults(nodes=nodes, edges=edges, facts=facts)
+
+    async def search_facts(
+        self,
+        query: str,
+        group_id: str = "default",
+        limit: int = 10,
+        filters: SearchFilters | None = None,
+        include_expired: bool = False,
+    ) -> list[FactNode]:
+        """Search fact nodes only with optional filters."""
+        if limit <= 0:
+            return []
+
+        return await hybrid_fact_search(
+            self.driver,
+            self.embedder,
+            query,
+            group_id,
+            limit,
+            filters,
+            include_expired=include_expired,
+        )
 
     async def get_node(self, uuid: str) -> EntityNode | None:
         """Get a node by UUID.
@@ -956,6 +981,155 @@ class DereGraph:
         logger.info("Invalidated {} stale facts for group {}", updated, group_id)
         return updated
 
+    async def invalidate_low_quality_facts(
+        self,
+        *,
+        group_id: str = "default",
+        cutoff: datetime,
+        quality_threshold: float = 0.1,
+        min_retrievals: int = 5,
+    ) -> int:
+        """Invalidate facts with poor retrieval quality after cutoff."""
+        if cutoff is None:
+            return 0
+
+        now = datetime.now(UTC)
+        results = await self.driver.execute_query(
+            """
+            MATCH (f:Fact)
+            WHERE f.group_id = $group_id
+              AND f.invalid_at IS NULL
+              AND f.created_at < $cutoff
+            WITH f,
+                 coalesce(f.retrieval_count, 0) AS retrievals,
+                 coalesce(f.citation_count, 0) AS citations
+            WHERE retrievals >= $min_retrievals
+            WITH f, retrievals, citations,
+                 CASE WHEN retrievals = 0 THEN 0
+                      ELSE toFloat(citations) / retrievals
+                 END AS quality
+            WHERE quality < $quality_threshold
+            SET f.invalid_at = $now
+            RETURN count(f) AS updated
+            """,
+            group_id=group_id,
+            cutoff=cutoff,
+            min_retrievals=min_retrievals,
+            quality_threshold=quality_threshold,
+            now=now,
+        )
+
+        updated = int(results[0]["updated"]) if results else 0
+        logger.info("Invalidated {} low-quality facts for group {}", updated, group_id)
+        return updated
+
+    async def merge_duplicate_entities(
+        self,
+        *,
+        group_id: str = "default",
+        limit: int = 50,
+    ) -> int:
+        """Merge entity nodes that share the same normalized name."""
+        records = await self.driver.execute_query(
+            """
+            MATCH (n:Entity)
+            WHERE n.group_id = $group_id
+            WITH toLower(n.name) AS norm, collect(n.uuid) AS uuids
+            WHERE size(uuids) > 1
+            RETURN norm, uuids
+            LIMIT $limit
+            """,
+            group_id=group_id,
+            limit=limit,
+        )
+
+        def _parse_date(value: object) -> datetime:
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                text = value.strip()
+                if text.endswith("Z"):
+                    text = text.replace("Z", "+00:00")
+                try:
+                    return datetime.fromisoformat(text)
+                except Exception:
+                    return datetime.min.replace(tzinfo=UTC)
+            return datetime.min.replace(tzinfo=UTC)
+
+        merged = 0
+        for record in records:
+            uuids = record.get("uuids") or []
+            nodes = []
+            for uuid in uuids:
+                node = await self.driver.get_entity_by_uuid(uuid)
+                if node:
+                    nodes.append(node)
+            if len(nodes) < 2:
+                continue
+
+            nodes.sort(
+                key=lambda n: (
+                    -(n.mention_count or 0),
+                    _parse_date(n.created_at),
+                )
+            )
+            primary = nodes[0]
+
+            for duplicate in nodes[1:]:
+                if set(primary.labels) != set(duplicate.labels):
+                    continue
+                conflict = False
+                for key, value in (duplicate.attributes or {}).items():
+                    if key in primary.attributes and primary.attributes[key] != value:
+                        conflict = True
+                        break
+                if conflict:
+                    continue
+
+                aliases = set(primary.aliases or [])
+                aliases.update(duplicate.aliases or [])
+                if duplicate.name:
+                    aliases.add(duplicate.name)
+                if primary.name in aliases:
+                    aliases.remove(primary.name)
+                primary.aliases = sorted(aliases)
+
+                if not primary.summary and duplicate.summary:
+                    primary.summary = duplicate.summary
+
+                for key, value in (duplicate.attributes or {}).items():
+                    if key not in primary.attributes:
+                        primary.attributes[key] = value
+
+                primary.mention_count = (primary.mention_count or 0) + (
+                    duplicate.mention_count or 0
+                )
+                primary.retrieval_count = (primary.retrieval_count or 0) + (
+                    duplicate.retrieval_count or 0
+                )
+                primary.citation_count = (primary.citation_count or 0) + (
+                    duplicate.citation_count or 0
+                )
+                if primary.retrieval_count:
+                    primary.retrieval_quality = (
+                        primary.citation_count / primary.retrieval_count
+                    )
+                if duplicate.last_mentioned:
+                    if not primary.last_mentioned or duplicate.last_mentioned > primary.last_mentioned:
+                        primary.last_mentioned = duplicate.last_mentioned
+                if duplicate.created_at and duplicate.created_at < primary.created_at:
+                    primary.created_at = duplicate.created_at
+
+                primary.labels = sorted(set(primary.labels) | set(duplicate.labels))
+
+                await self.driver.save_entity_node(primary)
+                await self.driver.merge_entity_nodes(primary.uuid, duplicate.uuid)
+                merged += 1
+
+        if merged:
+            logger.info("Merged {} duplicate entity nodes for group {}", merged, group_id)
+        return merged
+
     async def remove_episode(self, episode_uuid: str) -> None:
         """Remove an episode from the graph.
 
@@ -968,6 +1142,87 @@ class DereGraph:
         logger.info(f"Removing episode: {episode_uuid}")
         await self.driver.remove_episode(episode_uuid)
         logger.info(f"Episode removed: {episode_uuid}")
+
+    async def add_fact(
+        self,
+        fact: str,
+        *,
+        group_id: str = "default",
+        source: str | None = None,
+        tags: list[str] | None = None,
+        valid_at: datetime | None = None,
+        invalid_at: datetime | None = None,
+        attributes: dict[str, Any] | None = None,
+        archival: bool = False,
+    ) -> tuple[FactNode, bool]:
+        """Manually add a fact node without entity extraction."""
+        fact_text = fact.strip()
+        if not fact_text:
+            raise ValueError("Fact text cannot be empty")
+
+        merged_attributes = dict(attributes or {})
+        if archival:
+            merged_attributes["archival"] = True
+
+        def _merge_list_attr(
+            attrs: dict[str, Any],
+            key: str,
+            values: list[str] | None,
+        ) -> None:
+            if not values:
+                return
+            existing = attrs.get(key)
+            if existing is None:
+                merged = []
+            elif isinstance(existing, list):
+                merged = list(existing)
+            else:
+                merged = [existing]
+            for value in values:
+                if value and value not in merged:
+                    merged.append(value)
+            if merged:
+                attrs[key] = merged
+
+        if source:
+            _merge_list_attr(merged_attributes, "sources", [source])
+        _merge_list_attr(merged_attributes, "tags", tags)
+
+        existing_fact = await self.driver.get_fact_by_text(fact_text, group_id)
+        created = existing_fact is None
+
+        if existing_fact:
+            fact_node = existing_fact
+            fact_node.attributes = dict(fact_node.attributes or {})
+            for key, value in merged_attributes.items():
+                if key in ("sources", "tags"):
+                    values = value if isinstance(value, list) else [value]
+                    _merge_list_attr(fact_node.attributes, key, values)
+                    continue
+                if key not in fact_node.attributes:
+                    fact_node.attributes[key] = value
+            if archival:
+                fact_node.attributes["archival"] = True
+            if valid_at is not None and fact_node.valid_at is None:
+                fact_node.valid_at = valid_at
+            if invalid_at is not None and fact_node.invalid_at is None:
+                fact_node.invalid_at = invalid_at
+        else:
+            fact_node = FactNode(
+                name=fact_text,
+                fact=fact_text,
+                group_id=group_id,
+                attributes=merged_attributes,
+                valid_at=valid_at,
+                invalid_at=invalid_at,
+                episodes=[],
+            )
+
+        if fact_node.fact_embedding is None:
+            fact_node.fact_embedding = await self.embedder.create(fact_text.replace("\n", " "))
+
+        await self.driver.save_fact_node(fact_node)
+        return fact_node, created
 
     async def add_triplet(
         self,

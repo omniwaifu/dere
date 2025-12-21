@@ -151,6 +151,7 @@ class ContextConfig(BaseModel):
     format: str = ui_field("concise", title="Format", description="Context output format", ui_type="text", ui_group="display", ui_order=1)
     max_title_length: int = ui_field(50, title="Max Title Length", description="Truncate titles longer than this", ui_type="number", ui_group="display", ui_order=2)
     show_duration_for_short: bool = ui_field(True, title="Show Duration", description="Show duration for short activities", ui_type="toggle", ui_group="display", ui_order=3)
+    line_numbered_xml: bool = ui_field(False, title="Line Numbers", description="Prefix XML context lines with numbers for precise editing", ui_type="toggle", ui_group="display", ui_order=4)
 
     # Update settings
     update_interval_seconds: int = ui_field(0, title="Update Interval", description="Auto-refresh interval (0 to disable)", ui_type="number", ui_group="updates", ui_order=0, suffix="sec")

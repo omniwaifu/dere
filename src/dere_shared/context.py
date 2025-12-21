@@ -10,6 +10,7 @@ from typing import Any
 from .config import load_dere_config
 from .constants import DEFAULT_DAEMON_URL
 from .weather import get_weather_context
+from .xml_utils import add_line_numbers, render_tag, render_text_tag
 
 
 def get_time_context() -> dict[str, str]:
@@ -97,13 +98,28 @@ async def get_full_context(
         config = load_dere_config()
 
     environmental_parts = []
+    emotion_summary = None
 
     # Time context (always enabled)
     try:
         if config["context"]["time"]:
             time_ctx = get_time_context()
             if time_ctx:
-                environmental_parts.append(f"Current time: {time_ctx['time']}, {time_ctx['date']}")
+                time_parts = []
+                if time_ctx.get("time"):
+                    time_parts.append(
+                        render_text_tag("time_of_day", time_ctx["time"], indent=6)
+                    )
+                if time_ctx.get("date"):
+                    time_parts.append(render_text_tag("date", time_ctx["date"], indent=6))
+                if time_ctx.get("timezone"):
+                    time_parts.append(
+                        render_text_tag("timezone", time_ctx["timezone"], indent=6)
+                    )
+                if time_parts:
+                    environmental_parts.append(
+                        render_tag("time", "\n".join(time_parts), indent=4)
+                    )
     except Exception:
         pass
 
@@ -112,12 +128,23 @@ async def get_full_context(
         if config["context"]["weather"]:
             weather_ctx = get_weather_context(config)
             if weather_ctx:
-                weather_str = (
-                    f"Weather in {weather_ctx['location']}: {weather_ctx['conditions']}, "
-                    f"{weather_ctx['temperature']} (feels like {weather_ctx['feels_like']}), "
-                    f"Humidity: {weather_ctx['humidity']}, Pressure: {weather_ctx['pressure']}"
-                )
-                environmental_parts.append(weather_str)
+                weather_parts = []
+                for key in (
+                    "location",
+                    "conditions",
+                    "temperature",
+                    "feels_like",
+                    "humidity",
+                    "pressure",
+                    "wind_speed",
+                ):
+                    value = weather_ctx.get(key)
+                    if value:
+                        weather_parts.append(render_text_tag(key, value, indent=6))
+                if weather_parts:
+                    environmental_parts.append(
+                        render_tag("weather", "\n".join(weather_parts), indent=4)
+                    )
     except Exception:
         pass
 
@@ -129,8 +156,15 @@ async def get_full_context(
         if config["context"]["recent_files"]:
             files_ctx = get_recent_files_context(config)
             if files_ctx:
-                files_str = "Recently modified: " + ", ".join(files_ctx)
-                environmental_parts.append(files_str)
+                file_parts = [
+                    render_text_tag("file", path, indent=6)
+                    for path in files_ctx
+                    if path
+                ]
+                if file_parts:
+                    environmental_parts.append(
+                        render_tag("recent_files", "\n".join(file_parts), indent=4)
+                    )
     except Exception:
         pass
 
@@ -145,12 +179,9 @@ async def get_full_context(
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{daemon_url}/emotion/summary/{session_id}", timeout=1.0)
                 if resp.status_code == 200:
-                    emotion_summary = resp.json().get("summary", "")
-                    if (
-                        emotion_summary
-                        and emotion_summary != "Currently in a neutral emotional state."
-                    ):
-                        environmental_parts.append(f"Emotional state: {emotion_summary}")
+                    summary = resp.json().get("summary", "")
+                    if summary and summary != "Currently in a neutral emotional state.":
+                        emotion_summary = summary
         except Exception:
             pass
 
@@ -184,12 +215,18 @@ async def get_full_context(
     # Build environmental context section
     sections = []
     if environmental_parts:
-        env_context = " | ".join(environmental_parts)
-        sections.append(f"[Environmental Context]\n{env_context}")
+        sections.append(
+            render_tag("environment", "\n".join(environmental_parts), indent=2)
+        )
+
+    if emotion_summary:
+        sections.append(render_text_tag("emotion", emotion_summary, indent=2))
 
     # Add knowledge graph context
     if knowledge_graph_context:
-        sections.append(f"[Knowledge Graph]\n{knowledge_graph_context}")
+        sections.append(
+            render_text_tag("knowledge_graph", knowledge_graph_context, indent=2)
+        )
 
     # Fetch conversation context from daemon
     if session_id:
@@ -206,8 +243,16 @@ async def get_full_context(
                     data = response.json()
                     conv_context = data.get("context")
                     if conv_context and conv_context.strip():
-                        sections.append(f"[Conversation Context]\n{conv_context}")
+                        sections.append(
+                            render_text_tag("conversation", conv_context, indent=2)
+                        )
         except Exception:
             pass  # Silent failure - conversation context is supplementary
 
-    return "\n\n".join(sections) if sections else ""
+    if not sections:
+        return ""
+
+    context_xml = render_tag("context", "\n".join(sections), indent=0)
+    if config.get("context", {}).get("line_numbered_xml", False):
+        return add_line_numbers(context_xml)
+    return context_xml

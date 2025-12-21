@@ -1157,6 +1157,59 @@ class FalkorDriver:
             return 0
         return int(records[0].get("deleted_count", 0) or 0)
 
+    async def merge_entity_nodes(self, primary_uuid: str, duplicate_uuid: str) -> None:
+        """Merge duplicate entity node into primary, reattaching relationships."""
+        await self.execute_query(
+            """
+            MATCH (primary:Entity {uuid: $primary_uuid})
+            MATCH (dup:Entity {uuid: $duplicate_uuid})
+
+            CALL {
+                WITH primary, dup
+                MATCH (dup)-[r:RELATES_TO]->(t)
+                MERGE (primary)-[r2:RELATES_TO {uuid: r.uuid}]->(t)
+                SET r2 = r,
+                    r2.source_node_uuid = $primary_uuid
+                DELETE r
+            }
+            CALL {
+                WITH primary, dup
+                MATCH (s)-[r:RELATES_TO]->(dup)
+                MERGE (s)-[r2:RELATES_TO {uuid: r.uuid}]->(primary)
+                SET r2 = r,
+                    r2.target_node_uuid = $primary_uuid
+                DELETE r
+            }
+            CALL {
+                WITH primary, dup
+                MATCH (e:Episodic)-[r:MENTIONS]->(dup)
+                MERGE (e)-[r2:MENTIONS {uuid: r.uuid}]->(primary)
+                SET r2 = r
+                DELETE r
+            }
+            CALL {
+                WITH primary, dup
+                MATCH (f:Fact)-[r:HAS_ROLE]->(dup)
+                MERGE (f)-[r2:HAS_ROLE {role: r.role, entity_uuid: $primary_uuid}]->(primary)
+                SET r2 = r,
+                    r2.entity_uuid = $primary_uuid
+                DELETE r
+            }
+            CALL {
+                WITH primary, dup
+                MATCH (c:Community)-[r:HAS_MEMBER]->(dup)
+                MERGE (c)-[r2:HAS_MEMBER]->(primary)
+                SET r2 = r
+                DELETE r
+            }
+
+            WITH dup
+            DETACH DELETE dup
+            """,
+            primary_uuid=primary_uuid,
+            duplicate_uuid=duplicate_uuid,
+        )
+
     async def delete_by_group_id(self, group_id: str, node_type: str = "Entity") -> int:
         """Delete all nodes in a group_id.
 

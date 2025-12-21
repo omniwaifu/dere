@@ -48,6 +48,9 @@ if TYPE_CHECKING:
 # Maximum output size to store per agent (50KB)
 MAX_OUTPUT_SIZE = 50 * 1024
 
+# Maximum dependency output to inject into prompts
+DEPENDENCY_FULL_OUTPUT_LIMIT = 8000
+
 # Threshold for generating summary (1000 chars)
 SUMMARY_THRESHOLD = 1000
 
@@ -598,10 +601,12 @@ class SwarmCoordinator:
                 # Create event for each agent
                 self._completion_events[agent.id] = asyncio.Event()
 
-                # Pre-signal completion for already-completed agents
+                # Pre-signal completion for already-finished agents
                 if agent.status in (
                     SwarmStatus.COMPLETED.value,
                     SwarmStatus.SKIPPED.value,
+                    SwarmStatus.FAILED.value,
+                    SwarmStatus.CANCELLED.value,
                 ):
                     self._completion_events[agent.id].set()
 
@@ -650,6 +655,15 @@ class SwarmCoordinator:
                         e,
                     )
                     raise
+
+    async def _record_agent_session_id(self, agent_id: int, session_id: int) -> None:
+        """Persist agent session ID early so cancellation can reach running queries."""
+        async with self.session_factory() as db:
+            agent_record = await db.get(SwarmAgent, agent_id)
+            if not agent_record:
+                return
+            agent_record.session_id = session_id
+            await db.commit()
 
     async def _execute_agent_with_dependencies(self, agent_id: int) -> None:
         """Execute an agent after waiting for its dependencies.
@@ -775,13 +789,38 @@ class SwarmCoordinator:
                     if not dep_agent:
                         continue
 
+                    header_lines = [
+                        f"## Output from '{dep_agent.name}'",
+                        f"Status: {dep_agent.status}",
+                    ]
+                    if dep_agent.error_message:
+                        header_lines.append(f"Error: {dep_agent.error_message}")
+
                     # Get the appropriate output based on include mode
+                    output_note = None
                     if include_mode == "full":
                         output = dep_agent.output_text or "(no output)"
+                        if output and len(output) > DEPENDENCY_FULL_OUTPUT_LIMIT:
+                            if dep_agent.output_summary:
+                                output_note = (
+                                    f"Note: full output is {len(output)} chars; using summary."
+                                )
+                                output = dep_agent.output_summary
+                            else:
+                                output_note = (
+                                    f"Note: output truncated at {DEPENDENCY_FULL_OUTPUT_LIMIT} chars."
+                                )
+                                output = (
+                                    output[:DEPENDENCY_FULL_OUTPUT_LIMIT]
+                                    + "\n\n[Output truncated]"
+                                )
                     else:  # summary (default)
                         output = dep_agent.output_summary or dep_agent.output_text or "(no output)"
 
-                    dep_sections.append(f"## Output from '{dep_agent.name}'\n{output}")
+                    if output_note:
+                        header_lines.append(output_note)
+
+                    dep_sections.append("\n".join(header_lines) + f"\n{output}")
 
                 if dep_sections:
                     dependency_context = (
@@ -832,11 +871,13 @@ class SwarmCoordinator:
 
             # Create and run session
             session = await self.agent_service.create_session(config)
+            await self._record_agent_session_id(agent_id, session.session_id)
 
             try:
                 output_chunks: list[str] = []
                 tool_count = 0
                 error_message: str | None = None
+                was_cancelled = False
 
                 async for event in self.agent_service.query(session, prompt):
                     if event.type == StreamEventType.TEXT:
@@ -849,6 +890,11 @@ class SwarmCoordinator:
 
                     elif event.type == StreamEventType.DONE:
                         tool_count = event.data.get("tool_count", tool_count)
+
+                    elif event.type == StreamEventType.CANCELLED:
+                        was_cancelled = True
+                        error_message = event.data.get("message", "Query cancelled")
+                        break
 
                     elif event.type == StreamEventType.ERROR:
                         error_message = event.data.get("message", "Unknown error")
@@ -867,7 +913,9 @@ class SwarmCoordinator:
                     output_summary = await self._generate_summary(output_text)
 
                 # Determine final status
-                if error_message:
+                if was_cancelled:
+                    status = SwarmStatus.CANCELLED.value
+                elif error_message:
                     status = SwarmStatus.FAILED.value
                 else:
                     status = SwarmStatus.COMPLETED.value
@@ -876,6 +924,10 @@ class SwarmCoordinator:
                 async with self.session_factory() as db:
                     agent_record = await db.get(SwarmAgent, agent_id)
                     if agent_record:
+                        if agent_record.status == SwarmStatus.CANCELLED.value:
+                            status = SwarmStatus.CANCELLED.value
+                            if agent_record.error_message:
+                                error_message = agent_record.error_message
                         agent_record.status = status
                         agent_record.completed_at = datetime.now(UTC)
                         agent_record.output_text = output_text
@@ -1031,12 +1083,24 @@ class SwarmCoordinator:
     ) -> ProjectTask | None:
         """Discover and atomically claim a task from the work queue."""
         # Get ready tasks that match agent's capabilities
-        ready_tasks = await self.work_queue.get_ready_tasks(
-            working_dir=working_dir,
-            limit=5,
-            task_type=agent.task_types[0] if agent.task_types else None,
-            required_tools=agent.capabilities,
-        )
+        if agent.task_types:
+            ready_tasks: list[ProjectTask] = []
+            for task_type in agent.task_types:
+                tasks = await self.work_queue.get_ready_tasks(
+                    working_dir=working_dir,
+                    limit=5,
+                    task_type=task_type,
+                    required_tools=agent.capabilities,
+                )
+                ready_tasks.extend(tasks)
+            ready_tasks.sort(key=lambda task: (-task.priority, task.created_at))
+        else:
+            ready_tasks = await self.work_queue.get_ready_tasks(
+                working_dir=working_dir,
+                limit=5,
+                task_type=None,
+                required_tools=agent.capabilities,
+            )
 
         # Try to claim one
         for task in ready_tasks:
@@ -1108,11 +1172,13 @@ class SwarmCoordinator:
 
             # Create and run session
             session = await self.agent_service.create_session(config)
+            await self._record_agent_session_id(agent_id, session.session_id)
 
             try:
                 output_chunks: list[str] = []
                 tool_count = 0
                 error_message: str | None = None
+                was_cancelled = False
 
                 async for event in self.agent_service.query(session, prompt):
                     if event.type == StreamEventType.TEXT:
@@ -1123,6 +1189,10 @@ class SwarmCoordinator:
                         tool_count += 1
                     elif event.type == StreamEventType.DONE:
                         tool_count = event.data.get("tool_count", tool_count)
+                    elif event.type == StreamEventType.CANCELLED:
+                        was_cancelled = True
+                        error_message = event.data.get("message", "Query cancelled")
+                        break
                     elif event.type == StreamEventType.ERROR:
                         error_message = event.data.get("message", "Unknown error")
                         if not event.data.get("recoverable", True):
@@ -1131,7 +1201,7 @@ class SwarmCoordinator:
                 output_text = "".join(output_chunks)
 
                 # Update task based on result
-                if error_message:
+                if error_message or was_cancelled:
                     # Task failed - re-queue as ready for retry
                     await self.work_queue.update_task(
                         task_id=task.id,
@@ -1474,6 +1544,11 @@ class SwarmCoordinator:
 
             # Cancel running tasks
             for agent in swarm.agents:
+                if agent.session_id:
+                    try:
+                        await self.agent_service.cancel_query(agent.session_id)
+                    except Exception as e:
+                        logger.debug("Failed to cancel session {}: {}", agent.session_id, e)
                 if agent.id in self._running_tasks:
                     task = self._running_tasks[agent.id]
                     if not task.done():
@@ -1483,6 +1558,9 @@ class SwarmCoordinator:
                 if agent.status in (SwarmStatus.PENDING.value, SwarmStatus.RUNNING.value):
                     agent.status = SwarmStatus.CANCELLED.value
                     agent.completed_at = datetime.now(UTC)
+                    agent.error_message = "Cancelled by user"
+                if agent.id in self._completion_events:
+                    self._completion_events[agent.id].set()
 
             swarm.status = SwarmStatus.CANCELLED.value
             swarm.completed_at = datetime.now(UTC)

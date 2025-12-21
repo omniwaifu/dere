@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
+
+from dere_graph.filters import SearchFilters
 
 
 # Response Models
@@ -101,6 +103,23 @@ class FactSearchResponse(BaseModel):
 
     facts: list[FactSummary]
     query: str
+
+
+class ArchivalFactInsertRequest(BaseModel):
+    """Request payload for inserting archival facts."""
+
+    fact: str
+    source: str | None = None
+    tags: list[str] | None = None
+    valid_at: datetime | None = None
+    invalid_at: datetime | None = None
+
+
+class ArchivalFactInsertResponse(BaseModel):
+    """Response payload for inserted archival facts."""
+
+    created: bool
+    fact: FactSummary
 
 
 class TopEntity(BaseModel):
@@ -209,6 +228,33 @@ def _fact_to_summary(fact, roles: list[FactRoleSummary]) -> FactSummary:
         invalid_at=fact.invalid_at.isoformat() if fact.invalid_at else None,
         created_at=fact.created_at.isoformat() if fact.created_at else "",
     )
+
+
+def _normalize_dt(value: datetime) -> datetime:
+    """Normalize datetimes to timezone-aware UTC for comparisons."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _fact_in_range(
+    fact,
+    start_date: datetime | None,
+    end_date: datetime | None,
+) -> bool:
+    if not start_date and not end_date:
+        return True
+
+    candidate = fact.valid_at or fact.created_at
+    if not candidate:
+        return False
+
+    candidate = _normalize_dt(candidate)
+    if start_date and candidate < start_date:
+        return False
+    if end_date and candidate > end_date:
+        return False
+    return True
 
 @router.get("/stats", response_model=KGStatsResponse)
 async def get_kg_stats(request: Request, user_id: str | None = None):
@@ -572,6 +618,10 @@ async def search_facts(
     user_id: str | None = None,
     limit: int = 20,
     include_roles: bool = True,
+    include_expired: bool = False,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    archival_only: bool = False,
 ):
     """Search fact nodes only."""
     app_state = request.app.state
@@ -581,21 +631,36 @@ async def search_facts(
         return FactSearchResponse(facts=[], query=query)
 
     try:
-        results = await app_state.dere_graph.search(
+        filters = None
+        if archival_only:
+            filters = SearchFilters(node_attributes={"archival": True})
+
+        fetch_limit = limit
+        if start_date or end_date:
+            fetch_limit = max(limit * 3, limit)
+
+        results = await app_state.dere_graph.search_facts(
             query=query,
             group_id=group_id,
-            limit=limit,
+            limit=fetch_limit,
+            filters=filters,
+            include_expired=include_expired,
         )
 
         roles_lookup = {}
-        if include_roles and results.facts:
+        if include_roles and results:
             roles_lookup = await app_state.dere_graph.get_fact_roles(
-                results.facts,
+                results,
                 group_id=group_id,
             )
 
         facts = []
-        for fact in results.facts:
+        start_dt = _normalize_dt(start_date) if start_date else None
+        end_dt = _normalize_dt(end_date) if end_date else None
+
+        for fact in results:
+            if not _fact_in_range(fact, start_dt, end_dt):
+                continue
             role_entries = roles_lookup.get(fact.uuid, [])
             roles = [
                 FactRoleSummary(
@@ -607,11 +672,52 @@ async def search_facts(
                 for role in role_entries
             ]
             facts.append(_fact_to_summary(fact, roles))
+            if len(facts) >= limit:
+                break
 
         return FactSearchResponse(facts=facts, query=query)
     except Exception as e:
         logger.error(f"Fact search failed: {e}")
         return FactSearchResponse(facts=[], query=query)
+
+
+@router.post("/facts/archival", response_model=ArchivalFactInsertResponse)
+async def insert_archival_fact(
+    request: Request,
+    payload: ArchivalFactInsertRequest,
+    user_id: str | None = None,
+):
+    """Insert a fact node for archival memory."""
+    app_state = request.app.state
+    group_id = user_id or "default"
+
+    if not app_state.dere_graph:
+        raise HTTPException(status_code=503, detail="dere_graph not available")
+
+    fact_text = payload.fact.strip() if payload.fact else ""
+    if not fact_text:
+        raise HTTPException(status_code=400, detail="Fact text cannot be empty")
+
+    source = payload.source.strip() if payload.source else None
+    tags = None
+    if payload.tags:
+        tags = [tag.strip() for tag in payload.tags if tag and tag.strip()]
+
+    try:
+        fact_node, created = await app_state.dere_graph.add_fact(
+            fact=fact_text,
+            group_id=group_id,
+            source=source,
+            tags=tags,
+            valid_at=payload.valid_at,
+            invalid_at=payload.invalid_at,
+            archival=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    summary = _fact_to_summary(fact_node, [])
+    return ArchivalFactInsertResponse(created=created, fact=summary)
 
 
 @router.get("/facts/at_time", response_model=FactSearchResponse)

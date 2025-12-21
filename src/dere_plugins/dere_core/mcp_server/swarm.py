@@ -354,17 +354,18 @@ async def scratchpad_set(key: str, value: Any) -> dict:
     swarm_id, agent_id = _require_swarm_context()
 
     # Get agent name for provenance
-    async with daemon_client() as client:
-        # Get agent info to include name
-        status_resp = await client.get(f"/swarm/{swarm_id}")
-        status_resp.raise_for_status()
-        status = status_resp.json()
+    agent_name = _get_agent_name()
 
-        agent_name = None
-        for agent in status.get("agents", []):
-            if agent.get("id") == agent_id:
-                agent_name = agent.get("name")
-                break
+    async with daemon_client() as client:
+        if not agent_name:
+            status_resp = await client.get(f"/swarm/{swarm_id}")
+            status_resp.raise_for_status()
+            status = status_resp.json()
+
+            for agent in status.get("agents", []):
+                if agent.get("id") == agent_id:
+                    agent_name = agent.get("name")
+                    break
 
         # Set the scratchpad entry
         resp = await client.put(
@@ -482,10 +483,6 @@ async def send_message(to: str, text: str, priority: str = "normal") -> dict:
     key = f"messages/to-{to}/{message_id}"
 
     async with daemon_client() as client:
-        # Get agent info for provenance
-        status_resp = await client.get(f"/swarm/{swarm_id}")
-        status_resp.raise_for_status()
-
         # Write message to scratchpad
         resp = await client.put(
             f"/swarm/{swarm_id}/scratchpad/{key}",

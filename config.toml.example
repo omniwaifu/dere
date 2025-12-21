@@ -70,6 +70,7 @@ recent_files_max_depth = 5                          # Maximum directory depth
 show_inactive_items = true                          # Show ended/inactive activities
 format = "concise"                                  # Output format (concise, detailed)
 max_title_length = 50                               # Truncate titles longer than this
+line_numbered_xml = false                           # Prefix XML context lines with numbers
 
 # Update settings
 update_interval_seconds = 0                         # Context refresh interval (0 = on-demand)

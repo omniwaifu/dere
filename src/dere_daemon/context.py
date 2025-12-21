@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from dere_shared.models import Conversation, Session
+from dere_shared.config import load_dere_config
+from dere_shared.models import Conversation, CoreMemoryBlock, Session
 from dere_shared.personalities import PersonalityLoader
+from dere_shared.xml_utils import add_line_numbers, render_tag, render_text_tag
 
 if TYPE_CHECKING:
     pass
@@ -20,6 +22,7 @@ async def compose_session_context(
     personality_loader: PersonalityLoader,
     medium: str | None = None,
     include_emotion: bool = True,
+    line_numbered_xml: bool | None = None,
 ) -> tuple[str, int | None]:
     """Compose context from session personality and emotional state.
 
@@ -62,27 +65,74 @@ async def compose_session_context(
             if not session_obj:
                 return "", None
             session_id = session_obj.id
+            session_user_id = session_obj.user_id
+        else:
+            session_obj = await db.get(Session, session_id)
+            session_user_id = session_obj.user_id if session_obj else None
 
         # Get session personality
         stmt = select(Session.personality).where(Session.id == session_id)
         result = await db.execute(stmt)
         personality_name = result.scalar_one_or_none()
 
-        if not personality_name:
-            return "", session_id
-
-        context_parts = []
+        sections: list[str] = []
 
         # Add personality prompt
-        try:
-            personality = personality_loader.load(personality_name)
-            context_parts.append(personality.prompt_content)
-        except ValueError:
-            # Personality not found, skip
-            pass
+        if personality_name:
+            try:
+                personality = personality_loader.load(personality_name)
+                content = (personality.prompt_content or "").strip()
+                if content:
+                    sections.append(
+                        render_text_tag(
+                            "personality",
+                            content,
+                            indent=2,
+                            attrs={"name": personality_name},
+                        )
+                    )
+            except ValueError:
+                # Personality not found, skip
+                pass
+
+        # Add core memory blocks if present
+        core_blocks: dict[str, CoreMemoryBlock] = {}
+        stmt = select(CoreMemoryBlock).where(
+            CoreMemoryBlock.session_id == session_id,
+            CoreMemoryBlock.block_type.in_(("persona", "human", "task")),
+        )
+        result = await db.execute(stmt)
+        for block in result.scalars().all():
+            core_blocks[block.block_type] = block
+
+        if session_user_id:
+            stmt = select(CoreMemoryBlock).where(
+                CoreMemoryBlock.user_id == session_user_id,
+                CoreMemoryBlock.session_id.is_(None),
+                CoreMemoryBlock.block_type.in_(("persona", "human", "task")),
+            )
+            result = await db.execute(stmt)
+            for block in result.scalars().all():
+                if block.block_type not in core_blocks:
+                    core_blocks[block.block_type] = block
+
+        if core_blocks:
+            core_sections = []
+            for block_type in ("persona", "human", "task"):
+                block = core_blocks.get(block_type)
+                if not block:
+                    continue
+                content = (block.content or "").strip()
+                if not content:
+                    continue
+                core_sections.append(render_text_tag(block_type, content, indent=4))
+            if core_sections:
+                sections.append(
+                    render_tag("core_memory", "\n".join(core_sections), indent=2)
+                )
 
         # Add emotional state if requested (uses global emotion manager)
-        if include_emotion and context_parts:
+        if include_emotion and sections:
             try:
                 from dere_daemon.main import get_global_emotion_manager
 
@@ -90,9 +140,21 @@ async def compose_session_context(
                 emotion_summary = emotion_manager.get_emotional_state_summary()
 
                 if emotion_summary and emotion_summary.strip():
-                    context_parts.append(f"Current emotional state: {emotion_summary}")
+                    sections.append(
+                        render_text_tag("emotion", emotion_summary.strip(), indent=2)
+                    )
             except Exception:
                 # Emotion system unavailable, skip
                 pass
 
-        return "\n\n".join(context_parts), session_id
+        if not sections:
+            return "", session_id
+
+        context_xml = render_tag("context", "\n".join(sections), indent=0)
+        if line_numbered_xml is None:
+            config = load_dere_config()
+            line_numbered_xml = config.get("context", {}).get("line_numbered_xml", False)
+        if line_numbered_xml:
+            context_xml = add_line_numbers(context_xml)
+
+        return context_xml, session_id

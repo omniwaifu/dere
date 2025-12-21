@@ -470,18 +470,38 @@ async def hybrid_fact_search(
     group_id: str,
     limit: int = 10,
     filters: SearchFilters | None = None,
+    include_expired: bool = False,
 ) -> list[FactNode]:
     """Hybrid search for fact nodes combining BM25 and vector similarity."""
     if not query or not query.strip():
-        return await fulltext_fact_search(driver, query, group_id, limit, filters)
+        return await fulltext_fact_search(
+            driver,
+            query,
+            group_id,
+            limit,
+            filters,
+            include_expired=include_expired,
+        )
 
     query_vector = await embedder.create(query.replace("\n", " "))
 
-    fulltext_results = await fulltext_fact_search(driver, query, group_id, limit * 2, filters)
+    fulltext_results = await fulltext_fact_search(
+        driver,
+        query,
+        group_id,
+        limit * 2,
+        filters,
+        include_expired=include_expired,
+    )
     fulltext_uuids = [fact.uuid for fact in fulltext_results]
 
     similarity_results = await vector_fact_search(
-        driver, query_vector, group_id, limit * 2, filters=filters
+        driver,
+        query_vector,
+        group_id,
+        limit * 2,
+        filters=filters,
+        include_expired=include_expired,
     )
     similarity_uuids = [fact.uuid for fact in similarity_results]
 
@@ -509,14 +529,16 @@ async def fulltext_fact_search(
     group_id: str,
     limit: int = 10,
     filters: SearchFilters | None = None,
+    include_expired: bool = False,
 ) -> list[FactNode]:
     """BM25 fulltext search on fact nodes."""
     filter_clause, filter_params = build_temporal_query_clause(filters, "fact", "fact")
 
     where_parts = [
         "fact.group_id = $group_id",
-        "fact.invalid_at IS NULL",
     ]
+    if not include_expired:
+        where_parts.append("fact.invalid_at IS NULL")
     if filter_clause:
         conditions = filter_clause.replace("WHERE ", "")
         where_parts.append(conditions)
@@ -624,6 +646,7 @@ async def vector_fact_search(
     limit: int = 10,
     min_score: float = 0.5,
     filters: SearchFilters | None = None,
+    include_expired: bool = False,
 ) -> list[FactNode]:
     """Vector similarity search on fact node embeddings."""
     filter_clause, filter_params = build_temporal_query_clause(filters, "f", "f")
@@ -633,8 +656,9 @@ async def vector_fact_search(
     where_parts = [
         "f.group_id = $group_id",
         "f.fact_embedding IS NOT NULL",
-        "f.invalid_at IS NULL",
     ]
+    if not include_expired:
+        where_parts.append("f.invalid_at IS NULL")
     if filter_conditions:
         where_parts.append(filter_conditions)
 
