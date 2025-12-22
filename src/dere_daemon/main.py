@@ -21,6 +21,7 @@ from sqlmodel import select
 from dere_shared.config import get_config_schema, load_dere_config, save_dere_config
 from dere_shared.database import create_engine, create_session_factory, get_session
 from dere_shared.models import (
+    ConsolidationRun,
     Conversation,
     ConversationBlock,
     EmotionState,
@@ -2427,9 +2428,9 @@ def main():
             )
             tcp_server = uvicorn.Server(tcp_config)
 
-            # UDS server
+            # UDS server (lifespan handled by TCP server)
             uds_config = uvicorn.Config(
-                app, uds=str(socket_path), log_level="warning", access_log=False
+                app, uds=str(socket_path), log_level="warning", access_log=False, lifespan="off"
             )
             uds_server = uvicorn.Server(uds_config)
 

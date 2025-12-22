@@ -188,7 +188,7 @@ class TaskQueue(SQLModel, table=True):
     status: str = Field(default="pending")
     session_id: int | None = None
     created_at: datetime | None = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
-    processed_at: datetime | None = None
+    processed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     retry_count: int = Field(default=0)
     error_message: str | None = None
 

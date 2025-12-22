@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastmcp import FastMCP
+from httpx import HTTPStatusError
+from loguru import logger
 
 from dere_shared.daemon_client import daemon_client
 
@@ -108,28 +110,44 @@ async def spawn_agents(
         }
     """
     session_id = _get_session_id()
+    resolved_working_dir = working_dir or os.getcwd()
+
+    payload = {
+        "parent_session_id": session_id,
+        "name": swarm_name,
+        "description": description,
+        "working_dir": resolved_working_dir,
+        "git_branch_prefix": git_branch_prefix,
+        "base_branch": base_branch,
+        "agents": agents,
+        "auto_start": auto_start,
+        "auto_synthesize": auto_synthesize,
+        "synthesis_prompt": synthesis_prompt,
+        "skip_synthesis_on_failure": skip_synthesis_on_failure,
+        "auto_supervise": auto_supervise,
+        "supervisor_warn_seconds": supervisor_warn_seconds,
+        "supervisor_cancel_seconds": supervisor_cancel_seconds,
+    }
+
+    logger.info(
+        "Spawning swarm '{}' with {} agents in {}",
+        swarm_name,
+        len(agents),
+        resolved_working_dir,
+    )
 
     async with daemon_client(timeout=60.0) as client:
-        resp = await client.post(
-            "/swarm/create",
-            json={
-                "parent_session_id": session_id,
-                "name": swarm_name,
-                "description": description,
-                "working_dir": working_dir or os.getcwd(),
-                "git_branch_prefix": git_branch_prefix,
-                "base_branch": base_branch,
-                "agents": agents,
-                "auto_start": auto_start,
-                "auto_synthesize": auto_synthesize,
-                "synthesis_prompt": synthesis_prompt,
-                "skip_synthesis_on_failure": skip_synthesis_on_failure,
-                "auto_supervise": auto_supervise,
-                "supervisor_warn_seconds": supervisor_warn_seconds,
-                "supervisor_cancel_seconds": supervisor_cancel_seconds,
-            },
-        )
-        resp.raise_for_status()
+        resp = await client.post("/swarm/create", json=payload)
+        try:
+            resp.raise_for_status()
+        except HTTPStatusError as e:
+            detail = resp.text
+            logger.error(
+                "Swarm creation failed: {} - {}",
+                e.response.status_code,
+                detail,
+            )
+            raise RuntimeError(f"Swarm creation failed ({e.response.status_code}): {detail}") from e
         return resp.json()
 
 

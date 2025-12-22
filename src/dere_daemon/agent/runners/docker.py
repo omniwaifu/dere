@@ -67,6 +67,21 @@ class DockerSessionRunner(SessionRunner):
         binds: list[str] = []
         working_dir = "/workspace"
 
+        # Optional: bind-mount live plugin code for faster iteration
+        bind_plugins = os.environ.get("DERE_SANDBOX_BIND_PLUGINS", "").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if bind_plugins:
+            repo_root = Path(__file__).resolve().parents[4]
+            plugins_dir = repo_root / "src" / "dere_plugins"
+            if plugins_dir.exists():
+                binds.append(f"{plugins_dir}:/app/dere/src/dere_plugins:ro")
+            else:
+                logger.debug("Plugin bind requested but path missing: {}", plugins_dir)
+
         # Mount Claude config directory (needs write access for debug logs, session state)
         # Mount to /home/user since container runs as non-root
         claude_dir = Path.home() / ".claude"
@@ -81,7 +96,8 @@ class DockerSessionRunner(SessionRunner):
         daemon_socket_dir = daemon_socket_path.parent
         # Mount to consistent location inside container regardless of host XDG path
         container_socket_dir = Path("/run/dere")
-        if daemon_socket_dir.exists():
+        # Only mount if the socket file actually exists (not just the directory)
+        if daemon_socket_path.exists():
             binds.append(f"{daemon_socket_dir}:{container_socket_dir}:ro")
 
         # Handle working directory mount based on mount_type
@@ -120,6 +136,11 @@ class DockerSessionRunner(SessionRunner):
             except Exception:
                 logger.warning("Failed to serialize sandbox_settings; using defaults")
 
+        # Pass plugin selection into sandbox (default handled by entrypoint).
+        if self._config.plugins is not None:
+            plugin_names = ",".join(self._config.plugins)
+            env.append(f"SANDBOX_PLUGINS={plugin_names}")
+
         # Pass through custom env vars (e.g., DERE_SWARM_ID, etc.)
         # These are needed for MCP server variable substitution inside the container
         if self._config.env:
@@ -129,7 +150,7 @@ class DockerSessionRunner(SessionRunner):
         # Set daemon URL to use Unix socket if available, otherwise TCP fallback
         # Container always sees socket at /run/dere/daemon.sock (consistent mount point)
         if not any(e.startswith("DERE_DAEMON_URL=") for e in env):
-            if daemon_socket_dir.exists():
+            if daemon_socket_path.exists():
                 env.append("DERE_DAEMON_URL=http+unix:///run/dere/daemon.sock")
             else:
                 # Fallback for when socket isn't available (e.g., dev without daemon)

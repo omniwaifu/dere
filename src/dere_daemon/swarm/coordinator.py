@@ -22,6 +22,8 @@ from dere_shared.models import (
     SwarmAgentMode,
     SwarmAgentRole,
     SwarmStatus,
+    TaskQueue,
+    TaskStatus,
 )
 
 from .git import (
@@ -53,6 +55,11 @@ DEPENDENCY_FULL_OUTPUT_LIMIT = 8000
 
 # Threshold for generating summary (1000 chars)
 SUMMARY_THRESHOLD = 1000
+
+# Memory integration defaults for swarms
+MEMORY_STEWARD_NAME = "memory-steward"
+MEMORY_SCRATCHPAD_PREFIX = "memory/"
+MEMORY_RECALL_QUERY_LIMIT = 200
 
 
 def detect_dependency_cycle(agents: list[AgentSpec]) -> list[str] | None:
@@ -353,6 +360,16 @@ class SwarmCoordinator:
 
             # Create agents (first pass - without dependencies)
             for spec in agents:
+                prompt = spec.prompt
+                if spec.mode == SwarmAgentMode.ASSIGNED:
+                    memory_prefix = self._build_memory_prompt_prefix(
+                        swarm_name=name,
+                        swarm_description=description,
+                        agent_name=spec.name,
+                    )
+                    if memory_prefix:
+                        prompt = f"{memory_prefix}\n\n{prompt}".strip()
+
                 # Generate branch name if using git branches
                 git_branch = None
                 if git_branch_prefix:
@@ -363,7 +380,7 @@ class SwarmCoordinator:
                     name=spec.name,
                     role=spec.role.value,
                     mode=spec.mode.value,
-                    prompt=spec.prompt,
+                    prompt=prompt,
                     personality=spec.personality,
                     plugins=spec.plugins,
                     git_branch=git_branch,
@@ -402,6 +419,8 @@ class SwarmCoordinator:
                             dep_spec_dict["condition"] = dep_spec.condition
                         dep_specs.append(dep_spec_dict)
                     agent.depends_on = dep_specs
+
+            synthesis_agent: SwarmAgent | None = None
 
             # Create synthesis agent if enabled
             if auto_synthesize:
@@ -472,6 +491,48 @@ class SwarmCoordinator:
                     name,
                     supervisor_warn_seconds,
                     supervisor_cancel_seconds,
+                )
+
+            # Create memory steward agent (runs after all work is done)
+            if MEMORY_STEWARD_NAME not in name_to_db_agent:
+                memory_deps = [
+                    {
+                        "agent_id": db_agent.id,
+                        "include": "summary",
+                    }
+                    for db_agent in name_to_db_agent.values()
+                ]
+                if synthesis_agent:
+                    memory_deps.append(
+                        {
+                            "agent_id": synthesis_agent.id,
+                            "include": "full",
+                        }
+                    )
+
+                memory_agent = SwarmAgent(
+                    swarm_id=swarm.id,
+                    name=MEMORY_STEWARD_NAME,
+                    role=SwarmAgentRole.GENERIC.value,
+                    prompt=self._build_memory_steward_prompt(name),
+                    personality=None,
+                    plugins=["dere_core"],
+                    git_branch=None,
+                    allowed_tools=None,
+                    thinking_budget=None,
+                    model=None,
+                    sandbox_mode=True,
+                    depends_on=memory_deps or None,
+                    is_synthesis_agent=False,
+                )
+                db.add(memory_agent)
+                await db.flush()
+                name_to_db_agent[MEMORY_STEWARD_NAME] = memory_agent
+
+                logger.info(
+                    "Created memory steward agent for swarm '{}' with {} dependencies",
+                    name,
+                    len(memory_deps),
                 )
 
             await db.commit()
@@ -663,6 +724,95 @@ class SwarmCoordinator:
             if not agent_record:
                 return
             agent_record.session_id = session_id
+            await db.commit()
+
+    def _build_recall_query(
+        self,
+        swarm_name: str,
+        swarm_description: str | None,
+        extra: str | None = None,
+    ) -> str:
+        parts = [swarm_name]
+        if swarm_description:
+            parts.append(swarm_description)
+        if extra:
+            parts.append(extra)
+        query = " ".join(part.strip() for part in parts if part).strip()
+        if len(query) > MEMORY_RECALL_QUERY_LIMIT:
+            query = query[:MEMORY_RECALL_QUERY_LIMIT].rstrip()
+        return query
+
+    def _build_memory_prompt_prefix(
+        self,
+        swarm_name: str,
+        swarm_description: str | None,
+        agent_name: str,
+        extra_query: str | None = None,
+    ) -> str:
+        query = self._build_recall_query(
+            swarm_name,
+            swarm_description,
+            extra=extra_query,
+        )
+        return (
+            "# Swarm Memory Protocol\n"
+            "If recall_search is available, run it first with:\n"
+            f'- query: "{query}"\n\n'
+            "If you discover durable facts, preferences, or decisions, write them to the swarm\n"
+            "scratchpad so the memory steward can store them:\n"
+            f"- {MEMORY_SCRATCHPAD_PREFIX}archival_facts/{agent_name}: "
+            '[{{"fact": "...", "valid_from": "ISO-8601 or null", "tags": ["..."]}}]\n'
+            f"- {MEMORY_SCRATCHPAD_PREFIX}core_updates/{agent_name}: "
+            '[{{"block_type": "persona|human|task", "content": "...", "reason": "...", "scope": "user|session"}}]\n'
+            f"- {MEMORY_SCRATCHPAD_PREFIX}recall_notes/{agent_name}: \"short notes\"\n\n"
+            "Use scratchpad_set(key, value). If scratchpad tools aren't available, skip.\n"
+        )
+
+    def _build_memory_steward_prompt(self, swarm_name: str) -> str:
+        return (
+            f"You are the memory steward for swarm '{swarm_name}'.\n\n"
+            "Your job is to consolidate swarm findings into durable memory.\n\n"
+            "## Steps\n"
+            f"1. Read scratchpad entries with prefix '{MEMORY_SCRATCHPAD_PREFIX}' "
+            "using scratchpad_list.\n"
+            "2. Review dependency outputs (including synthesis if present).\n"
+            "3. If synthesis output includes a `Memory Payload` JSON block, prefer it.\n"
+            "4. Apply updates using:\n"
+            "   - core_memory_edit (persona/human/task)\n"
+            "   - archival_memory_insert (durable facts)\n"
+            "5. Write a brief summary to "
+            f"{MEMORY_SCRATCHPAD_PREFIX}steward_summary using scratchpad_set.\n\n"
+            "## Rules\n"
+            "- Only store high-confidence, durable information.\n"
+            "- Keep core memory concise and factual.\n"
+            "- Avoid duplicating facts that already exist unless clarified.\n"
+        )
+
+    async def _queue_memory_consolidation(self, swarm: Swarm) -> None:
+        """Queue a memory consolidation task after swarm completion."""
+        user_id = None
+        async with self.session_factory() as db:
+            if swarm.parent_session_id:
+                session = await db.get(Session, swarm.parent_session_id)
+                user_id = session.user_id if session else None
+
+            task = TaskQueue(
+                task_type="memory_consolidation",
+                model_name="gemma3n:latest",
+                content=f"Memory consolidation after swarm {swarm.id}",
+                session_id=None,
+                task_metadata={
+                    "user_id": user_id,
+                    "recency_days": 30,
+                    "update_core_memory": False,
+                    "trigger": "swarm",
+                    "swarm_id": swarm.id,
+                    "swarm_name": swarm.name,
+                },
+                priority=5,
+                status=TaskStatus.PENDING.value,
+            )
+            db.add(task)
             await db.commit()
 
     async def _execute_agent_with_dependencies(self, agent_id: int) -> None:
@@ -1144,7 +1294,7 @@ class SwarmCoordinator:
         )
 
         # Build prompt from goal + task
-        prompt = self._build_task_prompt(agent, task)
+        prompt = self._build_task_prompt(agent, task, swarm)
 
         try:
             # Build session config (similar to assigned mode)
@@ -1233,7 +1383,9 @@ class SwarmCoordinator:
                 pass
             return False
 
-    def _build_task_prompt(self, agent: SwarmAgent, task: ProjectTask) -> str:
+    def _build_task_prompt(
+        self, agent: SwarmAgent, task: ProjectTask, swarm: Swarm
+    ) -> str:
         """Build a prompt for executing a task, combining agent goal with task details."""
         sections = []
 
@@ -1256,6 +1408,15 @@ class SwarmCoordinator:
         if task.scope_paths:
             sections.append(f"## Scope\n\nFocus on: {', '.join(task.scope_paths)}")
 
+        memory_prefix = self._build_memory_prompt_prefix(
+            swarm_name=swarm.name,
+            swarm_description=swarm.description,
+            agent_name=agent.name,
+            extra_query=task.title,
+        )
+        if memory_prefix:
+            sections.append(memory_prefix)
+
         # Instructions for sub-task creation
         sections.append(
             "## Instructions\n\n"
@@ -1273,8 +1434,20 @@ class SwarmCoordinator:
             if not swarm:
                 return
 
+            final_statuses = (
+                SwarmStatus.COMPLETED.value,
+                SwarmStatus.FAILED.value,
+                SwarmStatus.CANCELLED.value,
+            )
+            if swarm.completed_at is not None and swarm.status in final_statuses:
+                return
+
             # Separate regular agents from synthesis agent
-            regular_agents = [a for a in swarm.agents if not a.is_synthesis_agent]
+            regular_agents = [
+                a
+                for a in swarm.agents
+                if not a.is_synthesis_agent and a.name != MEMORY_STEWARD_NAME
+            ]
             synthesis_agent = next((a for a in swarm.agents if a.is_synthesis_agent), None)
 
             # Check if all regular agents are done
@@ -1345,6 +1518,12 @@ class SwarmCoordinator:
                     swarm.name,
                     swarm.status,
                 )
+
+        if swarm.status in (
+            SwarmStatus.COMPLETED.value,
+            SwarmStatus.FAILED.value,
+        ):
+            await self._queue_memory_consolidation(swarm)
 
     async def get_swarm_status(self, swarm_id: int) -> SwarmStatusResponse:
         """Get current status of swarm and all agents."""
@@ -1716,6 +1895,7 @@ Your task is to:
 2. Create a unified summary of what was accomplished
 3. Identify any inconsistencies, conflicts, or issues between agent outputs
 4. **Create follow-up tasks** for any unfinished work using the work-queue tools
+5. Produce a Memory Payload JSON block for the memory steward (see below)
 
 ## Work-Queue Tools Available
 
@@ -1733,6 +1913,26 @@ When creating follow-up tasks with `create_task()`, include:
 - **scope_paths**: Relevant files/directories
 - **required_tools**: Tools needed (e.g., ["Edit", "Bash", "Grep"])
 - **context_summary**: Background info from this swarm's work
+
+## Memory Payload (Required)
+
+Provide a JSON block under the heading `Memory Payload` using this schema:
+```
+{{
+  "core_updates": [
+    {{"block_type": "persona|human|task", "content": "...", "reason": "...", "scope": "user|session"}}
+  ],
+  "archival_facts": [
+    {{"fact": "...", "valid_from": "ISO-8601 or null", "tags": ["..."]}}
+  ],
+  "recall_notes": ["short notes to improve future recall queries"]
+}}
+```
+
+If you have scratchpad access, also write the payload to:
+- `memory/synthesis/core_updates`
+- `memory/synthesis/archival_facts`
+- `memory/synthesis/recall_notes`
 
 ## Important
 

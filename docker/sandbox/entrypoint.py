@@ -85,11 +85,18 @@ class SandboxRunner:
             json.dump(settings_data, f)
             self._settings_file = f.name
 
-        # Find dere-core plugin
-        dere_core_path = Path("/app/dere/src/dere_plugins/dere_core")
+        # Load plugins from environment (defaults to dere_core)
         plugins: list[dict[str, Any]] = []
-        if dere_core_path.exists():
-            plugins.append({"type": "local", "path": str(dere_core_path)})
+        plugin_env = os.environ.get("SANDBOX_PLUGINS")
+        if plugin_env is None:
+            plugin_names = ["dere_core"]
+        else:
+            plugin_names = [name.strip() for name in plugin_env.split(",") if name.strip()]
+
+        for plugin_name in plugin_names:
+            plugin_path = Path("/app/dere/src/dere_plugins") / plugin_name
+            if plugin_path.exists():
+                plugins.append({"type": "local", "path": str(plugin_path)})
 
         options = ClaudeAgentOptions(
             cwd=working_dir,

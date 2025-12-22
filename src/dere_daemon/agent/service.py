@@ -656,6 +656,11 @@ class CentralizedAgentService:
                 needs_session_id_capture=(claude_session_id is None),
             )
 
+            # Ensure plugins can resolve session-scoped context inside sandboxes.
+            if config.env is None:
+                config.env = {}
+            config.env.setdefault("DERE_SESSION_ID", str(session_id))
+
             # Create permission callback that references the session
             permission_callback = self._make_permission_callback(agent_session)
 

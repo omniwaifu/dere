@@ -60,7 +60,7 @@ stop:
 
 # Run all services (daemon + discord)
 dev-all:
-    uv run honcho start
+    DERE_SANDBOX_BIND_PLUGINS=1 uv run honcho start
 
 # Check for dependency updates
 deps-check:

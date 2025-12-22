@@ -43,7 +43,8 @@
         "dere_plugins.dere_core.mcp_server.knowledge_graph"
       ],
       "env": {
-        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:8787}"
+        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:8787}",
+        "DERE_SESSION_ID": "${DERE_SESSION_ID}"
       }
     }
   }

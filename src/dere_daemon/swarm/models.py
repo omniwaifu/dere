@@ -174,9 +174,9 @@ class MergeResult(BaseModel):
 class CreateSwarmRequest(BaseModel):
     """Request to create a new swarm."""
 
-    parent_session_id: int
+    parent_session_id: int | None = None
     name: str
-    working_dir: str
+    working_dir: str | None = None
     agents: list[AgentSpec]
     description: str | None = None
     git_branch_prefix: str | None = None

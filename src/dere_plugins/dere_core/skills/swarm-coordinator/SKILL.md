@@ -125,3 +125,4 @@ Vary personalities for diverse perspectives:
 3. **Git isolation:** Use `git_branch_prefix` for code changes
 4. **Monitor progress:** Check `get_swarm_status()` periodically
 5. **Handle failures:** Check agent status before merging
+6. **Memory handoff:** Encourage agents to write durable facts to scratchpad keys under `memory/`

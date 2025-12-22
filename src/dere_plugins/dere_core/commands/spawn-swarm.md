@@ -76,6 +76,10 @@ result = await spawn_agents(
 - No git branches needed
 - Chain: research agents → synthesis agent
 
+**Memory integration:**
+- Swarms automatically include a `memory-steward` agent to consolidate findings
+- Encourage agents to write durable facts to scratchpad keys under `memory/`
+
 **Prompts should be self-contained:**
 - Include relevant file paths
 - Specify expected output
