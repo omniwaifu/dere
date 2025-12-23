@@ -17,6 +17,8 @@ from dere_shared.tasks import get_task_context
 
 from .config import AmbientConfig
 
+_CURRENT_ACTIVITY_UNSET = object()
+
 if TYPE_CHECKING:
     from dere_shared.personalities import PersonalityLoader
 
@@ -35,7 +37,6 @@ class ContextAnalyzer:
         self.llm_client = ClaudeClient(model="claude-haiku-4-5")
         self.personality_loader = personality_loader
         self._last_context: dict[str, Any] | None = None
-
 
     def _parse_entity_tokens(self, text: str | None) -> set[str]:
         if not text:
@@ -99,9 +100,9 @@ class ContextAnalyzer:
             return False
         return "overdue:" in task_context.lower()
 
-    async def _is_user_afk(self) -> bool:
+    async def _is_user_afk(self, lookback_minutes: int) -> bool:
         try:
-            snapshot = await self._get_activity_snapshot(lookback_minutes=10)
+            snapshot = await self._get_activity_snapshot(lookback_minutes=lookback_minutes)
             if not snapshot:
                 return False
             return snapshot.get("presence") == "away"
@@ -147,6 +148,9 @@ class ContextAnalyzer:
 
     async def should_engage(
         self,
+        *,
+        activity_lookback_minutes: int | None = None,
+        current_activity: dict[str, Any] | None | object = _CURRENT_ACTIVITY_UNSET,
     ) -> tuple[bool, dict[str, Any] | None]:
         """Determine if bot should engage with user.
 
@@ -154,12 +158,15 @@ class ContextAnalyzer:
             Tuple of (should_engage, context_snapshot)
         """
         try:
-            if await self._is_user_afk():
+            lookback_minutes = activity_lookback_minutes or 10
+
+            if await self._is_user_afk(lookback_minutes):
                 logger.info("User AFK; skipping ambient engagement")
                 return False, None
 
             # Step 1: Check current activity first (most important)
-            current_activity = await self._get_current_activity()
+            if current_activity is _CURRENT_ACTIVITY_UNSET:
+                current_activity = await self.get_current_activity(lookback_minutes)
             if not current_activity:
                 logger.info("No current activity detected from ActivityWatch - skipping check")
                 return False, None
@@ -270,14 +277,14 @@ class ContextAnalyzer:
 
         return None
 
-    async def _get_current_activity(self) -> dict[str, Any] | None:
+    async def get_current_activity(self, lookback_minutes: int) -> dict[str, Any] | None:
         """Get user's current activity from ActivityWatch.
 
         Returns:
             Dictionary with current activity info, or None if no activity
         """
         try:
-            snapshot = await self._get_activity_snapshot(lookback_minutes=10)
+            snapshot = await self._get_activity_snapshot(lookback_minutes=lookback_minutes)
             if not snapshot:
                 return None
 

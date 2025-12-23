@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +36,10 @@ class AmbientMonitor:
         self._task: asyncio.Task[Any] | None = None
         self._mission_executor = mission_executor
         self._session_factory = session_factory
+        self._last_check_at: datetime | None = None
+        self._activity_streak_key: tuple[str, str] | None = None
+        self._activity_streak_seconds: float = 0.0
+        self._activity_streak_updated_at: datetime | None = None
 
         # Initialize FSM if enabled
         if config.fsm_enabled:
@@ -165,6 +169,12 @@ class AmbientMonitor:
     async def _check_and_engage(self) -> None:
         """Check context and engage if appropriate."""
         try:
+            now = datetime.now(UTC)
+            lookback_minutes = self._compute_activity_lookback_minutes(now)
+            current_activity = await self.analyzer.get_current_activity(lookback_minutes)
+            current_activity = self._update_activity_streak(current_activity, now)
+            self._last_check_at = now
+
             # Hard minimum interval check (overrides FSM timing)
             if self.fsm and self.fsm.last_notification_time is not None:
                 elapsed = asyncio.get_event_loop().time() - self.fsm.last_notification_time
@@ -181,9 +191,14 @@ class AmbientMonitor:
             if self.fsm:
                 await self._evaluate_fsm_state()
 
-            should_engage, context_snapshot = await self.analyzer.should_engage()
+            should_engage, context_snapshot = await self.analyzer.should_engage(
+                activity_lookback_minutes=lookback_minutes,
+                current_activity=current_activity,
+            )
 
             if should_engage and context_snapshot:
+                if current_activity:
+                    context_snapshot["activity"] = current_activity
                 result = await self._run_ambient_mission(context_snapshot)
                 if result:
                     message, priority, confidence = result
@@ -204,6 +219,53 @@ class AmbientMonitor:
 
         except Exception as e:
             logger.error("Error during ambient check and engage: {}", e)
+
+    def _compute_activity_lookback_minutes(self, now: datetime) -> int:
+        max_lookback = max(10, self.config.activity_lookback_hours * 60)
+        min_lookback = 10
+        if self._last_check_at:
+            delta_minutes = int((now - self._last_check_at).total_seconds() / 60)
+        else:
+            delta_minutes = self.config.check_interval_minutes
+        return max(min_lookback, min(max_lookback, delta_minutes))
+
+    def _update_activity_streak(
+        self,
+        activity: dict[str, Any] | None,
+        now: datetime,
+    ) -> dict[str, Any] | None:
+        if not activity:
+            self._activity_streak_key = None
+            self._activity_streak_seconds = 0.0
+            self._activity_streak_updated_at = now
+            return None
+
+        app = (activity.get("app") or "").strip()
+        title = (activity.get("title") or "").strip()
+        if not app and not title:
+            self._activity_streak_key = None
+            self._activity_streak_seconds = 0.0
+            self._activity_streak_updated_at = now
+            return activity
+
+        key = (app, title)
+        if self._activity_streak_key == key:
+            if self._activity_streak_updated_at:
+                delta_seconds = (now - self._activity_streak_updated_at).total_seconds()
+                if delta_seconds > 0:
+                    self._activity_streak_seconds += delta_seconds
+        else:
+            self._activity_streak_key = key
+            self._activity_streak_seconds = float(activity.get("duration") or 0)
+
+        self._activity_streak_updated_at = now
+
+        streak_seconds = int(self._activity_streak_seconds)
+        activity["duration_window_seconds"] = activity.get("duration")
+        activity["duration"] = streak_seconds
+        activity["streak_seconds"] = streak_seconds
+        activity["streak_minutes"] = int(streak_seconds / 60)
+        return activity
 
     async def _deliver_notification(
         self,
