@@ -396,15 +396,19 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
             """,
             group_id=group_id,
         )
-        top_fact_entities = [
-            TopFactEntity(
-                uuid=r["uuid"],
-                name=r["name"],
-                labels=r.get("labels", []),
-                count=r["count"],
+        top_fact_entities = []
+        for row in top_fact_entities_result:
+            labels = row.get("labels") or []
+            if not isinstance(labels, list):
+                labels = [str(labels)]
+            top_fact_entities.append(
+                TopFactEntity(
+                    uuid=row["uuid"],
+                    name=row["name"],
+                    labels=labels,
+                    count=row["count"],
+                )
             )
-            for r in top_fact_entities_result
-        ]
 
         # Get label distribution
         label_result = await driver.execute_query(
