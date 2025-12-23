@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -110,6 +111,7 @@ class PostgresDriver:
 
         # Convert embedding to list for JSON serialization
         embedding_json = json.dumps(entity.name_embedding) if entity.name_embedding else None
+        normalized_last_discussed_at = self._normalize_timestamp(last_discussed_at)
 
         async with self.pool.acquire() as conn:
             if embedding_json:
@@ -133,7 +135,7 @@ class PostgresDriver:
                     json.dumps(entity.attributes),
                     embedding_json,
                     entity.group_id,
-                    last_discussed_at,
+                    normalized_last_discussed_at,
                 )
             else:
                 await conn.execute(
@@ -154,10 +156,16 @@ class PostgresDriver:
                     entity.name,
                     json.dumps(entity.attributes),
                     entity.group_id,
-                    last_discussed_at,
+                    normalized_last_discussed_at,
                 )
 
             logger.debug(f"Saved entity attributes: {entity.uuid}")
+
+    @staticmethod
+    def _normalize_timestamp(value: Any) -> Any:
+        if isinstance(value, datetime) and value.tzinfo is not None:
+            return value.astimezone(UTC).replace(tzinfo=None)
+        return value
 
     async def get_entity_attributes(self, entity_uuid: str) -> dict[str, Any] | None:
         """Get entity meta-context by UUID.
