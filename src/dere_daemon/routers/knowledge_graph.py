@@ -25,6 +25,15 @@ def _node_props(node: Any) -> dict[str, Any]:
         props.setdefault("labels", list(labels))
     return props
 
+
+def _edge_props(edge: Any) -> dict[str, Any]:
+    """Normalize FalkorDB edge objects to plain dicts."""
+    if edge is None:
+        return {}
+    if isinstance(edge, dict):
+        return edge
+    return dict(getattr(edge, "properties", {}) or {})
+
 class EntitySummary(BaseModel):
     """Summary of a knowledge graph entity."""
 
@@ -812,15 +821,15 @@ async def get_facts_timeline(
 
     try:
         driver = app_state.dere_graph.driver
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         def _parse_dt(value):
             if isinstance(value, datetime):
-                return value
+                return _normalize_dt(value)
             if not value:
                 return None
             try:
-                return datetime.fromisoformat(value)
+                return _normalize_dt(datetime.fromisoformat(value))
             except Exception:
                 return None
 
@@ -830,10 +839,12 @@ async def get_facts_timeline(
         params = {"group_id": group_id}
 
         if start_date:
+            start_date = _normalize_dt(start_date)
             edge_filters.append("r.created_at >= $start_date")
             fact_filters.append("f.created_at >= $start_date")
             params["start_date"] = start_date.isoformat()
         if end_date:
+            end_date = _normalize_dt(end_date)
             edge_filters.append("r.created_at <= $end_date")
             fact_filters.append("f.created_at <= $end_date")
             params["end_date"] = end_date.isoformat()
@@ -886,7 +897,9 @@ async def get_facts_timeline(
 
         timeline_entries = []
         for row in edge_rows:
-            edge_data = row["r"]
+            edge_data = _edge_props(row.get("r"))
+            if not edge_data:
+                continue
 
             # Determine temporal status
             valid_at = _parse_dt(edge_data.get("valid_at"))
@@ -903,7 +916,7 @@ async def get_facts_timeline(
                 temporal_status = "valid"
 
             edge_summary = EdgeSummary(
-                uuid=edge_data["uuid"],
+                uuid=edge_data.get("uuid", ""),
                 source_uuid=row["source_uuid"],
                 source_name=row["source_name"],
                 target_uuid=row["target_uuid"],
