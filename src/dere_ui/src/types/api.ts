@@ -556,6 +556,65 @@ export interface DashboardStateResponse {
   timestamp: string;
 }
 
+// Ambient dashboard
+export interface AmbientDashboardSummary {
+  fsm_state: string;
+  is_enabled: boolean;
+  last_run_at: string | null;
+  last_notification_at: string | null;
+}
+
+export interface AmbientConfigSummary {
+  enabled: boolean;
+  personality: string;
+  notification_method: string;
+  check_interval_minutes: number;
+  idle_threshold_minutes: number;
+  min_notification_interval_minutes: number;
+  activity_lookback_hours: number;
+  escalation_enabled: boolean;
+  escalation_lookback_hours: number;
+  startup_delay_seconds: number;
+  fsm_enabled: boolean;
+  fsm_intervals: Record<string, number | [number, number]>;
+  fsm_weights: Record<string, number>;
+}
+
+export interface AmbientRunSummary {
+  mission_id: number;
+  mission_name: string;
+  execution_id: number;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  send: boolean | null;
+  priority: string | null;
+  confidence: number | null;
+  message_preview: string | null;
+}
+
+export interface AmbientNotificationSummary {
+  notification_id: number;
+  message: string;
+  priority: string;
+  status: string;
+  created_at: string | null;
+  delivered_at: string | null;
+  acknowledged: boolean;
+  target_medium: string;
+  target_location: string;
+  trigger_type: string | null;
+  context_snapshot: Record<string, unknown> | null;
+}
+
+export interface AmbientDashboardResponse {
+  summary: AmbientDashboardSummary;
+  config: AmbientConfigSummary;
+  recent_runs: AmbientRunSummary[];
+  recent_notifications: AmbientNotificationSummary[];
+  timestamp: string;
+}
+
 // Summary Context
 export interface SummaryContextResponse {
   summary: string | null;

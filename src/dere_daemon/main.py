@@ -381,6 +381,11 @@ SUMMARY_IDLE_TIMEOUT = 1800  # 30 minutes in seconds
 SUMMARY_CHECK_INTERVAL = 300  # Check every 5 minutes
 SUMMARY_MIN_MESSAGES = 5  # Minimum messages before generating summary
 
+# Ambient session cleanup settings
+AMBIENT_SESSION_CLEANUP_INTERVAL = 3600  # Check every hour
+AMBIENT_SESSION_RETENTION_DAYS = 7
+AMBIENT_SESSION_KEEP_RECENT = 20
+
 # Memory consolidation settings
 MEMORY_CONSOLIDATION_CHECK_INTERVAL = 60  # Check queue every 60 seconds
 MEMORY_CONSOLIDATION_DEFAULT_DAYS = 30
@@ -803,8 +808,15 @@ async def _maybe_schedule_weekly_consolidation(
 
 def _start_background_tasks(
     app_state: AppState,
-) -> tuple[asyncio.Task, asyncio.Task, asyncio.Task, asyncio.Task, asyncio.Task]:
-    """Start background tasks for presence cleanup, emotion decay, session summaries, consolidation, and recall embeddings."""
+) -> tuple[
+    asyncio.Task,
+    asyncio.Task,
+    asyncio.Task,
+    asyncio.Task,
+    asyncio.Task,
+    asyncio.Task,
+]:
+    """Start background tasks for presence cleanup, emotion decay, session summaries, ambient cleanup, consolidation, and recall embeddings."""
 
     async def cleanup_presence_loop():
         """Background task placeholder for future presence maintenance."""
@@ -987,6 +999,55 @@ def _start_background_tasks(
 
             except Exception as e:
                 logger.error(f"[Summary] Periodic summary loop failed: {e}")
+
+    async def ambient_session_cleanup_loop():
+        """Background task to prune old ambient sessions."""
+        from datetime import timedelta
+
+        while True:
+            try:
+                await asyncio.sleep(AMBIENT_SESSION_CLEANUP_INTERVAL)
+
+                cutoff = datetime.now(UTC) - timedelta(days=AMBIENT_SESSION_RETENTION_DAYS)
+
+                async with app_state.session_factory() as db:
+                    stmt = (
+                        select(Session)
+                        .where(Session.name.is_not(None))
+                        .where(Session.name.ilike("ambient-%"))
+                        .where(Session.is_locked.is_(True))
+                        .order_by(Session.created_at.desc())
+                    )
+                    result = await db.execute(stmt)
+                    sessions = result.scalars().all()
+
+                    if not sessions:
+                        continue
+
+                    to_keep = {
+                        session.id
+                        for session in sessions[:AMBIENT_SESSION_KEEP_RECENT]
+                        if session.id is not None
+                    }
+                    deleted = 0
+
+                    for session in sessions[AMBIENT_SESSION_KEEP_RECENT:]:
+                        if session.id in to_keep:
+                            continue
+
+                        created_at = session.created_at or session.last_activity
+                        if created_at and created_at > cutoff:
+                            continue
+
+                        await db.delete(session)
+                        deleted += 1
+
+                    if deleted:
+                        await db.commit()
+                        logger.info("[Ambient] Cleaned up {} ambient sessions", deleted)
+
+            except Exception as e:
+                logger.error("[Ambient] Session cleanup failed: {}", e)
 
     async def memory_consolidation_loop():
         """Background task to process memory consolidation tasks."""
@@ -1180,10 +1241,18 @@ def _start_background_tasks(
     cleanup_task = asyncio.create_task(cleanup_presence_loop())
     emotion_decay_task = asyncio.create_task(periodic_emotion_decay_loop())
     summary_task = asyncio.create_task(periodic_session_summary_loop())
+    ambient_cleanup_task = asyncio.create_task(ambient_session_cleanup_loop())
     memory_task = asyncio.create_task(memory_consolidation_loop())
     recall_task = asyncio.create_task(recall_embedding_backfill_loop())
 
-    return cleanup_task, emotion_decay_task, summary_task, memory_task, recall_task
+    return (
+        cleanup_task,
+        emotion_decay_task,
+        summary_task,
+        ambient_cleanup_task,
+        memory_task,
+        recall_task,
+    )
 
 
 async def _shutdown_cleanup(
@@ -1192,13 +1261,21 @@ async def _shutdown_cleanup(
     cleanup_task: asyncio.Task,
     emotion_decay_task: asyncio.Task,
     summary_task: asyncio.Task,
+    ambient_cleanup_task: asyncio.Task,
     memory_task: asyncio.Task,
     recall_task: asyncio.Task,
 ) -> None:
     """Shutdown all services and cleanup resources."""
     errors = []
 
-    for task in [cleanup_task, emotion_decay_task, summary_task, memory_task, recall_task]:
+    for task in [
+        cleanup_task,
+        emotion_decay_task,
+        summary_task,
+        ambient_cleanup_task,
+        memory_task,
+        recall_task,
+    ]:
         task.cancel()
         try:
             await task
@@ -1278,6 +1355,7 @@ async def lifespan(app: FastAPI):
         cleanup_task,
         emotion_decay_task,
         summary_task,
+        ambient_cleanup_task,
         memory_task,
         recall_task,
     ) = _start_background_tasks(app.state)
@@ -1292,6 +1370,7 @@ async def lifespan(app: FastAPI):
         cleanup_task,
         emotion_decay_task,
         summary_task,
+        ambient_cleanup_task,
         memory_task,
         recall_task,
     )
@@ -1303,6 +1382,7 @@ app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
 from dere_daemon.routers import (
     agent_router,
     activity_router,
+    ambient_router,
     core_memory_router,
     context_router,
     dashboard_router,
@@ -1322,6 +1402,7 @@ app.include_router(sessions_router)
 app.include_router(emotions_router)
 app.include_router(agent_router)
 app.include_router(activity_router)
+app.include_router(ambient_router)
 app.include_router(notifications_router)
 app.include_router(presence_router)
 app.include_router(core_memory_router)

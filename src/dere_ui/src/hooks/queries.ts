@@ -42,6 +42,7 @@ export const queryKeys = {
   kgStats: ["kg", "stats"] as const,
   kgCommunities: ["kg", "communities"] as const,
   kgLabels: ["kg", "labels"] as const,
+  ambientDashboard: ["ambient", "dashboard"] as const,
   // Personality Editor
   personalitiesEditor: ["personalities", "editor"] as const,
   personalityEditor: (name: string) => ["personalities", "editor", name] as const,
@@ -79,6 +80,14 @@ export function useSummaryContext() {
     queryFn: () => api.sessions.context(),
     staleTime: 1000 * 60 * 5, // 5 minutes
     refetchInterval: 1000 * 60 * 5, // refresh every 5 minutes
+  });
+}
+
+export function useAmbientDashboard() {
+  return useQuery({
+    queryKey: queryKeys.ambientDashboard,
+    queryFn: () => api.ambient.dashboard(),
+    refetchInterval: 30000,
   });
 }
 

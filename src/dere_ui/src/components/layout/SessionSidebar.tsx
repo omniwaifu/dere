@@ -101,10 +101,12 @@ export function SessionSidebar() {
 
   const filteredSessions = data?.sessions.filter((session) => {
     const name = session.name || session.config.working_dir;
-    const isSwarmRun = name.toLowerCase().startsWith("swarm:");
-    if (isSwarmRun) return false;
+    const normalized = name.toLowerCase();
+    const isSwarmRun = normalized.startsWith("swarm:");
+    const isAmbientRun = normalized.startsWith("ambient-");
+    if (isSwarmRun || isAmbientRun) return false;
     if (!searchQuery) return true;
-    return name.toLowerCase().includes(searchQuery.toLowerCase());
+    return normalized.includes(searchQuery.toLowerCase());
   });
 
   const handleStartRename = (sessionId: number, currentName: string) => {

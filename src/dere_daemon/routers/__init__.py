@@ -3,6 +3,7 @@
 from dere_daemon.agent import agent_router
 
 from .activity import router as activity_router
+from .ambient import router as ambient_router
 from .context import router as context_router
 from .dashboard import router as dashboard_router
 from .emotions import router as emotions_router
@@ -20,6 +21,7 @@ from .work_queue import router as work_queue_router
 __all__ = [
     "agent_router",
     "activity_router",
+    "ambient_router",
     "context_router",
     "dashboard_router",
     "emotions_router",

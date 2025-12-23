@@ -21,6 +21,7 @@ import type {
   CreateMissionRequest,
   UpdateMissionRequest,
   DashboardStateResponse,
+  AmbientDashboardResponse,
   SummaryContextResponse,
   CoreMemoryBlock,
   CoreMemoryEditResponse,
@@ -232,6 +233,10 @@ export const api = {
 
   dashboard: {
     state: () => fetchJson<DashboardStateResponse>("/dashboard/state"),
+  },
+
+  ambient: {
+    dashboard: () => fetchJson<AmbientDashboardResponse>("/ambient/dashboard"),
   },
 
   memory: {
