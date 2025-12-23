@@ -248,6 +248,7 @@ class AmbientMonitor:
             self._activity_streak_updated_at = now
             return activity
 
+        # NOTE: streak key includes title; title changes will reset streak. Consider app-only key if noisy.
         key = (app, title)
         if self._activity_streak_key == key:
             if self._activity_streak_updated_at:
