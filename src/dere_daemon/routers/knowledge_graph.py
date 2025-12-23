@@ -13,6 +13,18 @@ from dere_graph.filters import SearchFilters
 
 
 # Response Models
+def _node_props(node: Any) -> dict[str, Any]:
+    """Normalize FalkorDB node objects to plain dicts."""
+    if node is None:
+        return {}
+    if isinstance(node, dict):
+        return node
+    props = dict(getattr(node, "properties", {}) or {})
+    labels = getattr(node, "labels", None)
+    if labels is not None:
+        props.setdefault("labels", list(labels))
+    return props
+
 class EntitySummary(BaseModel):
     """Summary of a knowledge graph entity."""
 
@@ -309,16 +321,20 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
             """,
             group_id=group_id,
         )
-        top_mentioned = [
-            TopEntity(
-                uuid=r["n"]["uuid"],
-                name=r["n"]["name"],
-                labels=r["n"].get("labels", []),
-                mention_count=r["n"].get("mention_count", 1),
-                retrieval_quality=r["n"].get("retrieval_quality", 1.0),
+        top_mentioned = []
+        for row in top_mentioned_result:
+            node_data = _node_props(row.get("n"))
+            if not node_data:
+                continue
+            top_mentioned.append(
+                TopEntity(
+                    uuid=node_data.get("uuid", ""),
+                    name=node_data.get("name", ""),
+                    labels=node_data.get("labels", []),
+                    mention_count=node_data.get("mention_count", 1),
+                    retrieval_quality=node_data.get("retrieval_quality", 1.0),
+                )
             )
-            for r in top_mentioned_result
-        ]
 
         # Get top quality entities (with at least some retrievals)
         top_quality_result = await driver.execute_query(
@@ -331,16 +347,20 @@ async def get_kg_stats(request: Request, user_id: str | None = None):
             """,
             group_id=group_id,
         )
-        top_quality = [
-            TopEntity(
-                uuid=r["n"]["uuid"],
-                name=r["n"]["name"],
-                labels=r["n"].get("labels", []),
-                mention_count=r["n"].get("mention_count", 1),
-                retrieval_quality=r["n"].get("retrieval_quality", 1.0),
+        top_quality = []
+        for row in top_quality_result:
+            node_data = _node_props(row.get("n"))
+            if not node_data:
+                continue
+            top_quality.append(
+                TopEntity(
+                    uuid=node_data.get("uuid", ""),
+                    name=node_data.get("name", ""),
+                    labels=node_data.get("labels", []),
+                    mention_count=node_data.get("mention_count", 1),
+                    retrieval_quality=node_data.get("retrieval_quality", 1.0),
+                )
             )
-            for r in top_quality_result
-        ]
 
         # Top fact roles
         top_role_result = await driver.execute_query(
@@ -513,11 +533,13 @@ async def list_entities(
 
         entities = []
         for r in result:
-            node_data = r["n"]
+            node_data = _node_props(r.get("n"))
+            if not node_data:
+                continue
             entities.append(
                 EntitySummary(
-                    uuid=node_data["uuid"],
-                    name=node_data["name"],
+                    uuid=node_data.get("uuid", ""),
+                    name=node_data.get("name", ""),
                     labels=node_data.get("labels", []),
                     summary=node_data.get("summary", ""),
                     mention_count=node_data.get("mention_count", 1),
