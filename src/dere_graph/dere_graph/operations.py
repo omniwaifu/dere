@@ -990,10 +990,14 @@ async def deduplicate_fact_nodes(
                 }
             )
 
-        response = await llm_client.generate_response(
-            dedupe_facts(new_fact_payload, existing_facts_payload),
-            FactDuplicate,
-        )
+        try:
+            response = await llm_client.generate_response(
+                dedupe_facts(new_fact_payload, existing_facts_payload),
+                FactDuplicate,
+            )
+        except Exception as e:
+            logger.warning("[FactExtraction] Fact dedupe skipped: {}", e)
+            response = FactDuplicate()
 
         if response.contradicted_facts:
             for idx in response.contradicted_facts:
