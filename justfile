@@ -4,10 +4,17 @@
 default: install
 
 # Install binaries to user PATH
-install:
+install: plugins
       cd src/dere_plugins/dere_productivity/mcp-server && bun run build
       uv sync --extra dev
       uv tool install --force --editable .
+
+# Reinstall Claude Code plugins (syncs hooks/skills/etc to cache)
+plugins:
+    claude plugin uninstall dere-code@dere_plugins 2>/dev/null || true
+    claude plugin uninstall dere-core@dere_plugins 2>/dev/null || true
+    claude plugin install dere-code@dere_plugins
+    claude plugin install dere-core@dere_plugins
 
 # Clean build artifacts
 clean:

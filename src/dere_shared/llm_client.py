@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, TypeVar
 
+import sentry_sdk
+from loguru import logger
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -128,6 +131,7 @@ class ClaudeClient:
         )
 
         # Consume ALL messages - don't break early or async cleanup fails
+        start_time = time.monotonic()
         result = None
         last_text = ""
         async for msg in query(prompt=prompt, options=options):
@@ -156,8 +160,35 @@ class ClaudeClient:
                         result = _unwrap_tool_payload(getattr(block, "input"))
                         break
 
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+
         if result:
+            logger.info(
+                "LLM generate_response: model={} schema={} latency_ms={} success=True",
+                self.model,
+                response_model.__name__,
+                latency_ms,
+            )
+            sentry_sdk.add_breadcrumb(
+                category="llm",
+                message=f"LLM: {response_model.__name__}",
+                level="info",
+                data={"model": self.model, "latency_ms": latency_ms, "success": True},
+            )
             return response_model.model_validate(result)
+
+        logger.warning(
+            "LLM generate_response: model={} schema={} latency_ms={} success=False",
+            self.model,
+            response_model.__name__,
+            latency_ms,
+        )
+        sentry_sdk.add_breadcrumb(
+            category="llm",
+            message=f"LLM failed: {response_model.__name__}",
+            level="warning",
+            data={"model": self.model, "latency_ms": latency_ms, "success": False},
+        )
 
         if last_text:
             raise ValueError(f"No structured output in response (last text: {last_text[:200]!r})")
@@ -175,6 +206,7 @@ class ClaudeClient:
 
         prompt = format_messages(messages)
 
+        start_time = time.monotonic()
         response_text = ""
         async for msg in query(
             prompt=prompt,
@@ -184,5 +216,21 @@ class ClaudeClient:
                 for block in msg.content:
                     if hasattr(block, "text"):
                         response_text += block.text
+
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+        response_len = len(response_text)
+
+        logger.info(
+            "LLM generate_text_response: model={} latency_ms={} response_len={}",
+            self.model,
+            latency_ms,
+            response_len,
+        )
+        sentry_sdk.add_breadcrumb(
+            category="llm",
+            message="LLM text response",
+            level="info",
+            data={"model": self.model, "latency_ms": latency_ms, "response_len": response_len},
+        )
 
         return response_text

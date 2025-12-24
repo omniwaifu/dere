@@ -3,11 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from collections.abc import Iterable
 
 import click
 from loguru import logger
+
+# Initialize Sentry if DSN is configured
+if dsn := os.environ.get("DERE_SENTRY_DSN"):
+    import sentry_sdk
+    from sentry_sdk.integrations.logging import ignore_logger
+
+    sentry_sdk.init(
+        dsn=dsn,
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.1,
+        environment=os.environ.get("DERE_ENV", "development"),
+        attach_stacktrace=True,
+        max_breadcrumbs=50,
+    )
+    sentry_sdk.set_tag("component", "discord")
+    ignore_logger("httpx")
+    ignore_logger("httpcore")
+    logger.info("Sentry initialized for discord")
 
 from .agent import DiscordAgent
 from .bot import DereDiscordClient

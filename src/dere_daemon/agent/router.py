@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pydantic import BaseModel, ValidationError
@@ -46,6 +47,82 @@ def _get_service(request: Request) -> CentralizedAgentService:
     return request.app.state.agent_service
 
 
+async def _run_query_with_permission_handling(
+    websocket: WebSocket,
+    service: CentralizedAgentService,
+    session,
+    prompt: str,
+) -> None:
+    """Run a query while handling permission responses concurrently.
+
+    The query iterator may pause waiting for permission responses. We need to
+    receive WebSocket messages during this time to handle permission_response.
+    """
+    query_done = asyncio.Event()
+    query_error: Exception | None = None
+
+    async def stream_events():
+        nonlocal query_error
+        try:
+            async for event in service.query(session, prompt):
+                await websocket.send_json(event.to_dict())
+        except Exception as e:
+            query_error = e
+        finally:
+            query_done.set()
+
+    async def handle_messages():
+        while not query_done.is_set():
+            # Use wait_for with a short timeout to check query_done periodically
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=0.1,
+                )
+            except TimeoutError:
+                continue
+            except Exception:
+                # WebSocket closed or other error - let the main loop handle it
+                break
+
+            try:
+                msg = ClientMessage(**data)
+            except ValidationError:
+                continue
+
+            if msg.type == "permission_response":
+                if msg.request_id and msg.allowed is not None:
+                    resolved = session.resolve_permission(
+                        msg.request_id, msg.allowed, msg.deny_message or ""
+                    )
+                    logger.info(
+                        "Permission response: session_id={} request_id={} allowed={} resolved={}",
+                        session.session_id,
+                        msg.request_id,
+                        msg.allowed,
+                        resolved,
+                    )
+            elif msg.type == "cancel":
+                await service.cancel_query(session.session_id)
+            # Ignore other message types during query execution
+
+    # Run both concurrently
+    stream_task = asyncio.create_task(stream_events())
+    message_task = asyncio.create_task(handle_messages())
+
+    try:
+        await stream_task
+    finally:
+        message_task.cancel()
+        try:
+            await message_task
+        except asyncio.CancelledError:
+            pass
+
+    if query_error:
+        raise query_error
+
+
 @router.websocket("/ws")
 async def agent_websocket(websocket: WebSocket):
     """WebSocket endpoint for streaming Claude responses.
@@ -75,6 +152,12 @@ async def agent_websocket(websocket: WebSocket):
         - {"type": "error", "data": {"message": "...", "recoverable": true}, "seq": N}
     """
     await websocket.accept()
+    ws_start_time = time.monotonic()
+    sentry_sdk.add_breadcrumb(
+        category="websocket",
+        message="WebSocket connected",
+        level="info",
+    )
 
     service: CentralizedAgentService = websocket.app.state.agent_service
     current_session = None
@@ -168,9 +251,11 @@ async def agent_websocket(websocket: WebSocket):
                     )
                     continue
 
+                # Run query with concurrent message handling for permission responses
                 try:
-                    async for event in service.query(current_session, msg.prompt):
-                        await websocket.send_json(event.to_dict())
+                    await _run_query_with_permission_handling(
+                        websocket, service, current_session, msg.prompt
+                    )
                 except Exception as e:
                     logger.exception("Query failed")
                     await websocket.send_json(
@@ -276,11 +361,40 @@ async def agent_websocket(websocket: WebSocket):
                 )
 
     except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
+        duration_ms = int((time.monotonic() - ws_start_time) * 1000)
+        logger.info("WebSocket client disconnected after {}ms", duration_ms)
+        sentry_sdk.add_breadcrumb(
+            category="websocket",
+            message="WebSocket disconnected",
+            level="info",
+            data={
+                "reason": "client_disconnect",
+                "duration_ms": duration_ms,
+                "session_id": current_session.session_id if current_session else None,
+            },
+        )
     except asyncio.CancelledError:
-        logger.debug("WebSocket cancelled")
+        duration_ms = int((time.monotonic() - ws_start_time) * 1000)
+        sentry_sdk.add_breadcrumb(
+            category="websocket",
+            message="WebSocket cancelled",
+            level="info",
+            data={"reason": "cancelled", "duration_ms": duration_ms},
+        )
     except Exception as e:
+        duration_ms = int((time.monotonic() - ws_start_time) * 1000)
         logger.exception("WebSocket error")
+        sentry_sdk.add_breadcrumb(
+            category="websocket",
+            message="WebSocket error",
+            level="error",
+            data={
+                "reason": "error",
+                "error_type": type(e).__name__,
+                "duration_ms": duration_ms,
+                "session_id": current_session.session_id if current_session else None,
+            },
+        )
         try:
             await websocket.send_json(
                 error_event(f"WebSocket error: {e}", recoverable=False).to_dict()

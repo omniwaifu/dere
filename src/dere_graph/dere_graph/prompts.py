@@ -326,6 +326,13 @@ Entity Extraction Guidelines:
 3. Avoid creating nodes for temporal information like dates, times or years.
 4. Be as explicit as possible in your node names, using full names and avoiding abbreviations.
 5. IMPORTANT: If speaker context is provided, resolve all first-person pronouns to the speaker's name.
+
+QUOTED/SHARED CONTENT HANDLING:
+- If the message contains pasted content from external sources (Reddit threads, forum posts, articles, chat logs),
+  do NOT attribute opinions or preferences from that content to the speaker.
+- Look for patterns indicating external content: "u/username", "User X said", block quotes, discussion framing.
+- Extract entities mentioned in shared content, but remember the speaker is DISCUSSING this content, not authoring it.
+- The speaker's own framing ("I found this interesting", "I agree with") ARE attributable to the speaker.
 {f"6. Focus on entity types: {', '.join(entity_types)}" if entity_types else ""}
 {f"7. Exclude entity types: {', '.join(excluded_entity_types)}" if excluded_entity_types else ""}
 
@@ -538,6 +545,13 @@ You may use information from the PREVIOUS MESSAGES only to disambiguate referenc
 6. Use REFERENCE_TIME to resolve vague or relative temporal expressions (e.g., "last week").
 7. Do **not** hallucinate or infer temporal bounds from unrelated events.
 8. Keep attributes conservative: only include fields that are explicitly stated or unambiguously implied.
+
+9. QUOTED/SHARED CONTENT:
+   - If the message contains pasted content from external sources (Reddit, forums, articles), do NOT
+     attribute opinions from that content to the speaker.
+   - For external content, use DISCUSSED or SHARED_CONTENT_ABOUT instead of LIKES/BELIEVES/PREFERS.
+   - Only attribute preferences to the speaker if they explicitly state their own opinion
+     (e.g., "I agree with this" or "I found this interesting").
 
 # DATETIME RULES
 

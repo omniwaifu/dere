@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 from loguru import logger
@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dere_daemon.dependencies import get_db
 from dere_daemon.context_tracking import build_context_metadata
+from dere_daemon.dependencies import get_db
 from dere_shared.models import ContextCache, Session
 
 router = APIRouter(prefix="/context", tags=["context"])
@@ -67,23 +67,12 @@ async def context_build(
     # Use knowledge graph if available
     if app_state.dere_graph:
         try:
-            from dere_graph.filters import ComparisonOperator, DateFilter, SearchFilters
-
-            # Build temporal filter for last 7 days
-            filters = SearchFilters(
-                created_at=DateFilter(
-                    operator=ComparisonOperator.GREATER_THAN,
-                    value=datetime.now() - timedelta(days=7),
-                )
-            )
-
-            # Step 1: Get relevant recent facts with episode-mentions reranking
-            # This prioritizes frequently mentioned entities for better context
+            # Step 1: Get relevant facts with episode-mentions reranking
+            # Recency weighting handles time preference without hard cutoffs
             search_results = await app_state.dere_graph.search(
                 query=req.current_prompt,
                 group_id=req.user_id or "default",
                 limit=context_depth * 2,  # Get more for BFS expansion
-                filters=filters,
                 rerank_method="episode_mentions",  # Boost frequently mentioned entities
                 rerank_alpha=0.5,  # Balance between frequency and base relevance
                 recency_weight=0.3,  # Slight recency boost

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
+import sentry_sdk
 from loguru import logger
 
 from dere_graph.driver import FalkorDriver
@@ -117,11 +119,26 @@ async def hybrid_node_search(
     Returns:
         List of entity nodes
     """
+    start_time = time.monotonic()
+
     # Skip vector search if query is empty (temporal-only queries)
     if not query or not query.strip():
         # Just use fulltext search (which handles empty queries)
         results = await fulltext_node_search(driver, query, group_id, limit, filters)
-        return _apply_reranking(results, rerank_method, rerank_alpha, limit)
+        result_nodes = _apply_reranking(results, rerank_method, rerank_alpha, limit)
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+        logger.info(
+            "KG hybrid_node_search: latency_ms={} result_count={} query_len=0",
+            latency_ms,
+            len(result_nodes),
+        )
+        sentry_sdk.add_breadcrumb(
+            category="kg",
+            message="KG entity search (empty query)",
+            level="info",
+            data={"latency_ms": latency_ms, "result_count": len(result_nodes)},
+        )
+        return result_nodes
 
     # Generate query embedding
     query_vector = await embedder.create(query.replace("\n", " "))
@@ -152,9 +169,22 @@ async def hybrid_node_search(
     # Apply reranking if requested
     result_nodes = _apply_reranking(result_nodes, rerank_method, rerank_alpha, limit)
 
-    logger.debug(
-        f"Hybrid search returned {len(result_nodes)} nodes for query: {query} "
-        f"(rerank={rerank_method})"
+    latency_ms = int((time.monotonic() - start_time) * 1000)
+    logger.info(
+        "KG hybrid_node_search: latency_ms={} result_count={} query_len={}",
+        latency_ms,
+        len(result_nodes),
+        len(query) if query else 0,
+    )
+    sentry_sdk.add_breadcrumb(
+        category="kg",
+        message="KG entity search",
+        level="info",
+        data={
+            "latency_ms": latency_ms,
+            "result_count": len(result_nodes),
+            "rerank_method": rerank_method,
+        },
     )
     return result_nodes
 

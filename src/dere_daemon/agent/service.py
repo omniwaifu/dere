@@ -21,6 +21,7 @@ from claude_agent_sdk.types import (
     StreamEvent as SDKStreamEvent,
 )
 from loguru import logger
+import sentry_sdk
 from sqlalchemy import exists
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import select
@@ -703,6 +704,22 @@ class CentralizedAgentService:
                 config.thinking_budget,
             )
 
+            # Set Sentry context for debugging
+            personality_name = (
+                config.personality[0]
+                if isinstance(config.personality, list) and config.personality
+                else config.personality
+            )
+            sentry_sdk.set_tag("session_id", str(session_id))
+            sentry_sdk.set_tag("personality", str(personality_name) if personality_name else "default")
+            sentry_sdk.set_context("session", {
+                "session_id": session_id,
+                "personality": personality_name,
+                "project_path": config.working_dir,
+                "sandbox_mode": config.sandbox_mode,
+                "output_style": config.output_style,
+            })
+
             return agent_session
 
         if _already_locked:
@@ -1080,13 +1097,21 @@ class CentralizedAgentService:
                             tool_count += 1
                             if event.type == StreamEventType.TOOL_USE:
                                 tool_use_count += 1
+                                tool_name = event.data.get("name")
+                                tool_id = event.data.get("id")
                                 logger.info(
                                     "Tool use: session_id={} name={} id={}",
                                     session.session_id,
-                                    event.data.get("name"),
-                                    event.data.get("id"),
+                                    tool_name,
+                                    tool_id,
                                 )
-                                name = event.data.get("name")
+                                sentry_sdk.add_breadcrumb(
+                                    category="tool",
+                                    message=f"Tool: {tool_name}",
+                                    level="info",
+                                    data={"tool_name": tool_name, "tool_id": tool_id},
+                                )
+                                name = tool_name
                                 if isinstance(name, str) and name not in tool_name_set:
                                     tool_name_set.add(name)
                                     tool_names.append(name)
@@ -1145,16 +1170,23 @@ class CentralizedAgentService:
                             tool_count += 1
                             if event.type == StreamEventType.TOOL_USE:
                                 tool_use_count += 1
-                                name = event.data.get("name")
-                                if isinstance(name, str) and name not in tool_name_set:
-                                    tool_name_set.add(name)
-                                    tool_names.append(name)
+                                tool_name = event.data.get("name")
+                                tool_id = event.data.get("id")
+                                if isinstance(tool_name, str) and tool_name not in tool_name_set:
+                                    tool_name_set.add(tool_name)
+                                    tool_names.append(tool_name)
+                                sentry_sdk.add_breadcrumb(
+                                    category="tool",
+                                    message=f"Tool: {tool_name}",
+                                    level="info",
+                                    data={"tool_name": tool_name, "tool_id": tool_id},
+                                )
                                 _close_thinking_window(time.monotonic())
                                 _upsert_tool_use_block(
                                     {
                                         "type": "tool_use",
-                                        "id": event.data.get("id"),
-                                        "name": event.data.get("name"),
+                                        "id": tool_id,
+                                        "name": tool_name,
                                         "input": event.data.get("input"),
                                     }
                                 )
@@ -1395,11 +1427,21 @@ class CentralizedAgentService:
         return [(sid, s.config) for sid, s in self._sessions.items()]
 
     async def close_all(self) -> None:
-        """Close all active sessions."""
+        """Close all active sessions gracefully."""
         # Stop the cleanup task first
         await self.stop_cleanup_task()
 
         session_ids = list(self._sessions.keys())
+
+        # First, signal all active queries to cancel
+        for session_id in session_ids:
+            await self.cancel_query(session_id)
+
+        # Brief wait for queries to acknowledge cancellation
+        if session_ids:
+            await asyncio.sleep(0.5)
+
+        # Now close all sessions
         for session_id in session_ids:
             try:
                 await self.close_session(session_id)

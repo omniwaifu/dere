@@ -49,7 +49,7 @@ def get_weather_context(config: dict[str, Any]) -> dict[str, str] | None:
                     "humidity": f"{weather_data.get('humidity', 'N/A')}%",
                     "location": weather_data.get("location_name", city),
                     "pressure": f"{weather_data.get('pressure', 'N/A')} hPa",
-                    "wind_speed": weather_data.get("wind_speed", "N/A"),
+                    "wind_speed": f"{weather_data.get('wind_speed', 'N/A')} m/s" if units == "metric" else f"{weather_data.get('wind_speed', 'N/A')} mph",
                 }
             except json.JSONDecodeError:
                 return None

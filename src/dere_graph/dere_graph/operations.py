@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
+import sentry_sdk
 from loguru import logger
 from pydantic import BaseModel
 
@@ -17,8 +19,8 @@ from dere_graph.models import (
     EpisodicEdge,
     EpisodicNode,
     FactNode,
-    FactRoleEdge,
     FactRoleDetail,
+    FactRoleEdge,
     apply_edge_schema,
     apply_entity_schema,
     validate_edge_types,
@@ -27,20 +29,20 @@ from dere_graph.models import (
 from dere_graph.prompts import (
     EdgeDateUpdates,
     EdgeDuplicate,
-    FactDuplicate,
     EntityAttributeUpdates,
     EntitySummaries,
     ExtractedEdges,
-    ExtractedFacts,
     ExtractedEntities,
+    ExtractedFacts,
+    FactDuplicate,
     NodeResolutions,
     dedupe_edges,
     dedupe_entities,
+    dedupe_facts,
     extract_edge_dates_batch,
     extract_edges,
-    dedupe_facts,
-    extract_facts,
     extract_entities_text,
+    extract_facts,
     hydrate_entity_attributes,
     summarize_entities,
 )
@@ -49,6 +51,10 @@ from dere_graph.prompts import (
 MAX_EXTRACTION_CHARS = 20000  # ~5K tokens - beyond this, skip or truncate
 MAX_CONTEXT_CHARS = 8000  # Max chars per previous episode for context
 LOG_LINE_THRESHOLD = 0.4  # If >40% of lines look like logs, skip extraction
+
+# Minimum content thresholds - skip trivial messages
+MIN_EXTRACTION_CHARS = 50  # Skip very short messages
+MIN_UNIQUE_WORDS = 5  # Skip messages with too few unique words
 
 
 def _truncate_for_context(content: str, max_chars: int = MAX_CONTEXT_CHARS) -> str:
@@ -183,13 +189,36 @@ def _is_log_or_data_dump(content: str) -> bool:
 
 def _should_skip_extraction(content: str) -> tuple[bool, str]:
     """Check if extraction should be skipped for this content."""
+    # Skip very short messages
+    if len(content) < MIN_EXTRACTION_CHARS:
+        return True, f"too short ({len(content)} chars)"
+
+    # Skip messages with too few unique words
+    words = content.lower().split()
+    unique_words = set(words)
+    if len(unique_words) < MIN_UNIQUE_WORDS:
+        return True, f"too few unique words ({len(unique_words)})"
+
+    # Skip messages with no potential entities (no capitalized words)
+    # But only if message is relatively short - longer messages might have entities mid-sentence
+    if len(content) < 200:
+        has_potential_entity = any(
+            word[0].isupper()
+            for word in content.split()
+            if word and word[0].isalpha()
+        )
+        if not has_potential_entity:
+            return True, "no potential entities (no capitalized words)"
+
+    # Skip oversized content
     if len(content) > MAX_EXTRACTION_CHARS:
         if _is_log_or_data_dump(content):
             return True, f"log/data dump ({len(content)} chars)"
-        # Large but not obviously logs - could truncate, but safer to skip
         return True, f"oversized content ({len(content)} chars)"
+
     if _is_log_or_data_dump(content):
         return True, "detected as log/data dump"
+
     return False, ""
 
 
@@ -219,6 +248,8 @@ async def add_episode(
     Returns:
         tuple: (new_nodes, new_edges, fact_nodes, fact_role_edges) created during ingestion
     """
+    start_time = time.monotonic()
+
     if entity_types:
         validate_entity_types(entity_types)
     if edge_types:
@@ -353,11 +384,25 @@ async def add_episode(
         fact_role_edges=fact_role_edges,
     )
 
+    latency_ms = int((time.monotonic() - start_time) * 1000)
     logger.info(
-        "Ingestion complete: {} new nodes, {} edges, {} facts",
+        "KG add_episode: latency_ms={} entity_count={} edge_count={} fact_count={}",
+        latency_ms,
         len(new_nodes),
         len(deduped_edges),
         len(fact_nodes),
+    )
+    sentry_sdk.add_breadcrumb(
+        category="kg",
+        message="KG episode ingestion",
+        level="info",
+        data={
+            "latency_ms": latency_ms,
+            "entity_count": len(new_nodes),
+            "edge_count": len(deduped_edges),
+            "fact_count": len(fact_nodes),
+            "group_id": episode.group_id,
+        },
     )
 
     # Return the created nodes and edges
