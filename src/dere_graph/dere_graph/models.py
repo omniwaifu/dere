@@ -141,6 +141,14 @@ class FactNode(Node):
     invalid_at: datetime | None = Field(
         default=None, description="datetime of when the fact stopped being true"
     )
+    supersedes: list[str] = Field(
+        default_factory=list,
+        description="Fact UUIDs that this fact supersedes",
+    )
+    superseded_by: list[str] = Field(
+        default_factory=list,
+        description="Fact UUIDs that supersede this fact",
+    )
 
 
 class Edge(BaseModel, ABC):

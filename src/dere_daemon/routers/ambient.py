@@ -32,6 +32,11 @@ class AmbientConfigSummary(BaseModel):
     fsm_enabled: bool
     fsm_intervals: dict[str, int | tuple[int, int]]
     fsm_weights: dict[str, float]
+    exploring_enabled: bool
+    exploring_min_idle_minutes: int
+    exploring_interval_minutes: tuple[int, int]
+    exploring_max_explorations_per_day: int
+    exploring_max_daily_cost_usd: float
 
 
 class AmbientRunSummary(BaseModel):
@@ -228,6 +233,11 @@ async def ambient_dashboard(
             "temporal": ambient_config.fsm_weight_temporal,
             "task": ambient_config.fsm_weight_task,
         },
+        exploring_enabled=ambient_config.exploring.enabled,
+        exploring_min_idle_minutes=ambient_config.exploring.min_idle_minutes,
+        exploring_interval_minutes=ambient_config.exploring.exploration_interval_minutes,
+        exploring_max_explorations_per_day=ambient_config.exploring.max_explorations_per_day,
+        exploring_max_daily_cost_usd=ambient_config.exploring.max_daily_cost_usd,
     )
 
     summary = AmbientDashboardSummary(

@@ -320,6 +320,8 @@ async def _init_ambient_monitor(data_dir: Path, app_state: AppState) -> None:
             personality_loader=app_state.personality_loader,
             mission_executor=app_state.mission_executor,
             session_factory=app_state.session_factory,
+            work_queue=app_state.work_queue_coordinator,
+            dere_graph=app_state.dere_graph,
         )
         await app_state.ambient_monitor.start()
     except Exception as e:
@@ -1387,7 +1389,9 @@ from dere_daemon.routers import (
     context_router,
     dashboard_router,
     emotions_router,
+    exploration_router,
     kg_router,
+    metrics_router,
     missions_router,
     notifications_router,
     presence_router,
@@ -1406,8 +1410,10 @@ app.include_router(ambient_router)
 app.include_router(notifications_router)
 app.include_router(presence_router)
 app.include_router(core_memory_router)
+app.include_router(exploration_router)
 app.include_router(kg_router)
 app.include_router(recall_router)
+app.include_router(metrics_router)
 app.include_router(context_router)
 app.include_router(taskwarrior_router)
 app.include_router(missions_router)
@@ -1954,6 +1960,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
         )
         db.add(session)
         await db.flush()
+    working_dir = req.project_path or session.working_dir or "/workspace"
 
     # Store conversation
     conv = Conversation(
@@ -1989,6 +1996,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
 
             from loguru import logger
 
+            episode_result = None
             # Add to knowledge graph if enabled
             if app.state.dere_graph:
                 try:
@@ -1997,7 +2005,7 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
                     # Use canonical user name from config
                     canonical_user_name = app.state.config.get("user", {}).get("name", "User")
 
-                    await app.state.dere_graph.add_episode(
+                    episode_result = await app.state.dere_graph.add_episode(
                         episode_body=req.prompt,
                         source_description=f"{req.medium or 'cli'} conversation",
                         reference_time=datetime.fromtimestamp(conv.timestamp, tz=UTC),
@@ -2064,6 +2072,26 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
 
             except Exception as e:
                 logger.error(f"[conversation_capture] Emotion processing failed: {e}")
+
+            # Detect curiosity triggers after processing
+            try:
+                from dere_ambient.triggers import process_curiosity_triggers
+
+                await process_curiosity_triggers(
+                    prompt=req.prompt,
+                    session_id=req.session_id,
+                    conversation_id=conversation_id,
+                    user_id=req.user_id,
+                    working_dir=working_dir,
+                    personality=req.personality,
+                    speaker_name=req.speaker_name,
+                    is_command=req.is_command,
+                    message_type=req.message_type,
+                    kg_nodes=episode_result.nodes if episode_result else None,
+                    session_factory=app.state.session_factory,
+                )
+            except Exception as e:
+                logger.error(f"[conversation_capture] Curiosity detection failed: {e}")
 
         # Fire and forget - don't await
         asyncio.create_task(process_background())

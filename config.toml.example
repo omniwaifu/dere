@@ -161,6 +161,13 @@ fsm_weight_responsiveness = 0.2     # Responsiveness signal weight
 fsm_weight_temporal = 0.15          # Temporal signal weight
 fsm_weight_task = 0.1               # Task signal weight
 
+# Exploration settings
+exploring_enabled = true            # Enable ambient exploration during idle
+exploring_min_idle_minutes = 30     # Minimum idle time before exploring
+exploring_interval_minutes = [5, 10]  # Time between exploration runs
+exploring_max_explorations_per_day = 20  # Daily exploration cap
+exploring_max_daily_cost_usd = 0.50     # Soft budget cap for exploration
+
 # ============================================================================
 # ActivityWatch Configuration
 # ============================================================================

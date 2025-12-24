@@ -657,15 +657,20 @@ export interface CoreMemoryRollbackResponse {
 }
 
 export interface RecallSearchResult {
-  block_id: number;
-  conversation_id: number;
-  session_id: number;
-  message_type: string;
-  timestamp: number;
-  medium: string | null;
-  user_id: string | null;
-  text: string;
+  result_id: string;
+  result_type: "conversation" | "exploration_finding";
   score: number;
+  text: string;
+  timestamp: number;
+  user_id: string | null;
+  message_type?: string | null;
+  medium?: string | null;
+  session_id?: number | null;
+  conversation_id?: number | null;
+  block_id?: number | null;
+  finding_id?: number | null;
+  task_id?: number | null;
+  confidence?: number | null;
 }
 
 export interface RecallSearchResponse {

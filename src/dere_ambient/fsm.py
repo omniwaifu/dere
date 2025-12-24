@@ -16,6 +16,7 @@ class AmbientState(str, Enum):
     COOLDOWN = "cooldown"  # User ignored notification, backing off
     ESCALATING = "escalating"  # Unacknowledged + critical context
     SUPPRESSED = "suppressed"  # User clearly busy/focused
+    EXPLORING = "exploring"  # Doing autonomous work
 
 
 @dataclass
@@ -28,6 +29,7 @@ class StateIntervals:
     cooldown: tuple[int, int] = (45, 90)
     escalating: tuple[int, int] = (30, 60)
     suppressed: tuple[int, int] = (90, 180)
+    exploring: tuple[int, int] = (5, 10)
 
 
 @dataclass
@@ -73,6 +75,8 @@ class AmbientFSM:
             min_min, max_min = self.intervals.escalating
         elif self.state == AmbientState.SUPPRESSED:
             min_min, max_min = self.intervals.suppressed
+        elif self.state == AmbientState.EXPLORING:
+            min_min, max_min = self.intervals.exploring
         else:
             min_min, max_min = self.intervals.monitoring
 
@@ -330,6 +334,9 @@ class AmbientFSM:
         elif self.state == AmbientState.IDLE:
             # Eventually return to monitoring
             # Time-based, will be handled externally
+            return None
+        elif self.state == AmbientState.EXPLORING:
+            # Exploration transitions are handled externally (idle/activity/backlog)
             return None
 
         return None

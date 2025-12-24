@@ -263,7 +263,7 @@ async def recall_search(
     limit: int = 10,
 ) -> str:
     """
-    Search past conversation turns with hybrid fulltext + vector recall.
+    Search past conversation turns and exploration findings with hybrid recall.
 
     Args:
         query: Search query
@@ -288,6 +288,22 @@ async def recall_search(
     results = data.get("results", [])
     if not results:
         return f"No recall results found for '{query}'"
+
+    surfaced = []
+    session_id = _get_session_id() or session_filter
+    for item in results:
+        if item.get("result_type") != "exploration_finding":
+            continue
+        finding_id = item.get("finding_id")
+        if not finding_id:
+            continue
+        surfaced.append({"finding_id": finding_id, "session_id": session_id})
+
+    if surfaced:
+        async with daemon_client() as client:
+            for payload in surfaced:
+                resp = await client.post("/recall/findings/surface", json=payload)
+                resp.raise_for_status()
 
     parts = [f"## Recall Results for '{query}'\n"]
     for item in results:

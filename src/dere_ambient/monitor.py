@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 import json
+import time
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from .analyzer import ContextAnalyzer
 from .config import AmbientConfig
-from .fsm import AmbientFSM, SignalWeights, StateIntervals
+from .explorer import AmbientExplorer
+from .fsm import AmbientFSM, AmbientState, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
     from dere_shared.personalities import PersonalityLoader
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from dere_daemon.missions.executor import MissionExecutor
+    from dere_daemon.work_queue import WorkQueueCoordinator
+    from dere_graph.graph import DereGraph
 
 
 class AmbientMonitor:
@@ -29,6 +33,8 @@ class AmbientMonitor:
         personality_loader: PersonalityLoader | None = None,
         mission_executor: MissionExecutor | None = None,
         session_factory: Any | None = None,
+        work_queue: WorkQueueCoordinator | None = None,
+        dere_graph: DereGraph | None = None,
     ):
         self.config = config
         self.analyzer = ContextAnalyzer(config, personality_loader=personality_loader)
@@ -36,10 +42,16 @@ class AmbientMonitor:
         self._task: asyncio.Task[Any] | None = None
         self._mission_executor = mission_executor
         self._session_factory = session_factory
+        self._work_queue = work_queue
+        self._dere_graph = dere_graph
         self._last_check_at: datetime | None = None
         self._activity_streak_key: tuple[str, str] | None = None
         self._activity_streak_seconds: float = 0.0
         self._activity_streak_updated_at: datetime | None = None
+        self._last_exploration_at: datetime | None = None
+        self._exploration_day: date | None = None
+        self._explorations_today: int = 0
+        self.explorer: AmbientExplorer | None = None
 
         # Initialize FSM if enabled
         if config.fsm_enabled:
@@ -50,6 +62,7 @@ class AmbientMonitor:
                 cooldown=config.fsm_cooldown_interval,
                 escalating=config.fsm_escalating_interval,
                 suppressed=config.fsm_suppressed_interval,
+                exploring=config.exploring.exploration_interval_minutes,
             )
             weights = SignalWeights(
                 activity=config.fsm_weight_activity,
@@ -63,6 +76,24 @@ class AmbientMonitor:
         else:
             self.fsm = None
             logger.info("Ambient FSM disabled, using fixed intervals")
+
+        if (
+            config.exploring.enabled
+            and self._mission_executor
+            and self._session_factory
+        ):
+            self.explorer = AmbientExplorer(
+                config=config,
+                mission_executor=self._mission_executor,
+                session_factory=self._session_factory,
+                work_queue=self._work_queue,
+                dere_graph=self._dere_graph,
+            )
+            logger.info("Ambient explorer initialized")
+        elif config.exploring.enabled:
+            logger.warning(
+                "Ambient exploration disabled (missing mission executor or session factory)"
+            )
 
     async def start(self) -> None:
         """Start the monitoring loop."""
@@ -175,6 +206,17 @@ class AmbientMonitor:
             current_activity = self._update_activity_streak(current_activity, now)
             self._last_check_at = now
 
+            # Evaluate FSM state transitions before engagement decision
+            if self.fsm:
+                await self._evaluate_fsm_state()
+
+            if await self._maybe_run_exploration(
+                now=now,
+                lookback_minutes=lookback_minutes,
+                current_activity=current_activity,
+            ):
+                return
+
             # Hard minimum interval check (overrides FSM timing)
             if self.fsm and self.fsm.last_notification_time is not None:
                 elapsed = asyncio.get_event_loop().time() - self.fsm.last_notification_time
@@ -186,10 +228,6 @@ class AmbientMonitor:
                         remaining,
                     )
                     return
-
-            # Evaluate FSM state transitions before engagement decision
-            if self.fsm:
-                await self._evaluate_fsm_state()
 
             should_engage, context_snapshot = await self.analyzer.should_engage(
                 activity_lookback_minutes=lookback_minutes,
@@ -208,8 +246,6 @@ class AmbientMonitor:
                         context_snapshot=context_snapshot,
                     )
                     if self.fsm:
-                        from .fsm import AmbientState
-
                         self.fsm.transition_to(AmbientState.ENGAGED, "notification sent")
                         self.fsm.last_notification_time = asyncio.get_event_loop().time()
                 else:
@@ -219,6 +255,71 @@ class AmbientMonitor:
 
         except Exception as e:
             logger.error("Error during ambient check and engage: {}", e)
+
+    async def _maybe_run_exploration(
+        self,
+        *,
+        now: datetime,
+        lookback_minutes: int,
+        current_activity: dict[str, Any] | None,
+    ) -> bool:
+        if not self.explorer or not self.config.exploring.enabled:
+            return False
+
+        if self.fsm and self.fsm.state in (AmbientState.ENGAGED, AmbientState.ESCALATING):
+            return False
+
+        last_interaction = await self.analyzer._get_last_interaction_time()
+        if last_interaction:
+            minutes_idle = (time.time() - last_interaction) / 60
+            if minutes_idle < self.config.exploring.min_idle_minutes:
+                if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                    self.fsm.transition_to(AmbientState.MONITORING, "user active")
+                return False
+        # Cold start: no interaction history, skip idle duration check and rely on AFK
+
+        is_away = current_activity is None
+        if not is_away:
+            is_away = await self.analyzer._is_user_afk(lookback_minutes)
+
+        if not is_away:
+            if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                self.fsm.transition_to(AmbientState.MONITORING, "user active")
+            return False
+
+        if self._exploration_day != now.date():
+            self._exploration_day = now.date()
+            self._explorations_today = 0
+
+        if (
+            self._explorations_today
+            >= self.config.exploring.max_explorations_per_day
+        ):
+            if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                self.fsm.transition_to(AmbientState.IDLE, "daily exploration limit reached")
+            return False
+
+        if not await self.explorer.has_pending_curiosities():
+            if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                self.fsm.transition_to(AmbientState.IDLE, "no curiosity backlog")
+            return False
+
+        if self.fsm and self.fsm.state != AmbientState.EXPLORING:
+            self.fsm.transition_to(AmbientState.EXPLORING, "idle and backlog available")
+
+        outcome = await self.explorer.explore_next()
+        if outcome is None:
+            if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                self.fsm.transition_to(AmbientState.IDLE, "no claimable curiosity tasks")
+            return False
+
+        self._explorations_today += 1
+        self._last_exploration_at = now
+
+        if outcome.result and outcome.result.worth_sharing and outcome.result.confidence >= 0.8:
+            logger.info("Exploration produced a high-confidence shareable finding")
+
+        return True
 
     def _compute_activity_lookback_minutes(self, now: datetime) -> int:
         max_lookback = max(10, self.config.activity_lookback_hours * 60)

@@ -69,7 +69,7 @@ async def spawn_agents(
             - mode: "assigned" (default) or "autonomous" (discovers work from queue)
             - goal: High-level objective for autonomous agents (used instead of prompt)
             - capabilities: Tools the agent can use (for task matching in autonomous mode)
-            - task_types: Task types to filter (feature, bug, refactor, test, docs, research)
+            - task_types: Task types to filter (feature, bug, refactor, test, docs, research, curiosity)
             - max_tasks: Max tasks to complete before terminating (autonomous mode)
             - max_duration_seconds: Max runtime before terminating (autonomous mode)
             - idle_timeout_seconds: Seconds without finding work before terminating (default: 60)

@@ -391,6 +391,8 @@ class DereGraph:
         previous_episodes = await self.driver.get_recent_episodes(group_id, limit=5)
 
         # Run ingestion pipeline
+        # Pass episode_body as extraction_content so we only extract from NEW content,
+        # not the accumulated episode.content
         created_nodes, created_edges, fact_nodes, fact_role_edges = await add_episode(
             self.driver,
             self.llm_client,
@@ -413,6 +415,7 @@ class DereGraph:
             excluded_entity_types=excluded_entity_types,
             edge_types=edge_types,
             excluded_edge_types=excluded_edge_types,
+            extraction_content=episode_body,
         )
 
         logger.info(f"Episode added: {episode.uuid}")

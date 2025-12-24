@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
+from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel
@@ -43,6 +45,153 @@ from dere_graph.prompts import (
     summarize_entities,
 )
 
+# Content size limits for entity extraction
+MAX_EXTRACTION_CHARS = 20000  # ~5K tokens - beyond this, skip or truncate
+MAX_CONTEXT_CHARS = 8000  # Max chars per previous episode for context
+LOG_LINE_THRESHOLD = 0.4  # If >40% of lines look like logs, skip extraction
+
+
+def _truncate_for_context(content: str, max_chars: int = MAX_CONTEXT_CHARS) -> str:
+    """Truncate content for use as context in LLM calls.
+
+    Takes the LAST max_chars to preserve recent/relevant content.
+    """
+    if len(content) <= max_chars:
+        return content
+    # Take the end (most recent content)
+    return "..." + content[-max_chars:]
+
+SYSTEM_REMINDER_CLOSE_RE = re.compile(r"</system[-_]reminder\s*>", re.I)
+SYSTEM_REMINDER_BLOCK_RE = re.compile(
+    r"<system[-_]reminder\b[^>]*>.*?</system[-_]reminder\s*>", re.I | re.S
+)
+USER_BLOCK_RE = re.compile(
+    r"<(?P<tag>(?:user|human)(?:-message)?)\b[^>]*>(.*?)</(?P=tag)\s*>",
+    re.I | re.S,
+)
+USER_OPEN_RE = re.compile(r"<(?:user|human)(?:-message)?\b[^>]*>", re.I)
+ROLE_LINE_RE = re.compile(r"^\s*(user|human|assistant|system)\s*:\s*", re.I)
+
+
+def _extract_last_user_block(content: str) -> str:
+    matches = list(USER_BLOCK_RE.finditer(content))
+    if matches:
+        user_block = matches[-1].group(2).strip()
+        if user_block:
+            return user_block
+
+    open_matches = list(USER_OPEN_RE.finditer(content))
+    if open_matches:
+        start = open_matches[-1].end()
+        tail = content[start:].strip()
+        if not tail:
+            return ""
+        assistant_match = re.search(r"<(?:assistant|ai)(?:-message)?\b", tail, re.I)
+        if assistant_match:
+            tail = tail[: assistant_match.start()].strip()
+        return tail
+
+    return ""
+
+
+def _extract_last_user_lines(content: str) -> str:
+    lines = content.splitlines()
+    last_user_idx = None
+    for idx, line in enumerate(lines):
+        match = ROLE_LINE_RE.match(line)
+        if match and match.group(1).lower() in {"user", "human"}:
+            last_user_idx = idx
+
+    if last_user_idx is None:
+        return ""
+
+    first_match = ROLE_LINE_RE.match(lines[last_user_idx])
+    parts = [lines[last_user_idx][first_match.end() :]] if first_match else [lines[last_user_idx]]
+    for line in lines[last_user_idx + 1 :]:
+        if ROLE_LINE_RE.match(line):
+            break
+        parts.append(line)
+    return "\n".join(parts).strip()
+
+
+def _extract_user_message(content: str) -> str:
+    """Extract just the user's message from a context blob.
+
+    Claude Code hooks pass the full conversation context including system reminders,
+    compacted summaries, etc. For entity extraction, we only care about the user's
+    actual message, which appears after the last system-reminder block.
+    """
+    if not content:
+        return content
+
+    # Find content after the last system-reminder closing tag.
+    last_close = None
+    for match in SYSTEM_REMINDER_CLOSE_RE.finditer(content):
+        last_close = match
+
+    if last_close:
+        user_content = content[last_close.end() :].strip()
+        if user_content:
+            return user_content
+
+    # Strip any system-reminder blocks, then try to extract user content.
+    stripped = SYSTEM_REMINDER_BLOCK_RE.sub("", content).strip()
+    if stripped and stripped != content:
+        user_block = _extract_last_user_block(stripped)
+        if user_block:
+            return user_block
+        user_lines = _extract_last_user_lines(stripped)
+        if user_lines:
+            return user_lines
+        return stripped
+
+    # Fallbacks for non-XML chat transcripts.
+    user_block = _extract_last_user_block(content)
+    if user_block:
+        return user_block
+    user_lines = _extract_last_user_lines(content)
+    if user_lines:
+        return user_lines
+
+    return content
+
+
+def _is_log_or_data_dump(content: str) -> bool:
+    """Detect if content is likely a log dump or data that shouldn't be entity-extracted."""
+    lines = content.strip().split("\n")
+    if len(lines) < 5:
+        return False
+
+    log_patterns = [
+        re.compile(r"^\d{2}:\d{2}:\d{2}"),  # Timestamp start
+        re.compile(r"^\d{4}-\d{2}-\d{2}"),  # ISO date start
+        re.compile(r"^\s*(INFO|DEBUG|ERROR|WARN|WARNING)\s*\|", re.I),  # Log levels
+        re.compile(r"^\s*\w+\.\d+\s*\|"),  # service.1 | style
+        re.compile(r"^Traceback \(most recent"),  # Python traceback
+        re.compile(r"^\s*File \""),  # Stack frame
+        re.compile(r"^\s*│"),  # Rich traceback decoration
+    ]
+
+    log_line_count = 0
+    for line in lines[:100]:  # Sample first 100 lines
+        if any(p.match(line) for p in log_patterns):
+            log_line_count += 1
+
+    ratio = log_line_count / min(len(lines), 100)
+    return ratio >= LOG_LINE_THRESHOLD
+
+
+def _should_skip_extraction(content: str) -> tuple[bool, str]:
+    """Check if extraction should be skipped for this content."""
+    if len(content) > MAX_EXTRACTION_CHARS:
+        if _is_log_or_data_dump(content):
+            return True, f"log/data dump ({len(content)} chars)"
+        # Large but not obviously logs - could truncate, but safer to skip
+        return True, f"oversized content ({len(content)} chars)"
+    if _is_log_or_data_dump(content):
+        return True, "detected as log/data dump"
+    return False, ""
+
 
 async def add_episode(
     driver: FalkorDriver,
@@ -58,8 +207,14 @@ async def add_episode(
     excluded_entity_types: list[str] | None = None,
     edge_types: dict[str, type[BaseModel]] | None = None,
     excluded_edge_types: list[str] | None = None,
+    extraction_content: str | None = None,
 ) -> tuple[list[EntityNode], list[EntityEdge], list[FactNode], list[FactRoleEdge]]:
     """Main ingestion pipeline for adding an episode to the graph.
+
+    Args:
+        extraction_content: If provided, extract entities from this content instead of
+            episode.content. Useful when episode accumulates history but you only want
+            to extract from the NEW content.
 
     Returns:
         tuple: (new_nodes, new_edges, fact_nodes, fact_role_edges) created during ingestion
@@ -77,7 +232,8 @@ async def add_episode(
     await driver.save_episodic_node(episode)
     logger.info(f"Saved episode: {episode.uuid}")
 
-    # 2. Extract entities
+    # 2. Extract entities (use extraction_content if provided, otherwise episode.content)
+    extract_from = extraction_content if extraction_content is not None else episode.content
     extracted_nodes = await extract_nodes(
         llm_client,
         episode,
@@ -85,10 +241,11 @@ async def add_episode(
         enable_reflection,
         entity_types=entity_types,
         excluded_entity_types=excluded_entity_types,
+        extraction_content=extract_from,
     )
     if not extracted_nodes:
         logger.info("No entities extracted")
-        return [], []
+        return [], [], [], []
 
     # 3. Deduplicate entities
     resolved_nodes, uuid_map = await deduplicate_nodes(
@@ -124,6 +281,7 @@ async def add_episode(
         previous_episodes,
         edge_types=edge_types,
         excluded_edge_types=excluded_edge_types,
+        extraction_content=extract_from,
     )
 
     # 5. Deduplicate edges
@@ -155,6 +313,7 @@ async def add_episode(
         episode,
         resolved_nodes,
         previous_episodes,
+        extraction_content=extract_from,
     )
     if fact_nodes:
         fact_nodes, fact_role_edges = await deduplicate_fact_nodes(
@@ -212,8 +371,35 @@ async def extract_nodes(
     enable_reflection: bool = True,
     entity_types: dict[str, type[BaseModel]] | None = None,
     excluded_entity_types: list[str] | None = None,
+    extraction_content: str | None = None,
 ) -> list[EntityNode]:
-    """Extract entity nodes from episode content with optional reflection validation."""
+    """Extract entity nodes from episode content with optional reflection validation.
+
+    Args:
+        extraction_content: If provided, extract from this instead of episode.content.
+    """
+    # Use provided extraction_content, or fall back to episode.content with extraction
+    if extraction_content is not None:
+        user_message = extraction_content
+        raw_content = extraction_content
+    else:
+        raw_content = episode.content
+        user_message = _extract_user_message(raw_content)
+
+    # Log if we extracted a smaller message
+    if len(user_message) < len(raw_content):
+        logger.info(
+            "Extracted user message: {} chars from {} char context",
+            len(user_message),
+            len(raw_content),
+        )
+
+    # Skip extraction for log dumps and oversized content (check the extracted message)
+    skip, reason = _should_skip_extraction(user_message)
+    if skip:
+        logger.info("Skipping entity extraction: {}", reason)
+        return []
+
     def ensure_speaker_first(nodes: list[EntityNode]) -> list[EntityNode]:
         """Ensure the speaker entity exists and is the first node (Graphiti-style)."""
         speaker_name = (episode.speaker_name or "").strip()
@@ -247,18 +433,21 @@ async def extract_nodes(
 
         return [speaker_node, *nodes]
 
-    # Initial extraction
-    prev_episode_strings = [ep.content for ep in (previous_episodes or [])][-4:]
-    episode_content = episode.content
+    # Initial extraction - truncate previous episodes to avoid oversized prompts
+    prev_episode_strings = [
+        _truncate_for_context(_extract_user_message(ep.content))
+        for ep in (previous_episodes or [])
+    ][-4:]
+    episode_content = user_message  # Use extracted user message, not full context
     custom_prompt = ""
     if episode.source == EpisodeType.json:
         import json
 
         try:
-            parsed = json.loads(episode.content)
+            parsed = json.loads(user_message)
             episode_content = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
         except Exception:
-            episode_content = episode.content
+            episode_content = user_message
 
         custom_prompt = f"""
 This episode source is JSON from: {episode.source_description}
@@ -348,12 +537,15 @@ Treat CURRENT_MESSAGE as documentation/notes.
             {"name": node.name, "summary": node.summary or "No summary"} for node in extracted_nodes
         ]
 
-        # Get previous episode content strings
-        prev_episode_strings = [ep.content for ep in previous_episodes]
+        # Get previous episode content strings (truncated)
+        prev_episode_strings = [
+            _truncate_for_context(_extract_user_message(ep.content))
+            for ep in previous_episodes
+        ]
 
         reflection_messages = validate_extracted_entities(
             entity_dicts,
-            episode.content,
+            user_message,  # Use extracted user message
             prev_episode_strings,
         )
 
@@ -425,7 +617,7 @@ Treat CURRENT_MESSAGE as documentation/notes.
             }
             for i, node in enumerate(extracted_nodes)
         ]
-        summary_messages = summarize_entities(prev_episode_strings, episode.content, entities_payload)
+        summary_messages = summarize_entities(prev_episode_strings, user_message, entities_payload)
         summary_response = await llm_client.generate_response(summary_messages, EntitySummaries)
         summaries_by_id = {s.id: s.summary.strip() for s in summary_response.entity_summaries}
         for i, node in enumerate(extracted_nodes):
@@ -465,7 +657,10 @@ async def hydrate_node_attributes(
     if not nodes:
         return
 
-    prev_episode_strings = [ep.content for ep in previous_episodes][-4:]
+    prev_episode_strings = [
+        _truncate_for_context(_extract_user_message(ep.content))
+        for ep in previous_episodes
+    ][-4:]
     entities_payload = [
         {
             "id": i,
@@ -480,7 +675,7 @@ async def hydrate_node_attributes(
 
     messages = hydrate_entity_attributes(
         prev_episode_strings,
-        episode.content,
+        _truncate_for_context(_extract_user_message(episode.content)),
         entities_payload,
         entity_type_schemas=_entity_type_schemas_for_prompt(entity_types),
     )
@@ -564,8 +759,8 @@ async def deduplicate_nodes(
     messages = dedupe_entities(
         extracted_contexts,
         existing_contexts,
-        episode.content,
-        [ep.content for ep in context_episodes],
+        _truncate_for_context(_extract_user_message(episode.content)),
+        [_truncate_for_context(_extract_user_message(ep.content)) for ep in context_episodes],
     )
 
     response = await llm_client.generate_response(messages, NodeResolutions)
@@ -661,8 +856,13 @@ async def extract_entity_edges(
     previous_episodes: list[EpisodicNode],
     edge_types: dict[str, type[BaseModel]] | None = None,
     excluded_edge_types: list[str] | None = None,
+    extraction_content: str | None = None,
 ) -> list[EntityEdge]:
-    """Extract relationships between entities."""
+    """Extract relationships between entities.
+
+    Args:
+        extraction_content: If provided, extract from this instead of episode.content.
+    """
     if len(nodes) < 2:
         logger.debug("Not enough entities to extract relationships")
         return []
@@ -671,16 +871,18 @@ async def extract_entity_edges(
         {"id": i, "name": node.name, "entity_types": node.labels} for i, node in enumerate(nodes)
     ]
 
-    episode_content = episode.content
+    # Use extraction_content if provided, otherwise fall back to episode.content
+    raw_content = extraction_content if extraction_content is not None else episode.content
+    episode_content = _extract_user_message(raw_content)
     custom_prompt = ""
     if episode.source == EpisodeType.json:
         import json
 
         try:
-            parsed = json.loads(episode.content)
+            parsed = json.loads(episode_content)
             episode_content = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
         except Exception:
-            episode_content = episode.content
+            episode_content = _extract_user_message(raw_content)
 
         custom_prompt = f"""
 This episode source is JSON from: {episode.source_description}
@@ -702,7 +904,7 @@ Only extract facts that are clearly supported by the text and involve two distin
 
     messages = extract_edges(
         episode_content,
-        [ep.content for ep in previous_episodes],
+        [_truncate_for_context(_extract_user_message(ep.content)) for ep in previous_episodes],
         nodes_context,
         episode.valid_at.isoformat(),
         custom_prompt=custom_prompt,
@@ -775,8 +977,13 @@ async def extract_fact_nodes(
     episode: EpisodicNode,
     nodes: list[EntityNode],
     previous_episodes: list[EpisodicNode],
+    extraction_content: str | None = None,
 ) -> tuple[list[FactNode], list[FactRoleEdge]]:
-    """Extract n-ary facts with roles between entities."""
+    """Extract n-ary facts with roles between entities.
+
+    Args:
+        extraction_content: If provided, extract from this instead of episode.content.
+    """
     if len(nodes) < 2:
         logger.debug("Not enough entities to extract hyper-edge facts")
         return [], []
@@ -785,16 +992,18 @@ async def extract_fact_nodes(
         {"id": i, "name": node.name, "entity_types": node.labels} for i, node in enumerate(nodes)
     ]
 
-    episode_content = episode.content
+    # Use extraction_content if provided, otherwise fall back to episode.content
+    raw_content = extraction_content if extraction_content is not None else episode.content
+    episode_content = _extract_user_message(raw_content)
     custom_prompt = ""
     if episode.source == EpisodeType.json:
         import json
 
         try:
-            parsed = json.loads(episode.content)
+            parsed = json.loads(episode_content)
             episode_content = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
         except Exception:
-            episode_content = episode.content
+            episode_content = _extract_user_message(raw_content)
 
         custom_prompt = f"""
 This episode source is JSON from: {episode.source_description}
@@ -816,7 +1025,7 @@ Avoid purely narrative or speculative statements.
 
     messages = extract_facts(
         episode_content,
-        [ep.content for ep in previous_episodes],
+        [_truncate_for_context(_extract_user_message(ep.content)) for ep in previous_episodes],
         nodes_context,
         episode.valid_at.isoformat(),
         custom_prompt=custom_prompt,
@@ -906,6 +1115,86 @@ Avoid purely narrative or speculative statements.
 
     logger.debug(f"[FactExtraction] Extracted {len(resolved_facts)} fact nodes")
     return resolved_facts, fact_roles
+
+
+_CONFLICT_ATTRIBUTE_EXCLUSIONS = {
+    "archival",
+    "confidence",
+    "fact_type",
+    "sources",
+    "tags",
+}
+
+
+def _normalize_conflict_value(value: Any) -> Any | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized if normalized else None
+    if isinstance(value, (int, float, bool)):
+        return value
+    return None
+
+
+def _extract_conflict_attributes(attributes: dict[str, Any] | None) -> dict[str, Any]:
+    if not attributes:
+        return {}
+
+    conflicts: dict[str, Any] = {}
+    for key, value in attributes.items():
+        if key in _CONFLICT_ATTRIBUTE_EXCLUSIONS:
+            continue
+        normalized = _normalize_conflict_value(value)
+        if normalized is None:
+            continue
+        conflicts[key] = normalized
+    return conflicts
+
+
+def _build_role_signature(roles: list[Any]) -> dict[str, tuple[str, ...]]:
+    signature: dict[str, list[str]] = {}
+    for role in roles:
+        role_name = (getattr(role, "role", "") or "").strip()
+        entity_uuid = getattr(role, "target_node_uuid", None) or getattr(
+            role, "entity_uuid", None
+        )
+        if not role_name or not entity_uuid:
+            continue
+        signature.setdefault(role_name, []).append(entity_uuid)
+
+    return {
+        role: tuple(sorted(set(uuids)))
+        for role, uuids in signature.items()
+        if uuids
+    }
+
+
+def _find_attribute_conflicts(
+    new_fact: FactNode,
+    new_roles: list[FactRoleEdge],
+    candidate_facts: list[FactNode],
+    roles_by_candidate: dict[str, list[FactRoleDetail]],
+) -> list[FactNode]:
+    role_signature = _build_role_signature(new_roles)
+    if not role_signature:
+        return []
+
+    new_attributes = _extract_conflict_attributes(new_fact.attributes)
+    if not new_attributes:
+        return []
+
+    conflicts: list[FactNode] = []
+    for candidate in candidate_facts:
+        candidate_roles = roles_by_candidate.get(candidate.uuid, [])
+        if _build_role_signature(candidate_roles) != role_signature:
+            continue
+        candidate_attributes = _extract_conflict_attributes(candidate.attributes)
+        if not candidate_attributes:
+            continue
+        for key, value in new_attributes.items():
+            if key in candidate_attributes and candidate_attributes[key] != value:
+                conflicts.append(candidate)
+                break
+    return conflicts
 
 
 async def deduplicate_fact_nodes(
@@ -999,14 +1288,7 @@ async def deduplicate_fact_nodes(
             logger.warning("[FactExtraction] Fact dedupe skipped: {}", e)
             response = FactDuplicate()
 
-        if response.contradicted_facts:
-            for idx in response.contradicted_facts:
-                if 0 <= idx < len(candidate_facts):
-                    await driver.invalidate_fact(
-                        candidate_facts[idx].uuid,
-                        episode.valid_at,
-                    )
-
+        is_duplicate = False
         if response.duplicate_facts:
             duplicate_idx = response.duplicate_facts[0]
             if 0 <= duplicate_idx < len(candidate_facts):
@@ -1021,6 +1303,32 @@ async def deduplicate_fact_nodes(
                     if key not in existing.attributes:
                         existing.attributes[key] = value
                 fact = existing
+                is_duplicate = True
+
+        if not is_duplicate:
+            conflicts = _find_attribute_conflicts(
+                fact,
+                roles,
+                candidate_facts,
+                roles_by_candidate,
+            )
+            if conflicts:
+                if fact.supersedes is None:
+                    fact.supersedes = []
+                for conflicted in conflicts:
+                    if conflicted.uuid not in fact.supersedes:
+                        fact.supersedes.append(conflicted.uuid)
+
+                    if conflicted.superseded_by is None:
+                        conflicted.superseded_by = []
+                    if fact.uuid not in conflicted.superseded_by:
+                        conflicted.superseded_by.append(fact.uuid)
+
+                    if conflicted.invalid_at is None or (
+                        episode.valid_at and conflicted.invalid_at > episode.valid_at
+                    ):
+                        conflicted.invalid_at = episode.valid_at
+                    await driver.save_fact_node(conflicted)
 
         for role_edge in roles:
             role_edge.source_node_uuid = fact.uuid
@@ -1077,10 +1385,13 @@ async def refine_edge_dates_batch(
     if not edges_to_refine:
         return
 
-    prev_episode_strings = [ep.content for ep in previous_episodes][-4:]
+    prev_episode_strings = [
+        _truncate_for_context(_extract_user_message(ep.content))
+        for ep in previous_episodes
+    ][-4:]
     messages = extract_edge_dates_batch(
         prev_episode_strings,
-        episode.content,
+        _truncate_for_context(_extract_user_message(episode.content)),
         edges_to_refine,
         episode.valid_at.isoformat(),
     )

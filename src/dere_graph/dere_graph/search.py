@@ -606,6 +606,19 @@ async def fulltext_fact_search(
         fact_obj = record["attributes"]
         attributes = dict(fact_obj.properties)
 
+        supersedes_raw = attributes.pop("supersedes", []) or []
+        superseded_by_raw = attributes.pop("superseded_by", []) or []
+        supersedes = (
+            list(supersedes_raw)
+            if isinstance(supersedes_raw, (list, tuple))
+            else []
+        )
+        superseded_by = (
+            list(superseded_by_raw)
+            if isinstance(superseded_by_raw, (list, tuple))
+            else []
+        )
+
         for key in [
             "uuid",
             "name",
@@ -631,6 +644,8 @@ async def fulltext_fact_search(
             expired_at=parse_db_date(record.get("expired_at")),
             valid_at=parse_db_date(record.get("valid_at")),
             invalid_at=parse_db_date(record.get("invalid_at")),
+            supersedes=supersedes,
+            superseded_by=superseded_by,
             attributes=attributes,
         )
         facts.append(fact_node)
@@ -699,6 +714,19 @@ async def vector_fact_search(
         fact_obj = record["attributes"]
         attributes = dict(fact_obj.properties)
 
+        supersedes_raw = attributes.pop("supersedes", []) or []
+        superseded_by_raw = attributes.pop("superseded_by", []) or []
+        supersedes = (
+            list(supersedes_raw)
+            if isinstance(supersedes_raw, (list, tuple))
+            else []
+        )
+        superseded_by = (
+            list(superseded_by_raw)
+            if isinstance(superseded_by_raw, (list, tuple))
+            else []
+        )
+
         for key in [
             "uuid",
             "name",
@@ -724,6 +752,8 @@ async def vector_fact_search(
             expired_at=parse_db_date(record.get("expired_at")),
             valid_at=parse_db_date(record.get("valid_at")),
             invalid_at=parse_db_date(record.get("invalid_at")),
+            supersedes=supersedes,
+            superseded_by=superseded_by,
             attributes=attributes,
         )
         facts.append(fact_node)

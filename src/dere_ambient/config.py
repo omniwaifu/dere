@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dere_shared.config import load_dere_config
 from dere_shared.constants import DEFAULT_DAEMON_URL
+
+
+@dataclass
+class ExploringConfig:
+    """Configuration for ambient exploration during idle time."""
+
+    enabled: bool = True
+    min_idle_minutes: int = 30
+    exploration_interval_minutes: tuple[int, int] = (5, 10)
+    max_explorations_per_day: int = 20
+    max_daily_cost_usd: float = 0.50
 
 
 @dataclass
@@ -50,6 +61,9 @@ class AmbientConfig:
     fsm_weight_temporal: float = 0.15
     fsm_weight_task: float = 0.1
 
+    # Exploration settings
+    exploring: ExploringConfig = field(default_factory=ExploringConfig)
+
 
 def load_ambient_config() -> AmbientConfig:
     """Load ambient configuration from dere config file.
@@ -91,4 +105,13 @@ def load_ambient_config() -> AmbientConfig:
         fsm_weight_responsiveness=ambient_section.get("fsm_weight_responsiveness", 0.2),
         fsm_weight_temporal=ambient_section.get("fsm_weight_temporal", 0.15),
         fsm_weight_task=ambient_section.get("fsm_weight_task", 0.1),
+        exploring=ExploringConfig(
+            enabled=ambient_section.get("exploring_enabled", True),
+            min_idle_minutes=ambient_section.get("exploring_min_idle_minutes", 30),
+            exploration_interval_minutes=tuple(
+                ambient_section.get("exploring_interval_minutes", [5, 10])
+            ),
+            max_explorations_per_day=ambient_section.get("exploring_max_explorations_per_day", 20),
+            max_daily_cost_usd=ambient_section.get("exploring_max_daily_cost_usd", 0.50),
+        ),
     )

@@ -8,6 +8,7 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,12 +21,21 @@ from claude_agent_sdk.types import (
     StreamEvent as SDKStreamEvent,
 )
 from loguru import logger
+from sqlalchemy import exists
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import select
 
 from dere_shared.config import load_dere_config
 from dere_shared.context import get_time_context
-from dere_shared.models import Conversation, ConversationBlock, CoreMemoryBlock, MessageType, Session
+from dere_shared.models import (
+    Conversation,
+    ConversationBlock,
+    CoreMemoryBlock,
+    ExplorationFinding,
+    MessageType,
+    Session,
+    SurfacedFinding,
+)
 from dere_shared.personalities import PersonalityLoader
 from dere_shared.weather import get_weather_context
 from dere_shared.xml_utils import add_line_numbers, render_tag, render_text_tag
@@ -827,6 +837,55 @@ class CentralizedAgentService:
                 session.thinking_budget = config.thinking_budget
                 await db.commit()
 
+    async def _dequeue_shareable_finding(
+        self,
+        session: AgentSession,
+    ) -> tuple[str | None, int | None]:
+        user_id = session.config.user_id
+        if not user_id:
+            return None, None
+
+        surfaced_cutoff = datetime.now(UTC) - timedelta(days=7)
+        try:
+            async with self.session_factory() as db:
+                surfaced_exists = (
+                    exists()
+                    .where(SurfacedFinding.finding_id == ExplorationFinding.id)
+                    .where(SurfacedFinding.surfaced_at > surfaced_cutoff)
+                    .where(SurfacedFinding.session_id == session.session_id)
+                )
+                stmt = (
+                    select(ExplorationFinding)
+                    .where(
+                        ExplorationFinding.worth_sharing.is_(True),
+                        ExplorationFinding.confidence >= 0.8,
+                        ExplorationFinding.user_id == user_id,
+                        ~surfaced_exists,
+                    )
+                    .order_by(ExplorationFinding.created_at.desc())
+                    .limit(1)
+                )
+                finding = (await db.execute(stmt)).scalar_one_or_none()
+                if not finding or not finding.id:
+                    return None, None
+
+                db.add(
+                    SurfacedFinding(
+                        finding_id=finding.id,
+                        session_id=session.session_id,
+                    )
+                )
+                await db.commit()
+                logger.info(
+                    "Surfacing exploration finding {} for session {}",
+                    finding.id,
+                    session.session_id,
+                )
+                return finding.share_message or finding.finding, finding.id
+        except Exception as e:
+            logger.warning("Failed to surface exploration finding: {}", e)
+            return None, None
+
     async def query(
         self,
         session: AgentSession,
@@ -839,10 +898,11 @@ class CentralizedAgentService:
         events are yielded so the UI can display the prompt.
         """
         session.touch()
+        user_prompt = prompt
 
         # Store initial prompt for name generation (first query only)
         if session.initial_prompt is None:
-            session.initial_prompt = prompt
+            session.initial_prompt = user_prompt
 
         cancel_event = self._get_cancel_event(session.session_id)
         cancel_event.clear()
@@ -859,7 +919,7 @@ class CentralizedAgentService:
             async with self.session_factory() as db:
                 conv_user = Conversation(
                     session_id=session.session_id,
-                    prompt=prompt,
+                    prompt=user_prompt,
                     message_type=MessageType.USER,
                     personality=personality_snapshot,
                     timestamp=int(time.time()),
@@ -868,18 +928,27 @@ class CentralizedAgentService:
                 )
                 db.add(conv_user)
                 await db.flush()
-                if prompt.strip():
+                if user_prompt.strip():
                     db.add(
                         ConversationBlock(
                             conversation_id=conv_user.id,  # type: ignore[arg-type]
                             ordinal=0,
                             block_type="text",
-                            text=prompt,
+                            text=user_prompt,
                         )
                     )
                 await db.commit()
         except Exception as e:
             logger.debug("Failed to persist user conversation: {}", e)
+
+        prompt_for_model = user_prompt
+        finding_text, _finding_id = await self._dequeue_shareable_finding(session)
+        if finding_text:
+            prompt_for_model = (
+                f"{user_prompt}\n\n"
+                "Assistant context (ambient exploration; share if relevant):\n"
+                f"{finding_text}"
+            )
 
         # Track timing
         request_start_time = time.monotonic()
@@ -926,7 +995,7 @@ class CentralizedAgentService:
             ordered_blocks.append(block)
 
         try:
-            await session.runner.query(prompt)
+            await session.runner.query(prompt_for_model)
         except Exception as e:
             logger.error("Claude query failed: {}", e)
             yield session.add_event(error_event(str(e), recoverable=False))
@@ -1186,6 +1255,7 @@ class CentralizedAgentService:
             thinking_ms = int(thinking_total_ms)
 
         # Persist assistant message + metrics (best-effort)
+        assistant_conversation_id: int | None = None
         try:
             async with self.session_factory() as db:
                 conv_assistant = Conversation(
@@ -1204,6 +1274,7 @@ class CentralizedAgentService:
                 )
                 db.add(conv_assistant)
                 await db.flush()
+                assistant_conversation_id = conv_assistant.id
 
                 blocks: list[ConversationBlock] = []
                 ordinal = 0
@@ -1263,12 +1334,32 @@ class CentralizedAgentService:
                 if blocks:
                     db.add_all(blocks)
                 await db.commit()
+
+            if assistant_conversation_id:
+                try:
+                    from dere_ambient.triggers import process_curiosity_triggers
+
+                    await process_curiosity_triggers(
+                        prompt=response_text,
+                        session_id=session.session_id,
+                        conversation_id=assistant_conversation_id,
+                        user_id=session.config.user_id,
+                        working_dir=session.config.working_dir,
+                        personality=personality_snapshot,
+                        speaker_name=None,
+                        is_command=False,
+                        message_type="assistant",
+                        kg_nodes=None,
+                        session_factory=self.session_factory,
+                    )
+                except Exception as e:
+                    logger.debug("Assistant curiosity detection failed: {}", e)
         except Exception as e:
             logger.debug("Failed to persist assistant conversation: {}", e)
 
         # Process interaction for bond and emotion systems (fire and forget)
         await self._process_interaction_complete(
-            session, prompt, response_text, tool_count, response_time_ms
+            session, user_prompt, response_text, tool_count, response_time_ms
         )
 
         yield session.add_event(done_event(response_text, tool_count, timings))

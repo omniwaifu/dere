@@ -43,7 +43,7 @@ async def list_tasks(
     Args:
         working_dir: Filter by project directory (defaults to current)
         status: Filter by status ('backlog', 'ready', 'claimed', 'in_progress', 'done', 'blocked', 'cancelled')
-        task_type: Filter by task type ('feature', 'bug', 'refactor', 'test', 'docs', 'research')
+        task_type: Filter by task type ('feature', 'bug', 'refactor', 'test', 'docs', 'research', 'curiosity')
         tags: Filter by tags (returns tasks with any matching tag)
         limit: Maximum tasks to return (default 50)
 
@@ -98,7 +98,7 @@ async def create_task(
         context_summary: Background information for the agent
         scope_paths: Files/directories relevant to this task
         required_tools: Tools needed (e.g., ["Edit", "Bash", "Grep"])
-        task_type: Type ('feature', 'bug', 'refactor', 'test', 'docs', 'research')
+        task_type: Type ('feature', 'bug', 'refactor', 'test', 'docs', 'research', 'curiosity')
         tags: Task tags for categorization
         estimated_effort: Effort estimate ('trivial', 'small', 'medium', 'large', 'epic')
         priority: Priority level (higher = more important, default 0)

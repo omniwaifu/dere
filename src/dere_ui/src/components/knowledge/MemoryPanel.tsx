@@ -359,19 +359,22 @@ function CoreMemoryHistory({
 }
 
 function RecallResultCard({ result }: { result: RecallSearchResult }) {
+  const messageType = result.message_type ?? result.result_type;
   const messageVariant =
-    result.message_type === "user"
+    messageType === "user"
       ? "default"
-      : result.message_type === "assistant"
+      : messageType === "assistant"
         ? "secondary"
         : "outline";
+  const badgeLabel =
+    result.result_type === "exploration_finding" ? "exploration" : messageType;
 
   return (
     <div className="rounded-lg border border-border bg-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge variant={messageVariant} className="capitalize">
-            {result.message_type}
+            {badgeLabel}
           </Badge>
           <span className="text-xs text-muted-foreground">
             {formatEpoch(result.timestamp)}
@@ -385,18 +388,26 @@ function RecallResultCard({ result }: { result: RecallSearchResult }) {
         {result.text}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>Session {result.session_id}</span>
+        {result.session_id !== undefined && result.session_id !== null && (
+          <span>Session {result.session_id}</span>
+        )}
+        {result.task_id && <span>Task {result.task_id}</span>}
         {result.medium && <span>Medium: {result.medium}</span>}
         {result.user_id && <span>User: {result.user_id}</span>}
-        <Link
-          to="/chat/$sessionId"
-          params={{ sessionId: String(result.session_id) }}
-          className="ml-auto"
-        >
-          <Button variant="ghost" size="sm">
-            Open session
-          </Button>
-        </Link>
+        {typeof result.confidence === "number" && (
+          <span>Confidence: {result.confidence.toFixed(2)}</span>
+        )}
+        {result.session_id !== undefined && result.session_id !== null && (
+          <Link
+            to="/chat/$sessionId"
+            params={{ sessionId: String(result.session_id) }}
+            className="ml-auto"
+          >
+            <Button variant="ghost" size="sm">
+              Open session
+            </Button>
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -834,7 +845,7 @@ export function MemoryPanel() {
             Recall Search
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            Search past conversation turns with hybrid text + vector recall.
+            Search past conversation turns and exploration findings with hybrid recall.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -898,7 +909,7 @@ export function MemoryPanel() {
           ) : recallResults?.results?.length ? (
             <div className="space-y-3">
               {recallResults.results.map((result) => (
-                <RecallResultCard key={result.block_id} result={result} />
+                <RecallResultCard key={result.result_id} result={result} />
               ))}
             </div>
           ) : (

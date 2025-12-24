@@ -793,7 +793,7 @@ class ProjectTask(SQLModel, table=True):
     required_tools: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
 
     # Classification
-    task_type: str | None = None  # 'feature', 'bug', 'refactor', 'test', 'docs', 'research'
+    task_type: str | None = None  # 'feature', 'bug', 'refactor', 'test', 'docs', 'research', 'curiosity'
     tags: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String())))
     estimated_effort: str | None = None  # 'trivial', 'small', 'medium', 'large', 'epic'
     priority: int = Field(default=0)
@@ -832,3 +832,59 @@ class ProjectTask(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
     started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     completed_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+
+class ExplorationFinding(SQLModel, table=True):
+    """Durable finding produced by ambient exploration."""
+
+    __tablename__ = "exploration_findings"
+    __table_args__ = (
+        Index("exploration_findings_task_idx", "task_id"),
+        Index(
+            "exploration_findings_user_idx",
+            "user_id",
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "exploration_findings_created_idx",
+            "created_at",
+            postgresql_ops={"created_at": "DESC"},
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="project_tasks.id")
+    user_id: str | None = None
+    finding: str = Field(sa_column=Column(String()))
+    source_context: str | None = Field(default=None, sa_column=Column(String()))
+    confidence: float = Field(default=0.0)
+    worth_sharing: bool = Field(default=False)
+    share_message: str | None = Field(default=None, sa_column=Column(String()))
+
+    created_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+    updated_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))
+
+
+class SurfacedFinding(SQLModel, table=True):
+    """Tracks when exploration findings were surfaced to avoid repetition."""
+
+    __tablename__ = "surfaced_findings"
+    __table_args__ = (
+        Index("surfaced_findings_finding_idx", "finding_id"),
+        Index("surfaced_findings_session_idx", "session_id"),
+        Index(
+            "surfaced_findings_surfaced_idx",
+            "surfaced_at",
+            postgresql_ops={"surfaced_at": "DESC"},
+        ),
+        UniqueConstraint(
+            "finding_id",
+            "session_id",
+            name="uq_surfaced_findings_finding_session",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    finding_id: int = Field(foreign_key="exploration_findings.id")
+    session_id: int | None = Field(default=None, foreign_key="sessions.id")
+    surfaced_at: datetime = Field(default_factory=_utc_now, sa_type=DateTime(timezone=True))

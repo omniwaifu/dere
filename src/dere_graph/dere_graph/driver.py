@@ -189,6 +189,8 @@ class FalkorDriver:
             "episodes": node.episodes,
             "valid_at": node.valid_at,
             "invalid_at": node.invalid_at,
+            "supersedes": node.supersedes,
+            "superseded_by": node.superseded_by,
             **node.attributes,
         }
 
@@ -1334,6 +1336,8 @@ class FalkorDriver:
         expired_at_str = props.pop("expired_at", None)
         valid_at_str = props.pop("valid_at", None)
         invalid_at_str = props.pop("invalid_at", None)
+        supersedes = props.pop("supersedes", []) or []
+        superseded_by = props.pop("superseded_by", []) or []
 
         created_at = _parse_iso_datetime(created_at_str) or datetime.now(UTC)
         expired_at = _parse_iso_datetime(expired_at_str)
@@ -1353,6 +1357,10 @@ class FalkorDriver:
             expired_at=expired_at,
             valid_at=valid_at,
             invalid_at=invalid_at,
+            supersedes=list(supersedes) if isinstance(supersedes, (list, tuple)) else [],
+            superseded_by=list(superseded_by)
+            if isinstance(superseded_by, (list, tuple))
+            else [],
             attributes=attributes,
         )
 

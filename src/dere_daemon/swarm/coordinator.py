@@ -1908,7 +1908,7 @@ When creating follow-up tasks with `create_task()`, include:
 - **title**: Clear, actionable title
 - **description**: What needs to be done
 - **acceptance_criteria**: How to know when it's complete
-- **task_type**: 'feature', 'bug', 'refactor', 'test', 'docs', or 'research'
+- **task_type**: 'feature', 'bug', 'refactor', 'test', 'docs', 'research', or 'curiosity'
 - **estimated_effort**: 'trivial', 'small', 'medium', 'large', or 'epic'
 - **scope_paths**: Relevant files/directories
 - **required_tools**: Tools needed (e.g., ["Edit", "Bash", "Grep"])

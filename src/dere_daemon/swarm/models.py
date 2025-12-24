@@ -79,7 +79,7 @@ class AgentSpec(BaseModel):
     )
     task_types: list[str] | None = Field(
         default=None,
-        description="Task types to filter (feature, bug, refactor, test, docs, research)",
+        description="Task types to filter (feature, bug, refactor, test, docs, research, curiosity)",
     )
     max_tasks: int | None = Field(
         default=None,
