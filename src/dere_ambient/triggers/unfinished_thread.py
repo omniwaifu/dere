@@ -18,6 +18,19 @@ _AFFIRMATIVE_STARTS = frozenset({
     "not now", "maybe later", "hold off", "wait",
 })
 
+# Greetings that start a new interaction (not a topic change)
+_GREETING_STARTS = frozenset({
+    "yo", "hey", "hi", "hello", "sup", "hiya", "heya", "howdy",
+    "what's up", "whats up", "wassup", "good morning", "good afternoon",
+    "good evening", "morning", "afternoon", "evening", "merry",
+})
+
+# Follow-up question starters (continuing the same topic)
+_FOLLOWUP_STARTS = frozenset({
+    "or", "how about", "what about", "and", "also", "btw", "by the way",
+    "actually", "wait", "oh", "hmm", "ah", "well",
+})
+
 
 def detect_unfinished_thread(
     *,
@@ -47,15 +60,18 @@ def detect_unfinished_thread(
 
 
 def _is_direct_response(text: str) -> bool:
-    """Check if text looks like a direct answer to a yes/no question."""
+    """Check if text looks like a direct answer, greeting, or follow-up."""
     normalized = text.casefold().strip()
-    # Check if starts with common affirmative/negative phrases
-    for phrase in _AFFIRMATIVE_STARTS:
-        if normalized.startswith(phrase):
-            # Make sure it's a word boundary (not "yeast" matching "yea")
-            rest = normalized[len(phrase):]
-            if not rest or not rest[0].isalnum():
-                return True
+
+    # Check all phrase sets
+    for phrase_set in (_AFFIRMATIVE_STARTS, _GREETING_STARTS, _FOLLOWUP_STARTS):
+        for phrase in phrase_set:
+            if normalized.startswith(phrase):
+                # Make sure it's a word boundary (not "yeast" matching "yea")
+                rest = normalized[len(phrase):]
+                if not rest or not rest[0].isalnum():
+                    return True
+
     return False
 
 

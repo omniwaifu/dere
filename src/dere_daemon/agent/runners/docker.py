@@ -195,7 +195,6 @@ class DockerSessionRunner(SessionRunner):
 
         # Get websocket BEFORE starting container (per aiodocker docs)
         self._ws = await self._container.websocket(stdin=True, stdout=True, stderr=True, stream=True)
-        logger.info("Websocket connected for container: {}", self._container.id[:12])
 
         # Now start container
         await self._container.start()
@@ -205,13 +204,11 @@ class DockerSessionRunner(SessionRunner):
         self._reader_task = asyncio.create_task(self._read_ws())
 
         # Wait for ready signal
-        logger.info("Waiting for container ready signal...")
         try:
             event = await asyncio.wait_for(self._event_queue.get(), timeout=30.0)
-            logger.info("Received init event: {}", event)
             if event.get("type") != "ready":
                 raise RuntimeError(f"Unexpected init event: {event}")
-            logger.info("Sandbox container ready")
+            logger.info("Sandbox container ready: {}", self._container.id[:12])
         except TimeoutError:
             await self.close()
             raise RuntimeError("Sandbox container did not become ready in time")
@@ -230,7 +227,6 @@ class DockerSessionRunner(SessionRunner):
     async def _read_ws(self) -> None:
         """Background task to read JSON events from container via websocket."""
         buffer = ""
-        logger.info("WebSocket reader started")
         try:
             while True:
                 msg = await self._ws.receive()
@@ -244,7 +240,7 @@ class DockerSessionRunner(SessionRunner):
                             continue
                         try:
                             event = json.loads(line)
-                            logger.info("Parsed event from container: type={}", event.get("type"))
+                            logger.debug("Parsed event from container: type={}", event.get("type"))
                             await self._event_queue.put(event)
                         except json.JSONDecodeError:
                             logger.warning("Invalid JSON from container: {}", line[:100])
@@ -262,13 +258,11 @@ class DockerSessionRunner(SessionRunner):
             raise RuntimeError("Container not started")
 
         cmd = json.dumps({"type": "query", "prompt": prompt}) + "\n"
-        logger.info("Sending query to container: {} bytes", len(cmd))
+        logger.debug("Sending query to container: {} bytes", len(cmd))
         await self._ws.send_bytes(cmd.encode())
-        logger.info("Query sent to container")
 
     async def receive_response(self) -> AsyncIterator[StreamEvent | _DockerInitMessage]:
         """Yield events from the container."""
-        logger.info("Starting to receive response from container")
         while True:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=300.0)
@@ -278,7 +272,6 @@ class DockerSessionRunner(SessionRunner):
 
             event_type = event.get("type")
             data = event.get("data", {})
-            logger.info("Container event: type={}, data_keys={}", event_type, list(data.keys()) if data else [])
 
             if event_type == "done":
                 yield done_event(

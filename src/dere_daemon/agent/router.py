@@ -362,7 +362,7 @@ async def agent_websocket(websocket: WebSocket):
 
     except WebSocketDisconnect:
         duration_ms = int((time.monotonic() - ws_start_time) * 1000)
-        logger.info("WebSocket client disconnected after {}ms", duration_ms)
+        logger.debug("WebSocket client disconnected after {}ms", duration_ms)
         sentry_sdk.add_breadcrumb(
             category="websocket",
             message="WebSocket disconnected",

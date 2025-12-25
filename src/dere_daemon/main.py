@@ -1599,10 +1599,22 @@ async def get_global_emotion_manager():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    from dere_shared.llm_client import is_auth_failed
+
     return {
         "status": "healthy",
         "dere_graph": "available" if app.state.dere_graph else "unavailable",
+        "claude_auth": "expired" if is_auth_failed() else "ok",
     }
+
+
+@app.post("/auth/reset")
+async def reset_auth():
+    """Reset auth failure state after user re-authenticates."""
+    from dere_shared.llm_client import reset_auth_state
+
+    reset_auth_state()
+    return {"status": "ok", "message": "Auth state reset. LLM features re-enabled."}
 
 
 @app.get("/user/info")

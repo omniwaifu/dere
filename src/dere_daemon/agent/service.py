@@ -1059,7 +1059,6 @@ class CentralizedAgentService:
                                         first_token_time = time.monotonic()
                                     _close_thinking_window(time.monotonic())
                                     _append_or_coalesce_block({"type": "text", "text": text})
-                                    logger.info("Stream text chunk: {!r}", text)
                                     response_chunks.append(text)
                                     await event_queue.put(
                                         session.add_event(text_event(text))
@@ -1073,7 +1072,6 @@ class CentralizedAgentService:
                                     if thinking_window_start is None:
                                         thinking_window_start = now_t
                                     _append_or_coalesce_block({"type": "thinking", "text": thinking_text})
-                                    logger.info("Stream thinking chunk: {!r}", thinking_text)
                                     await event_queue.put(
                                         session.add_event(thinking_event(thinking_text))
                                     )
@@ -1392,6 +1390,16 @@ class CentralizedAgentService:
         # Process interaction for bond and emotion systems (fire and forget)
         await self._process_interaction_complete(
             session, user_prompt, response_text, tool_count, response_time_ms
+        )
+
+        # Log query completion summary
+        logger.info(
+            "Query complete: session={} response_chars={} tools={} ttft={}ms total={}ms",
+            session.session_id,
+            len(response_text),
+            tool_use_count,
+            ttft_ms or 0,
+            response_ms or 0,
         )
 
         yield session.add_event(done_event(response_text, tool_count, timings))

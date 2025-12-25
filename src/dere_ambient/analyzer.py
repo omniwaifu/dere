@@ -11,7 +11,7 @@ import httpx
 from loguru import logger
 
 from dere_shared.activitywatch import ActivityWatchService
-from dere_shared.llm_client import ClaudeClient
+from dere_shared.llm_client import AuthenticationError, ClaudeClient
 from dere_shared.models import AmbientEngagementDecision
 from dere_shared.tasks import get_task_context
 
@@ -572,6 +572,9 @@ class ContextAnalyzer:
             else:
                 logger.info("Ambient decision: NO ENGAGEMENT - {}", decision.reasoning)
                 return None
+        except AuthenticationError:
+            # Auth expired - don't spam logs, LLM client already logged once
+            return None
         except Exception as e:
             logger.error("Ambient LLM decision failed: {}", e)
             return None

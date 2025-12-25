@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -16,7 +16,8 @@ from .entities import detect_unfamiliar_entities
 from .knowledge_gap import detect_knowledge_gap
 from .priority import compute_curiosity_priority
 from .types import CuriositySignal
-from .unfinished_thread import detect_unfinished_thread
+
+# Disabled: from .unfinished_thread import detect_unfinished_thread
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,12 +76,13 @@ async def process_curiosity_triggers(
             if emotional:
                 signals.append(emotional)
 
-            unfinished = detect_unfinished_thread(
-                prompt=text,
-                previous_assistant=previous_assistant,
-            )
-            if unfinished:
-                signals.append(unfinished)
+            # Disabled: too many false positives, no reliable way to detect topic changes
+            # unfinished = detect_unfinished_thread(
+            #     prompt=text,
+            #     previous_assistant=previous_assistant,
+            # )
+            # if unfinished:
+            #     signals.append(unfinished)
         elif message_type == "assistant":
             previous_user = await _get_previous_user_message(
                 db,

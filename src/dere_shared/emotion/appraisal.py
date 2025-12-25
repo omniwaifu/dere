@@ -12,6 +12,7 @@ from dere_shared.emotion.models import (
     OCCGoal,
     OCCStandard,
 )
+from dere_shared.llm_client import AuthenticationError
 
 if TYPE_CHECKING:
     from dere_shared.llm_client import ClaudeClient
@@ -96,6 +97,9 @@ class AppraisalEngine:
 
             return appraisal_output
 
+        except AuthenticationError:
+            # Auth expired - don't spam logs, LLM client already logged once
+            return None
         except Exception as e:
             logger.error(f"[AppraisalEngine] Appraisal failed: {e}")
             return None

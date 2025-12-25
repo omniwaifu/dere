@@ -428,7 +428,7 @@ class OCCEmotionManager:
                 )
 
         if decay_result["total_decay_activity"] > 0:
-            logger.info(
+            logger.debug(
                 f"[OCCEmotionManager] Decay applied: "
                 f"{decay_result['total_decay_activity']:.1f} total activity, "
                 f"{len(self.active_emotions)} emotions remaining"
