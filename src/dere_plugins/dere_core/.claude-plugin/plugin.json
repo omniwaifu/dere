@@ -6,6 +6,8 @@
     "swarm": {
       "command": "uv",
       "args": [
+        "--project",
+        "${DERE_PROJECT_PATH}",
         "run",
         "python",
         "-m",
@@ -22,6 +24,8 @@
     "work-queue": {
       "command": "uv",
       "args": [
+        "--project",
+        "${DERE_PROJECT_PATH}",
         "run",
         "python",
         "-m",
@@ -37,6 +41,8 @@
     "knowledge": {
       "command": "uv",
       "args": [
+        "--project",
+        "${DERE_PROJECT_PATH}",
         "run",
         "python",
         "-m",

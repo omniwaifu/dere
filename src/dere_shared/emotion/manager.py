@@ -26,6 +26,10 @@ from dere_shared.emotion.physics import EmotionPhysics, EmotionPhysicsContext
 if TYPE_CHECKING:
     from dere_graph.llm_client import ClaudeClient
 
+# Batch appraisal limits to avoid OS argument length limits (E2BIG)
+MAX_BATCH_SIZE = 8  # Max stimuli per batch
+MAX_CONTENT_CHARS = 500  # Max chars per message content
+
 
 class OCCEmotionManager:
     """
@@ -233,18 +237,26 @@ class OCCEmotionManager:
         if not self._pending_stimuli:
             return self.active_emotions
 
-        logger.info(
-            f"[OCCEmotionManager] Flushing batch appraisal: {len(self._pending_stimuli)} stimuli"
-        )
-
+        pending_count = len(self._pending_stimuli)
         start_time = int(time.time() * 1000)
 
         # Stage 1: Apply decay
         await self._apply_decay_stage(start_time)
 
-        # Combine stimuli into batch
+        # Combine stimuli into batch (may drop excess/truncate content)
         combined_stimulus = self._combine_stimuli_for_batch()
         context = self._pending_stimuli[-1]["context"]  # Use most recent context
+
+        dropped = combined_stimulus.get("dropped_count", 0)
+        if dropped > 0:
+            logger.info(
+                f"[OCCEmotionManager] Flushing batch: {pending_count} stimuli "
+                f"({dropped} dropped, {combined_stimulus['message_count']} processed)"
+            )
+        else:
+            logger.info(
+                f"[OCCEmotionManager] Flushing batch: {pending_count} stimuli"
+            )
         persona_prompt = self._pending_stimuli[-1]["persona_prompt"]
 
         # Stage 2: Run batch appraisal
@@ -271,9 +283,16 @@ class OCCEmotionManager:
         return self.active_emotions
 
     def _combine_stimuli_for_batch(self) -> dict:
-        """Combine buffered stimuli into a single batch stimulus."""
+        """Combine buffered stimuli into a single batch stimulus.
+
+        Limits batch size and content length to avoid OS argument length limits.
+        """
+        # Take only most recent stimuli if we have too many
+        stimuli_to_process = self._pending_stimuli[-MAX_BATCH_SIZE:]
+        dropped = len(self._pending_stimuli) - len(stimuli_to_process)
+
         messages = []
-        for item in self._pending_stimuli:
+        for item in stimuli_to_process:
             stimulus = item["stimulus"]
             if isinstance(stimulus, dict):
                 content = stimulus.get("content") or stimulus.get("message") or str(stimulus)
@@ -281,18 +300,28 @@ class OCCEmotionManager:
             else:
                 content = str(stimulus)
                 msg_type = "message"
+
+            # Truncate long content
+            if len(content) > MAX_CONTENT_CHARS:
+                content = content[:MAX_CONTENT_CHARS] + "..."
+
             messages.append({"type": msg_type, "content": content})
 
-        return {
+        result = {
             "type": "batch_conversation",
             "message_count": len(messages),
             "messages": messages,
             "time_span_ms": (
-                self._pending_stimuli[-1]["timestamp"] - self._pending_stimuli[0]["timestamp"]
-                if len(self._pending_stimuli) > 1
+                stimuli_to_process[-1]["timestamp"] - stimuli_to_process[0]["timestamp"]
+                if len(stimuli_to_process) > 1
                 else 0
             ),
         }
+
+        if dropped > 0:
+            result["dropped_count"] = dropped
+
+        return result
 
     async def process_stimulus(
         self, stimulus: dict | str, context: dict | None = None, persona_prompt: str = ""

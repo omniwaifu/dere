@@ -46,9 +46,22 @@ dere config edit
 - Config file: `~/.config/dere/config.toml`
 - Example: `config.toml.example`
 
-Common gotchas:
-- `DATABASE_URL` / `[database].url` must point at your Postgres instance
-- Knowledge graph requires `OPENAI_API_KEY` (embeddings) and FalkorDB running
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `DERE_PROJECT_PATH` | Path to dere repo. Required for MCP servers to work from other project directories. |
+| `DATABASE_URL` | PostgreSQL connection string (or use `[database].url` in config) |
+| `OPENAI_API_KEY` | Required for knowledge graph embeddings |
+
+Add to your shell profile:
+```bash
+export DERE_PROJECT_PATH=/path/to/dere
+```
+
+### Common gotchas
+
+- Knowledge graph requires FalkorDB running (`just falkordb`)
 
 ## Plugins
 

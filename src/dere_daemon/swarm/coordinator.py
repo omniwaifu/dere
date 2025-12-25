@@ -992,6 +992,7 @@ class SwarmCoordinator:
             lean_mode = agent.plugins is None
 
             # All agents use bridge network - they communicate with daemon via Unix socket
+            # Use direct mount so files written by agents persist after container cleanup
             config = SessionConfig(
                 working_dir=swarm.working_dir,
                 output_style="default",
@@ -1000,6 +1001,7 @@ class SwarmCoordinator:
                 thinking_budget=agent.thinking_budget,
                 model=agent.model,
                 sandbox_mode=agent.sandbox_mode,
+                sandbox_mount_type="direct",
                 sandbox_network_mode="bridge",
                 include_context=False,  # Swarm agents don't need emotion/KG
                 auto_approve=True,  # Autonomous execution
@@ -1307,6 +1309,8 @@ class SwarmCoordinator:
                 thinking_budget=agent.thinking_budget,
                 model=agent.model,
                 sandbox_mode=agent.sandbox_mode,
+                sandbox_mount_type="direct",
+                sandbox_network_mode="bridge",
                 include_context=False,
                 auto_approve=True,
                 lean_mode=lean_mode,
