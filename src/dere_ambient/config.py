@@ -17,6 +17,8 @@ class ExploringConfig:
     exploration_interval_minutes: tuple[int, int] = (5, 10)
     max_explorations_per_day: int = 20
     max_daily_cost_usd: float = 0.50
+    # Force exploration after N hours regardless of activity (0 = disabled)
+    max_hours_between_explorations: float = 4.0
 
 
 @dataclass
@@ -113,5 +115,8 @@ def load_ambient_config() -> AmbientConfig:
             ),
             max_explorations_per_day=ambient_section.get("exploring_max_explorations_per_day", 20),
             max_daily_cost_usd=ambient_section.get("exploring_max_daily_cost_usd", 0.50),
+            max_hours_between_explorations=ambient_section.get(
+                "exploring_max_hours_between", 4.0
+            ),
         ),
     )

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, date, datetime
 import json
 import time
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -16,12 +16,11 @@ from .explorer import AmbientExplorer
 from .fsm import AmbientFSM, AmbientState, SignalWeights, StateIntervals
 
 if TYPE_CHECKING:
-    from dere_shared.personalities import PersonalityLoader
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from dere_graph.graph import DereGraph
 
     from dere_daemon.missions.executor import MissionExecutor
     from dere_daemon.work_queue import WorkQueueCoordinator
-    from dere_graph.graph import DereGraph
+    from dere_shared.personalities import PersonalityLoader
 
 
 class AmbientMonitor:
@@ -269,24 +268,7 @@ class AmbientMonitor:
         if self.fsm and self.fsm.state in (AmbientState.ENGAGED, AmbientState.ESCALATING):
             return False
 
-        last_interaction = await self.analyzer._get_last_interaction_time()
-        if last_interaction:
-            minutes_idle = (time.time() - last_interaction) / 60
-            if minutes_idle < self.config.exploring.min_idle_minutes:
-                if self.fsm and self.fsm.state == AmbientState.EXPLORING:
-                    self.fsm.transition_to(AmbientState.MONITORING, "user active")
-                return False
-        # Cold start: no interaction history, skip idle duration check and rely on AFK
-
-        is_away = current_activity is None
-        if not is_away:
-            is_away = await self.analyzer._is_user_afk(lookback_minutes)
-
-        if not is_away:
-            if self.fsm and self.fsm.state == AmbientState.EXPLORING:
-                self.fsm.transition_to(AmbientState.MONITORING, "user active")
-            return False
-
+        # Reset daily counter on new day
         if self._exploration_day != now.date():
             self._exploration_day = now.date()
             self._explorations_today = 0
@@ -304,8 +286,46 @@ class AmbientMonitor:
                 self.fsm.transition_to(AmbientState.IDLE, "no curiosity backlog")
             return False
 
+        # Check if we should force exploration due to time elapsed
+        max_hours = self.config.exploring.max_hours_between_explorations
+        force_exploration = False
+        if max_hours > 0:
+            if self._last_exploration_at is None:
+                # Cold start: no exploration history, force first one
+                force_exploration = True
+                logger.info("Forcing exploration: first run (no history)")
+            else:
+                hours_since = (now - self._last_exploration_at).total_seconds() / 3600
+                if hours_since >= max_hours:
+                    force_exploration = True
+                    logger.info(
+                        "Forcing exploration: {:.1f}h since last (threshold: {:.1f}h)",
+                        hours_since,
+                        max_hours,
+                    )
+
+        # If not forcing, check idle/AFK requirements
+        if not force_exploration:
+            last_interaction = await self.analyzer._get_last_interaction_time()
+            if last_interaction:
+                minutes_idle = (time.time() - last_interaction) / 60
+                if minutes_idle < self.config.exploring.min_idle_minutes:
+                    if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                        self.fsm.transition_to(AmbientState.MONITORING, "user active")
+                    return False
+
+            is_away = current_activity is None
+            if not is_away:
+                is_away = await self.analyzer._is_user_afk(lookback_minutes)
+
+            if not is_away:
+                if self.fsm and self.fsm.state == AmbientState.EXPLORING:
+                    self.fsm.transition_to(AmbientState.MONITORING, "user active")
+                return False
+
         if self.fsm and self.fsm.state != AmbientState.EXPLORING:
-            self.fsm.transition_to(AmbientState.EXPLORING, "idle and backlog available")
+            reason = "time threshold reached" if force_exploration else "idle and backlog available"
+            self.fsm.transition_to(AmbientState.EXPLORING, reason)
 
         outcome = await self.explorer.explore_next()
         if outcome is None:
