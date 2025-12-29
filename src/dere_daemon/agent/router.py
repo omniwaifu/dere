@@ -42,6 +42,10 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
+class SessionTitleResult(BaseModel):
+    title: str
+
+
 def _get_service(request: Request) -> CentralizedAgentService:
     """Get agent service from app state."""
     return request.app.state.agent_service
@@ -973,19 +977,20 @@ async def generate_session_name(
 
         prompt = (
             "Generate a 2-4 word title for this conversation. "
-            "Output ONLY the title - no explanation, no quotes, no punctuation except spaces.\n\n"
+            "Return structured output with a single field, title. "
+            "No explanation, no quotes, no punctuation except spaces.\n\n"
             f"User message: {first_user_content[:300]}\n"
         )
         if first_assistant_content:
             prompt += f"Assistant response: {first_assistant_content[:200]}\n"
-        prompt += "\nTitle:"
 
-        response = await client.generate_text_response(
-            [Message(role="user", content=prompt)]
+        response = await client.generate_response(
+            [Message(role="user", content=prompt)],
+            SessionTitleResult,
         )
 
-        # Clean up the response - take first line, remove quotes/punctuation
-        name = response.strip().split("\n")[0].strip()
+        # Clean up the response - remove quotes/punctuation
+        name = response.title.strip()
         name = name.strip('"\'').strip()
         # Remove common prefixes if model adds them
         for prefix in ["Title:", "title:", "Title", "title"]:

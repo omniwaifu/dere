@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-import json
-
 from croniter import croniter
 from loguru import logger
+from pydantic import BaseModel
+
+
+class ScheduleParseResult(BaseModel):
+    cron: str
+    timezone: str = "UTC"
+    explanation: str | None = None
 
 
 async def parse_natural_language_schedule(nl_schedule: str) -> tuple[str, str]:
@@ -31,12 +36,10 @@ async def parse_natural_language_schedule(nl_schedule: str) -> tuple[str, str]:
 
 Natural language: {nl_schedule}
 
-Return ONLY a JSON object with these fields:
-{{
-  "cron": "standard 5-field cron expression (minute hour day month weekday)",
-  "timezone": "IANA timezone like America/New_York or UTC",
-  "explanation": "brief explanation of when this runs"
-}}
+Return structured output with:
+- cron: standard 5-field cron expression (minute hour day month weekday)
+- timezone: IANA timezone like America/New_York or UTC
+- explanation: brief explanation of when this runs
 
 Examples:
 - "every day at 6pm" → {{"cron": "0 18 * * *", "timezone": "UTC", "explanation": "Daily at 6:00 PM UTC"}}
@@ -44,22 +47,15 @@ Examples:
 - "every 2 hours" → {{"cron": "0 */2 * * *", "timezone": "UTC", "explanation": "Every 2 hours at the top of the hour"}}
 - "weekdays at 8:30am" → {{"cron": "30 8 * * 1-5", "timezone": "UTC", "explanation": "Monday through Friday at 8:30 AM"}}
 - "first of every month at noon" → {{"cron": "0 12 1 * *", "timezone": "UTC", "explanation": "1st of each month at 12:00 PM"}}
-
-Output JSON only, no markdown formatting:"""
+"""
 
     try:
-        response = await client.generate_text_response([Message(role="user", content=prompt)])
-        response = response.strip()
-
-        # Strip markdown code block if present
-        if response.startswith("```"):
-            lines = response.split("\n")
-            response = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
-            response = response.strip()
-
-        data = json.loads(response)
-        cron_expr = data["cron"]
-        timezone = data.get("timezone", "UTC")
+        result = await client.generate_response(
+            [Message(role="user", content=prompt)],
+            ScheduleParseResult,
+        )
+        cron_expr = result.cron
+        timezone = result.timezone or "UTC"
 
         # Validate cron expression
         _validate_cron(cron_expr)
@@ -69,17 +65,11 @@ Output JSON only, no markdown formatting:"""
             nl_schedule,
             cron_expr,
             timezone,
-            data.get("explanation", ""),
+            result.explanation or "",
         )
 
         return cron_expr, timezone
 
-    except json.JSONDecodeError as e:
-        logger.warning("Failed to parse Haiku response as JSON: {}", response[:200])
-        raise ValueError(f"Failed to parse schedule '{nl_schedule}': invalid JSON response") from e
-    except KeyError as e:
-        logger.warning("Missing field in Haiku response: {}", e)
-        raise ValueError(f"Failed to parse schedule '{nl_schedule}': missing {e}") from e
     except ValueError:
         raise
     except Exception as e:

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dere_shared.agent_models import SessionConfig, StreamEventType
@@ -44,6 +45,7 @@ class MissionExecutor:
         mission: Mission,
         trigger_type: str = MissionTriggerType.SCHEDULED.value,
         triggered_by: str | None = None,
+        response_model: type[BaseModel] | None = None,
     ) -> MissionExecution:
         """Execute a mission and return the execution record.
 
@@ -61,6 +63,13 @@ class MissionExecutor:
             mission.id,
             trigger_type,
         )
+
+        output_format = None
+        if response_model:
+            output_format = {
+                "type": "json_schema",
+                "schema": response_model.model_json_schema(),
+            }
 
         # Create execution record
         async with self.session_factory() as db:
@@ -93,6 +102,7 @@ class MissionExecutor:
                 mission_id=mission.id,  # Link session to mission
                 session_name=mission.name,  # Use mission name as session name
                 auto_approve=True,  # Missions run autonomously without permission prompts
+                output_format=output_format,
             )
 
             # Create agent session
@@ -104,6 +114,7 @@ class MissionExecutor:
                 tool_count = 0
                 error_message: str | None = None
 
+                structured_output: dict[str, Any] | None = None
                 async for event in self.agent_service.query(session, mission.prompt):
                     if event.type == StreamEventType.TEXT:
                         text = event.data.get("text", "")
@@ -116,6 +127,9 @@ class MissionExecutor:
                     elif event.type == StreamEventType.DONE:
                         # Final event includes total tool count
                         tool_count = event.data.get("tool_count", tool_count)
+                        candidate = event.data.get("structured_output")
+                        if isinstance(candidate, dict):
+                            structured_output = candidate
 
                     elif event.type == StreamEventType.ERROR:
                         error_message = event.data.get("message", "Unknown error")
@@ -149,6 +163,10 @@ class MissionExecutor:
                         exec_record.output_summary = output_summary
                         exec_record.tool_count = tool_count
                         exec_record.error_message = error_message
+                        if structured_output is not None:
+                            metadata = dict(exec_record.execution_metadata or {})
+                            metadata["structured_output"] = structured_output
+                            exec_record.execution_metadata = metadata
                         await db.commit()
                         await db.refresh(exec_record)
                         execution = exec_record

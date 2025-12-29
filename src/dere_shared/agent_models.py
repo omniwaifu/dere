@@ -124,6 +124,13 @@ class SessionConfig(BaseModel):
         default=None,
         description="Additional environment variables to pass to the agent process",
     )
+    output_format: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Structured output format for Claude Agent SDK "
+            "(e.g., {'type': 'json_schema', 'schema': {...}})."
+        ),
+    )
 
 
 class ClientMessageType(str, Enum):

@@ -1975,6 +1975,7 @@ async def search_hybrid(req: HybridSearchRequest, db: AsyncSession = Depends(get
 async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession = Depends(get_db)):
     """Capture conversation and queue background tasks"""
     from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     # Ensure session exists
     stmt = select(Session).where(Session.id == req.session_id)
@@ -1982,14 +1983,25 @@ async def conversation_capture(req: ConversationCaptureRequest, db: AsyncSession
     session = result.scalar_one_or_none()
 
     if not session:
-        session = Session(
+        now = datetime.now(UTC)
+        insert_stmt = pg_insert(Session).values(
             id=req.session_id,
             working_dir=req.project_path or "",
             start_time=int(time.time()),
-            last_activity=datetime.now(UTC),
+            last_activity=now,
         )
-        db.add(session)
+        insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=[Session.id])
+        await db.execute(insert_stmt)
         await db.flush()
+        result = await db.execute(stmt)
+        session = result.scalar_one_or_none()
+        if session is None:
+            session = Session(
+                id=req.session_id,
+                working_dir=req.project_path or "",
+                start_time=int(time.time()),
+                last_activity=now,
+            )
     working_dir = req.project_path or session.working_dir or "/workspace"
 
     # Store conversation

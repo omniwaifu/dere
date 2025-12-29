@@ -91,6 +91,7 @@ def done_event(
     response_text: str,
     tool_count: int = 0,
     timings: dict[str, float] | None = None,
+    structured_output: dict[str, Any] | None = None,
 ) -> StreamEvent:
     """Create a done event.
 
@@ -104,6 +105,8 @@ def done_event(
     data: dict[str, Any] = {"response_text": response_text, "tool_count": tool_count}
     if timings:
         data["timings"] = timings
+    if structured_output is not None:
+        data["structured_output"] = structured_output
     return StreamEvent(
         type=StreamEventType.DONE,
         data=data,

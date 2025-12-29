@@ -130,6 +130,13 @@ class DockerSessionRunner(SessionRunner):
             env.append(f"SANDBOX_RESUME_SESSION_ID={self._resume_session_id}")
         if self._config.auto_approve:
             env.append("SANDBOX_AUTO_APPROVE=1")
+        if self._config.output_format:
+            try:
+                env.append(
+                    f"SANDBOX_OUTPUT_FORMAT_JSON={json.dumps(self._config.output_format)}"
+                )
+            except Exception:
+                logger.warning("Failed to serialize output_format; skipping structured output")
         if self._config.sandbox_settings:
             try:
                 env.append(f"SANDBOX_SETTINGS_JSON={json.dumps(self._config.sandbox_settings)}")
@@ -274,9 +281,11 @@ class DockerSessionRunner(SessionRunner):
             data = event.get("data", {})
 
             if event_type == "done":
+                structured_output = data.get("structured_output")
                 yield done_event(
                     data.get("response_text", ""),
                     data.get("tool_count", 0),
+                    structured_output=structured_output,
                 )
                 break
             elif event_type == "error":

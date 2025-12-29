@@ -63,6 +63,14 @@ class SandboxRunner:
         auto_approve = os.environ.get("SANDBOX_AUTO_APPROVE") == "1"
         permission_mode = "bypassPermissions" if auto_approve else "acceptEdits"
 
+        output_format: dict[str, Any] | None = None
+        output_format_json = os.environ.get("SANDBOX_OUTPUT_FORMAT_JSON")
+        if output_format_json:
+            try:
+                output_format = json.loads(output_format_json)
+            except Exception:
+                output_format = None
+
         # Anthropic SandboxSettings (command sandboxing + network plumbing)
         sandbox_settings: dict[str, Any] | None = None
         sandbox_settings_json = os.environ.get("SANDBOX_SETTINGS_JSON")
@@ -115,6 +123,7 @@ class SandboxRunner:
             max_thinking_tokens=thinking_budget,
             fork_session=fork_session_id,
             sandbox=sandbox_settings,
+            output_format=output_format,
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -137,9 +146,13 @@ class SandboxRunner:
         response_chunks: list[str] = []
         tool_count = 0
         tool_id_to_name: dict[str, str] = {}
+        structured_output: Any | None = None
 
         try:
             async for message in self._client.receive_response():
+                if hasattr(message, "structured_output") and message.structured_output:
+                    structured_output = message.structured_output
+
                 # Check for init message with session ID (SystemMessage with subtype="init")
                 if isinstance(message, SystemMessage):
                     subtype = getattr(message, "subtype", None)
@@ -216,7 +229,15 @@ class SandboxRunner:
             emit_error(str(e), recoverable=True)
 
         response_text = "".join(response_chunks)
-        emit("done", {"response_text": response_text, "tool_count": tool_count})
+        payload = {"response_text": response_text, "tool_count": tool_count}
+        if structured_output is not None:
+            try:
+                json.dumps(structured_output)
+            except TypeError:
+                structured_output = None
+            else:
+                payload["structured_output"] = structured_output
+        emit("done", payload)
 
     async def close(self) -> None:
         """Cleanup resources."""

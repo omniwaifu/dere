@@ -38,6 +38,7 @@ from dere_shared.models import (
     SurfacedFinding,
 )
 from dere_shared.personalities import PersonalityLoader
+from dere_shared.llm_client import _unwrap_tool_payload
 from dere_shared.weather import get_weather_context
 from dere_shared.xml_utils import add_line_numbers, render_tag, render_text_tag
 
@@ -1022,6 +1023,7 @@ class CentralizedAgentService:
         tool_count = 0
         tool_id_to_name: dict[str, str] = {}
         was_cancelled = False
+        structured_output: dict[str, Any] | None = None
 
         # Queue to collect events from both sources
         event_queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
@@ -1029,12 +1031,17 @@ class CentralizedAgentService:
 
         async def process_sdk_messages() -> None:
             """Process SDK messages and put events on the queue."""
-            nonlocal was_cancelled, tool_count, first_token_time, thinking_window_start, tool_use_count
+            nonlocal was_cancelled, tool_count, first_token_time, thinking_window_start, tool_use_count, structured_output
             try:
                 async for message in session.runner.receive_response():
                     if cancel_event.is_set():
                         was_cancelled = True
                         break
+
+                    if hasattr(message, "structured_output") and message.structured_output:
+                        candidate = _unwrap_tool_payload(message.structured_output)
+                        if isinstance(candidate, dict):
+                            structured_output = candidate
 
                     is_init, claude_session_id = is_init_message(message)
                     if is_init and claude_session_id:
@@ -1147,6 +1154,10 @@ class CentralizedAgentService:
                             text = event.data.get("text", "")
                             if isinstance(text, str) and text:
                                 _append_or_coalesce_block({"type": "thinking", "text": text})
+                        elif event.type == StreamEventType.DONE:
+                            candidate = event.data.get("structured_output")
+                            if isinstance(candidate, dict):
+                                structured_output = candidate
                         await event_queue.put(session.add_event(event))
                         continue
 
@@ -1402,7 +1413,14 @@ class CentralizedAgentService:
             response_ms or 0,
         )
 
-        yield session.add_event(done_event(response_text, tool_count, timings))
+        yield session.add_event(
+            done_event(
+                response_text,
+                tool_count,
+                timings,
+                structured_output=structured_output,
+            )
+        )
 
     async def _close_session_internal(self, session: AgentSession) -> None:
         """Close session without lock (called from within locked context)."""

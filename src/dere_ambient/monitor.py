@@ -450,7 +450,12 @@ class AmbientMonitor:
 
         from datetime import UTC, datetime
 
-        from dere_shared.models import Mission, MissionStatus, MissionTriggerType
+        from dere_shared.models import (
+            AmbientMissionDecision,
+            Mission,
+            MissionStatus,
+            MissionTriggerType,
+        )
 
         prompt = self._build_mission_prompt(context_snapshot)
         now = datetime.now(UTC)
@@ -478,6 +483,7 @@ class AmbientMonitor:
             mission,
             trigger_type=MissionTriggerType.MANUAL.value,
             triggered_by="ambient",
+            response_model=AmbientMissionDecision,
         )
 
         async with self._session_factory() as db:
@@ -487,14 +493,24 @@ class AmbientMonitor:
                 db_mission.updated_at = datetime.now(UTC)
                 await db.commit()
 
-        if not execution or not execution.output_text:
+        if not execution:
             return None
 
-        parsed = self._parse_mission_output(execution.output_text)
-        if not parsed:
-            return None
+        structured_output = None
+        if execution.execution_metadata:
+            structured_output = execution.execution_metadata.get("structured_output")
 
-        if not parsed.get("send"):
+        parsed = None
+        if structured_output:
+            try:
+                parsed = AmbientMissionDecision.model_validate(structured_output).model_dump()
+            except Exception:
+                parsed = None
+
+        if parsed is None and execution.output_text:
+            parsed = self._parse_mission_output(execution.output_text)
+
+        if not parsed or not parsed.get("send"):
             return None
 
         message = parsed.get("message")
@@ -510,9 +526,7 @@ class AmbientMonitor:
         return (
             "You are an ambient agent. Use the context to decide if there is a high-signal, "
             "actionable message to send. If there is nothing useful, respond with send=false.\n\n"
-            "Return JSON only with this schema:\n"
-            '{"send": true|false, "message": string, "priority": "alert"|"conversation", '
-            '"confidence": 0-1, "reasoning": string}\n\n'
+            "Return structured output that matches the configured JSON schema.\n\n"
             f"Context:\n{payload}\n"
         )
 

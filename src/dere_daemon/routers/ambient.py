@@ -138,7 +138,13 @@ async def ambient_dashboard(
     )
     result = await db.execute(stmt)
     for execution, mission in result.all():
-        decision = _parse_ambient_output(execution.output_text)
+        decision = None
+        if execution.execution_metadata:
+            structured = execution.execution_metadata.get("structured_output")
+            if isinstance(structured, dict):
+                decision = structured
+        if decision is None:
+            decision = _parse_ambient_output(execution.output_text)
         send = None
         priority = None
         confidence = None

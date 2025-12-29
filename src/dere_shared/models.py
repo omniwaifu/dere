@@ -588,6 +588,16 @@ class AmbientEngagementDecision(BaseModel):
     reasoning: str
 
 
+class AmbientMissionDecision(BaseModel):
+    """Decision from ambient mission about whether to notify."""
+
+    send: bool
+    message: str | None = None
+    priority: Literal["alert", "conversation"] = "conversation"
+    confidence: float = 0.0
+    reasoning: str | None = None
+
+
 class RoutingDecision(BaseModel):
     """Decision from LLM about where to route a notification."""
 

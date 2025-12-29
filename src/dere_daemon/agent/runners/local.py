@@ -110,6 +110,7 @@ class LocalSessionRunner(SessionRunner):
             include_partial_messages=self._config.enable_streaming,
             can_use_tool=self._permission_callback if not self._config.auto_approve else None,
             max_thinking_tokens=self._config.thinking_budget,
+            output_format=self._config.output_format,
         )
 
         self._client = ClaudeSDKClient(options=options)

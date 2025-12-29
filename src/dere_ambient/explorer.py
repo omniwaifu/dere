@@ -9,6 +9,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,17 +43,18 @@ Your task:
 2. Gather key facts that would be useful for future conversations
 3. Note any follow-up questions worth exploring
 
-Output JSON:
-{
-    "findings": ["fact 1", "fact 2", ...],
-    "confidence": 0.0-1.0,
-    "follow_up_questions": ["question 1", ...],
-    "worth_sharing": true/false,
-    "share_message": "optional message if worth sharing"
-}
+Return output that matches the provided JSON schema.
 """
 
 EXPLORATION_ALLOWED_TOOLS = ["Read", "WebSearch", "WebFetch"]
+
+
+class ExplorationOutput(BaseModel):
+    findings: list[str] = []
+    confidence: float = 0.0
+    follow_up_questions: list[str] = []
+    worth_sharing: bool = False
+    share_message: str | None = None
 
 
 @dataclass
@@ -177,6 +179,7 @@ class AmbientExplorer:
             mission,
             trigger_type=MissionTriggerType.MANUAL.value,
             triggered_by="ambient_exploration",
+            response_model=ExplorationOutput,
         )
 
         async with self.session_factory() as db:
@@ -186,7 +189,21 @@ class AmbientExplorer:
                 db_mission.updated_at = datetime.now(UTC)
                 await db.commit()
 
-        if not execution or not execution.output_text:
+        if not execution:
+            return None, "no exploration output"
+
+        structured_output = None
+        if execution.execution_metadata:
+            structured_output = execution.execution_metadata.get("structured_output")
+
+        if structured_output:
+            try:
+                payload = ExplorationOutput.model_validate(structured_output)
+                return self._build_result(payload.model_dump()), None
+            except Exception as e:
+                logger.warning("Failed to validate structured exploration output: {}", e)
+
+        if not execution.output_text:
             return None, "no exploration output"
 
         parsed = self._parse_exploration_output(execution.output_text)
