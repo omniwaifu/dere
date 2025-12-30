@@ -89,6 +89,19 @@
         }
       ]
     }
+  ],
+  "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/dere-session-start-context.py",
+          "description": "Inject adaptive session-start context (code vs conversational)",
+          "timeout": 30
+        }
+      ]
+    }
   ]
   }
 }

@@ -48,6 +48,13 @@ weather = true            # Weather information (requires weather.enabled = true
 recent_files = true       # Recently modified files
 knowledge_graph = true    # Knowledge graph entities
 
+# Session-start adaptive context
+session_start_enabled = true              # Enable session-start context injection
+session_start_limit = 5                   # Max KG results per session start
+session_start_git_commits = 5             # Max git commits for code sessions
+session_start_conversational_days = 30    # Lookback window for conversational sessions
+session_start_code_days = 7               # Lookback window for code sessions
+
 # Productivity context (only when dere-productivity plugin is enabled)
 activity = true           # ActivityWatch window tracking
 media_player = true       # Media player status
