@@ -108,6 +108,9 @@ def _unwrap_tool_payload(candidate: Any) -> Any:
         # No known wrapper found - check if it's an unknown single-key wrapper
         if len(candidate) == 1 and isinstance(list(candidate.values())[0], dict):
             unknown_key = list(candidate.keys())[0]
+            if unknown_key.endswith(("Output", "Response", "Result", "Schema")):
+                candidate = candidate[unknown_key]
+                continue
             logger.warning(f"[_unwrap_tool_payload] Unknown single-key wrapper: {unknown_key!r}")
 
         return candidate

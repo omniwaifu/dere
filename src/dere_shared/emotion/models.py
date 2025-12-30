@@ -454,7 +454,29 @@ class AppraisalOutput(BaseModel):
         if isinstance(v, str):
             import json
 
-            return json.loads(v)
+            text = v.strip()
+            if not text:
+                return v
+
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                decoder = json.JSONDecoder()
+                for start_char in ("[", "{"):
+                    start = text.find(start_char)
+                    if start == -1:
+                        continue
+                    try:
+                        parsed, _ = decoder.raw_decode(text[start:])
+                    except Exception:
+                        continue
+
+                    if isinstance(parsed, dict):
+                        if "resulting_emotions" in parsed:
+                            return parsed["resulting_emotions"]
+                        if "type" in parsed and "intensity" in parsed:
+                            return [parsed]
+                    return parsed
         return v
 
 

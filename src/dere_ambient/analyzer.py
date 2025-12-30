@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
@@ -416,43 +416,26 @@ class ContextAnalyzer:
         """
         try:
             async with httpx.AsyncClient() as client:
-                from datetime import datetime, timedelta
-
-                # Get entities from last 6 hours
-                since_time = datetime.now(UTC) - timedelta(hours=6)
-
-                response = await client.post(
-                    f"{self.daemon_url}/search/hybrid",
-                    json={
-                        "query": "",  # Empty query to get all recent entities
+                response = await client.get(
+                    f"{self.daemon_url}/kg/entities",
+                    params={
                         "limit": limit,
-                        "since": since_time.isoformat(),
-                        "entity_values": [],
+                        "sort_by": "last_mentioned",
+                        "sort_order": "desc",
                         "user_id": self.config.user_id,
                     },
                     timeout=10,
                 )
                 if response.status_code == 200:
-                    results = response.json().get("results", [])
-                    if results:
-                        # Extract entity names from results
-                        entities = []
-                        for r in results:
-                            # Check if result has entity information
-                            if "entity" in r:
-                                entities.append(r["entity"])
-                            # Fallback to prompt snippets
-                            elif "prompt" in r:
-                                # Extract first meaningful words as pseudo-entity
-                                snippet = r["prompt"][:60].strip()
-                                if snippet:
-                                    entities.append(snippet)
+                    entities = response.json().get("entities", [])
+                    if entities:
+                        names = [e.get("name", "").strip() for e in entities]
+                        names = [name for name in names if name]
+                        if names:
+                            return ", ".join(names[:limit])
 
-                        if entities:
-                            return ", ".join(entities[:limit])
-
-                elif response.status_code == 500:
-                    logger.debug("dere_graph not available for entity search")
+                elif response.status_code in {500, 503}:
+                    logger.debug("dere_graph not available for entity lookup")
                     return None
 
         except Exception as e:

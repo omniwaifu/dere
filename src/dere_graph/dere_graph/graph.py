@@ -7,7 +7,7 @@ from typing import Any, Protocol, TypeVar
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from dere_graph.communities import CommunityBuildResult, CommunityDetector
+from dere_graph.communities import CommunityDetector
 from dere_graph.driver import FalkorDriver
 from dere_graph.embeddings import OpenAIEmbedder
 from dere_graph.filters import SearchFilters
@@ -19,23 +19,28 @@ from dere_graph.models import (
     EpisodeType,
     EpisodicNode,
     FactNode,
-    FactRoleEdge,
     FactRoleDetail,
+    FactRoleEdge,
 )
 from dere_graph.operations import add_episode, track_entity_citation, track_entity_retrieval
-from dere_graph.reranking import CrossEncoderScorer, cross_encoder_rerank, mmr_rerank, score_by_recency
-from dere_graph.search import (
-    fulltext_community_search,
-    hybrid_edge_search,
-    hybrid_fact_search,
-    hybrid_node_search,
-    rrf,
+from dere_graph.reranking import (
+    CrossEncoderScorer,
+    cross_encoder_rerank,
+    mmr_rerank,
+    score_by_recency,
 )
 from dere_graph.routing import (
     DEFAULT_DOMAIN_ROUTES,
     DomainRoute,
     merge_filters,
     select_domain_filters,
+)
+from dere_graph.search import (
+    fulltext_community_search,
+    hybrid_edge_search,
+    hybrid_fact_search,
+    hybrid_node_search,
+    rrf,
 )
 from dere_graph.traversal import (
     calculate_node_distances,
@@ -158,7 +163,7 @@ def _extend_seed_uuids(seeds: list[str], extras: list[str], limit: int) -> list[
     return seeds
 
 
-def _merge_ranked_items(result_lists: list[list[T]], limit: int) -> list[T]:
+def _merge_ranked_items[T](result_lists: list[list[T]], limit: int) -> list[T]:
     if limit <= 0:
         return []
 
@@ -519,6 +524,10 @@ class DereGraph:
         Returns:
             SearchResults with matching nodes and edges
         """
+        if not query or not query.strip():
+            logger.info("Skipping search with empty query")
+            return SearchResults(nodes=[], edges=[], facts=[])
+
         logger.info(f"Searching for: {query}")
 
         if limit <= 0:

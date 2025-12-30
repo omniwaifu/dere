@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from dere_graph.filters import SearchFilters
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
-
-from dere_graph.filters import SearchFilters
 
 
 # Response Models
@@ -1085,7 +1084,13 @@ async def get_entity_info(entity_name: str, user_id: str | None = None, request:
         primary_node = entity_nodes[0]
 
         # Get related entities via BFS
-        related_results = await app_state.dere_graph.bfs_search_nodes(
+        related_nodes = await app_state.dere_graph.bfs_search_nodes(
+            origin_uuids=[primary_node.uuid],
+            group_id=user_id or "default",
+            max_depth=1,
+            limit=20,
+        )
+        related_edges = await app_state.dere_graph.bfs_search_edges(
             origin_uuids=[primary_node.uuid],
             group_id=user_id or "default",
             max_depth=1,
@@ -1109,7 +1114,7 @@ async def get_entity_info(entity_name: str, user_id: str | None = None, request:
                     "name": n.name,
                     "labels": n.labels,
                 }
-                for n in related_results.nodes
+                for n in related_nodes
                 if n.uuid != primary_node.uuid
             ],
             "relationships": [
@@ -1120,7 +1125,7 @@ async def get_entity_info(entity_name: str, user_id: str | None = None, request:
                     "target": e.target_node_uuid,
                     "created_at": e.created_at.isoformat() if e.created_at else None,
                 }
-                for e in related_results.edges
+                for e in related_edges
             ],
         }
     except Exception as e:
@@ -1152,7 +1157,7 @@ async def get_related_entities(
         primary_node = search_results.nodes[0]
 
         # Get related entities via BFS
-        related_results = await app_state.dere_graph.bfs_search_nodes(
+        related_nodes = await app_state.dere_graph.bfs_search_nodes(
             origin_uuids=[primary_node.uuid],
             group_id=user_id or "default",
             max_depth=2,
@@ -1168,7 +1173,7 @@ async def get_related_entities(
                     "labels": n.labels,
                     "uuid": n.uuid,
                 }
-                for n in related_results.nodes
+                for n in related_nodes
                 if n.uuid != primary_node.uuid
             ],
         }
