@@ -1400,11 +1400,11 @@ app = FastAPI(title="Dere Daemon", version="0.1.0", lifespan=lifespan)
 
 # Include domain-specific routers
 from dere_daemon.routers import (
-    agent_router,
     activity_router,
+    agent_router,
     ambient_router,
-    core_memory_router,
     context_router,
+    core_memory_router,
     dashboard_router,
     emotions_router,
     exploration_router,

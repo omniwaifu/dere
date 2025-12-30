@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from dere_graph.models import EntityNode
 from dere_graph.reranking import cross_encoder_rerank
 

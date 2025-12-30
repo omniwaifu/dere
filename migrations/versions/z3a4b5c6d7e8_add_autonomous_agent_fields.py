@@ -5,8 +5,8 @@ Revises: y2z3a4b5c6d7
 Create Date: 2025-12-16
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import ARRAY
 
 revision = "z3a4b5c6d7e8"

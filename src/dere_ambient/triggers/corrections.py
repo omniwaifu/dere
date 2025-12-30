@@ -31,10 +31,7 @@ def detect_correction(
         return None
 
     topic = _extract_topic(prompt)
-    source_context = "Assistant: {assistant}\nUser: {user}".format(
-        assistant=_truncate(previous_assistant, 200),
-        user=_truncate(prompt, 200),
-    )
+    source_context = f"Assistant: {_truncate(previous_assistant, 200)}\nUser: {_truncate(prompt, 200)}"
 
     return CuriositySignal(
         curiosity_type="correction",

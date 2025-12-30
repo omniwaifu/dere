@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import sentry_sdk
 from claude_agent_sdk.types import (
     PermissionResultAllow,
     PermissionResultDeny,
@@ -21,13 +22,13 @@ from claude_agent_sdk.types import (
     StreamEvent as SDKStreamEvent,
 )
 from loguru import logger
-import sentry_sdk
 from sqlalchemy import exists
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import select
 
 from dere_shared.config import load_dere_config
 from dere_shared.context import get_time_context
+from dere_shared.llm_client import _unwrap_tool_payload
 from dere_shared.models import (
     Conversation,
     ConversationBlock,
@@ -38,7 +39,6 @@ from dere_shared.models import (
     SurfacedFinding,
 )
 from dere_shared.personalities import PersonalityLoader
-from dere_shared.llm_client import _unwrap_tool_payload
 from dere_shared.weather import get_weather_context
 from dere_shared.xml_utils import add_line_numbers, render_tag, render_text_tag
 

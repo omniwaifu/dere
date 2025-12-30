@@ -5,10 +5,10 @@ from dere_daemon.agent import agent_router
 from .activity import router as activity_router
 from .ambient import router as ambient_router
 from .context import router as context_router
+from .core_memory import router as core_memory_router
 from .dashboard import router as dashboard_router
 from .emotions import router as emotions_router
 from .exploration import router as exploration_router
-from .core_memory import router as core_memory_router
 from .knowledge_graph import router as kg_router
 from .metrics import router as metrics_router
 from .missions import router as missions_router

@@ -2,10 +2,10 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
+from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel
 from sqlalchemy import BigInteger, Column, DateTime, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from pgvector.sqlalchemy import Vector
 from sqlmodel import Field, Relationship, SQLModel
 
 

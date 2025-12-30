@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 from dere_graph.models import EntityEdge, EntityNode, EpisodeType, FactNode, FactRoleDetail
 
@@ -22,7 +22,7 @@ class EvalQuery:
     query: str
     expected_entities: list[str] = field(default_factory=list)
     expected_facts: list[str] = field(default_factory=list)
-    expected_fact_roles: list["EvalFactRoleExpectation"] = field(default_factory=list)
+    expected_fact_roles: list[EvalFactRoleExpectation] = field(default_factory=list)
     min_entity_hits: int | None = None
     min_fact_hits: int | None = None
     min_fact_role_hits: int | None = None

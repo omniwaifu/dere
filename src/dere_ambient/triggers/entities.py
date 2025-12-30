@@ -7,7 +7,6 @@ from typing import Any
 
 from .types import CuriositySignal
 
-
 _GENERIC_ENTITY_NAMES = {
     "user",
     "assistant",

@@ -7,14 +7,14 @@ from falkordb.asyncio import FalkorDB
 from loguru import logger
 
 from dere_graph.models import (
+    CommunityNode,
     EntityEdge,
     EntityNode,
-    CommunityNode,
     EpisodicEdge,
     EpisodicNode,
     FactNode,
-    FactRoleEdge,
     FactRoleDetail,
+    FactRoleEdge,
 )
 
 

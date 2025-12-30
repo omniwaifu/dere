@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 import numpy as np
 from loguru import logger
-from typing import Protocol
 
 from dere_graph.models import EntityEdge, EntityNode, FactNode
 

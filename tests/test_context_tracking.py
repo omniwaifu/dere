@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dere_daemon.context_tracking import build_context_metadata, extract_cited_entity_uuids
 from dere_graph.models import EntityEdge, EntityNode
+
+from dere_daemon.context_tracking import build_context_metadata, extract_cited_entity_uuids
 
 
 def _node(uuid: str, name: str) -> EntityNode:
