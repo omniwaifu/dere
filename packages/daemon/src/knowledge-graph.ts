@@ -7,9 +7,10 @@ import {
   toIsoString,
   toNumber,
   toStringArray,
-} from "./graph-helpers.js";
-import { type SearchFilters } from "./graph-filters.js";
-import { hybridFactSearch, searchGraph } from "./graph-search.js";
+  hybridFactSearch,
+  searchGraph,
+  type SearchFilters
+} from "@dere/graph";
 
 type FactRoleSummary = {
   entity_uuid: string;

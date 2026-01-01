@@ -30,9 +30,11 @@ export class TextResponseClient {
       let responseText = "";
 
       try {
+        const model = overrides.model ?? this.model;
+        const workingDirectory = overrides.workingDirectory;
         const iterator = this.transport.query(prompt, {
-          model: overrides.model ?? this.model,
-          workingDirectory: overrides.workingDirectory,
+          ...(model ? { model } : {}),
+          ...(workingDirectory ? { workingDirectory } : {}),
         });
 
         for await (const message of iterator) {

@@ -3,7 +3,7 @@ import type { Hono } from "hono";
 import { loadConfig } from "@dere/shared-config";
 import { isAuthFailed, resetAuthState } from "@dere/shared-llm";
 
-import { graphAvailable } from "./graph-helpers.js";
+import { graphAvailable } from "@dere/graph";
 
 export function registerSystemRoutes(app: Hono): void {
   app.get("/health", async (c) => {

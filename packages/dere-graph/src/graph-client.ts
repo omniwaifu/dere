@@ -1,14 +1,15 @@
-import { createClient, type RedisClientType } from "redis";
+import { createClient } from "redis";
 import { loadConfig } from "@dere/shared-config";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 
 type GraphRecord = Record<string, unknown>;
+type GraphRedisClient = ReturnType<typeof createClient>;
 
 class GraphClient {
-  private readonly client: RedisClientType;
+  private readonly client: GraphRedisClient;
   private readonly graphName: string;
 
-  constructor(client: RedisClientType, graphName: string) {
+  constructor(client: GraphRedisClient, graphName: string) {
     this.client = client;
     this.graphName = graphName;
   }
@@ -31,7 +32,11 @@ class GraphClient {
       const record: GraphRecord = {};
       if (Array.isArray(row)) {
         for (let i = 0; i < columns.length; i += 1) {
-          record[columns[i]] = row[i] ?? null;
+          const column = columns[i];
+          if (!column) {
+            continue;
+          }
+          record[column] = row[i] ?? null;
         }
       }
       return record;
@@ -48,7 +53,7 @@ export async function getGraphClient(): Promise<GraphClient | null> {
   }
 
   graphClientPromise = (async () => {
-    const config = await loadConfig();
+    const config = (await loadConfig()) as { dere_graph?: Record<string, unknown> };
     const graphConfig = (config.dere_graph ?? {}) as Record<string, unknown>;
     if (graphConfig.enabled === false) {
       return null;
@@ -86,7 +91,7 @@ async function getCommunityClient(): Promise<TextResponseClient> {
     const transport = new ClaudeAgentTransport({
       workingDirectory: process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions",
     });
-    const config = await loadConfig();
+    const config = (await loadConfig()) as { dere_graph?: Record<string, unknown> };
     const graphConfig = (config.dere_graph ?? {}) as Record<string, unknown>;
     const model =
       (typeof graphConfig.claude_model === "string" && graphConfig.claude_model) ||
@@ -232,8 +237,13 @@ function buildAdjacencyMatrix(entities: CommunityEntity[], edges: CommunityEdge[
     if (sourceIdx === undefined || targetIdx === undefined) {
       continue;
     }
-    matrix[sourceIdx][targetIdx] += 1;
-    matrix[targetIdx][sourceIdx] += 1;
+    const sourceRow = matrix[sourceIdx];
+    const targetRow = matrix[targetIdx];
+    if (!sourceRow || !targetRow) {
+      continue;
+    }
+    sourceRow[targetIdx] = (sourceRow[targetIdx] ?? 0) + 1;
+    targetRow[sourceIdx] = (targetRow[sourceIdx] ?? 0) + 1;
   }
 
   return matrix;
@@ -245,7 +255,7 @@ function leidenClustering(adj: number[][], resolution: number): number[] {
   let totalWeight = 0;
   for (let i = 0; i < n; i += 1) {
     for (let j = 0; j < n; j += 1) {
-      totalWeight += adj[i][j];
+      totalWeight += adj[i]?.[j] ?? 0;
     }
   }
   totalWeight /= 2;
@@ -262,13 +272,18 @@ function leidenClustering(adj: number[][], resolution: number): number[] {
     iterations += 1;
     for (let node = 0; node < n; node += 1) {
       const currentCommunity = communities[node];
+      if (currentCommunity === undefined) {
+        continue;
+      }
       let bestCommunity = currentCommunity;
       let bestDelta = 0;
 
       const neighborCommunities = new Set<number>();
       for (let neighbor = 0; neighbor < n; neighbor += 1) {
-        if (adj[node][neighbor] > 0) {
-          neighborCommunities.add(communities[neighbor]);
+        const edgeWeight = adj[node]?.[neighbor] ?? 0;
+        const neighborCommunity = communities[neighbor];
+        if (edgeWeight > 0 && neighborCommunity !== undefined) {
+          neighborCommunities.add(neighborCommunity);
         }
       }
 
@@ -280,11 +295,13 @@ function leidenClustering(adj: number[][], resolution: number): number[] {
         let toCommunityWeight = 0;
         let fromCommunityWeight = 0;
         for (let other = 0; other < n; other += 1) {
-          if (communities[other] === candidateCommunity) {
-            toCommunityWeight += adj[node][other];
+          const otherCommunity = communities[other];
+          const edgeWeight = adj[node]?.[other] ?? 0;
+          if (otherCommunity === candidateCommunity) {
+            toCommunityWeight += edgeWeight;
           }
-          if (communities[other] === currentCommunity && other !== node) {
-            fromCommunityWeight += adj[node][other];
+          if (otherCommunity === currentCommunity && other !== node) {
+            fromCommunityWeight += edgeWeight;
           }
         }
 
@@ -633,6 +650,9 @@ export async function mergeDuplicateEntities(groupId: string, limit: number): Pr
     });
 
     const primary = nodes[0];
+    if (!primary) {
+      continue;
+    }
     const primaryUuid = typeof primary.uuid === "string" ? primary.uuid : "";
     if (!primaryUuid) {
       continue;
@@ -716,8 +736,8 @@ export async function mergeDuplicateEntities(groupId: string, limit: number): Pr
 
     const duplicateIds = nodes
       .slice(1)
-      .map((node) => node.uuid)
-      .filter(Boolean);
+      .map((node) => (typeof node.uuid === "string" ? node.uuid : ""))
+      .filter((uuid) => uuid);
     for (const duplicateId of duplicateIds) {
       await mergeEntityNodes(client, primaryUuid, duplicateId);
       merged += 1;
@@ -745,8 +765,12 @@ export async function buildCommunities(_groupId?: string, _resolution?: number):
   const groups = new Map<number, CommunityEntity[]>();
 
   communities.forEach((communityId, idx) => {
+    const entity = entities[idx];
+    if (!entity) {
+      return;
+    }
     const list = groups.get(communityId) ?? [];
-    list.push(entities[idx]);
+    list.push(entity);
     groups.set(communityId, list);
   });
 

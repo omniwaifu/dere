@@ -29,7 +29,8 @@ export function unwrapToolPayload(candidate: unknown): unknown {
       return current;
     }
 
-    const keys = Object.keys(current);
+    const record = current as Record<string, unknown>;
+    const keys = Object.keys(record);
 
     // Single-key wrappers
     let unwrapped = false;
@@ -46,19 +47,19 @@ export function unwrapToolPayload(candidate: unknown): unknown {
     }
 
     // Two-key wrappers
-    if ("parameters" in current && isRecord(current.parameters)) {
-      current = current.parameters;
+    if ("parameters" in record && isRecord(record.parameters)) {
+      current = record.parameters;
       continue;
     }
 
-    if ("input" in current && isRecord(current.input)) {
-      current = current.input;
+    if ("input" in record && isRecord(record.input)) {
+      current = record.input;
       continue;
     }
 
     if (keys.length === 1) {
       const unknownKey = keys[0] ?? "";
-      const value = current[unknownKey];
+      const value = record[unknownKey];
       if (isRecord(value)) {
         if (UNKNOWN_WRAPPER_SUFFIXES.some((suffix) => unknownKey.endsWith(suffix))) {
           current = value;

@@ -252,7 +252,19 @@ function ensureSpeakerFirst(nodes: EntityNode[], episode: EpisodicNode): EntityN
   );
   let speakerNode: EntityNode;
   if (idx >= 0) {
-    speakerNode = nodes.splice(idx, 1)[0];
+    const picked = nodes.splice(idx, 1)[0];
+    if (picked) {
+      speakerNode = picked;
+    } else {
+      speakerNode = createEntityNode({
+        name: speakerName,
+        group_id: episode.group_id,
+        labels: ["User"],
+        summary: "",
+        attributes: {},
+        aliases: [],
+      });
+    }
   } else {
     speakerNode = createEntityNode({
       name: speakerName,
@@ -607,14 +619,20 @@ async function deduplicateNodes(
 
     let resolvedNode = extracted;
     if (resolution.duplicate_idx >= 0 && resolution.duplicate_idx < candidates.length) {
-      resolvedNode = candidates[resolution.duplicate_idx];
-      resolvedNode.mention_count = (resolvedNode.mention_count ?? 1) + 1;
-      uuidMap.set(extracted.uuid, resolvedNode.uuid);
-      if (extracted.summary && !resolvedNode.summary) {
-        resolvedNode.summary = extracted.summary;
-      }
-      if (extracted.labels.length > 0 && resolvedNode.labels.length === 0) {
-        resolvedNode.labels = extracted.labels;
+      const candidate = candidates[resolution.duplicate_idx];
+      if (candidate) {
+        resolvedNode = candidate;
+        resolvedNode.mention_count = (resolvedNode.mention_count ?? 1) + 1;
+        uuidMap.set(extracted.uuid, resolvedNode.uuid);
+        if (extracted.summary && !resolvedNode.summary) {
+          resolvedNode.summary = extracted.summary;
+        }
+        if (extracted.labels.length > 0 && resolvedNode.labels.length === 0) {
+          resolvedNode.labels = extracted.labels;
+        }
+      } else {
+        resolvedNode.mention_count = 1;
+        uuidMap.set(extracted.uuid, extracted.uuid);
       }
     } else {
       resolvedNode.mention_count = 1;
@@ -723,10 +741,16 @@ Only extract facts that are clearly supported by the text and involve two distin
       finalRelation = "DEFAULT";
     }
 
+    const sourceNode = nodes[sourceIdx];
+    const targetNode = nodes[targetIdx];
+    if (!sourceNode || !targetNode) {
+      continue;
+    }
+
     edges.push(
       createEntityEdge({
-        source_node_uuid: nodes[sourceIdx].uuid,
-        target_node_uuid: nodes[targetIdx].uuid,
+        source_node_uuid: sourceNode.uuid,
+        target_node_uuid: targetNode.uuid,
         group_id: episode.group_id,
         name: finalRelation,
         fact,
@@ -798,16 +822,20 @@ async function deduplicateEdges(edges: EntityEdge[], episode: EpisodicNode): Pro
 
     if (response.contradicted_facts.length > 0) {
       for (const idx of response.contradicted_facts) {
-        if (idx >= 0 && idx < invalidationCandidates.length) {
-          await invalidateEdge(invalidationCandidates[idx].uuid, edge.valid_at ?? nowUtc());
+        const candidate = invalidationCandidates[idx];
+        if (candidate) {
+          await invalidateEdge(candidate.uuid, edge.valid_at ?? nowUtc());
         }
       }
     }
 
     if (response.duplicate_facts.length > 0) {
       const duplicateIdx = response.duplicate_facts[0];
-      if (duplicateIdx >= 0 && duplicateIdx < activeEdges.length) {
+      if (duplicateIdx !== undefined && duplicateIdx >= 0 && duplicateIdx < activeEdges.length) {
         const existingEdge = activeEdges[duplicateIdx];
+        if (!existingEdge) {
+          continue;
+        }
         const episodeId = edge.episodes[0];
         if (episodeId && !existingEdge.episodes.includes(episodeId)) {
           existingEdge.episodes.push(episodeId);
@@ -968,7 +996,11 @@ Avoid purely narrative or speculative statements.
       if (!roleName) {
         continue;
       }
-      const entityUuid = nodes[role.entity_id].uuid;
+      const entityNode = nodes[role.entity_id];
+      if (!entityNode) {
+        continue;
+      }
+      const entityUuid = entityNode.uuid;
       const key = `${entityUuid}:${roleName}`;
       if (seenRoles.has(key)) {
         continue;
@@ -1233,8 +1265,11 @@ async function deduplicateFactNodes(
     let isDuplicate = false;
     if (response.duplicate_facts.length > 0) {
       const duplicateIdx = response.duplicate_facts[0];
-      if (duplicateIdx >= 0 && duplicateIdx < candidates.length) {
+      if (duplicateIdx !== undefined && duplicateIdx >= 0 && duplicateIdx < candidates.length) {
         const existing = candidates[duplicateIdx];
+        if (!existing) {
+          continue;
+        }
         if (!existing.episodes.includes(episode.uuid)) {
           existing.episodes.push(episode.uuid);
         }
@@ -1421,7 +1456,7 @@ export type AddEpisodeResults = {
 };
 
 export async function addEpisode(options: AddEpisodeOptions): Promise<AddEpisodeResults> {
-  const config = await loadConfig();
+  const config = (await loadConfig()) as { dere_graph?: Record<string, unknown> };
   const graphConfig = (config.dere_graph ?? {}) as Record<string, unknown>;
   if (graphConfig.enabled === false) {
     throw new Error("dere_graph disabled");
@@ -1444,12 +1479,14 @@ export async function addEpisode(options: AddEpisodeOptions): Promise<AddEpisode
     options.conversationId ??
     (await generateConversationId(referenceTime, sourceDescription, groupId, idleThreshold));
 
-  const name = options.name ?? referenceTime.toISOString().split("T")[0];
+  const isoDate = referenceTime.toISOString().split("T")[0] ?? referenceTime.toISOString();
+  const name = options.name ?? isoDate;
 
   let episode: EpisodicNode;
   const existingEpisodes = await getEpisodesByConversationId(groupId, conversationId);
-  if (existingEpisodes.length > 0) {
-    episode = existingEpisodes[0];
+  const existingEpisode = existingEpisodes[0];
+  if (existingEpisode) {
+    episode = existingEpisode;
     episode.content = `${episode.content}\n\n${options.episodeBody}`.trim();
   } else {
     episode = createEpisodicNode({
@@ -1560,4 +1597,117 @@ export async function addEpisode(options: AddEpisodeOptions): Promise<AddEpisode
     facts: dedupedFacts.factNodes,
     factRoles: dedupedFacts.factRoles,
   };
+}
+
+export type AddFactOptions = {
+  fact: string;
+  groupId?: string;
+  source?: string | null;
+  tags?: string[] | null;
+  validAt?: Date | null;
+  invalidAt?: Date | null;
+  attributes?: Record<string, unknown> | null;
+  archival?: boolean;
+};
+
+export type AddFactResult = {
+  fact: FactNode;
+  created: boolean;
+};
+
+function mergeListAttribute(
+  attrs: Record<string, unknown>,
+  key: string,
+  values: string[] | null | undefined,
+): void {
+  if (!values || values.length === 0) {
+    return;
+  }
+  const existing = attrs[key];
+  const merged = Array.isArray(existing) ? [...existing] : existing ? [existing] : [];
+  for (const value of values) {
+    if (value && !merged.includes(value)) {
+      merged.push(value);
+    }
+  }
+  if (merged.length > 0) {
+    attrs[key] = merged;
+  }
+}
+
+export async function addFact(options: AddFactOptions): Promise<AddFactResult> {
+  const config = (await loadConfig()) as { dere_graph?: Record<string, unknown> };
+  const graphConfig = (config.dere_graph ?? {}) as Record<string, unknown>;
+  if (graphConfig.enabled === false) {
+    throw new Error("dere_graph disabled");
+  }
+
+  if (!(await graphAvailable())) {
+    throw new Error("graph not available");
+  }
+
+  const factText = options.fact.trim();
+  if (!factText) {
+    throw new Error("Fact text cannot be empty");
+  }
+
+  const mergedAttributes: Record<string, unknown> = { ...(options.attributes ?? {}) };
+  if (options.archival) {
+    mergedAttributes.archival = true;
+  }
+
+  if (options.source) {
+    mergeListAttribute(mergedAttributes, "sources", [options.source]);
+  }
+  mergeListAttribute(mergedAttributes, "tags", options.tags ?? null);
+
+  const groupId = options.groupId ?? "default";
+  const existingFact = await getFactByText(factText, groupId);
+  const created = existingFact === null;
+
+  let factNode = existingFact;
+  if (factNode) {
+    const nextAttributes = { ...factNode.attributes };
+    for (const [key, value] of Object.entries(mergedAttributes)) {
+      if (key === "sources" || key === "tags") {
+        mergeListAttribute(
+          nextAttributes,
+          key,
+          Array.isArray(value) ? value.map((item) => String(item)) : [String(value)],
+        );
+        continue;
+      }
+      if (!(key in nextAttributes)) {
+        nextAttributes[key] = value;
+      }
+    }
+    if (options.archival) {
+      nextAttributes.archival = true;
+    }
+    if (options.validAt && !factNode.valid_at) {
+      factNode.valid_at = options.validAt;
+    }
+    if (options.invalidAt && !factNode.invalid_at) {
+      factNode.invalid_at = options.invalidAt;
+    }
+    factNode.attributes = nextAttributes;
+  } else {
+    factNode = createFactNode({
+      fact: factText,
+      group_id: groupId,
+      attributes: mergedAttributes,
+      valid_at: options.validAt ?? null,
+      invalid_at: options.invalidAt ?? null,
+      episodes: [],
+    });
+  }
+
+  if (!factNode.fact_embedding) {
+    const embedder = await OpenAIEmbedder.fromConfig();
+    factNode.fact_embedding = await embedder.create(factText.replace(/\n/g, " "));
+  }
+
+  await saveFactNode(factNode);
+
+  return { fact: factNode, created };
 }

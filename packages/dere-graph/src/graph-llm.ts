@@ -9,7 +9,7 @@ export async function getGraphStructuredClient(): Promise<StructuredOutputClient
   }
 
   graphClientPromise = (async () => {
-    const config = await loadConfig();
+    const config = (await loadConfig()) as { dere_graph?: Record<string, unknown> };
     const graphConfig = (config.dere_graph ?? {}) as Record<string, unknown>;
     const model =
       (typeof graphConfig.claude_model === "string" && graphConfig.claude_model) ||

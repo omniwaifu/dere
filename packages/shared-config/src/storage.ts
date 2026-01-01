@@ -90,7 +90,7 @@ export async function saveConfig(
   const validated = schema.parse(merged) as DereConfig;
 
   await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, stringify(merged), "utf-8");
+  await writeFile(configPath, stringify(merged as Record<string, any>), "utf-8");
 
   return validated;
 }

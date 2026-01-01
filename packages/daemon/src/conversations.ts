@@ -1,11 +1,11 @@
 import type { Hono } from "hono";
 
 import { loadConfig } from "@dere/shared-config";
+import { addEpisode } from "@dere/graph";
 
 import { getDb } from "./db.js";
 import { processCuriosityTriggers } from "./ambient-triggers/collector.js";
 import { bufferEmotionStimulus } from "./emotion-runtime.js";
-import { addEpisode } from "./graph-ingestion.js";
 
 function nowDate(): Date {
   return new Date();

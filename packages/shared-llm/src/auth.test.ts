@@ -38,7 +38,7 @@ describe("isAuthError", () => {
     ["connection refused", false],
     ["rate limit exceeded", false],
     ["", false],
-  ])('"%s" returns %s', (input, expected) => {
+  ])('"%s" returns %s', (input: string, expected: boolean) => {
     expect(isAuthError(new Error(input))).toBe(expected);
   });
 

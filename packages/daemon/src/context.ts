@@ -6,13 +6,19 @@ import { stat } from "node:fs/promises";
 
 import { loadConfig } from "@dere/shared-config";
 import { buildSessionContextXml } from "./prompt-context.js";
+import {
+  graphAvailable,
+  queryGraph,
+  toDate,
+  toNumber,
+  toStringArray,
+  searchGraph,
+  trackEntityRetrievals,
+  type SearchFilters
+} from "@dere/graph";
 
 import { getDb } from "./db.js";
-import { graphAvailable, queryGraph, toDate, toStringArray, toNumber } from "./graph-helpers.js";
 import { buildContextMetadata } from "./context-tracking.js";
-import { searchGraph } from "./graph-search.js";
-import { trackEntityRetrievals } from "./graph-store.js";
-import type { SearchFilters } from "./graph-filters.js";
 
 const execFileAsync = promisify(execFile);
 

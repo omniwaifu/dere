@@ -10,6 +10,7 @@
     "gen:openapi": "bunx openapi-typescript schemas/openapi/dere_daemon.openapi.json -o packages/daemon-client/src/openapi.ts",
     "gen:config-types": "bunx json-schema-to-typescript schemas/config/dere_config.schema.json -o packages/shared-config/src/config.types.ts",
     "typecheck": "tsc -b",
+    "typecheck:oxlint": "oxlint --type-aware --type-check",
     "lint": "oxlint",
     "format": "oxfmt --write .",
     "check": "oxlint && tsc -b"
@@ -18,6 +19,7 @@
     "@types/node": "^24.10.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "bun-types": "^1.3.5",
     "json-schema-to-typescript": "^13.1.0",
     "openapi-typescript": "^7.10.1",
     "oxfmt": "^0.21.0",

@@ -1,6 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { StructuredOutputError } from "./client.js";
 import type {
@@ -15,7 +14,7 @@ export interface ClaudeAgentTransportOptions {
 }
 
 export class ClaudeAgentTransport implements StructuredOutputTransport {
-  private readonly workingDirectory?: string;
+  private readonly workingDirectory: string | undefined;
   private readonly defaultSchemaName: string;
 
   constructor(options: ClaudeAgentTransportOptions = {}) {
@@ -32,10 +31,7 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
 
     let outputFormat = options.outputFormat;
     if (!outputFormat && schema) {
-      const jsonSchema = zodToJsonSchema(schema, { $refStrategy: "root" }) as Record<
-        string,
-        unknown
-      >;
+      const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
       if (schemaName && !("title" in jsonSchema)) {
         jsonSchema.title = schemaName;
       }
@@ -45,13 +41,17 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
       };
     }
 
+    const model = options.model;
+    const workingDirectory = options.workingDirectory ?? this.workingDirectory;
+    const sdkOptions = {
+      ...(model ? { model } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
+      ...(outputFormat ? { outputFormat } : {}),
+    };
+
     const response = query({
       prompt,
-      options: {
-        model: options.model,
-        workingDirectory: options.workingDirectory ?? this.workingDirectory,
-        outputFormat,
-      },
+      options: sdkOptions,
     });
 
     for await (const message of response) {

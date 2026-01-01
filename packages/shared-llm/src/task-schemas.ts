@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const DateTimeSchema = z.string();
 const NullableDateTimeSchema = DateTimeSchema.nullable();
-const JsonRecordSchema = z.record(z.unknown());
+const JsonRecordSchema = z.record(z.string(), z.unknown());
 
 export const MissionStatusSchema = z.enum(["active", "paused", "archived"]);
 export type MissionStatus = z.infer<typeof MissionStatusSchema>;

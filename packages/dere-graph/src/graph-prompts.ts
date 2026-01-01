@@ -12,7 +12,7 @@ function buildPrompt({ system, user }: PromptPair): string {
 export const ExtractedEntitySchema = z.object({
   name: z.string(),
   entity_type: z.string().nullable().optional(),
-  attributes: z.record(z.unknown()).optional().default({}),
+  attributes: z.record(z.string(), z.unknown()).optional().default({}),
   aliases: z.array(z.string()).optional().default([]),
 });
 
@@ -31,7 +31,7 @@ export const EntitySummariesSchema = z.object({
 
 export const EntityAttributeUpdateSchema = z.object({
   id: z.number(),
-  attributes: z.record(z.unknown()).optional().default({}),
+  attributes: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 export const EntityAttributeUpdatesSchema = z.object({
@@ -43,7 +43,7 @@ export const EdgeSchema = z.object({
   source_entity_id: z.number(),
   target_entity_id: z.number(),
   fact: z.string(),
-  attributes: z.record(z.unknown()).optional().default({}),
+  attributes: z.record(z.string(), z.unknown()).optional().default({}),
   valid_at: z.string().nullable().optional(),
   invalid_at: z.string().nullable().optional(),
   strength: z.number().nullable().optional(),
@@ -62,7 +62,7 @@ export const FactRoleSchema = z.object({
 export const FactSchema = z.object({
   fact: z.string(),
   roles: z.array(FactRoleSchema).optional().default([]),
-  attributes: z.record(z.unknown()).optional().default({}),
+  attributes: z.record(z.string(), z.unknown()).optional().default({}),
   fact_type: z.string().nullable().optional(),
   valid_at: z.string().nullable().optional(),
   invalid_at: z.string().nullable().optional(),

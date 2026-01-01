@@ -8,7 +8,7 @@ import {
   invalidateLowQualityFacts,
   mergeDuplicateEntities,
   buildCommunities,
-} from "./graph-client.js";
+} from "@dere/graph";
 
 const MEMORY_CONSOLIDATION_CHECK_INTERVAL_MS = 60_000;
 const DEFAULT_RECENCY_DAYS = 30;

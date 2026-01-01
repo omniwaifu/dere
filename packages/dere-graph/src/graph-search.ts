@@ -372,9 +372,11 @@ function cosineSimilarity(a: number[], b: number[]): number {
   let normA = 0;
   let normB = 0;
   for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+    const aVal = a[i] ?? 0;
+    const bVal = b[i] ?? 0;
+    dot += aVal * bVal;
+    normA += aVal * aVal;
+    normB += bVal * bVal;
   }
   if (!normA || !normB) {
     return 0;
@@ -434,7 +436,7 @@ function mmrRerank<T>(
     remaining.delete(bestIdx);
   }
 
-  return selected.map((idx) => items[idx]);
+  return selected.map((idx) => items[idx]).filter((item): item is T => Boolean(item));
 }
 
 function scoreByRecency<T extends { created_at: Date }>(

@@ -12,9 +12,14 @@ export interface StructuredOutputMessage {
   content?: unknown;
 }
 
+export type JsonSchemaOutputFormat = {
+  type: "json_schema";
+  schema: Record<string, unknown>;
+};
+
 export interface StructuredOutputRequestOptions {
   model?: string;
-  outputFormat?: unknown;
+  outputFormat?: JsonSchemaOutputFormat;
   schema?: z.ZodTypeAny;
   schemaName?: string;
   workingDirectory?: string;
@@ -71,12 +76,22 @@ export class StructuredOutputClient {
       let structuredCandidate: unknown | null = null;
 
       try {
+        const model = overrides.model ?? this.model;
+        const outputFormat = overrides.outputFormat;
+        const schemaOverride = overrides.schema ?? schema;
+        const schemaName = overrides.schemaName;
+        const workingDirectory = overrides.workingDirectory;
+
+        const requestOptions: StructuredOutputRequestOptions = {
+          schema: schemaOverride,
+          ...(model ? { model } : {}),
+          ...(outputFormat ? { outputFormat } : {}),
+          ...(schemaName ? { schemaName } : {}),
+          ...(workingDirectory ? { workingDirectory } : {}),
+        };
+
         const iterator = this.transport.query(prompt, {
-          model: overrides.model ?? this.model,
-          outputFormat: overrides.outputFormat,
-          schema: overrides.schema ?? schema,
-          schemaName: overrides.schemaName,
-          workingDirectory: overrides.workingDirectory,
+          ...requestOptions,
         });
 
         for await (const message of iterator) {

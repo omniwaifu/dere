@@ -9,11 +9,11 @@ import type {
   SDKPartialAssistantMessage,
   PermissionResult,
 } from "@anthropic-ai/claude-agent-sdk";
+import { trackEntityCitations } from "@dere/graph";
 
 import { getDb } from "./db.js";
 import { buildSessionContextXml } from "./prompt-context.js";
 import { extractCitedEntityUuids } from "./context-tracking.js";
-import { trackEntityCitations } from "./graph-store.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
 

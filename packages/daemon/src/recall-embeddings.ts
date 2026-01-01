@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 
 import { getDb } from "./db.js";
-import { OpenAIEmbedder } from "./graph-embedder.js";
+import { OpenAIEmbedder } from "@dere/graph";
 
 const RECALL_EMBEDDING_CHECK_INTERVAL_MS = 120_000;
 const RECALL_EMBEDDING_BATCH_SIZE = 50;

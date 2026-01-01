@@ -3,6 +3,7 @@ import {
   StructuredOutputClient,
   ExplorationOutputSchema,
 } from "@dere/shared-llm";
+import { addFact } from "@dere/graph";
 import { sql } from "kysely";
 
 import type { AmbientConfig } from "./ambient-config.js";
@@ -23,6 +24,7 @@ Return output that matches the provided JSON schema.
 `;
 
 const EXPLORATION_ALLOWED_TOOLS = ["Read", "WebSearch", "WebFetch"];
+const PROMOTION_CONFIDENCE_THRESHOLD = 0.7;
 
 export interface ExplorationResult {
   findings: string[];
@@ -443,7 +445,51 @@ export class AmbientExplorer {
         .execute();
     }
 
-    // TODO: promotion into dere_graph when a TS graph client is available.
+    if (result.confidence < PROMOTION_CONFIDENCE_THRESHOLD) {
+      return;
+    }
+
+    try {
+      const groupId = this.config.user_id || "default";
+      const source = `curiosity:${taskId}`;
+      const promoted: string[] = [];
+      const now = new Date();
+
+      for (const finding of uniqueFindings) {
+        const { fact } = await addFact({
+          fact: finding,
+          groupId,
+          source,
+          validAt: now,
+          attributes: {
+            fact_type: "exploration_finding",
+            confidence: result.confidence,
+          },
+        });
+        promoted.push(fact.uuid);
+      }
+
+      if (promoted.length === 0) {
+        return;
+      }
+
+      const existingPromoted = Array.isArray(extra.promoted_fact_ids)
+        ? extra.promoted_fact_ids.map((item) => String(item))
+        : [];
+      const mergedPromoted = Array.from(new Set([...existingPromoted, ...promoted]));
+      const nextExtra = { ...extra, promoted_fact_ids: mergedPromoted };
+
+      await db
+        .updateTable("project_tasks")
+        .set({
+          extra: nextExtra,
+          updated_at: now,
+        })
+        .where("id", "=", taskId)
+        .execute();
+    } catch (error) {
+      console.log(`[ambient] finding promotion failed: ${String(error)}`);
+    }
   }
 }
 

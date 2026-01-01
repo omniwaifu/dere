@@ -36,14 +36,13 @@ export function buildEmotionStateFromActive(
   active: Record<string, { type: string; intensity: number }>,
 ): OCCEmotionState {
   const sorted = Object.values(active).sort((a, b) => b.intensity - a.intensity);
-  if (sorted.length === 0) {
+  const primary = sorted[0];
+  if (!primary) {
     return {
       primary: { type: "neutral", intensity: 0, name: "neutral" },
       intensity: 0,
     };
   }
-
-  const primary = sorted[0];
   const secondary = sorted.length > 1 ? sorted[1] : null;
   return {
     primary: {
@@ -98,7 +97,17 @@ hope, fear, joy, distress, satisfaction, relief, fears-confirmed, disappointment
 export function buildAppraisalPrompt(args: {
   stimulus: Record<string, unknown> | string;
   currentEmotionState: OCCEmotionState;
-  context: Record<string, unknown>;
+  context: {
+    temporal?: {
+      time_of_day?: string;
+      day_of_week?: string;
+      hour?: number;
+    };
+    session?: {
+      duration_minutes?: number;
+      working_dir?: string;
+    };
+  };
   personaPrompt: string;
   goals: OCCGoal[];
   standards: OCCStandard[];

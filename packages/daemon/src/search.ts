@@ -1,9 +1,13 @@
 import type { Hono } from "hono";
 
-import { graphAvailable, toDate } from "./graph-helpers.js";
-import { OpenAIEmbedder } from "./graph-embedder.js";
-import { type SearchFilters } from "./graph-filters.js";
-import { hybridNodeSearch, searchGraph } from "./graph-search.js";
+import {
+  graphAvailable,
+  toDate,
+  OpenAIEmbedder,
+  type SearchFilters,
+  hybridNodeSearch,
+  searchGraph
+} from "@dere/graph";
 
 function parseLimit(value: unknown, fallback: number): number {
   const parsed = typeof value === "number" ? value : Number(value);

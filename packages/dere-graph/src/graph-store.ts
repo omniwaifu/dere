@@ -374,10 +374,11 @@ export async function getEntityByUuid(uuid: string): Promise<EntityNode | null> 
     `,
     { uuid },
   );
-  if (records.length === 0) {
+  const record = records[0];
+  if (!record) {
     return null;
   }
-  return parseEntityRecord(records[0]);
+  return parseEntityRecord(record);
 }
 
 export async function getExistingEdges(
@@ -435,10 +436,11 @@ export async function getFactByText(fact: string, groupId: string): Promise<Fact
     `,
     { fact, group_id: groupId },
   );
-  if (records.length === 0) {
+  const record = records[0];
+  if (!record) {
     return null;
   }
-  return parseFactRecord(records[0]);
+  return parseFactRecord(record);
 }
 
 export async function getFactsByEntities(
@@ -567,12 +569,13 @@ export async function findRecentConversationId(
     `,
     { source_description: sourceDescription, group_id: groupId },
   );
-  if (records.length === 0) {
+  const record = records[0];
+  if (!record) {
     return null;
   }
   return {
-    conversationId: String(records[0].conversation_id ?? ""),
-    validAt: parseDate(records[0].valid_at),
+    conversationId: String(record.conversation_id ?? ""),
+    validAt: parseDate(record.valid_at),
   };
 }
 

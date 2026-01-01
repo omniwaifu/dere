@@ -22,9 +22,9 @@ function averageEmbeddings(embeddings: number[][]): number[] {
     return [];
   }
   if (embeddings.length === 1) {
-    return embeddings[0];
+    return embeddings[0] ?? [];
   }
-  const dim = embeddings[0].length;
+  const dim = embeddings[0]?.length ?? 0;
   const avg = new Array(dim).fill(0);
   for (const embedding of embeddings) {
     for (let i = 0; i < dim; i += 1) {
@@ -50,7 +50,7 @@ export class OpenAIEmbedder {
     if (!apiKey) {
       throw new Error("OpenAI API key not configured");
     }
-    const config = await loadConfig();
+    const config = (await loadConfig()) as { dere_graph?: Record<string, unknown> };
     const graphConfig = (config.dere_graph ?? {}) as Record<string, unknown>;
     const embeddingDim =
       typeof graphConfig.embedding_dim === "number" ? graphConfig.embedding_dim : 1536;
