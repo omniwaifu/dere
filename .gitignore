@@ -48,6 +48,7 @@ Thumbs.db
 # Node
 node_modules/
 .bun/
+*.tsbuildinfo
 CLAUDE.md
 __pycache__/
 
