@@ -1,3 +1,26 @@
+"""Entity metadata storage layer (Postgres + pgvector).
+
+NOTE: This module is partially implemented. Current status:
+- save_entity_attributes() is called during entity extraction
+- get_entity_attributes() exists but is never called
+- name_embedding is stored (redundant with FalkorDB embeddings)
+- Rich metadata fields (user_notes, bot_thoughts, description, importance_score) are unpopulated
+
+Intended purpose (not yet wired up):
+- user_notes: Human annotations ("Don't bring up X topic", "Close friend")
+- bot_thoughts: AI meta-observations ("Prefers async communication")
+- description: Cached entity summaries for quick context
+- importance_score: Priority weighting for context retrieval
+- attributes (JSONB): Structured preferences, timezone, etc.
+
+The differential vs FalkorDB:
+- FalkorDB stores facts/relationships (what is true)
+- This layer stores interaction metadata (how to engage)
+
+TODO: Wire up retrieval and population of metadata fields, or drop pgvector
+      redundancy if we decide to keep this layer minimal.
+"""
+
 from __future__ import annotations
 
 import json
