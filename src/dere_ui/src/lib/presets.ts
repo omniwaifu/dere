@@ -92,11 +92,7 @@ export function getAllPresets(): Preset[] {
   return [...DEFAULT_PRESETS, ...loadCustomPresets()];
 }
 
-export function createPreset(
-  name: string,
-  kind: PresetKind,
-  config: PresetConfig
-): Preset {
+export function createPreset(name: string, kind: PresetKind, config: PresetConfig): Preset {
   const id =
     (globalThis.crypto?.randomUUID?.() as string | undefined) ??
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

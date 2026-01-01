@@ -40,7 +40,12 @@ function MissionsPage() {
           <Rocket className="h-6 w-6" />
           <h1 className="text-2xl font-semibold">Missions</h1>
         </div>
-        <Button onClick={() => { setShowForm(true); setSelectedMission(null); }}>
+        <Button
+          onClick={() => {
+            setShowForm(true);
+            setSelectedMission(null);
+          }}
+        >
           <Plus className="mr-2 h-4 w-4" />
           New Mission
         </Button>
@@ -51,10 +56,7 @@ function MissionsPage() {
         {/* Left panel: list */}
         <div className="w-1/2 flex flex-col min-h-0">
           <ScrollArea className="flex-1">
-            <MissionList
-              onSelect={handleSelect}
-              selectedId={selectedMission?.id}
-            />
+            <MissionList onSelect={handleSelect} selectedId={selectedMission?.id} />
           </ScrollArea>
         </div>
 
@@ -97,7 +99,11 @@ function MissionsPage() {
                     <p className="text-sm text-muted-foreground">{selectedMission.description}</p>
                   )}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setEditingMission(selectedMission)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditingMission(selectedMission)}
+                >
                   Edit
                 </Button>
               </div>
@@ -120,31 +126,42 @@ function MissionsPage() {
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">Schedule</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Schedule
+                          </div>
                           <p className="text-sm">
-                            {selectedMission.natural_language_schedule || selectedMission.cron_expression}
+                            {selectedMission.natural_language_schedule ||
+                              selectedMission.cron_expression}
                           </p>
                         </div>
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">Timezone</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Timezone
+                          </div>
                           <p className="text-sm">{selectedMission.timezone}</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">Model</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Model
+                          </div>
                           <p className="text-sm">{selectedMission.model}</p>
                         </div>
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">Personality</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Personality
+                          </div>
                           <p className="text-sm">{selectedMission.personality || "Default"}</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">Sandbox</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Sandbox
+                          </div>
                           <p className="text-sm">
                             {selectedMission.sandbox_mode
                               ? `Yes (${selectedMission.sandbox_mount_type})`
@@ -155,12 +172,17 @@ function MissionsPage() {
                           <div className="text-xs font-medium text-muted-foreground mb-1">Web</div>
                           <p className="text-sm">
                             {selectedMission.allowed_tools
-                            ? (selectedMission.allowed_tools.includes("WebFetch") || selectedMission.allowed_tools.includes("WebSearch") ? "Yes" : "No")
-                            : "Yes"}
+                              ? selectedMission.allowed_tools.includes("WebFetch") ||
+                                selectedMission.allowed_tools.includes("WebSearch")
+                                ? "Yes"
+                                : "No"
+                              : "Yes"}
                           </p>
                         </div>
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">Working Dir</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            Working Dir
+                          </div>
                           <p className="text-sm truncate">{selectedMission.working_dir}</p>
                         </div>
                       </div>

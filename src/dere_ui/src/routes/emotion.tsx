@@ -150,7 +150,13 @@ function CurrentStateSection() {
             <h3 className="text-2xl font-bold">{formatEmotionName(data.dominant_emotion)}</h3>
             <div className="mt-2 flex items-center gap-4">
               <Badge
-                variant={config.valence === "positive" ? "default" : config.valence === "negative" ? "destructive" : "secondary"}
+                variant={
+                  config.valence === "positive"
+                    ? "default"
+                    : config.valence === "negative"
+                      ? "destructive"
+                      : "secondary"
+                }
               >
                 {config.valence}
               </Badge>
@@ -225,9 +231,7 @@ const TIME_RANGES: Record<TimeRange, { label: string; ms: number }> = {
 
 function HistorySection() {
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
-  const [startTime, setStartTime] = useState(
-    () => Date.now() - TIME_RANGES["24h"].ms
-  );
+  const [startTime, setStartTime] = useState(() => Date.now() - TIME_RANGES["24h"].ms);
 
   const { data, isLoading, isError } = useEmotionHistoryDB(startTime, undefined, 500);
 
@@ -253,11 +257,7 @@ function HistorySection() {
             ))}
           </SelectContent>
         </Select>
-        {data && (
-          <span className="text-sm text-muted-foreground">
-            {data.total_count} events
-          </span>
-        )}
+        {data && <span className="text-sm text-muted-foreground">{data.total_count} events</span>}
       </div>
 
       {isLoading ? (
@@ -279,49 +279,56 @@ function HistorySection() {
       ) : (
         <ScrollArea className="h-[calc(100vh-22rem)]">
           <div className="space-y-2 pr-4">
-            {data.events.slice().reverse().map((event: EmotionEvent, idx: number) => (
-              <div
-                key={`${event.timestamp}-${idx}`}
-                className="rounded-lg border border-border bg-card p-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`h-3 w-3 rounded-full shrink-0 ${
-                      event.valence > 0 ? "bg-green-500" : event.valence < 0 ? "bg-red-500" : "bg-gray-500"
-                    }`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    {event.resulting_emotions.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {event.resulting_emotions.map((e, i) => {
-                          const config = getEmotionConfig(e.type);
-                          return (
-                            <Badge
-                              key={i}
-                              variant="secondary"
-                              className="text-xs"
-                              style={{ borderColor: config.color, borderWidth: 1 }}
-                            >
-                              {formatEmotionName(e.type)} ({e.intensity.toFixed(0)})
-                            </Badge>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">{event.stimulus_type}</p>
-                    )}
+            {data.events
+              .slice()
+              .reverse()
+              .map((event: EmotionEvent, idx: number) => (
+                <div
+                  key={`${event.timestamp}-${idx}`}
+                  className="rounded-lg border border-border bg-card p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-3 w-3 rounded-full shrink-0 ${
+                        event.valence > 0
+                          ? "bg-green-500"
+                          : event.valence < 0
+                            ? "bg-red-500"
+                            : "bg-gray-500"
+                      }`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      {event.resulting_emotions.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {event.resulting_emotions.map((e, i) => {
+                            const config = getEmotionConfig(e.type);
+                            return (
+                              <Badge
+                                key={i}
+                                variant="secondary"
+                                className="text-xs"
+                                style={{ borderColor: config.color, borderWidth: 1 }}
+                              >
+                                {formatEmotionName(e.type)} ({e.intensity.toFixed(0)})
+                              </Badge>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{event.stimulus_type}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {formatTimestamp(event.timestamp)}
+                    </span>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">
-                    {formatTimestamp(event.timestamp)}
-                  </span>
+                  {event.reasoning && (
+                    <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
+                      {event.reasoning}
+                    </p>
+                  )}
                 </div>
-                {event.reasoning && (
-                  <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
-                    {event.reasoning}
-                  </p>
-                )}
-              </div>
-            ))}
+              ))}
           </div>
         </ScrollArea>
       )}
@@ -361,12 +368,8 @@ function ProfileSection() {
       {/* Profile status */}
       <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
         <div>
-          <p className="font-medium">
-            {data?.has_profile ? "Custom Profile" : "Default Profile"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {data?.profile_path}
-          </p>
+          <p className="font-medium">{data?.has_profile ? "Custom Profile" : "Default Profile"}</p>
+          <p className="text-sm text-muted-foreground">{data?.profile_path}</p>
         </div>
         <Button variant="outline" size="sm" onClick={openProfileFile}>
           <FileEdit className="mr-2 h-4 w-4" />
@@ -382,14 +385,15 @@ function ProfileSection() {
         </div>
         <div className="space-y-2">
           {data?.goals.map((goal: OCCGoal) => (
-            <div key={goal.id} className="flex items-center justify-between p-2 rounded bg-muted/50">
+            <div
+              key={goal.id}
+              className="flex items-center justify-between p-2 rounded bg-muted/50"
+            >
               <div>
                 <p className="text-sm font-medium">{goal.id.replace(/_/g, " ")}</p>
                 <p className="text-xs text-muted-foreground">{goal.description}</p>
               </div>
-              <Badge variant={goal.active ? "default" : "secondary"}>
-                {goal.importance}/10
-              </Badge>
+              <Badge variant={goal.active ? "default" : "secondary"}>{goal.importance}/10</Badge>
             </div>
           ))}
         </div>
@@ -403,7 +407,10 @@ function ProfileSection() {
         </div>
         <div className="space-y-2">
           {data?.standards.map((standard: OCCStandard) => (
-            <div key={standard.id} className="flex items-center justify-between p-2 rounded bg-muted/50">
+            <div
+              key={standard.id}
+              className="flex items-center justify-between p-2 rounded bg-muted/50"
+            >
               <div>
                 <p className="text-sm font-medium">{standard.id.replace(/_/g, " ")}</p>
                 <p className="text-xs text-muted-foreground">{standard.description}</p>
@@ -426,13 +433,25 @@ function ProfileSection() {
         </div>
         <div className="space-y-2">
           {data?.attitudes.map((attitude: OCCAttitude) => (
-            <div key={attitude.id} className="flex items-center justify-between p-2 rounded bg-muted/50">
+            <div
+              key={attitude.id}
+              className="flex items-center justify-between p-2 rounded bg-muted/50"
+            >
               <div>
                 <p className="text-sm font-medium">{attitude.target_object.replace(/_/g, " ")}</p>
                 <p className="text-xs text-muted-foreground">{attitude.description}</p>
               </div>
-              <Badge variant={attitude.appealingness > 0 ? "default" : attitude.appealingness < 0 ? "destructive" : "secondary"}>
-                {attitude.appealingness > 0 ? "+" : ""}{attitude.appealingness}
+              <Badge
+                variant={
+                  attitude.appealingness > 0
+                    ? "default"
+                    : attitude.appealingness < 0
+                      ? "destructive"
+                      : "secondary"
+                }
+              >
+                {attitude.appealingness > 0 ? "+" : ""}
+                {attitude.appealingness}
               </Badge>
             </div>
           ))}

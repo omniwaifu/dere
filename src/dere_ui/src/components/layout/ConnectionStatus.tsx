@@ -60,7 +60,7 @@ export function ConnectionStatus() {
       className={cn(
         "flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors",
         (isDisconnected || hasError) && "cursor-pointer hover:bg-muted",
-        isConnecting && "cursor-default"
+        isConnecting && "cursor-default",
       )}
     >
       <div
@@ -68,19 +68,13 @@ export function ConnectionStatus() {
           "h-2 w-2 rounded-full",
           isConnecting && "animate-pulse bg-yellow-500",
           hasError && "bg-red-500",
-          isDisconnected && "bg-orange-500"
+          isDisconnected && "bg-orange-500",
         )}
       />
       {(hasError || isDisconnected) && (
-        <span className="text-muted-foreground">
-          {hasError ? "Error" : "Offline"}
-        </span>
+        <span className="text-muted-foreground">{hasError ? "Error" : "Offline"}</span>
       )}
-      {isReconnecting && (
-        <span className="text-muted-foreground">
-          {reconnectAttempts}/10
-        </span>
-      )}
+      {isReconnecting && <span className="text-muted-foreground">{reconnectAttempts}/10</span>}
     </button>
   );
 }

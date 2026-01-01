@@ -128,6 +128,7 @@ When you first use a calendar feature:
 5. Token will be saved locally for future use
 
 **Tokens are stored locally** - by default:
+
 - `~/.config/google-calendar-mcp/tokens.json`
 
 ### 7. Test the Integration
@@ -143,11 +144,13 @@ dere
 ```
 
 Then try a calendar command:
+
 ```
 /plan-day
 ```
 
 Or ask:
+
 ```
 What's on my calendar today?
 ```

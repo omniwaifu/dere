@@ -36,12 +36,12 @@ cancel_swarm(...)     # Abort execution
 
 ## Agent Configuration
 
-| Task Type | plugins | git_branch_prefix | dependencies |
-|-----------|---------|-------------------|--------------|
-| Coding | `["dere_code"]` | `"feature-"` | impl -> review |
-| Research | `[]` (lean) | None | parallel -> synthesis |
-| Review | `["dere_code"]` | None | parallel |
-| Docs | `["dere_code"]` | Optional | sections -> integration |
+| Task Type | plugins         | git_branch_prefix | dependencies            |
+| --------- | --------------- | ----------------- | ----------------------- |
+| Coding    | `["dere_code"]` | `"feature-"`      | impl -> review          |
+| Research  | `[]` (lean)     | None              | parallel -> synthesis   |
+| Review    | `["dere_code"]` | None              | parallel                |
+| Docs      | `["dere_code"]` | Optional          | sections -> integration |
 
 ## Example: Coding Feature
 
@@ -113,6 +113,7 @@ result = await spawn_agents(
 ## Personality Selection
 
 Vary personalities for diverse perspectives:
+
 - `tsun`: Direct, critical, catches issues
 - `kuu`: Methodical, thorough, follows patterns
 - `yan`: Enthusiastic, creative approaches

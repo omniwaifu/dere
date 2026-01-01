@@ -44,10 +44,7 @@ export default [
       // ...tseslint.configs.stylisticTypeChecked.rules, // For stylistic rules
 
       // Override or add specific TypeScript rules
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_" },
-      ],
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn", // Changed from error to warn for now to allow build
 
       // Unused imports for TypeScript (if not handled by the global unused-imports plugin for .ts files)

@@ -70,10 +70,7 @@ function PersonalityCard({ personality }: { personality: PersonalityEditorInfo }
       </CardHeader>
       <CardContent>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <div
-            className="h-3 w-3 rounded-full"
-            style={{ backgroundColor: personality.color }}
-          />
+          <div className="h-3 w-3 rounded-full" style={{ backgroundColor: personality.color }} />
           <span>{personality.color}</span>
         </div>
       </CardContent>

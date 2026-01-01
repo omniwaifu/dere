@@ -2,7 +2,13 @@ import { useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { ConfigSchema, ConfigSchemaProperty, ConfigSchemaOption } from "@/types/api";
 
 interface SchemaFieldProps {
@@ -22,8 +28,8 @@ function getFieldType(schema: ConfigSchemaProperty): string {
   if (schema.type === "boolean") return "toggle";
   if (schema.type === "integer" || schema.type === "number") return "number";
   if (schema.options && schema.options.length > 0) return "select";
-  if (schema.anyOf?.some(t => t.type === "null")) {
-    const nonNull = schema.anyOf.find(t => t.type !== "null");
+  if (schema.anyOf?.some((t) => t.type === "null")) {
+    const nonNull = schema.anyOf.find((t) => t.type !== "null");
     if (nonNull?.type === "boolean") return "toggle";
     if (nonNull?.type === "integer" || nonNull?.type === "number") return "number";
   }
@@ -43,7 +49,9 @@ function SchemaField({ name, schema, value, onChange }: SchemaFieldProps) {
     return (
       <div className="flex items-center justify-between rounded-lg border p-3">
         <div>
-          <Label htmlFor={name} className="font-medium">{title}</Label>
+          <Label htmlFor={name} className="font-medium">
+            {title}
+          </Label>
           {description && <p className="text-xs text-muted-foreground">{description}</p>}
         </div>
         <Switch
@@ -92,7 +100,7 @@ function SchemaField({ name, schema, value, onChange }: SchemaFieldProps) {
         <Input
           id={name}
           type="number"
-          value={value as number ?? schema.default ?? 0}
+          value={(value as number) ?? schema.default ?? 0}
           onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
           min={schema.min}
           max={schema.max}
@@ -108,12 +116,7 @@ function SchemaField({ name, schema, value, onChange }: SchemaFieldProps) {
       <div className="grid gap-2">
         <Label htmlFor={name}>{title}</Label>
         {description && <p className="text-xs text-muted-foreground">{description}</p>}
-        <Input
-          id={name}
-          value={String(value || "")}
-          disabled
-          className="font-mono text-sm"
-        />
+        <Input id={name} value={String(value || "")} disabled className="font-mono text-sm" />
       </div>
     );
   }
@@ -141,11 +144,15 @@ interface SchemaFormSectionProps {
   defs: ConfigSchema["$defs"];
 }
 
-export function SchemaFormSection({ sectionKey, sectionSchema, values, onChange, defs }: SchemaFormSectionProps) {
+export function SchemaFormSection({
+  sectionKey,
+  sectionSchema,
+  values,
+  onChange,
+  defs,
+}: SchemaFormSectionProps) {
   // Resolve $ref to get actual properties
-  const resolvedSchema = sectionSchema.$ref
-    ? resolveRef(sectionSchema.$ref, defs)
-    : sectionSchema;
+  const resolvedSchema = sectionSchema.$ref ? resolveRef(sectionSchema.$ref, defs) : sectionSchema;
 
   const properties = useMemo(() => resolvedSchema?.properties ?? {}, [resolvedSchema]);
 
@@ -171,7 +178,7 @@ export function SchemaFormSection({ sectionKey, sectionSchema, values, onChange,
   const visibleGroups = useMemo(() => {
     const result: Record<string, Array<{ key: string; schema: ConfigSchemaProperty }>> = {};
     for (const [groupName, fields] of Object.entries(groups)) {
-      const visibleFields = fields.filter(f => f.schema.ui_type !== "hidden");
+      const visibleFields = fields.filter((f) => f.schema.ui_type !== "hidden");
       if (visibleFields.length > 0) {
         result[groupName] = visibleFields;
       }
@@ -187,8 +194,8 @@ export function SchemaFormSection({ sectionKey, sectionSchema, values, onChange,
     <div className="space-y-6">
       {groupNames.map((groupName) => {
         const fields = visibleGroups[groupName];
-        const toggleFields = fields.filter(f => getFieldType(f.schema) === "toggle");
-        const otherFields = fields.filter(f => getFieldType(f.schema) !== "toggle");
+        const toggleFields = fields.filter((f) => getFieldType(f.schema) === "toggle");
+        const otherFields = fields.filter((f) => getFieldType(f.schema) !== "toggle");
 
         return (
           <div key={groupName} className="space-y-4">

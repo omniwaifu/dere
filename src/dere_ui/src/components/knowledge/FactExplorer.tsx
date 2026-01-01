@@ -76,12 +76,8 @@ function FactCard({
           )}
           {(fact.valid_at || fact.invalid_at) && (
             <div className="mt-2 text-xs text-muted-foreground">
-              {fact.valid_at && (
-                <span>From: {new Date(fact.valid_at).toLocaleDateString()}</span>
-              )}
-              {fact.invalid_at && (
-                <span> - {new Date(fact.invalid_at).toLocaleDateString()}</span>
-              )}
+              {fact.valid_at && <span>From: {new Date(fact.valid_at).toLocaleDateString()}</span>}
+              {fact.invalid_at && <span> - {new Date(fact.invalid_at).toLocaleDateString()}</span>}
             </div>
           )}
         </div>
@@ -122,9 +118,7 @@ function FactsList({
       <div className="flex flex-col items-center justify-center py-16">
         <FileText className="h-12 w-12 text-muted-foreground/50" />
         <p className="mt-4 text-muted-foreground">{emptyLabel}</p>
-        {emptyHint && (
-          <p className="mt-1 text-sm text-muted-foreground">{emptyHint}</p>
-        )}
+        {emptyHint && <p className="mt-1 text-sm text-muted-foreground">{emptyHint}</p>}
       </div>
     );
   }
@@ -172,7 +166,7 @@ export function FactExplorer() {
   } = useKGFactSearch(
     debouncedQuery,
     { include_roles: includeRoles, limit: PAGE_SIZE },
-    { enabled: searchEnabled }
+    { enabled: searchEnabled },
   );
 
   const filteredSearchFacts = useMemo(() => {
@@ -192,13 +186,10 @@ export function FactExplorer() {
     });
   }, [searchData?.facts, roleFilter, entityFilter]);
 
-  const {
-    data: snapshotData,
-    isLoading: snapshotLoading,
-  } = useKGFactsAtTime(
+  const { data: snapshotData, isLoading: snapshotLoading } = useKGFactsAtTime(
     snapshotIso,
     { include_roles: includeRoles, limit: PAGE_SIZE },
-    { enabled: snapshotEnabled }
+    { enabled: snapshotEnabled },
   );
 
   const showSearchLoading = searchLoading || (searchFetching && query !== debouncedQuery);
@@ -207,11 +198,7 @@ export function FactExplorer() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <Switch
-            id="include-roles"
-            checked={includeRoles}
-            onCheckedChange={setIncludeRoles}
-          />
+          <Switch id="include-roles" checked={includeRoles} onCheckedChange={setIncludeRoles} />
           <Label htmlFor="include-roles" className="text-sm">
             Show roles
           </Label>
@@ -280,16 +267,16 @@ export function FactExplorer() {
           {query.length < 2 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <Search className="h-12 w-12 text-muted-foreground/50" />
-              <p className="mt-4 text-muted-foreground">
-                Enter at least 2 characters to search
-              </p>
+              <p className="mt-4 text-muted-foreground">Enter at least 2 characters to search</p>
             </div>
           ) : (
             <FactsList
               facts={filteredSearchFacts}
               isLoading={showSearchLoading}
               emptyLabel={`No facts found for "${query}"`}
-              emptyHint={roleFilter || entityFilter ? "Try clearing the role/entity filters." : undefined}
+              emptyHint={
+                roleFilter || entityFilter ? "Try clearing the role/entity filters." : undefined
+              }
               onSelectFact={setSelectedFact}
               onRoleClick={(role) => {
                 setRoleFilter(role);
@@ -316,11 +303,7 @@ export function FactExplorer() {
               />
             </div>
             {snapshotTime && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSnapshotTime("")}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setSnapshotTime("")}>
                 Clear
               </Button>
             )}
@@ -339,10 +322,7 @@ export function FactExplorer() {
         </TabsContent>
       </Tabs>
 
-      <FactDetailPanel
-        fact={selectedFact}
-        onClose={() => setSelectedFact(null)}
-      />
+      <FactDetailPanel fact={selectedFact} onClose={() => setSelectedFact(null)} />
     </div>
   );
 }

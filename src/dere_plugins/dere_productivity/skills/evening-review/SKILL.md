@@ -78,6 +78,7 @@ Better than yesterday (47 switches)"
 ### Step 4: Capture Wins
 
 Ask user to reflect:
+
 ```
 "What went well today?
 
@@ -208,6 +209,7 @@ Stop task? (yes/no)"
 ## Data Capture
 
 Important learnings get stored:
+
 ```
 # To project memory
 if user shares significant learning:
@@ -226,12 +228,14 @@ if pattern emerges:
 ## Integration Points
 
 ### Feeds from:
+
 - `activity-summary`: Actual time spent
 - `morning-plan`: Original plan for comparison
 - Taskwarrior: Completed/pending tasks
 - Calendar: Meetings attended
 
 ### Feeds into:
+
 - `morning-plan`: Tomorrow's planning uses today's learnings
 - `activity-summary`: Patterns over time
 - Project memory: Long-term insights
@@ -285,6 +289,7 @@ Markdown summary for user's journal:
 ## Psychology of Review
 
 Good evening review:
+
 - **Creates closure**: Finish the workday mentally
 - **Builds learning**: Convert experience into insight
 - **Maintains accountability**: Honest look at what happened
@@ -295,6 +300,7 @@ Good evening review:
 ## Weekly Review Integration
 
 Evening review feeds into weekly review:
+
 ```
 7 daily reviews → Weekly patterns:
 - "You consistently have high energy 9-11am"
@@ -306,6 +312,7 @@ Evening review feeds into weekly review:
 ## Variations
 
 ### Quick Review (5 minutes)
+
 ```
 - Just completed tasks
 - Quick wins/challenges
@@ -314,6 +321,7 @@ Evening review feeds into weekly review:
 ```
 
 ### Deep Review (15 minutes)
+
 ```
 - Full plan vs actual
 - Detailed activity analysis
@@ -323,6 +331,7 @@ Evening review feeds into weekly review:
 ```
 
 ### Weekly Review
+
 ```
 - Aggregate all daily reviews
 - Weekly goals vs actual

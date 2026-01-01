@@ -27,6 +27,7 @@ Causal chains with evidence, counterfactual reasoning, source analysis, periodiz
 **Thin**: "The printing press caused the Reformation"
 
 **Thick**:
+
 ```
 Printing press and Reformation:
 - Claim: Press was necessary (not sufficient) for Reformation's rapid spread

@@ -1,0 +1,1048 @@
+{
+  "$defs": {
+    "ActivityWatchConfig": {
+      "description": "ActivityWatch integration configuration.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Activity tracking integration",
+          "title": "Enable ActivityWatch",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "toggle"
+        },
+        "url": {
+          "default": "http://localhost:5600",
+          "description": "ActivityWatch server URL",
+          "title": "URL",
+          "type": "string",
+          "ui_group": "basic",
+          "ui_order": 1,
+          "ui_type": "text"
+        }
+      },
+      "title": "ActivityWatchConfig",
+      "type": "object"
+    },
+    "AmbientConfig": {
+      "description": "Ambient monitoring configuration.",
+      "properties": {
+        "activity_lookback_hours": {
+          "default": 6,
+          "description": "Hours of activity to analyze",
+          "suffix": "hrs",
+          "title": "Activity Lookback",
+          "type": "integer",
+          "ui_group": "analysis",
+          "ui_order": 0,
+          "ui_type": "number"
+        },
+        "check_interval_minutes": {
+          "default": 30,
+          "description": "How often to check for engagement",
+          "suffix": "min",
+          "title": "Check Interval",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 0,
+          "ui_type": "number"
+        },
+        "context_change_threshold": {
+          "default": 0.7,
+          "description": "Threshold for context change detection",
+          "max": 1.0,
+          "min": 0.0,
+          "step": 0.1,
+          "title": "Context Threshold",
+          "type": "number",
+          "ui_group": "analysis",
+          "ui_order": 3,
+          "ui_type": "number"
+        },
+        "daemon_url": {
+          "default": "http://localhost:8787",
+          "description": "Dere daemon API URL",
+          "title": "Daemon URL",
+          "type": "string",
+          "ui_group": "connection",
+          "ui_order": 0,
+          "ui_type": "text"
+        },
+        "embedding_search_limit": {
+          "default": 20,
+          "description": "Max embeddings to search",
+          "title": "Embedding Limit",
+          "type": "integer",
+          "ui_group": "analysis",
+          "ui_order": 2,
+          "ui_type": "number"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Proactive notifications and check-ins",
+          "title": "Enable Ambient",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "toggle"
+        },
+        "escalation_enabled": {
+          "default": true,
+          "description": "Follow-up on ignored messages",
+          "title": "Escalation",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 1,
+          "ui_type": "toggle"
+        },
+        "escalation_lookback_hours": {
+          "default": 12,
+          "description": "Hours to check for unanswered messages",
+          "suffix": "hrs",
+          "title": "Escalation Lookback",
+          "type": "integer",
+          "ui_group": "analysis",
+          "ui_order": 1,
+          "ui_type": "number"
+        },
+        "fsm_cooldown_interval": {
+          "description": "Min/max minutes in cooldown state",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Cooldown Interval",
+          "type": "array",
+          "ui_group": "fsm",
+          "ui_order": 3,
+          "ui_type": "hidden"
+        },
+        "fsm_enabled": {
+          "default": true,
+          "description": "State machine scheduling",
+          "title": "FSM Mode",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 2,
+          "ui_type": "toggle"
+        },
+        "fsm_engaged_interval": {
+          "default": 5,
+          "description": "Minutes in engaged state",
+          "suffix": "min",
+          "title": "Engaged Interval",
+          "type": "integer",
+          "ui_group": "fsm",
+          "ui_order": 2,
+          "ui_type": "hidden"
+        },
+        "fsm_escalating_interval": {
+          "description": "Min/max minutes in escalating state",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Escalating Interval",
+          "type": "array",
+          "ui_group": "fsm",
+          "ui_order": 4,
+          "ui_type": "hidden"
+        },
+        "fsm_idle_interval": {
+          "description": "Min/max minutes in idle state",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Idle Interval",
+          "type": "array",
+          "ui_group": "fsm",
+          "ui_order": 0,
+          "ui_type": "hidden"
+        },
+        "fsm_monitoring_interval": {
+          "description": "Min/max minutes in monitoring state",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Monitoring Interval",
+          "type": "array",
+          "ui_group": "fsm",
+          "ui_order": 1,
+          "ui_type": "hidden"
+        },
+        "fsm_suppressed_interval": {
+          "description": "Min/max minutes in suppressed state",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Suppressed Interval",
+          "type": "array",
+          "ui_group": "fsm",
+          "ui_order": 5,
+          "ui_type": "hidden"
+        },
+        "fsm_weight_activity": {
+          "default": 0.3,
+          "description": "Weight for activity signal",
+          "max": 1.0,
+          "min": 0.0,
+          "step": 0.05,
+          "title": "Activity Weight",
+          "type": "number",
+          "ui_group": "fsm_weights",
+          "ui_order": 0,
+          "ui_type": "hidden"
+        },
+        "fsm_weight_emotion": {
+          "default": 0.25,
+          "description": "Weight for emotion signal",
+          "max": 1.0,
+          "min": 0.0,
+          "step": 0.05,
+          "title": "Emotion Weight",
+          "type": "number",
+          "ui_group": "fsm_weights",
+          "ui_order": 1,
+          "ui_type": "hidden"
+        },
+        "fsm_weight_responsiveness": {
+          "default": 0.2,
+          "description": "Weight for responsiveness signal",
+          "max": 1.0,
+          "min": 0.0,
+          "step": 0.05,
+          "title": "Responsiveness Weight",
+          "type": "number",
+          "ui_group": "fsm_weights",
+          "ui_order": 2,
+          "ui_type": "hidden"
+        },
+        "fsm_weight_task": {
+          "default": 0.1,
+          "description": "Weight for task signal",
+          "max": 1.0,
+          "min": 0.0,
+          "step": 0.05,
+          "title": "Task Weight",
+          "type": "number",
+          "ui_group": "fsm_weights",
+          "ui_order": 4,
+          "ui_type": "hidden"
+        },
+        "fsm_weight_temporal": {
+          "default": 0.15,
+          "description": "Weight for temporal signal",
+          "max": 1.0,
+          "min": 0.0,
+          "step": 0.05,
+          "title": "Temporal Weight",
+          "type": "number",
+          "ui_group": "fsm_weights",
+          "ui_order": 3,
+          "ui_type": "hidden"
+        },
+        "idle_threshold_minutes": {
+          "default": 60,
+          "description": "User idle time before engaging",
+          "suffix": "min",
+          "title": "Idle Threshold",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 1,
+          "ui_type": "number"
+        },
+        "min_notification_interval_minutes": {
+          "default": 120,
+          "description": "Minimum time between notifications",
+          "suffix": "min",
+          "title": "Min Notify Interval",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 2,
+          "ui_type": "number"
+        },
+        "notification_method": {
+          "default": "both",
+          "description": "How to send notifications",
+          "options": [
+            {
+              "label": "Both",
+              "value": "both"
+            },
+            {
+              "label": "Daemon Only",
+              "value": "daemon"
+            },
+            {
+              "label": "System Notify",
+              "value": "notify-send"
+            }
+          ],
+          "title": "Notification Method",
+          "type": "string",
+          "ui_group": "basic",
+          "ui_order": 4,
+          "ui_type": "select"
+        },
+        "personality": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Personality for ambient messages",
+          "options": [
+            {
+              "label": "Tsundere",
+              "value": "tsun"
+            },
+            {
+              "label": "Deredere",
+              "value": "dere"
+            },
+            {
+              "label": "Kuudere",
+              "value": "kuu"
+            },
+            {
+              "label": "Yandere",
+              "value": "yan"
+            },
+            {
+              "label": "Erodere",
+              "value": "ero"
+            }
+          ],
+          "title": "Personality",
+          "ui_group": "basic",
+          "ui_order": 3,
+          "ui_type": "select"
+        },
+        "startup_delay_seconds": {
+          "default": 0,
+          "description": "Delay before ambient starts",
+          "suffix": "sec",
+          "title": "Startup Delay",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 3,
+          "ui_type": "number"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override user ID",
+          "title": "User ID",
+          "ui_group": "connection",
+          "ui_order": 1,
+          "ui_type": "hidden"
+        }
+      },
+      "title": "AmbientConfig",
+      "type": "object"
+    },
+    "AnnouncementsConfig": {
+      "description": "Personality announcement configuration.",
+      "properties": {
+        "messages": {
+          "description": "Custom announcement messages",
+          "items": {
+            "type": "string"
+          },
+          "title": "Messages",
+          "type": "array",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "hidden"
+        }
+      },
+      "title": "AnnouncementsConfig",
+      "type": "object"
+    },
+    "ContextConfig": {
+      "description": "Context gathering configuration.",
+      "properties": {
+        "activity": {
+          "default": true,
+          "description": "Include ActivityWatch data",
+          "title": "Activity",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 4,
+          "ui_type": "toggle"
+        },
+        "activity_differential_enabled": {
+          "default": true,
+          "description": "Use differential lookback between messages",
+          "title": "Differential Mode",
+          "type": "boolean",
+          "ui_group": "activity",
+          "ui_order": 1,
+          "ui_type": "toggle"
+        },
+        "activity_full_lookback_threshold_minutes": {
+          "default": 5,
+          "description": "Gap threshold to trigger full lookback",
+          "suffix": "min",
+          "title": "Full Lookback Threshold",
+          "type": "integer",
+          "ui_group": "activity",
+          "ui_order": 3,
+          "ui_type": "number"
+        },
+        "activity_lookback_minutes": {
+          "default": 10,
+          "description": "Minutes of activity history",
+          "suffix": "min",
+          "title": "Activity Lookback",
+          "type": "integer",
+          "ui_group": "activity",
+          "ui_order": 0,
+          "ui_type": "number"
+        },
+        "activity_max_duration_hours": {
+          "default": 6,
+          "description": "Maximum activity duration to show",
+          "suffix": "hrs",
+          "title": "Max Duration",
+          "type": "integer",
+          "ui_group": "activity",
+          "ui_order": 4,
+          "ui_type": "number"
+        },
+        "activity_min_lookback_minutes": {
+          "default": 2,
+          "description": "Minimum lookback for differential mode",
+          "suffix": "min",
+          "title": "Min Lookback",
+          "type": "integer",
+          "ui_group": "activity",
+          "ui_order": 2,
+          "ui_type": "number"
+        },
+        "calendar": {
+          "default": true,
+          "description": "Include calendar events",
+          "title": "Calendar",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 7,
+          "ui_type": "toggle"
+        },
+        "format": {
+          "default": "concise",
+          "description": "Context output format",
+          "title": "Format",
+          "type": "string",
+          "ui_group": "display",
+          "ui_order": 1,
+          "ui_type": "text"
+        },
+        "knowledge_graph": {
+          "default": true,
+          "description": "Use knowledge graph context",
+          "title": "Knowledge Graph",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 3,
+          "ui_type": "toggle"
+        },
+        "line_numbered_xml": {
+          "default": false,
+          "description": "Prefix XML context lines with numbers for precise editing",
+          "title": "Line Numbers",
+          "type": "boolean",
+          "ui_group": "display",
+          "ui_order": 4,
+          "ui_type": "toggle"
+        },
+        "max_title_length": {
+          "default": 50,
+          "description": "Truncate titles longer than this",
+          "title": "Max Title Length",
+          "type": "integer",
+          "ui_group": "display",
+          "ui_order": 2,
+          "ui_type": "number"
+        },
+        "media_player": {
+          "default": true,
+          "description": "Show currently playing media",
+          "title": "Media Player",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 5,
+          "ui_type": "toggle"
+        },
+        "recent_files": {
+          "default": true,
+          "description": "Show recently modified files",
+          "title": "Recent Files",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 2,
+          "ui_type": "toggle"
+        },
+        "recent_files_base_path": {
+          "default": "/mnt/data/Code",
+          "description": "Root directory for recent files",
+          "title": "Base Path",
+          "type": "string",
+          "ui_group": "files",
+          "ui_order": 1,
+          "ui_type": "text"
+        },
+        "recent_files_max_depth": {
+          "default": 5,
+          "description": "Maximum directory depth",
+          "title": "Max Depth",
+          "type": "integer",
+          "ui_group": "files",
+          "ui_order": 2,
+          "ui_type": "number"
+        },
+        "recent_files_timeframe": {
+          "default": "1h",
+          "description": "How far back to look for files",
+          "title": "Recent Files Timeframe",
+          "type": "string",
+          "ui_group": "files",
+          "ui_order": 0,
+          "ui_type": "text"
+        },
+        "show_duration_for_short": {
+          "default": true,
+          "description": "Show duration for short activities",
+          "title": "Show Duration",
+          "type": "boolean",
+          "ui_group": "display",
+          "ui_order": 3,
+          "ui_type": "toggle"
+        },
+        "show_inactive_items": {
+          "default": true,
+          "description": "Show inactive context items",
+          "title": "Show Inactive",
+          "type": "boolean",
+          "ui_group": "display",
+          "ui_order": 0,
+          "ui_type": "toggle"
+        },
+        "tasks": {
+          "default": true,
+          "description": "Include Taskwarrior tasks",
+          "title": "Tasks",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 6,
+          "ui_type": "toggle"
+        },
+        "time": {
+          "default": true,
+          "description": "Include current time",
+          "title": "Time",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 0,
+          "ui_type": "toggle"
+        },
+        "update_interval_seconds": {
+          "default": 0,
+          "description": "Auto-refresh interval (0 to disable)",
+          "suffix": "sec",
+          "title": "Update Interval",
+          "type": "integer",
+          "ui_group": "updates",
+          "ui_order": 0,
+          "ui_type": "number"
+        },
+        "weather": {
+          "default": true,
+          "description": "Include weather info",
+          "title": "Weather",
+          "type": "boolean",
+          "ui_group": "sources",
+          "ui_order": 1,
+          "ui_type": "toggle"
+        },
+        "weather_cache_minutes": {
+          "default": 10,
+          "description": "Cache weather data for this long",
+          "suffix": "min",
+          "title": "Weather Cache",
+          "type": "integer",
+          "ui_group": "updates",
+          "ui_order": 1,
+          "ui_type": "number"
+        }
+      },
+      "title": "ContextConfig",
+      "type": "object"
+    },
+    "DatabaseConfig": {
+      "description": "Database configuration.",
+      "properties": {
+        "url": {
+          "default": "postgresql://postgres:dere@localhost/dere",
+          "description": "PostgreSQL connection string",
+          "title": "Database URL",
+          "type": "string",
+          "ui_group": "connection",
+          "ui_order": 0,
+          "ui_type": "readonly"
+        }
+      },
+      "title": "DatabaseConfig",
+      "type": "object"
+    },
+    "DereGraphConfigFlat": {
+      "description": "DereGraph (knowledge graph) configuration.",
+      "properties": {
+        "claude_model": {
+          "default": "claude-haiku-4-5",
+          "description": "Model for graph operations",
+          "title": "Claude Model",
+          "type": "string",
+          "ui_group": "model",
+          "ui_order": 0,
+          "ui_type": "text"
+        },
+        "embedding_dim": {
+          "default": 1536,
+          "description": "Vector embedding dimension",
+          "title": "Embedding Dimension",
+          "type": "integer",
+          "ui_group": "model",
+          "ui_order": 1,
+          "ui_type": "number"
+        },
+        "enable_reflection": {
+          "description": "Enable graph reflection processing",
+          "title": "Enable Reflection",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 1,
+          "ui_type": "toggle"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Knowledge graph integration",
+          "title": "Enable Graph",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "toggle"
+        },
+        "falkor_database": {
+          "default": "dere_graph",
+          "description": "FalkorDB database name",
+          "title": "Database Name",
+          "type": "string",
+          "ui_group": "connection",
+          "ui_order": 2,
+          "ui_type": "text"
+        },
+        "falkor_host": {
+          "default": "localhost",
+          "description": "FalkorDB server host",
+          "title": "FalkorDB Host",
+          "type": "string",
+          "ui_group": "connection",
+          "ui_order": 0,
+          "ui_type": "text"
+        },
+        "falkor_port": {
+          "default": 6379,
+          "description": "FalkorDB server port",
+          "title": "FalkorDB Port",
+          "type": "integer",
+          "ui_group": "connection",
+          "ui_order": 1,
+          "ui_type": "number"
+        },
+        "idle_threshold_minutes": {
+          "default": 15,
+          "description": "Idle time before reflection",
+          "suffix": "min",
+          "title": "Idle Threshold",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 0,
+          "ui_type": "number"
+        }
+      },
+      "title": "DereGraphConfigFlat",
+      "type": "object"
+    },
+    "DiscordConfig": {
+      "description": "Discord bot configuration.",
+      "properties": {
+        "allowed_channels": {
+          "default": "",
+          "description": "Comma-separated channel IDs",
+          "title": "Allowed Channels",
+          "type": "string",
+          "ui_group": "access",
+          "ui_order": 1,
+          "ui_type": "text"
+        },
+        "allowed_guilds": {
+          "default": "",
+          "description": "Comma-separated guild IDs",
+          "title": "Allowed Guilds",
+          "type": "string",
+          "ui_group": "access",
+          "ui_order": 0,
+          "ui_type": "text"
+        },
+        "context_enabled": {
+          "default": true,
+          "description": "Include context in Discord messages",
+          "title": "Context Enabled",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 1,
+          "ui_type": "toggle"
+        },
+        "default_persona": {
+          "default": "tsun",
+          "description": "Default personality for Discord",
+          "options": [
+            {
+              "label": "Tsundere",
+              "value": "tsun"
+            },
+            {
+              "label": "Deredere",
+              "value": "dere"
+            },
+            {
+              "label": "Kuudere",
+              "value": "kuu"
+            },
+            {
+              "label": "Yandere",
+              "value": "yan"
+            },
+            {
+              "label": "Erodere",
+              "value": "ero"
+            }
+          ],
+          "title": "Default Persona",
+          "type": "string",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "select"
+        },
+        "idle_timeout_seconds": {
+          "default": 1200,
+          "description": "Session timeout after inactivity",
+          "suffix": "sec",
+          "title": "Idle Timeout",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 0,
+          "ui_type": "number"
+        },
+        "summary_grace_seconds": {
+          "default": 30,
+          "description": "Grace period before summarizing",
+          "suffix": "sec",
+          "title": "Summary Grace",
+          "type": "integer",
+          "ui_group": "timing",
+          "ui_order": 1,
+          "ui_type": "number"
+        },
+        "token": {
+          "default": "",
+          "description": "Discord bot token",
+          "title": "Token",
+          "type": "string",
+          "ui_group": "connection",
+          "ui_order": 0,
+          "ui_type": "readonly"
+        }
+      },
+      "title": "DiscordConfig",
+      "type": "object"
+    },
+    "PluginModeConfig": {
+      "description": "Plugin mode configuration.",
+      "properties": {
+        "directories": {
+          "description": "Directories for auto mode",
+          "items": {
+            "type": "string"
+          },
+          "title": "Directories",
+          "type": "array",
+          "ui_group": "basic",
+          "ui_order": 1,
+          "ui_type": "hidden"
+        },
+        "mode": {
+          "default": "never",
+          "description": "Plugin activation mode",
+          "options": [
+            {
+              "label": "Always",
+              "value": "always"
+            },
+            {
+              "label": "Auto",
+              "value": "auto"
+            },
+            {
+              "label": "Never",
+              "value": "never"
+            }
+          ],
+          "title": "Mode",
+          "type": "string",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "select"
+        }
+      },
+      "title": "PluginModeConfig",
+      "type": "object"
+    },
+    "PluginsConfig": {
+      "description": "All plugin configurations.",
+      "properties": {
+        "dere_code": {
+          "$ref": "#/$defs/PluginModeConfig",
+          "description": "Code-related tools and context",
+          "title": "Dere Code",
+          "ui_group": "plugins",
+          "ui_order": 2,
+          "ui_type": "hidden"
+        },
+        "dere_core": {
+          "$ref": "#/$defs/PluginModeConfig",
+          "description": "Core personality features",
+          "title": "Dere Core",
+          "ui_group": "plugins",
+          "ui_order": 0,
+          "ui_type": "hidden"
+        },
+        "dere_productivity": {
+          "$ref": "#/$defs/PluginModeConfig",
+          "description": "Taskwarrior and calendar integration",
+          "title": "Dere Productivity",
+          "ui_group": "plugins",
+          "ui_order": 1,
+          "ui_type": "hidden"
+        },
+        "dere_vault": {
+          "$ref": "#/$defs/PluginModeConfig",
+          "description": "Zotero and document management",
+          "title": "Dere Vault",
+          "ui_group": "plugins",
+          "ui_order": 3,
+          "ui_type": "hidden"
+        }
+      },
+      "title": "PluginsConfig",
+      "type": "object"
+    },
+    "UserConfig": {
+      "description": "User identity configuration.",
+      "properties": {
+        "name": {
+          "description": "Your name shown in conversations",
+          "title": "Display Name",
+          "type": "string",
+          "ui_group": "identity",
+          "ui_order": 0,
+          "ui_type": "text"
+        }
+      },
+      "title": "UserConfig",
+      "type": "object"
+    },
+    "WeatherConfig": {
+      "description": "Weather context configuration.",
+      "properties": {
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "City name for weather lookup",
+          "title": "City",
+          "ui_group": "basic",
+          "ui_order": 1,
+          "ui_type": "text"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Fetch weather data for context",
+          "title": "Enable Weather",
+          "type": "boolean",
+          "ui_group": "basic",
+          "ui_order": 0,
+          "ui_type": "toggle"
+        },
+        "units": {
+          "default": "metric",
+          "description": "Temperature units",
+          "options": [
+            {
+              "label": "Metric (Celsius)",
+              "value": "metric"
+            },
+            {
+              "label": "Imperial (Fahrenheit)",
+              "value": "imperial"
+            }
+          ],
+          "title": "Units",
+          "type": "string",
+          "ui_group": "basic",
+          "ui_order": 2,
+          "ui_type": "select"
+        }
+      },
+      "title": "WeatherConfig",
+      "type": "object"
+    }
+  },
+  "description": "Main dere configuration with validation.",
+  "properties": {
+    "activitywatch": {
+      "$ref": "#/$defs/ActivityWatchConfig",
+      "description": "Activity tracking integration",
+      "title": "ActivityWatch",
+      "ui_icon": "Activity",
+      "ui_order": 5,
+      "ui_section": "advanced"
+    },
+    "ambient": {
+      "$ref": "#/$defs/AmbientConfig",
+      "description": "Proactive monitoring settings",
+      "title": "Ambient",
+      "ui_icon": "Bot",
+      "ui_order": 4,
+      "ui_section": "ambient"
+    },
+    "announcements": {
+      "$ref": "#/$defs/AnnouncementsConfig",
+      "ui_section": "hidden"
+    },
+    "context": {
+      "$ref": "#/$defs/ContextConfig",
+      "description": "Context gathering settings",
+      "title": "Context",
+      "ui_icon": "Layers",
+      "ui_order": 1,
+      "ui_section": "context"
+    },
+    "database": {
+      "$ref": "#/$defs/DatabaseConfig",
+      "description": "Database connection",
+      "title": "Database",
+      "ui_icon": "Database",
+      "ui_order": 6,
+      "ui_section": "connections"
+    },
+    "default_personality": {
+      "default": "tsun",
+      "description": "Global default personality",
+      "options": [
+        {
+          "label": "Tsundere",
+          "value": "tsun"
+        },
+        {
+          "label": "Deredere",
+          "value": "dere"
+        },
+        {
+          "label": "Kuudere",
+          "value": "kuu"
+        },
+        {
+          "label": "Yandere",
+          "value": "yan"
+        },
+        {
+          "label": "Erodere",
+          "value": "ero"
+        }
+      ],
+      "title": "Default Personality",
+      "type": "string",
+      "ui_group": "global",
+      "ui_order": 0,
+      "ui_type": "select"
+    },
+    "dere_graph": {
+      "$ref": "#/$defs/DereGraphConfigFlat",
+      "description": "Knowledge graph settings",
+      "title": "Knowledge Graph",
+      "ui_icon": "Network",
+      "ui_order": 8,
+      "ui_section": "advanced"
+    },
+    "discord": {
+      "$ref": "#/$defs/DiscordConfig",
+      "description": "Discord bot settings",
+      "title": "Discord",
+      "ui_icon": "Bot",
+      "ui_order": 7,
+      "ui_section": "connections"
+    },
+    "plugins": {
+      "$ref": "#/$defs/PluginsConfig",
+      "description": "Plugin activation modes",
+      "title": "Plugins",
+      "ui_icon": "Cog",
+      "ui_order": 3,
+      "ui_section": "plugins"
+    },
+    "user": {
+      "$ref": "#/$defs/UserConfig",
+      "description": "User identity settings",
+      "title": "User",
+      "ui_icon": "User",
+      "ui_order": 0,
+      "ui_section": "user"
+    },
+    "user_id": {
+      "description": "System user identifier",
+      "title": "User ID",
+      "type": "string",
+      "ui_group": "global",
+      "ui_order": 1,
+      "ui_type": "readonly"
+    },
+    "weather": {
+      "$ref": "#/$defs/WeatherConfig",
+      "description": "Weather data source",
+      "title": "Weather",
+      "ui_icon": "Cloud",
+      "ui_order": 2,
+      "ui_section": "weather"
+    }
+  },
+  "title": "DereConfig",
+  "type": "object"
+}

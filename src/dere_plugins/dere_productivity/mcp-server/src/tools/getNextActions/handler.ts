@@ -12,9 +12,7 @@ import { generateInsights, type EnrichedResponse } from "../../utils/mcpResponse
  * - Not blocked (no unmet dependencies) unless include_blocked=true
  * - Optional: context, energy_level, time_available filters
  */
-export async function handleGetNextActions(
-  args: GetNextActionsRequest,
-): Promise<EnrichedResponse> {
+export async function handleGetNextActions(args: GetNextActionsRequest): Promise<EnrichedResponse> {
   console.log(`getNextActions called with:`, args);
 
   try {
@@ -24,7 +22,7 @@ export async function handleGetNextActions(
     // Filter by context if specified
     if (args.context) {
       // Normalize context: ensure @ prefix for TaskWarrior compatibility
-      const normalizedContext = args.context.startsWith('@') ? args.context : `@${args.context}`;
+      const normalizedContext = args.context.startsWith("@") ? args.context : `@${args.context}`;
       filterArgs.push(`context:${normalizedContext}`);
     }
 
@@ -34,7 +32,7 @@ export async function handleGetNextActions(
       const energyMap = {
         high: "H",
         medium: "M",
-        low: "L"
+        low: "L",
       };
       filterArgs.push(`energy:${energyMap[args.energy_level]}`);
     }
@@ -44,7 +42,7 @@ export async function handleGetNextActions(
 
     // Filter out waiting tasks (wait date in future)
     const now = new Date();
-    let actionableTasks = allTasks.filter(task => {
+    let actionableTasks = allTasks.filter((task) => {
       // Skip if waiting
       if (task.wait) {
         const waitDate = new Date(task.wait);
@@ -57,7 +55,7 @@ export async function handleGetNextActions(
 
     // Filter out blocked tasks unless include_blocked is true
     if (!args.include_blocked) {
-      actionableTasks = actionableTasks.filter(task => {
+      actionableTasks = actionableTasks.filter((task) => {
         // Skip if has unmet dependencies
         if (task.depends && task.depends.length > 0) {
           return false;
@@ -73,15 +71,16 @@ export async function handleGetNextActions(
         "15min": 15,
         "30min": 30,
         "1hour": 60,
-        "2hours+": 999
+        "2hours+": 999,
       }[args.time_available];
 
-      actionableTasks = actionableTasks.filter(task => {
+      actionableTasks = actionableTasks.filter((task) => {
         // Use complexity if available
         if (task.complexity) {
-          const complexity = typeof task.complexity === 'number'
-            ? task.complexity
-            : parseInt(task.complexity as string);
+          const complexity =
+            typeof task.complexity === "number"
+              ? task.complexity
+              : parseInt(task.complexity as string);
           if (!isNaN(complexity)) {
             return complexity <= timeMinutes;
           }
@@ -103,8 +102,8 @@ export async function handleGetNextActions(
     }
 
     // Calculate metadata
-    const blocked = allTasks.filter(t => t.depends && t.depends.length > 0).length;
-    const waiting = allTasks.filter(t => {
+    const blocked = allTasks.filter((t) => t.depends && t.depends.length > 0).length;
+    const waiting = allTasks.filter((t) => {
       if (t.wait) {
         const waitDate = new Date(t.wait);
         return waitDate > now;
@@ -134,7 +133,7 @@ export async function handleGetNextActions(
       if (topTask.urgency && topTask.urgency > 10) {
         insights.recommendations = insights.recommendations || [];
         insights.recommendations.unshift(
-          `Start with "${topTask.description}" (urgency: ${topTask.urgency.toFixed(1)})`
+          `Start with "${topTask.description}" (urgency: ${topTask.urgency.toFixed(1)})`,
         );
       }
     }
@@ -147,7 +146,7 @@ export async function handleGetNextActions(
           contexts[task.context] = { count: 0, high_priority: 0 };
         }
         contexts[task.context].count++;
-        if (task.priority === 'H') {
+        if (task.priority === "H") {
           contexts[task.context].high_priority++;
         }
       }

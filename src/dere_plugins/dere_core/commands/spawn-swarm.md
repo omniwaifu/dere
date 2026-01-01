@@ -13,16 +13,19 @@ argument-hint: <task or "from-plan">
 ### 1. Determine source
 
 If `$ARGUMENTS` is "from-plan" or references a plan file:
+
 - Read the plan file from ~/.claude/plans/ (find most recent or specified)
 - Parse the plan into parallelizable steps
 
 Otherwise:
+
 - Analyze `$ARGUMENTS` as a task description
 - Decompose into parallel subtasks
 
 ### 2. Design agent configuration
 
 For each subtask, determine:
+
 - **name:** Short identifier (e.g., "auth-backend", "cache-impl")
 - **prompt:** Self-contained task description with context
 - **role:** "implementation", "review", "research", or "generic"
@@ -35,6 +38,7 @@ Call `list_plugins()` and `list_personalities()` to show available options.
 ### 3. Present plan to user
 
 Show:
+
 ```
 Swarm: [name]
 Agents: [count]
@@ -67,20 +71,24 @@ result = await spawn_agents(
 ## Agent Design Guidelines
 
 **Coding tasks:**
+
 - Use `plugins: ["dere_code"]`
 - Use `git_branch_prefix` for isolation
 - Chain: impl agents → review agent
 
 **Research tasks:**
+
 - Use `plugins: []` (lean mode)
 - No git branches needed
 - Chain: research agents → synthesis agent
 
 **Memory integration:**
+
 - Swarms automatically include a `memory-steward` agent to consolidate findings
 - Encourage agents to write durable facts to scratchpad keys under `memory/`
 
 **Prompts should be self-contained:**
+
 - Include relevant file paths
 - Specify expected output
 - Note any constraints
@@ -89,9 +97,9 @@ result = await spawn_agents(
 
 **Task:** "Add user authentication with OAuth and session management"
 
-| Agent | Prompt | Role | Deps |
-|-------|--------|------|------|
-| oauth-impl | Implement OAuth 2.0 flow in src/auth/ | implementation | - |
-| session-impl | Implement session management in src/session/ | implementation | - |
-| integration | Wire OAuth and sessions together | implementation | oauth-impl, session-impl |
-| reviewer | Review all auth code for security issues | review | integration |
+| Agent        | Prompt                                       | Role           | Deps                     |
+| ------------ | -------------------------------------------- | -------------- | ------------------------ |
+| oauth-impl   | Implement OAuth 2.0 flow in src/auth/        | implementation | -                        |
+| session-impl | Implement session management in src/session/ | implementation | -                        |
+| integration  | Wire OAuth and sessions together             | implementation | oauth-impl, session-impl |
+| reviewer     | Review all auth code for security issues     | review         | integration              |

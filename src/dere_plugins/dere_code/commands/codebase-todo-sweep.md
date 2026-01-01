@@ -12,7 +12,7 @@ argument-hint: [scan|apply|clean] [path]
 
 1. Read `project_overview` memory for stack → query Context7 for library best practices
 2. Use `get_symbols_overview` + `find_symbol(include_body=true)` for analysis
-3. Skip: node_modules/, .git/, __pycache__/, venv/, dist/, build/
+3. Skip: node_modules/, .git/, **pycache**/, venv/, dist/, build/
 4. Apply detection heuristics (see below)
 5. Output report + save to `todo-sweep-[timestamp].md` memory
 
@@ -35,26 +35,26 @@ argument-hint: [scan|apply|clean] [path]
 
 ## Detection Heuristics
 
-| Issue | Detection | Flag |
-|-------|-----------|------|
-| Long function | >50 non-empty lines | TODO: break into smaller functions |
-| Missing docs | Public function, no docstring | NOTE: add docstring |
-| Stub | Body is only `pass`/`...`/`return None` | FIXME: implement or remove |
-| Bad naming | Single-letter var (except i,j,k,x,y) | TODO: rename |
-| Deep nesting | >4 levels of if/for/while/try | HACK: reduce complexity |
+| Issue         | Detection                               | Flag                               |
+| ------------- | --------------------------------------- | ---------------------------------- |
+| Long function | >50 non-empty lines                     | TODO: break into smaller functions |
+| Missing docs  | Public function, no docstring           | NOTE: add docstring                |
+| Stub          | Body is only `pass`/`...`/`return None` | FIXME: implement or remove         |
+| Bad naming    | Single-letter var (except i,j,k,x,y)    | TODO: rename                       |
+| Deep nesting  | >4 levels of if/for/while/try           | HACK: reduce complexity            |
 
 ## Stack-Specific Heuristics (if project_overview exists)
 
-| Pattern | Detection | Flag |
-|---------|-----------|------|
-| React hooks | Missing deps in useEffect/useCallback | TODO(sweep:stack): React - |
-| React keys | Missing key in .map() | TODO(sweep:stack): React - |
-| Python async | blocking call in async def | FIXME(sweep:stack): Python - |
-| TypeScript | missing return type, `any` usage | TODO(sweep:stack): TypeScript - |
-| SQL injection | string concat in queries | FIXME(sweep:stack): [ORM] - |
-| N+1 queries | ORM query inside loop | PERF(sweep:stack): [ORM] - |
-| XSS | unescaped user input, dangerouslySetInnerHTML | FIXME(sweep:stack): - |
-| Weak crypto | MD5/SHA1 for passwords | FIXME(sweep:stack): - |
+| Pattern       | Detection                                     | Flag                            |
+| ------------- | --------------------------------------------- | ------------------------------- |
+| React hooks   | Missing deps in useEffect/useCallback         | TODO(sweep:stack): React -      |
+| React keys    | Missing key in .map()                         | TODO(sweep:stack): React -      |
+| Python async  | blocking call in async def                    | FIXME(sweep:stack): Python -    |
+| TypeScript    | missing return type, `any` usage              | TODO(sweep:stack): TypeScript - |
+| SQL injection | string concat in queries                      | FIXME(sweep:stack): [ORM] -     |
+| N+1 queries   | ORM query inside loop                         | PERF(sweep:stack): [ORM] -      |
+| XSS           | unescaped user input, dangerouslySetInnerHTML | FIXME(sweep:stack): -           |
+| Weak crypto   | MD5/SHA1 for passwords                        | FIXME(sweep:stack): -           |
 
 ## Usage
 

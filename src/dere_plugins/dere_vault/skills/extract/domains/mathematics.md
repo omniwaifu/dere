@@ -27,6 +27,7 @@ Formal definitions, theorem statements, proof sketches, examples and counterexam
 **Thin**: "A prime number has exactly two divisors"
 
 **Thick**:
+
 ```
 Prime number:
 - Definition: n ∈ Z⁺ with exactly two positive divisors: 1 and n

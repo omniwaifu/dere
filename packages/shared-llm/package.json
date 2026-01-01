@@ -1,0 +1,14 @@
+{
+  "name": "@dere/shared-llm",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest",
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "^3.24.1"
+  }
+}

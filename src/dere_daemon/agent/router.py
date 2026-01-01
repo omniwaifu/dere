@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dere_shared.models import Conversation, Session
+from dere_shared.llm_schemas import SessionTitleResult
 
 from ..dependencies import get_db
 from .models import (
@@ -40,10 +41,6 @@ if TYPE_CHECKING:
     from .service import CentralizedAgentService
 
 router = APIRouter(prefix="/agent", tags=["agent"])
-
-
-class SessionTitleResult(BaseModel):
-    title: str
 
 
 def _get_service(request: Request) -> CentralizedAgentService:

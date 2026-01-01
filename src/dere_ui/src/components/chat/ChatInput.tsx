@@ -16,7 +16,8 @@ export function ChatInput() {
   const { sendQuery, cancelQuery } = useChatActions();
   const { data: personalities } = usePersonalities();
 
-  const canSend = status === "connected" && sessionId && input.trim() && !isQueryInProgress && !isLocked;
+  const canSend =
+    status === "connected" && sessionId && input.trim() && !isQueryInProgress && !isLocked;
 
   const personalityKey = (() => {
     const p = sessionConfig?.personality;
@@ -77,7 +78,7 @@ export function ChatInput() {
               ? "bg-white/90 text-black hover:bg-white animate-pulse"
               : canSend
                 ? "text-white"
-                : "bg-muted text-muted-foreground"
+                : "bg-muted text-muted-foreground",
           )}
           style={!isQueryInProgress && canSend ? { backgroundColor: sendBg } : undefined}
         >

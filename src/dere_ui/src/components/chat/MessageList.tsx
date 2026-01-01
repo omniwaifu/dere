@@ -9,13 +9,8 @@ import { MessageSquare, Loader2 } from "lucide-react";
 import { usePersonalities } from "@/hooks/queries";
 
 export function MessageList() {
-  const {
-    messages,
-    streamingMessage,
-    isQueryInProgress,
-    isLoadingMessages,
-    loadError,
-  } = useMessageListState();
+  const { messages, streamingMessage, isQueryInProgress, isLoadingMessages, loadError } =
+    useMessageListState();
   const { retryLoad } = useChatActions();
   const viewportRef = useRef<HTMLDivElement>(null);
   const { sessionConfig } = useChatHeaderState();
@@ -23,9 +18,7 @@ export function MessageList() {
 
   const isWaitingForResponse = isQueryInProgress && !streamingMessage;
 
-  const allMessages = streamingMessage
-    ? [...messages, streamingMessage]
-    : messages;
+  const allMessages = streamingMessage ? [...messages, streamingMessage] : messages;
 
   const sessionPersonalityKey = (() => {
     const p = sessionConfig?.personality;
@@ -68,11 +61,13 @@ export function MessageList() {
   return (
     <ScrollArea className="flex-1" viewportRef={viewportRef}>
       <div className="mx-auto max-w-3xl space-y-2 p-3">
-        {allMessages.map((message, index) => (
+        {allMessages.map((message, index) =>
           (() => {
             const key = message.personality || sessionPersonalityKey;
             const info = personalities?.personalities.find((p) => p.name === key);
-            const avatarUrl = key ? `/api/personalities/${encodeURIComponent(key)}/avatar` : undefined;
+            const avatarUrl = key
+              ? `/api/personalities/${encodeURIComponent(key)}/avatar`
+              : undefined;
             return (
               <MessageBubble
                 key={message.id}
@@ -83,8 +78,8 @@ export function MessageList() {
                 fallbackIcon={info?.icon}
               />
             );
-          })()
-        ))}
+          })(),
+        )}
         {isWaitingForResponse && (
           <div className="flex justify-start">
             <div className="max-w-[85%]">

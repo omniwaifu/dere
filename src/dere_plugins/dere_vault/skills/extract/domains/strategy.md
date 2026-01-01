@@ -27,6 +27,7 @@ Decision trees, payoff matrices, game-theoretic reasoning, option value analysis
 **Thin**: "You should diversify your investments"
 
 **Thick**:
+
 ```
 Portfolio diversification:
 - Options: Concentrated (high conviction), diversified (index), barbell (safe + speculative)

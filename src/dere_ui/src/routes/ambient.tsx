@@ -50,10 +50,7 @@ function AmbientPage() {
       );
 
     return (
-      <div
-        key={run.execution_id}
-        className="rounded-lg border border-border bg-card p-3"
-      >
+      <div key={run.execution_id} className="rounded-lg border border-border bg-card p-3">
         <div className="flex flex-wrap items-center gap-2">
           {renderStatusBadge(run.status)}
           {sentBadge}
@@ -69,17 +66,16 @@ function AmbientPage() {
         <p className="mt-2 text-sm text-foreground/90">
           {run.message_preview || "No message returned."}
         </p>
-        <div className="mt-2 text-xs text-muted-foreground">
-          {formatTime(run.started_at)}
-        </div>
+        <div className="mt-2 text-xs text-muted-foreground">{formatTime(run.started_at)}</div>
       </div>
     );
   };
 
   const renderNotification = (notification: AmbientNotificationSummary) => {
-    const contextSnapshot = notification.context_snapshot as
-      | { activity?: { app?: string; player?: string; title?: string }; minutes_idle?: number }
-      | null;
+    const contextSnapshot = notification.context_snapshot as {
+      activity?: { app?: string; player?: string; title?: string };
+      minutes_idle?: number;
+    } | null;
     const activity = contextSnapshot?.activity;
     const activityLabel = activity ? activity.app || activity.player : null;
     const minutesIdle =
@@ -163,9 +159,7 @@ function AmbientPage() {
                 <Activity className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-semibold capitalize">
-                  {data.summary.fsm_state}
-                </div>
+                <div className="text-2xl font-semibold capitalize">{data.summary.fsm_state}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   Ambient is {data.summary.is_enabled ? "enabled" : "disabled"}
                 </p>
@@ -177,9 +171,7 @@ function AmbientPage() {
                 <Clock className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-lg font-semibold">
-                  {formatTime(data.summary.last_run_at)}
-                </div>
+                <div className="text-lg font-semibold">{formatTime(data.summary.last_run_at)}</div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {data.recent_runs[0]?.status
                     ? `Status: ${data.recent_runs[0].status}`
@@ -216,9 +208,7 @@ function AmbientPage() {
                   <div className="text-sm text-muted-foreground">No runs recorded yet.</div>
                 ) : (
                   <ScrollArea className="h-[320px] pr-4">
-                    <div className="space-y-3">
-                      {data.recent_runs.map(renderRun)}
-                    </div>
+                    <div className="space-y-3">{data.recent_runs.map(renderRun)}</div>
                   </ScrollArea>
                 )}
               </CardContent>
@@ -231,9 +221,7 @@ function AmbientPage() {
               </CardHeader>
               <CardContent>
                 {data.recent_notifications.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    No notifications yet.
-                  </div>
+                  <div className="text-sm text-muted-foreground">No notifications yet.</div>
                 ) : (
                   <ScrollArea className="h-[320px] pr-4">
                     <div className="space-y-3">
@@ -265,9 +253,7 @@ function AmbientPage() {
               </div>
               <div className="space-y-1">
                 <div className="text-xs uppercase text-muted-foreground">Min Interval</div>
-                <div className="font-medium">
-                  {data.config.min_notification_interval_minutes}m
-                </div>
+                <div className="font-medium">{data.config.min_notification_interval_minutes}m</div>
               </div>
               <div className="space-y-1">
                 <div className="text-xs uppercase text-muted-foreground">Activity Lookback</div>

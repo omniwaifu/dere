@@ -5,6 +5,7 @@ MCP server that wraps TaskWarrior command-line tool. Provides 22 tools for task 
 ## Tools
 
 ### Basic Task Operations
+
 - `add_task` - Create task. Supports GTD fields (context, energy, scheduled, wait, depends) and recurring tasks (recur)
 - `modify_task` - Update task attributes
 - `mark_task_done` - Complete task by UUID
@@ -17,10 +18,12 @@ MCP server that wraps TaskWarrior command-line tool. Provides 22 tools for task 
 - `remove_annotation` - Remove note from task
 
 ### Dependencies
+
 - `add_dependency` - Make task A depend on task B
 - `remove_dependency` - Remove dependency link
 
 ### GTD Workflow
+
 - `get_next_actions` - Filter actionable tasks by context, energy level, time available
 - `process_inbox` - Get tasks tagged +inbox for processing
 - `get_waiting_for` - Get delegated/waiting tasks, grouped by blocker/date/project
@@ -30,10 +33,12 @@ MCP server that wraps TaskWarrior command-line tool. Provides 22 tools for task 
 - `get_someday_maybe` - Get tasks tagged +someday
 
 ### Batch Operations
+
 - `create_project_tree` - Create project with multiple tasks and dependencies in one call
 - `batch_modify_tasks` - Apply same modifications to multiple tasks
 
 ### Habits/Recurring Tasks
+
 - `get_recurring_tasks` - Get recurring tasks with completion stats, streaks, frequency
 
 ## Requirements
@@ -83,6 +88,7 @@ All tools return MCP standard format:
 ```
 
 GTD tools return enriched responses with:
+
 - `tasks` - Array of task objects
 - `metadata` - Counts (total, actionable, blocked, waiting, completed)
 - `insights` - Summary, recommendations, warnings
@@ -92,6 +98,7 @@ GTD tools return enriched responses with:
 ## GTD Features
 
 ### Task Fields
+
 - `scheduled` - Date to start work
 - `wait` - Hide until date (deferred)
 - `until` - Task expires after date
@@ -102,7 +109,9 @@ GTD tools return enriched responses with:
 - `recur` - Recurrence pattern (daily, weekly, monthly, etc.)
 
 ### Recurring Tasks
+
 Set `recur` with `due` to create habits:
+
 ```json
 {
   "description": "Take vitamins",
@@ -117,6 +126,7 @@ Set `recur` with `due` to create habits:
 TaskWarrior creates template task (status:recurring) that generates instances. Use `get_recurring_tasks` to see completion rates and streaks.
 
 To minimize pending instance clutter for daily habits, configure:
+
 ```bash
 task config recurrence.limit 0  # Only show current instance, not future ones
 ```

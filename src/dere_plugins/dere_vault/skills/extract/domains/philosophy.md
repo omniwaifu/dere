@@ -27,6 +27,7 @@ Formal logic, precise definitions, argument structure (premises → conclusion),
 **Thin**: "Consciousness is subjective experience"
 
 **Thick**:
+
 ```
 Consciousness (phenomenal):
 - Definition: there is something it is like to be X (Nagel criterion)

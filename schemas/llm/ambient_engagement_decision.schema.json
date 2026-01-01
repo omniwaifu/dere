@@ -1,0 +1,34 @@
+{
+  "description": "Decision from LLM about whether to engage with ambient notification.",
+  "properties": {
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "priority": {
+      "default": "conversation",
+      "enum": ["alert", "conversation"],
+      "title": "Priority",
+      "type": "string"
+    },
+    "reasoning": {
+      "title": "Reasoning",
+      "type": "string"
+    },
+    "should_engage": {
+      "title": "Should Engage",
+      "type": "boolean"
+    }
+  },
+  "required": ["should_engage", "reasoning"],
+  "title": "AmbientEngagementDecision",
+  "type": "object"
+}

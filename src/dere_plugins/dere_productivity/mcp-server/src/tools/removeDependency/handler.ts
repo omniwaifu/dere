@@ -1,8 +1,5 @@
 import type { RemoveDependencyRequest, TaskWarriorTask } from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 
 /**
  * Remove a dependency between two tasks
@@ -22,7 +19,7 @@ export async function handleRemoveDependency(
 
     // Remove the specific dependency
     // We need to set depends to all current dependencies except the one being removed
-    const newDepends = task.depends.filter(uuid => uuid !== args.depends_on_uuid);
+    const newDepends = task.depends.filter((uuid) => uuid !== args.depends_on_uuid);
 
     let commandArgs: string[];
     if (newDepends.length === 0) {

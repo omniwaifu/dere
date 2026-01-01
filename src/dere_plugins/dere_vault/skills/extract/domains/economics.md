@@ -27,6 +27,7 @@ Causal diagrams, equilibrium conditions, mathematical models, mechanism descript
 **Thin**: "Supply and demand determine price"
 
 **Thick**:
+
 ```
 Price mechanism:
 - Equilibrium: P* where Qd(P*) = Qs(P*)

@@ -24,9 +24,7 @@ function StatCard({
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">{value}</div>
-        {description && (
-          <p className="text-xs text-muted-foreground mt-1">{description}</p>
-        )}
+        {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
       </CardContent>
     </Card>
   );
@@ -71,7 +69,13 @@ function TopEntitiesList({
   entities,
   metric,
 }: {
-  entities: { uuid: string; name: string; labels: string[]; mention_count: number; retrieval_quality: number }[];
+  entities: {
+    uuid: string;
+    name: string;
+    labels: string[];
+    mention_count: number;
+    retrieval_quality: number;
+  }[];
   metric: "mentions" | "quality";
 }) {
   if (entities.length === 0) {
@@ -104,9 +108,7 @@ function TopEntitiesList({
               </div>
             </div>
             <div className="text-sm font-medium text-muted-foreground">
-              {metric === "mentions"
-                ? entity.mention_count
-                : entity.retrieval_quality.toFixed(2)}
+              {metric === "mentions" ? entity.mention_count : entity.retrieval_quality.toFixed(2)}
             </div>
           </div>
         ))}
@@ -173,9 +175,7 @@ function TopFactEntitiesList({
                 ))}
               </div>
             </div>
-            <div className="text-sm font-medium text-muted-foreground">
-              {entity.count}
-            </div>
+            <div className="text-sm font-medium text-muted-foreground">{entity.count}</div>
           </div>
         ))}
       </div>
@@ -208,10 +208,7 @@ function CommunitiesList() {
     <ScrollArea className="h-[200px]">
       <div className="space-y-2 pr-4">
         {data.communities.map((community) => (
-          <div
-            key={community.name}
-            className="rounded-lg border border-border bg-card p-3"
-          >
+          <div key={community.name} className="rounded-lg border border-border bg-card p-3">
             <div className="flex items-center justify-between">
               <p className="font-medium text-sm">{community.name}</p>
               <Badge variant="secondary" className="text-xs">
@@ -219,9 +216,7 @@ function CommunitiesList() {
               </Badge>
             </div>
             {community.summary && (
-              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                {community.summary}
-              </p>
+              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{community.summary}</p>
             )}
           </div>
         ))}
@@ -301,10 +296,7 @@ export function AnalyticsDashboard() {
             <CardDescription>Most frequently referenced entities</CardDescription>
           </CardHeader>
           <CardContent>
-            <TopEntitiesList
-              entities={stats?.top_mentioned ?? []}
-              metric="mentions"
-            />
+            <TopEntitiesList entities={stats?.top_mentioned ?? []} metric="mentions" />
           </CardContent>
         </Card>
 
@@ -332,10 +324,7 @@ export function AnalyticsDashboard() {
             <CardDescription>Highest retrieval quality scores</CardDescription>
           </CardHeader>
           <CardContent>
-            <TopEntitiesList
-              entities={stats?.top_quality ?? []}
-              metric="quality"
-            />
+            <TopEntitiesList entities={stats?.top_quality ?? []} metric="quality" />
           </CardContent>
         </Card>
 

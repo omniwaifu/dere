@@ -27,6 +27,7 @@ Executable code, type signatures, pseudocode, complexity analysis, state machine
 **Thin**: "Recursion is when a function calls itself"
 
 **Thick**:
+
 ```
 Recursion:
 - Base case: condition that terminates recursion (required for termination)

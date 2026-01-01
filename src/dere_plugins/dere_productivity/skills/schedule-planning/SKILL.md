@@ -34,6 +34,7 @@ d) All unscheduled tasks with time estimates
 **2. Get Task Details**
 
 For each task:
+
 ```
 - Title
 - Estimated duration
@@ -58,6 +59,7 @@ Identify:
 **4. Find Optimal Slots**
 
 Match tasks to slots based on:
+
 - **Time fit**: Block long enough for task + buffer
 - **Energy match**: High-energy tasks → morning blocks (if that's user's pattern)
 - **Context match**: Home tasks → blocks at home
@@ -68,6 +70,7 @@ Match tasks to slots based on:
 **5. Present Proposed Schedule**
 
 Show visual weekly plan:
+
 ```
 "Proposed Schedule:
 
@@ -92,6 +95,7 @@ Free blocks remaining:
 **6. Create Calendar Blocks**
 
 After user approval:
+
 ```
 for task in approved_tasks:
     create_event({
@@ -215,15 +219,18 @@ Updated schedule:
 ## Integration Points
 
 ### With `focus-planning`:
+
 - Current moment: "what to work on now?"
 - Schedule planning: "when to work on everything?"
 - Feed into each other
 
 ### With `activity-summary`:
+
 - Learn actual productivity patterns
 - "You historically code best 9-11am, scheduling deep work then"
 
 ### With existing `plan` skill:
+
 - `plan` = decide what to do
 - `schedule-planning` = decide when to do it
 - Use together for comprehensive planning

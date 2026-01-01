@@ -1,8 +1,5 @@
 // import { z } from "zod";
-import type {
-  AddTaskRequest,
-  TaskWarriorTask,
-} from "../../types/task.js";
+import type { AddTaskRequest, TaskWarriorTask } from "../../types/task.js";
 import {
   executeTaskWarriorCommandRaw,
   executeTaskWarriorCommandJson,
@@ -12,9 +9,7 @@ import {
 /**
  * Add a new task to TaskWarrior
  */
-export async function handleAddTask(
-  args: AddTaskRequest,
-): Promise<TaskWarriorTask> {
+export async function handleAddTask(args: AddTaskRequest): Promise<TaskWarriorTask> {
   console.log(`addTask called with:`, args);
 
   const commandArgs: string[] = ["add"];
@@ -49,7 +44,9 @@ export async function handleAddTask(
 
     let createdTaskUuid: string | undefined;
     const idMatch = addOutput.match(/Created task (\d+)/i); // Made case-insensitive for safety
-    const newUuidMatch = addOutput.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+    const newUuidMatch = addOutput.match(
+      /([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/,
+    );
 
     if (newUuidMatch && newUuidMatch[1]) {
       createdTaskUuid = newUuidMatch[1];
@@ -57,10 +54,7 @@ export async function handleAddTask(
     } else if (idMatch && idMatch[1]) {
       const newTaskId = idMatch[1];
       console.log(`Extracted new task ID from output: ${newTaskId}. Fetching details...`);
-      const newlyAddedTasks = await executeTaskWarriorCommandJson([
-        newTaskId,
-        "export",
-      ]);
+      const newlyAddedTasks = await executeTaskWarriorCommandJson([newTaskId, "export"]);
       if (newlyAddedTasks.length > 0 && newlyAddedTasks[0].uuid) {
         createdTaskUuid = newlyAddedTasks[0].uuid;
       } else {
@@ -83,7 +77,9 @@ export async function handleAddTask(
       if (newTasks.length > 0 && newTasks[0].uuid) {
         createdTaskUuid = newTasks[0].uuid;
       } else {
-        throw new Error("Failed to determine UUID of the newly created task. Task might have been added, but its UUID could not be retrieved.");
+        throw new Error(
+          "Failed to determine UUID of the newly created task. Task might have been added, but its UUID could not be retrieved.",
+        );
       }
     }
 

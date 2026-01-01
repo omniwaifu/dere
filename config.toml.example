@@ -43,54 +43,54 @@ url = "postgresql://postgres:dere@localhost/dere"
 
 [context]
 # Core context features (always available when dere-core plugin is enabled)
-time = true                # Current time and date
-weather = true            # Weather information (requires weather.enabled = true)
-recent_files = true       # Recently modified files
-knowledge_graph = true    # Knowledge graph entities
+time = true # Current time and date
+weather = true # Weather information (requires weather.enabled = true)
+recent_files = true # Recently modified files
+knowledge_graph = true # Knowledge graph entities
 
 # Session-start adaptive context
-session_start_enabled = true              # Enable session-start context injection
-session_start_limit = 5                   # Max KG results per session start
-session_start_git_commits = 5             # Max git commits for code sessions
-session_start_conversational_days = 30    # Lookback window for conversational sessions
-session_start_code_days = 7               # Lookback window for code sessions
+session_start_enabled = true # Enable session-start context injection
+session_start_limit = 5 # Max KG results per session start
+session_start_git_commits = 5 # Max git commits for code sessions
+session_start_conversational_days = 30 # Lookback window for conversational sessions
+session_start_code_days = 7 # Lookback window for code sessions
 
 # Productivity context (only when dere-productivity plugin is enabled)
-activity = true           # ActivityWatch window tracking
-media_player = true       # Media player status
-tasks = true              # Task management integration
-calendar = true           # Calendar events
+activity = true # ActivityWatch window tracking
+media_player = true # Media player status
+tasks = true # Task management integration
+calendar = true # Calendar events
 
 # Activity tracking settings
-activity_lookback_minutes = 10                      # Default lookback window
-activity_differential_enabled = true                # Use smart differential lookback
-activity_min_lookback_minutes = 2                   # Minimum lookback for recent messages
-activity_full_lookback_threshold_minutes = 5        # Gap threshold for full lookback
-activity_max_duration_hours = 6                     # Maximum duration to track continuous activity
+activity_lookback_minutes = 10 # Default lookback window
+activity_differential_enabled = true # Use smart differential lookback
+activity_min_lookback_minutes = 2 # Minimum lookback for recent messages
+activity_full_lookback_threshold_minutes = 5 # Gap threshold for full lookback
+activity_max_duration_hours = 6 # Maximum duration to track continuous activity
 
 # Recent files settings
-recent_files_timeframe = "1h"                       # Time window for recent files (e.g., "1h", "30m")
-recent_files_base_path = "/mnt/data/Code"          # Base directory to scan
-recent_files_max_depth = 5                          # Maximum directory depth
+recent_files_timeframe = "1h" # Time window for recent files (e.g., "1h", "30m")
+recent_files_base_path = "/mnt/data/Code" # Base directory to scan
+recent_files_max_depth = 5 # Maximum directory depth
 
 # Display settings
-show_inactive_items = true                          # Show ended/inactive activities
-format = "concise"                                  # Output format (concise, detailed)
-max_title_length = 50                               # Truncate titles longer than this
-line_numbered_xml = false                           # Prefix XML context lines with numbers
+show_inactive_items = true # Show ended/inactive activities
+format = "concise" # Output format (concise, detailed)
+max_title_length = 50 # Truncate titles longer than this
+line_numbered_xml = false # Prefix XML context lines with numbers
 
 # Update settings
-update_interval_seconds = 0                         # Context refresh interval (0 = on-demand)
-weather_cache_minutes = 10                          # Weather data cache duration
+update_interval_seconds = 0 # Context refresh interval (0 = on-demand)
+weather_cache_minutes = 10 # Weather data cache duration
 
 # ============================================================================
 # Weather Configuration
 # ============================================================================
 
 [weather]
-enabled = false          # Enable weather context
+enabled = false # Enable weather context
 # city = "London"       # City name for weather lookup
-units = "metric"        # Units: "metric" (°C) or "imperial" (°F)
+units = "metric" # Units: "metric" (°C) or "imperial" (°F)
 
 # ============================================================================
 # Discord Bot Configuration
@@ -98,89 +98,89 @@ units = "metric"        # Units: "metric" (°C) or "imperial" (°F)
 
 [discord]
 # token = ""                        # Discord bot token (required for Discord mode)
-default_persona = "tsun"            # Default persona for bot
-allowed_guilds = ""                 # Comma-separated guild IDs (empty = all)
-allowed_channels = ""               # Comma-separated channel IDs (empty = all)
-idle_timeout_seconds = 1200         # Time before bot stops typing (20 min)
-summary_grace_seconds = 30          # Grace period before conversation summary
-context_enabled = true              # Inject context into messages
+default_persona = "tsun" # Default persona for bot
+allowed_guilds = "" # Comma-separated guild IDs (empty = all)
+allowed_channels = "" # Comma-separated channel IDs (empty = all)
+idle_timeout_seconds = 1200 # Time before bot stops typing (20 min)
+summary_grace_seconds = 30 # Grace period before conversation summary
+context_enabled = true # Inject context into messages
 
 # ============================================================================
 # DereGraph (Knowledge Graph) Configuration
 # ============================================================================
 
 [dere_graph]
-enabled = true                      # Enable knowledge graph features
-falkor_host = "localhost"           # FalkorDB host
-falkor_port = 6379                  # FalkorDB port
-falkor_database = "dere_graph"      # Graph database name
-claude_model = "claude-haiku-4-5"   # Model for entity extraction
-embedding_dim = 1536                # Embedding dimensions
-enable_reflection = true            # Enable periodic reflection
-enable_attribute_hydration = false  # Second-pass entity attribute extraction
+enabled = true # Enable knowledge graph features
+falkor_host = "localhost" # FalkorDB host
+falkor_port = 6379 # FalkorDB port
+falkor_database = "dere_graph" # Graph database name
+claude_model = "claude-haiku-4-5" # Model for entity extraction
+embedding_dim = 1536 # Embedding dimensions
+enable_reflection = true # Enable periodic reflection
+enable_attribute_hydration = false # Second-pass entity attribute extraction
 enable_edge_date_refinement = false # Second-pass edge date extraction
-idle_threshold_minutes = 15         # Minutes of inactivity before reflection
+idle_threshold_minutes = 15 # Minutes of inactivity before reflection
 
 # ============================================================================
 # Ambient Monitoring Configuration
 # ============================================================================
 
 [ambient]
-enabled = true                      # Enable ambient monitoring
-daemon_url = "http://localhost:8787"  # Dere daemon URL
-user_id = "default_user"            # User ID for notifications
-personality = "tsun"                # Personality for ambient messages
+enabled = true # Enable ambient monitoring
+daemon_url = "http://localhost:8787" # Dere daemon URL
+user_id = "default_user" # User ID for notifications
+personality = "tsun" # Personality for ambient messages
 
 # Timing settings (deprecated - FSM intervals used instead)
-check_interval_minutes = 30         # Legacy check interval
-idle_threshold_minutes = 60         # Idle detection threshold
-activity_lookback_hours = 6         # Activity analysis window
+check_interval_minutes = 30 # Legacy check interval
+idle_threshold_minutes = 60 # Idle detection threshold
+activity_lookback_hours = 6 # Activity analysis window
 
 # Search settings
-embedding_search_limit = 20         # Max conversation snippets to retrieve
-context_change_threshold = 0.7      # Threshold for significant context changes
+embedding_search_limit = 20 # Max conversation snippets to retrieve
+context_change_threshold = 0.7 # Threshold for significant context changes
 
 # Escalation settings
-escalation_enabled = true           # Enable escalation for prolonged inactivity
-escalation_lookback_hours = 12      # Hours to check for escalation
+escalation_enabled = true # Enable escalation for prolonged inactivity
+escalation_lookback_hours = 12 # Hours to check for escalation
 
 # Hard minimum interval between notifications (overrides FSM timing)
-min_notification_interval_minutes = 120  # Won't notify more than once per 2 hours
+min_notification_interval_minutes = 120 # Won't notify more than once per 2 hours
 
 # Startup delay in seconds (useful during testing to avoid immediate engagement)
-startup_delay_seconds = 0           # Delay before ambient monitor starts (0 = no delay)
+startup_delay_seconds = 0 # Delay before ambient monitor starts (0 = no delay)
 
 # FSM (Finite State Machine) Configuration
-fsm_enabled = true                  # Enable state-based notification system
+fsm_enabled = true # Enable state-based notification system
 
 # FSM State Intervals (min, max) in minutes
-fsm_idle_interval = [60, 120]           # Idle state check interval
-fsm_monitoring_interval = [15, 30]      # Monitoring state check interval
-fsm_engaged_interval = 5                # Engaged state check interval (fixed)
-fsm_cooldown_interval = [45, 90]        # Cooldown state check interval
-fsm_escalating_interval = [30, 60]      # Escalating state check interval
-fsm_suppressed_interval = [90, 180]     # Suppressed state check interval
+fsm_idle_interval = [60, 120] # Idle state check interval
+fsm_monitoring_interval = [15, 30] # Monitoring state check interval
+fsm_engaged_interval = 5 # Engaged state check interval (fixed)
+fsm_cooldown_interval = [45, 90] # Cooldown state check interval
+fsm_escalating_interval = [30, 60] # Escalating state check interval
+fsm_suppressed_interval = [90, 180] # Suppressed state check interval
 
 # FSM Signal Weights (sum should equal 1.0)
-fsm_weight_activity = 0.3           # Activity signal weight
-fsm_weight_emotion = 0.25           # Emotion signal weight
-fsm_weight_responsiveness = 0.2     # Responsiveness signal weight
-fsm_weight_temporal = 0.15          # Temporal signal weight
-fsm_weight_task = 0.1               # Task signal weight
+fsm_weight_activity = 0.3 # Activity signal weight
+fsm_weight_emotion = 0.25 # Emotion signal weight
+fsm_weight_responsiveness = 0.2 # Responsiveness signal weight
+fsm_weight_temporal = 0.15 # Temporal signal weight
+fsm_weight_task = 0.1 # Task signal weight
 
 # Exploration settings
-exploring_enabled = true            # Enable ambient exploration during idle
-exploring_min_idle_minutes = 30     # Minimum idle time before exploring
-exploring_interval_minutes = [5, 10]  # Time between exploration runs
-exploring_max_explorations_per_day = 20  # Daily exploration cap
-exploring_max_daily_cost_usd = 0.50     # Soft budget cap for exploration
+exploring_enabled = true # Enable ambient exploration during idle
+exploring_min_idle_minutes = 30 # Minimum idle time before exploring
+exploring_interval_minutes = [5, 10] # Time between exploration runs
+exploring_max_explorations_per_day = 20 # Daily exploration cap
+exploring_max_daily_cost_usd = 0.50 # Soft budget cap for exploration
 
 # ============================================================================
 # ActivityWatch Configuration
 # ============================================================================
 
 [activitywatch]
-url = "http://localhost:5600"       # ActivityWatch server URL
+url = "http://localhost:5600" # ActivityWatch server URL
 
 # ============================================================================
 # Plugin Configuration
@@ -192,18 +192,18 @@ url = "http://localhost:5600"       # ActivityWatch server URL
 #   "auto"    - Enable when in specified directories
 
 [plugins.dere_core]
-mode = "always"                     # Core plugin (always enabled)
+mode = "always" # Core plugin (always enabled)
 
 [plugins.dere_productivity]
-mode = "never"                      # Productivity features
-directories = []                    # Auto-enable in these paths
+mode = "never" # Productivity features
+directories = [] # Auto-enable in these paths
 
 [plugins.dere_code]
-mode = "auto"                       # Code analysis features
-directories = ["/mnt/data/Code"]    # Auto-enable for code projects
+mode = "auto" # Code analysis features
+directories = ["/mnt/data/Code"] # Auto-enable for code projects
 
 [plugins.dere_vault]
-mode = "never"                      # Obsidian vault integration
+mode = "never" # Obsidian vault integration
 # directories = []                  # Auto-enable for specific vaults
 
 # Per-vault configuration example:

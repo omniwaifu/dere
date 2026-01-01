@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from croniter import croniter
 from loguru import logger
-from pydantic import BaseModel
 
-
-class ScheduleParseResult(BaseModel):
-    cron: str
-    timezone: str = "UTC"
-    explanation: str | None = None
+from dere_shared.llm_schemas import ScheduleParseResult
 
 
 async def parse_natural_language_schedule(nl_schedule: str) -> tuple[str, str]:

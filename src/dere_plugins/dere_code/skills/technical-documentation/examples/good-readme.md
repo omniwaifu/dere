@@ -2,7 +2,7 @@
 
 Based on the dere project README that follows documentation standards.
 
-```markdown
+````markdown
 # dere
 
 Wrapper for Claude Code that adds personality, context awareness, and a plugin system.
@@ -22,7 +22,7 @@ Requires Python 3.13+, [uv](https://github.com/astral-sh/uv), and [Claude Code](
 git clone https://github.com/omniwaifu/dere.git
 cd dere
 just install
-```
+````
 
 ## Usage
 
@@ -71,6 +71,7 @@ just test       # run tests
 just lint       # run ruff
 just fmt        # format code
 ```
+
 ```
 
 ## Why This Works
@@ -104,3 +105,4 @@ just fmt        # format code
 - Under 150 lines total
 - Each section focused
 - No walls of text
+```

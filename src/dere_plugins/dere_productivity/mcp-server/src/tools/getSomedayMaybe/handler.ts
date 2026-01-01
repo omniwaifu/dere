@@ -31,15 +31,15 @@ export async function handleGetSomedayMaybe(
 
     // Group by project
     const byProject: Record<string, unknown[]> = {};
-    limitedTasks.forEach(task => {
+    limitedTasks.forEach((task) => {
       const proj = (task as { project?: string }).project || "no_project";
       if (!byProject[proj]) byProject[proj] = [];
       byProject[proj].push(task);
     });
 
     // Find stale someday items (not modified in 90+ days)
-    const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
-    const staleTasks = limitedTasks.filter(task => {
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const staleTasks = limitedTasks.filter((task) => {
       const modified = (task as { modified?: string }).modified;
       if (!modified) return true;
       return new Date(modified).getTime() < ninetyDaysAgo;
@@ -68,7 +68,8 @@ export async function handleGetSomedayMaybe(
       insights: {
         summary,
         recommendations,
-        warnings: staleTasks.length > 5 ? [`${staleTasks.length} stale items need review`] : undefined,
+        warnings:
+          staleTasks.length > 5 ? [`${staleTasks.length} stale items need review`] : undefined,
       },
       groups: byProject,
     };

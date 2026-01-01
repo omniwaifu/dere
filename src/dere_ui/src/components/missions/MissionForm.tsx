@@ -29,7 +29,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
   const [description, setDescription] = useState(mission?.description ?? "");
   const [prompt, setPrompt] = useState(mission?.prompt ?? "");
   const [schedule, setSchedule] = useState(
-    mission?.natural_language_schedule ?? mission?.cron_expression ?? ""
+    mission?.natural_language_schedule ?? mission?.cron_expression ?? "",
   );
   const [personality, setPersonality] = useState(mission?.personality ?? "");
   const [model, setModel] = useState(mission?.model ?? "claude-opus-4-5");
@@ -38,7 +38,9 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
   const [sandboxMountType, setSandboxMountType] = useState(mission?.sandbox_mount_type ?? "none");
   const [webEnabled, setWebEnabled] = useState(() => {
     if (!mission?.allowed_tools) return true;
-    return mission.allowed_tools.includes("WebFetch") || mission.allowed_tools.includes("WebSearch");
+    return (
+      mission.allowed_tools.includes("WebFetch") || mission.allowed_tools.includes("WebSearch")
+    );
   });
   const [thinkingEnabled, setThinkingEnabled] = useState(!!mission?.thinking_budget);
   const [runOnce, setRunOnce] = useState(mission?.run_once ?? false);
@@ -96,10 +98,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
     };
 
     if (isEditing) {
-      updateMission.mutate(
-        { id: mission.id, data },
-        { onSuccess }
-      );
+      updateMission.mutate({ id: mission.id, data }, { onSuccess });
     } else {
       createMission.mutate(data as CreateMissionRequest, { onSuccess });
     }
@@ -110,19 +109,23 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       <div className="space-y-2">
         <Label>Preset</Label>
         <div className="flex items-center gap-2">
-          <Select value={selectedPresetId} onValueChange={(id) => {
-            setSelectedPresetId(id);
-            const preset = presets.find((p) => p.id === id);
-            if (!preset) return;
-            const c = preset.config as Preset["config"];
-            if (c.personality !== undefined) setPersonality(typeof c.personality === "string" ? c.personality : "");
-            if (c.model !== undefined) setModel(c.model || "claude-opus-4-5");
-            if (c.working_dir !== undefined) setWorkingDir(c.working_dir || "/workspace");
-            if (c.thinking_enabled !== undefined) setThinkingEnabled(!!c.thinking_enabled);
-            if (c.sandbox_mode !== undefined) setSandboxMode(!!c.sandbox_mode);
-            if (c.sandbox_mount_type !== undefined) setSandboxMountType(c.sandbox_mount_type);
-            if (c.web_enabled !== undefined) setWebEnabled(!!c.web_enabled);
-          }}>
+          <Select
+            value={selectedPresetId}
+            onValueChange={(id) => {
+              setSelectedPresetId(id);
+              const preset = presets.find((p) => p.id === id);
+              if (!preset) return;
+              const c = preset.config as Preset["config"];
+              if (c.personality !== undefined)
+                setPersonality(typeof c.personality === "string" ? c.personality : "");
+              if (c.model !== undefined) setModel(c.model || "claude-opus-4-5");
+              if (c.working_dir !== undefined) setWorkingDir(c.working_dir || "/workspace");
+              if (c.thinking_enabled !== undefined) setThinkingEnabled(!!c.thinking_enabled);
+              if (c.sandbox_mode !== undefined) setSandboxMode(!!c.sandbox_mode);
+              if (c.sandbox_mount_type !== undefined) setSandboxMountType(c.sandbox_mount_type);
+              if (c.web_enabled !== undefined) setWebEnabled(!!c.web_enabled);
+            }}
+          >
             <SelectTrigger className="w-64">
               <SelectValue placeholder="Choose preset" />
             </SelectTrigger>
@@ -224,9 +227,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       <div className="flex items-center justify-between rounded-lg border border-border p-3">
         <div>
           <div className="font-medium text-sm">One-off Mission</div>
-          <div className="text-xs text-muted-foreground">
-            Run once immediately, then archive
-          </div>
+          <div className="text-xs text-muted-foreground">Run once immediately, then archive</div>
         </div>
         <Switch checked={runOnce} onCheckedChange={setRunOnce} />
       </div>
@@ -249,7 +250,10 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="personality">Personality</Label>
-          <Select value={personality || "_default"} onValueChange={(v) => setPersonality(v === "_default" ? "" : v)}>
+          <Select
+            value={personality || "_default"}
+            onValueChange={(v) => setPersonality(v === "_default" ? "" : v)}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Default" />
             </SelectTrigger>
@@ -294,9 +298,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       <div className="flex items-center justify-between rounded-lg border border-border p-3">
         <div>
           <div className="font-medium text-sm">Sandbox Mode</div>
-          <div className="text-xs text-muted-foreground">
-            Run in isolated container
-          </div>
+          <div className="text-xs text-muted-foreground">Run in isolated container</div>
         </div>
         <Switch checked={sandboxMode} onCheckedChange={setSandboxMode} />
       </div>
@@ -314,9 +316,7 @@ export function MissionForm({ mission, onSuccess, onCancel }: MissionFormProps) 
       <div className="flex items-center justify-between rounded-lg border border-border p-3">
         <div>
           <div className="font-medium text-sm">Web Access</div>
-          <div className="text-xs text-muted-foreground">
-            Allow WebFetch / internet access
-          </div>
+          <div className="text-xs text-muted-foreground">Allow WebFetch / internet access</div>
         </div>
         <Switch checked={webEnabled} onCheckedChange={setWebEnabled} />
       </div>

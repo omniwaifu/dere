@@ -12,6 +12,7 @@ Review feature plans for failures, edge cases, and unnecessary complexity.
 ## Review Checklist
 
 ### Failure Scenarios
+
 - Runtime: exceptions not caught, null/undefined access, type mismatches
 - Async: race conditions, deadlocks, callback ordering
 - Resources: memory leaks (no TTL on caches), connection pool exhaustion, file handle leaks
@@ -19,18 +20,21 @@ Review feature plans for failures, edge cases, and unnecessary complexity.
 - Security: injection, XSS, auth bypass, secrets in logs
 
 ### Edge Cases
+
 - Empty: no data, no users, missing config
 - Errors: network down, timeout, partial failure
 - Boundaries: zero, negative, max int, Unicode, null
 - Concurrency: multiple tabs, simultaneous users
 
 ### Complexity vs Value
+
 - Is 80/20 possible? (20% work for 80% value)
 - Existing library available?
 - Reinventing the wheel?
 - Could config replace code?
 
 ### Maintenance Burden
+
 - Files/LOC added
 - New dependencies
 - Debuggability when broken

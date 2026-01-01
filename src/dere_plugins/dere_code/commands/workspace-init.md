@@ -14,6 +14,7 @@ mkdir -p .claude/rules
 ```
 
 Consider creating initial rules from project README/docs:
+
 - `.claude/rules/code-style.md` - coding conventions
 - `.claude/rules/commands.md` - build/test/lint commands
 - `.claude/rules/testing.md` - test requirements
@@ -25,6 +26,7 @@ grep -qxF '.serena/' .gitignore || echo '.serena/' >> .gitignore
 ```
 
 Activate and onboard:
+
 ```
 mcp__plugin_dere-code_serena__check_onboarding_performed()
 # If not onboarded: call onboarding() and follow prompts
@@ -39,24 +41,26 @@ mcp__plugin_dere-code_serena__check_onboarding_performed()
 
 ## When to Use Each
 
-| Use Rules | Use Serena |
-|-----------|------------|
-| Coding standards | Discovered footguns |
-| Build commands | Session patterns |
-| Static conventions | Dynamic decisions |
-| Team agreements | Personal learnings |
+| Use Rules          | Use Serena          |
+| ------------------ | ------------------- |
+| Coding standards   | Discovered footguns |
+| Build commands     | Session patterns    |
+| Static conventions | Dynamic decisions   |
+| Team agreements    | Personal learnings  |
 
 **Rules = reliable foundation | Serena = session discoveries**
 
 ## Requirements
 
 **Serena MCP (for dynamic memories):**
+
 ```bash
 claude mcp add serena -- uvx --from git+https://github.com/oraios/serena \
   serena start-mcp-server --context ide-assistant --project "$(pwd)"
 ```
 
 **Context7 (optional - library docs):**
+
 ```bash
 claude mcp add context7 -- npx -y @context7/mcp-server
 ```
@@ -64,10 +68,12 @@ claude mcp add context7 -- npx -y @context7/mcp-server
 ## Troubleshooting
 
 **Slow symbol tools on first use**
+
 - Serena is parsing codebase (one-time operation)
 - Pre-index: `uvx --from git+https://github.com/oraios/serena serena project index`
 
 **Serena unavailable**
+
 - Rules still work without MCP
 - Static conventions remain loaded
 - Only dynamic memories are affected

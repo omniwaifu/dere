@@ -10,11 +10,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, ToolUse, ToolResult, ConversationBlock } from "@/types/api";
@@ -35,7 +31,13 @@ interface MessageBubbleProps {
   fallbackIcon?: string;
 }
 
-export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fallbackIcon }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isLatest,
+  avatarUrl,
+  fallbackColor,
+  fallbackIcon,
+}: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -67,18 +69,18 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
     : "";
   const hasText = blocks ? !!blockText.trim() : !!message.content?.trim();
 
-    const renderBlocks = (blocksToRender: ConversationBlock[]) => {
-      const resultsByToolUseId = new Map<string, ToolResult>();
-      for (const b of blocksToRender) {
-        if (b.type === "tool_result") {
-          resultsByToolUseId.set(b.tool_use_id, {
-            toolUseId: b.tool_use_id,
-            name: b.name,
-            output: b.output,
-            isError: b.is_error,
-          });
-        }
+  const renderBlocks = (blocksToRender: ConversationBlock[]) => {
+    const resultsByToolUseId = new Map<string, ToolResult>();
+    for (const b of blocksToRender) {
+      if (b.type === "tool_result") {
+        resultsByToolUseId.set(b.tool_use_id, {
+          toolUseId: b.tool_use_id,
+          name: b.name,
+          output: b.output,
+          isError: b.is_error,
+        });
       }
+    }
 
     const parts: React.ReactNode[] = [];
     let textBuffer: string[] = [];
@@ -118,13 +120,13 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
                 {t}
               </ReactMarkdown>
             </div>
-          </div>
+          </div>,
         );
       }
       textBuffer = [];
     };
 
-      for (const b of blocksToRender) {
+    for (const b of blocksToRender) {
       if (b.type === "thinking") {
         flushText();
         parts.push(
@@ -133,7 +135,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
             thinking={b.text}
             thinkingDuration={message.thinkingDuration}
             isStreaming={message.isStreaming}
-          />
+          />,
         );
       } else if (b.type === "text") {
         // Separate text blocks with paragraph breaks so post-tool text doesn't glue onto pre-tool text.
@@ -149,11 +151,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
           status: result ? (result.isError ? "error" : "success") : "pending",
         };
         parts.push(
-          <ToolUseBlock
-            key={`tool-${b.id}-${parts.length}`}
-            tool={tool}
-            result={result}
-          />
+          <ToolUseBlock key={`tool-${b.id}-${parts.length}`} tool={tool} result={result} />,
         );
       } else if (b.type === "tool_result") {
         // Rendered alongside tool_use
@@ -200,7 +198,11 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
         {!avatarUrl || avatarFailed ? (
           <div
             className="flex h-full w-full items-center justify-center text-xs font-semibold text-foreground"
-            style={fallbackColor ? { backgroundColor: fallbackColor + "20", color: fallbackColor } : undefined}
+            style={
+              fallbackColor
+                ? { backgroundColor: fallbackColor + "20", color: fallbackColor }
+                : undefined
+            }
             title="Personality"
           >
             {fallbackIcon || "●"}
@@ -277,7 +279,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
             <div
               className={cn(
                 "transition-opacity",
-                isLatest ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
+                isLatest ? "opacity-100" : "opacity-0 group-hover/message:opacity-100",
               )}
             >
               <button
@@ -285,11 +287,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
                 className="flex items-center gap-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                 title="Copy message"
               >
-                {copied ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
 
@@ -313,13 +311,7 @@ export function MessageBubble({ message, isLatest, avatarUrl, fallbackColor, fal
   );
 }
 
-function ToolUseBlock({
-  tool,
-  result,
-}: {
-  tool: ToolUse;
-  result?: ToolResult;
-}) {
+function ToolUseBlock({ tool, result }: { tool: ToolUse; result?: ToolResult }) {
   const [expanded, setExpanded] = useState(false);
 
   const inputIsEmpty =
@@ -337,9 +329,7 @@ function ToolUseBlock({
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
       <CollapsibleTrigger className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300">
-        <ChevronRight
-          className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")}
-        />
+        <ChevronRight className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")} />
         <Terminal className="h-4 w-4" />
         <span>{tool.name}</span>
         {statusIcon}
@@ -363,13 +353,13 @@ function ToolUseBlock({
                 "rounded-md border p-3",
                 result.isError
                   ? "border-red-500/30 bg-red-500/10"
-                  : "border-green-500/30 bg-green-500/10"
+                  : "border-green-500/30 bg-green-500/10",
               )}
             >
               <p
                 className={cn(
                   "mb-1 text-xs font-medium",
-                  result.isError ? "text-red-300" : "text-green-300"
+                  result.isError ? "text-red-300" : "text-green-300",
                 )}
               >
                 {result.isError ? "Error" : "Output"}
@@ -377,7 +367,7 @@ function ToolUseBlock({
               <pre
                 className={cn(
                   "max-h-48 overflow-auto text-xs",
-                  result.isError ? "text-red-200/80" : "text-green-200/80"
+                  result.isError ? "text-red-200/80" : "text-green-200/80",
                 )}
               >
                 {result.output}
@@ -390,11 +380,7 @@ function ToolUseBlock({
   );
 }
 
-function CodeBlock({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLElement>) {
+function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLElement>) {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
   const language = match ? match[1] : "";
@@ -431,11 +417,7 @@ function CodeBlock({
           onClick={handleCopy}
           className="rounded p-1 opacity-0 transition-opacity hover:bg-white/10 group-hover:opacity-100"
         >
-          {copied ? (
-            <Check className="h-4 w-4 text-green-400" />
-          ) : (
-            <Copy className="h-4 w-4" />
-          )}
+          {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
         </button>
       </div>
       <pre className="overflow-auto rounded-md border border-white/10 bg-black/40 p-4">

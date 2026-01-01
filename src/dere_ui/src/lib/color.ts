@@ -12,7 +12,10 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 }
 
 function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  const toHex = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
@@ -20,11 +23,7 @@ export function mixHex(baseHex: string, targetHex: string, ratio: number): strin
   const a = hexToRgb(baseHex);
   const b = hexToRgb(targetHex);
   const t = Math.max(0, Math.min(1, ratio));
-  return rgbToHex(
-    a.r + (b.r - a.r) * t,
-    a.g + (b.g - a.g) * t,
-    a.b + (b.b - a.b) * t
-  );
+  return rgbToHex(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t);
 }
 
 export function darkenHex(hex: string, amount: number): string {
@@ -36,4 +35,3 @@ export function alphaHex(hex: string, alpha: number): string {
   const a = Math.max(0, Math.min(1, alpha));
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
-

@@ -8,12 +8,14 @@ description: Ensure all URLs come from trusted sources (WebSearch results, WebFe
 ## URL Sourcing Policy
 
 **ONLY use URLs from:**
+
 1. WebSearch results
 2. Pages visited with WebFetch
 3. User-provided links
 4. Context7 library documentation
 
 **NEVER:**
+
 - Fabricate or guess URLs
 - Construct URLs from patterns
 - Assume documentation locations
@@ -21,6 +23,7 @@ description: Ensure all URLs come from trusted sources (WebSearch results, WebFe
 ## Workflow for References
 
 **If you need to reference documentation:**
+
 ```
 1. WebSearch("library-name official documentation")
 2. Extract URL from search results
@@ -29,6 +32,7 @@ description: Ensure all URLs come from trusted sources (WebSearch results, WebFe
 ```
 
 **Alternative:**
+
 ```
 1. Use Context7 for library docs (already verified)
 2. Cite as "Context7: /library/name"

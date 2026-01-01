@@ -38,8 +38,8 @@ export function SessionSidebar() {
   const renameSession = useRenameSession();
   const { data: userInfo } = useUserInfo();
 
-  const [isCollapsed, setIsCollapsed] = useState(() =>
-    localStorage.getItem("sidebar-collapsed") === "true"
+  const [isCollapsed, setIsCollapsed] = useState(
+    () => localStorage.getItem("sidebar-collapsed") === "true",
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -126,7 +126,7 @@ export function SessionSidebar() {
     <aside
       className={cn(
         "flex flex-col bg-muted/30 transition-all duration-200",
-        isCollapsed ? "w-14" : "w-64"
+        isCollapsed ? "w-14" : "w-64",
       )}
     >
       {/* Header with logo and collapse toggle */}
@@ -138,7 +138,11 @@ export function SessionSidebar() {
             className="group flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-accent"
             title="Expand sidebar"
           >
-            <img src={logoImg} alt="dere" className="h-5 w-5 transition-opacity group-hover:opacity-0" />
+            <img
+              src={logoImg}
+              alt="dere"
+              className="h-5 w-5 transition-opacity group-hover:opacity-0"
+            />
             <PanelLeft className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
           </button>
         ) : (
@@ -170,10 +174,7 @@ export function SessionSidebar() {
         {/* New chat button */}
         <Button
           variant="ghost"
-          className={cn(
-            "w-full justify-start gap-2",
-            isCollapsed && "justify-center px-0"
-          )}
+          className={cn("w-full justify-start gap-2", isCollapsed && "justify-center px-0")}
           onClick={handleNewChat}
           title="New chat"
         >
@@ -184,10 +185,7 @@ export function SessionSidebar() {
         {/* Search button */}
         <Button
           variant="ghost"
-          className={cn(
-            "w-full justify-start gap-2",
-            isCollapsed && "justify-center px-0"
-          )}
+          className={cn("w-full justify-start gap-2", isCollapsed && "justify-center px-0")}
           onClick={handleSearchClick}
           title="Search chats"
         >
@@ -198,10 +196,7 @@ export function SessionSidebar() {
         {/* Missions link */}
         <Button
           variant="ghost"
-          className={cn(
-            "w-full justify-start gap-2",
-            isCollapsed && "justify-center px-0"
-          )}
+          className={cn("w-full justify-start gap-2", isCollapsed && "justify-center px-0")}
           onClick={() => navigate({ to: "/missions" })}
           title="Missions"
         >
@@ -247,15 +242,8 @@ export function SessionSidebar() {
 
             {isError && !isLoading && (
               <div className="flex flex-col items-center gap-2 py-8">
-                <p className="text-sm text-muted-foreground">
-                  Failed to load sessions
-                </p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => refetch()}
-                  className="gap-1"
-                >
+                <p className="text-sm text-muted-foreground">Failed to load sessions</p>
+                <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1">
                   <RefreshCw className="h-3 w-3" />
                   Retry
                 </Button>
@@ -280,7 +268,7 @@ export function SessionSidebar() {
                   key={session.session_id}
                   className={cn(
                     "group flex items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
-                    currentSessionId === session.session_id && "bg-accent"
+                    currentSessionId === session.session_id && "bg-accent",
                   )}
                 >
                   {isRenaming ? (
@@ -312,7 +300,7 @@ export function SessionSidebar() {
                         params={{ sessionId: String(session.session_id) }}
                         className={cn(
                           "flex flex-1 items-center overflow-hidden",
-                          session.is_locked && "text-muted-foreground"
+                          session.is_locked && "text-muted-foreground",
                         )}
                         onDoubleClick={(e) => {
                           e.preventDefault();
@@ -379,15 +367,11 @@ export function SessionSidebar() {
             <button
               className={cn(
                 "flex w-full items-center gap-2 rounded-md px-2 py-2 hover:bg-accent",
-                isCollapsed && "justify-center"
+                isCollapsed && "justify-center",
               )}
             >
               <User className="h-4 w-4 shrink-0" />
-              {!isCollapsed && (
-                <span className="truncate text-sm">
-                  {userInfo?.name || "User"}
-                </span>
-              )}
+              {!isCollapsed && <span className="truncate text-sm">{userInfo?.name || "User"}</span>}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-48">

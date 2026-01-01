@@ -1,0 +1,47 @@
+{
+  "description": "Decision from ambient mission about whether to notify.",
+  "properties": {
+    "confidence": {
+      "default": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "priority": {
+      "default": "conversation",
+      "enum": ["alert", "conversation"],
+      "title": "Priority",
+      "type": "string"
+    },
+    "reasoning": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reasoning"
+    },
+    "send": {
+      "title": "Send",
+      "type": "boolean"
+    }
+  },
+  "required": ["send"],
+  "title": "AmbientMissionDecision",
+  "type": "object"
+}

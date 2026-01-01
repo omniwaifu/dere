@@ -1,10 +1,5 @@
-import type {
-  ModifyTaskRequest,
-} from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import type { ModifyTaskRequest } from "../../types/task.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 
 // --- Standard MCP Interfaces (should ideally be imported) ---
 interface JsonContentItem {
@@ -123,7 +118,7 @@ export const modifyTaskHandler = async (
       // Get current dependencies and remove specified ones
       const currentDepends = existingTask.depends || [];
       const newDepends = currentDepends.filter(
-        (dep) => !modifications.removeDepends?.includes(dep)
+        (dep) => !modifications.removeDepends?.includes(dep),
       );
       if (newDepends.length > 0) {
         commandArgs.push(`depends:${newDepends.join(",")}`);

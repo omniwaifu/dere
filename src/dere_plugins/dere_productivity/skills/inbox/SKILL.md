@@ -14,13 +14,14 @@ Process inbox items using the GTD clarification workflow.
 3. **Apply GTD logic**:
    - Not actionable? → Delete or tag +someday
    - <2 minutes? → Do now
-   - >2 minutes? → Add context (home, computer), energy (H/M/L), project
+   - > 2 minutes? → Add context (home, computer), energy (H/M/L), project
 4. **Remove +inbox tag** after processing
 5. **Repeat** until inbox empty
 
 ## GTD Questions
 
 For each task:
+
 - Is this actionable?
 - What's the next physical action?
 - Will it take <2 minutes?

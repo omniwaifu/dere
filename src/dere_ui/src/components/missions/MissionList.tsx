@@ -97,9 +97,7 @@ function MissionRow({
           </Badge>
         </div>
         {mission.description && (
-          <p className="mt-1 text-sm text-muted-foreground truncate">
-            {mission.description}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground truncate">{mission.description}</p>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">

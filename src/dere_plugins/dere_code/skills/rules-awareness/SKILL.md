@@ -8,6 +8,7 @@ description: Manage Claude Code rules in .claude/rules/. Triggers when user asks
 ## What are Rules?
 
 Static project directives in `.claude/rules/*.md`:
+
 - Auto-loaded at startup (no MCP needed)
 - Path-scoped via YAML frontmatter
 - More reliable than Serena memories for permanent info
@@ -16,6 +17,7 @@ Static project directives in `.claude/rules/*.md`:
 ## When to Suggest Rules
 
 User says:
+
 - "We always..." / "Never..."
 - "Add this to project standards"
 - "Everyone on the team should know..."
@@ -81,9 +83,9 @@ paths: {src,lib}/**/*.py
 
 ## Rules vs Serena
 
-| Use Rules | Use Serena |
-|-----------|------------|
-| Coding standards | Discovered footguns |
-| Build commands | Session patterns |
-| Static conventions | Dynamic decisions |
-| Team agreements | Personal learnings |
+| Use Rules          | Use Serena          |
+| ------------------ | ------------------- |
+| Coding standards   | Discovered footguns |
+| Build commands     | Session patterns    |
+| Static conventions | Dynamic decisions   |
+| Team agreements    | Personal learnings  |

@@ -1,10 +1,5 @@
-import type {
-  StopTaskRequest,
-} from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import type { StopTaskRequest } from "../../types/task.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 
 // --- Standard MCP Interfaces (should ideally be imported) ---
 interface JsonContentItem {
@@ -109,7 +104,8 @@ export const stopTaskHandler = async (
         message: message,
         details: details,
       },
-      result: { // Optionally, provide a text error in content as well
+      result: {
+        // Optionally, provide a text error in content as well
         content: [
           {
             type: "text",

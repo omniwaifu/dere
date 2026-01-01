@@ -10,6 +10,7 @@ Create permanent notes with **thickness enforcement** - notes must be testable, 
 ## Workflow
 
 ### Phase 0: Transformation Check
+
 Before extracting, answer the gate question:
 
 > "What does this change about how I see something else?"
@@ -17,6 +18,7 @@ Before extracting, answer the gate question:
 If you can't answer this, you're collecting, not learning. The concept isn't ready for permanent note status.
 
 **Outcomes:**
+
 - **Clear transformation** → Proceed to Phase 1
 - **Vague or nothing** → Either:
   - Return to source for deeper processing
@@ -26,11 +28,13 @@ If you can't answer this, you're collecting, not learning. The concept isn't rea
 This filters out "interesting facts" that don't actually rewire understanding.
 
 ### Phase 1: Source Review
+
 1. Review source material (daily note, literature note, conversation)
 2. Identify candidate concept for extraction
 3. **Search for duplicates** - Use `concept_search.py [concept]` to check if similar note exists
 
 ### Phase 2: Domain Detection
+
 Identify the domain(s) this concept belongs to. Ask the user if unclear:
 
 ```
@@ -38,6 +42,7 @@ Identify the domain(s) this concept belongs to. Ask the user if unclear:
 ```
 
 **Available domains** (templates in `domains/`):
+
 - **computation** - algorithms, software, data structures
 - **economics** - markets, incentives, mechanisms
 - **philosophy** - concepts, arguments, definitions
@@ -54,12 +59,14 @@ For cross-domain concepts: Apply universal criteria + primary domain's specific 
 **Target: 150-300 words** (not counting frontmatter/wikilinks)
 
 Structure:
+
 1. **Core claim** - 1 sentence, max 30 words
 2. **Why it matters** - 1-2 sentences connecting to other concepts
 3. **Boundaries** - when this doesn't apply
 4. **Example** - 1 concrete instance (not a restatement of the claim)
 
 **DO NOT:**
+
 - Restate the claim in different words
 - Use "In other words..." or "Put simply..."
 - List obvious implications
@@ -67,9 +74,11 @@ Structure:
 - Pad with hedge words or qualifications
 
 ### Phase 4: Thickness Interrogation
+
 Load the domain template from `domains/[domain].md`. Apply both:
 
 **Universal Thickness Criteria** (all domains):
+
 1. **Testable** - At least one falsifiable claim. Ask: "What would prove this wrong?"
 2. **Productive** - Can derive non-obvious consequences. Ask: "What follows from this that you didn't put in?"
 3. **Bounded** - Knows where it breaks. Ask: "What are the edge cases and limitations?"
@@ -77,35 +86,44 @@ Load the domain template from `domains/[domain].md`. Apply both:
 **Domain-Specific Criteria** from the loaded template.
 
 **Interrogation Protocol**:
+
 - Ask domain-specific questions from the template
 - Push back on vague claims: "What exactly do you mean by [term]?"
 - Demand concrete examples: "Give me a specific instance"
 - Test boundaries: "What happens at the edge?"
 
 ### Phase 5: Thickness Assessment
+
 Evaluate against criteria. Either:
 
 **PASS** - All criteria satisfied:
+
 - Proceed to finalization
 - Mark formalization level (`semi-formal` or `formal`)
 
 **FAIL** - Criteria not met:
+
 ```
 "This note is still at prose level. The claim '[X]' isn't testable yet -
 what observation would prove it wrong? And the term '[Y]' needs a precise
 definition. Let's work on those before finalizing."
 ```
+
 Return to Phase 4 until criteria met.
 
 ### Phase 6: Derivation Linking
+
 Before finalizing, ask:
+
 - "What existing notes does this build on?" → Set `derived_from`
 - "What notes should this link to?" → Use `link_analysis.py --suggest "[title]"`
 
 Update source notes' `derivations` field with backlink to this new note.
 
 ### Phase 7: Finalization
+
 Create the note with:
+
 - Complete frontmatter (see REFERENCE.md)
 - Thickness metadata filled
 - Derivation links set

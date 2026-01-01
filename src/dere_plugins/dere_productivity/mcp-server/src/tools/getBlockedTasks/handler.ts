@@ -21,7 +21,7 @@ export async function handleGetBlockedTasks(
     const allTasks = await executeTaskWarriorCommandJson(filterArgs);
 
     // Filter for blocked tasks (have dependencies)
-    let blockedTasks = allTasks.filter(task => {
+    let blockedTasks = allTasks.filter((task) => {
       if (!task.depends || task.depends.length === 0) return false;
       return true;
     });
@@ -29,8 +29,8 @@ export async function handleGetBlockedTasks(
     // Optionally include waiting tasks
     if (args.include_waiting) {
       const now = new Date();
-      const waitingTasks = allTasks.filter(task => {
-        if (task.status === 'waiting') return true;
+      const waitingTasks = allTasks.filter((task) => {
+        if (task.status === "waiting") return true;
         if (task.wait) {
           const waitDate = new Date(task.wait);
           return waitDate > now;
@@ -60,9 +60,7 @@ export async function handleGetBlockedTasks(
     } else {
       insights.summary = `${blockedTasks.length} tasks are blocked`;
       insights.recommendations = insights.recommendations || [];
-      insights.recommendations.unshift(
-        `Unblock tasks by completing dependencies`
-      );
+      insights.recommendations.unshift(`Unblock tasks by completing dependencies`);
     }
 
     const response: EnrichedResponse = {

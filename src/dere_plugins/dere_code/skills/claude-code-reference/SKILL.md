@@ -13,16 +13,16 @@ Automated actions at lifecycle events. Input via stdin JSON, 60s timeout.
 
 **Exit codes:** 0=success, 2=blocking (stderr to Claude), other=non-blocking
 
-| Event | When | Matcher |
-|-------|------|---------|
-| PreToolUse | Before tool | Tool name regex |
-| PostToolUse | After tool | Tool name regex |
-| PostCustomToolCall | After MCP tool | MCP only |
-| UserPromptSubmit | Before Claude | None |
-| SessionStart | Init/resume | startup/resume/clear/compact |
-| SessionEnd | Termination | None |
-| Stop | Main agent done | None |
-| SubagentStart/Stop | Subagent lifecycle | None |
+| Event              | When               | Matcher                      |
+| ------------------ | ------------------ | ---------------------------- |
+| PreToolUse         | Before tool        | Tool name regex              |
+| PostToolUse        | After tool         | Tool name regex              |
+| PostCustomToolCall | After MCP tool     | MCP only                     |
+| UserPromptSubmit   | Before Claude      | None                         |
+| SessionStart       | Init/resume        | startup/resume/clear/compact |
+| SessionEnd         | Termination        | None                         |
+| Stop               | Main agent done    | None                         |
+| SubagentStart/Stop | Subagent lifecycle | None                         |
 
 ```json
 {"type": "command", "command": "./script.sh", "timeout": 60}
@@ -80,6 +80,7 @@ System prompt
 ```
 
 **permissionMode:**
+
 - `default`: normal approval prompts
 - `acceptEdits`: auto-accept edits
 - `plan`: read-only, no modifications
@@ -96,14 +97,14 @@ External tools via Model Context Protocol.
 
 ## Decision Matrix
 
-| Need | Use |
-|------|-----|
-| Auto-trigger on lifecycle | Hooks |
-| Validate/block tool calls | Hooks (PreToolUse) |
-| Auto-discovered capabilities | Skills |
-| User-invoked templates | Slash Commands |
-| Separate context + tool restrictions | Subagents |
-| External API/database | MCP |
+| Need                                 | Use                |
+| ------------------------------------ | ------------------ |
+| Auto-trigger on lifecycle            | Hooks              |
+| Validate/block tool calls            | Hooks (PreToolUse) |
+| Auto-discovered capabilities         | Skills             |
+| User-invoked templates               | Slash Commands     |
+| Separate context + tool restrictions | Subagents          |
+| External API/database                | MCP                |
 
 ## Gotchas
 

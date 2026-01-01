@@ -10,10 +10,7 @@ export async function handleProcessInbox(): Promise<EnrichedResponse> {
 
   try {
     // Get all tasks with +inbox tag
-    const inboxTasks = await executeTaskWarriorCommandJson([
-      "status:pending",
-      "+inbox",
-    ]);
+    const inboxTasks = await executeTaskWarriorCommandJson(["status:pending", "+inbox"]);
 
     // Generate insights
     const insights = generateInsights(inboxTasks, {
@@ -27,9 +24,7 @@ export async function handleProcessInbox(): Promise<EnrichedResponse> {
     } else {
       insights.summary = `${inboxTasks.length} items in inbox need processing`;
       insights.recommendations = insights.recommendations || [];
-      insights.recommendations.unshift(
-        `Process these inbox items: clarify, organize, or defer`
-      );
+      insights.recommendations.unshift(`Process these inbox items: clarify, organize, or defer`);
     }
 
     const response: EnrichedResponse = {

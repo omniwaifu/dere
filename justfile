@@ -29,6 +29,34 @@ test:
 kg-eval ARGS="":
     uv run python -m dere_graph.eval_cli {{ARGS}}
 
+# Export JSON schemas (LLM + config)
+schemas:
+    uv run python scripts/export_schemas.py
+
+# Export OpenAPI schema for the daemon
+openapi:
+    uv run python scripts/export_openapi.py
+
+# Generate OpenAPI types for TS client
+gen-openapi:
+    bun run gen:openapi
+
+# Generate config types from JSON Schema
+gen-config-types:
+    bun run gen:config-types
+
+# Install JS/TS dependencies (workspace root)
+ts-install:
+    bun install
+
+# Run TS tests (shared-llm)
+ts-test:
+    cd packages/shared-llm && bun test
+
+# Run TS daemon (Hono)
+ts-daemon:
+    cd packages/daemon && bun run dev
+
 # Run linting
 lint:
     uv run ruff check .

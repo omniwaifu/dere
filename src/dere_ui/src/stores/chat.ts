@@ -185,7 +185,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               request_id: current.requestId,
               allowed: decision.allowed,
               deny_message: decision.denyMessage,
-            })
+            }),
           );
           delete decisions[current.requestId];
           queue = queue.slice(1);
@@ -318,7 +318,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         type: "resume_session",
         session_id: id,
         last_seq: lastSeq,
-      })
+      }),
     );
   },
 
@@ -458,8 +458,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const metric = isUser ? userMetrics[userIdx++] : assistantMetrics[assistantIdx++];
         const blocks = msg.blocks ?? undefined;
         const mergedText =
-          blocks?.filter((b) => b.type === "text").map((b) => b.text).filter(Boolean).join("\n\n") ||
-          msg.content;
+          blocks
+            ?.filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .filter(Boolean)
+            .join("\n\n") || msg.content;
         return {
           id: msg.id,
           role: msg.role as "user" | "assistant",
@@ -791,7 +794,7 @@ function handleStreamEvent(event: StreamEvent) {
         const lastPendingTool = toolUseId
           ? s.streamingMessage.toolUses.find((tu) => tu.id === toolUseId)
           : s.streamingMessage.toolUses.find(
-              (tu) => tu.name === data.name && tu.status === "pending"
+              (tu) => tu.name === data.name && tu.status === "pending",
             );
 
         const toolResult: ToolResult = {
@@ -846,8 +849,11 @@ function handleStreamEvent(event: StreamEvent) {
 
         const blocks = s.streamingMessage.blocks;
         const mergedText =
-          blocks?.filter((b) => b.type === "text").map((b) => b.text).filter(Boolean).join("\n\n") ||
-          s.streamingMessage.content;
+          blocks
+            ?.filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .filter(Boolean)
+            .join("\n\n") || s.streamingMessage.content;
 
         const finalMessage: ChatMessage = {
           ...s.streamingMessage,
@@ -956,7 +962,7 @@ function scheduleReconnect() {
   // Exponential backoff with jitter
   const baseDelay = Math.min(
     INITIAL_RECONNECT_DELAY_MS * Math.pow(2, state.reconnectAttempts),
-    MAX_RECONNECT_DELAY_MS
+    MAX_RECONNECT_DELAY_MS,
   );
   const jitter = Math.random() * 1000;
   const delay = baseDelay + jitter;

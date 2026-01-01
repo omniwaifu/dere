@@ -2,17 +2,17 @@
   "name": "taskwarrior-mcp",
   "version": "1.0.1",
   "description": "MCP server for taskwarrior",
-  "license": "MIT",
   "homepage": "https://github.com/omniwaifu/taskwarrior-mcp",
   "bugs": "https://github.com/omniwaifu/taskwarrior-mcp/issues",
-  "type": "module",
-  "main": "dist/index.js",
+  "license": "MIT",
   "bin": {
     "taskwarrior-mcp": "dist/index.js"
   },
   "files": [
     "dist"
   ],
+  "type": "module",
+  "main": "dist/index.js",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --format=esm --external:@modelcontextprotocol/sdk --external:zod --external:zod-to-json-schema --external:diff --external:glob --external:minimatch && shx chmod +x dist/*.js",
     "typecheck": "NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit",

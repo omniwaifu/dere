@@ -15,7 +15,7 @@ export function useMessageListState() {
       isQueryInProgress: s.isQueryInProgress,
       isLoadingMessages: s.isLoadingMessages,
       loadError: s.loadError,
-    }))
+    })),
   );
 }
 
@@ -26,7 +26,7 @@ export function useChatInputState() {
       sessionId: s.sessionId,
       isQueryInProgress: s.isQueryInProgress,
       isLocked: s.isLocked,
-    }))
+    })),
   );
 }
 
@@ -37,7 +37,7 @@ export function useChatViewState() {
       sessionId: s.sessionId,
       isCreatingNewSession: s.isCreatingNewSession,
       lastSeq: s.lastSeq,
-    }))
+    })),
   );
 }
 
@@ -48,7 +48,7 @@ export function useChatHeaderState() {
       sessionName: s.sessionName,
       sessionConfig: s.sessionConfig,
       isLocked: s.isLocked,
-    }))
+    })),
   );
 }
 
@@ -59,7 +59,7 @@ export function useConnectionState() {
       error: s.error,
       reconnectAttempts: s.reconnectAttempts,
       disconnectedAt: s.disconnectedAt,
-    }))
+    })),
   );
 }
 
@@ -67,7 +67,7 @@ export function usePermissionState() {
   return useChatStore(
     useShallow((s) => ({
       pendingPermission: s.pendingPermission,
-    }))
+    })),
   );
 }
 
@@ -86,6 +86,6 @@ export function useChatActions() {
       retryLoad: s.retryLoad,
       clearError: s.clearError,
       respondToPermission: s.respondToPermission,
-    }))
+    })),
   );
 }

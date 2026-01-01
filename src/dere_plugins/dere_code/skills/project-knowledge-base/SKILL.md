@@ -9,12 +9,12 @@ description: Capture project-specific patterns, stack decisions, and footguns us
 
 This project has two knowledge systems. Use the right one:
 
-| Static (Rules) | Dynamic (Serena) |
-|----------------|------------------|
-| Coding standards | Discovered footguns |
-| File conventions | Patterns found exploring |
+| Static (Rules)      | Dynamic (Serena)              |
+| ------------------- | ----------------------------- |
+| Coding standards    | Discovered footguns           |
+| File conventions    | Patterns found exploring      |
 | Build/test commands | Decisions made with rationale |
-| "Never do X" rules | Bug fixes and learnings |
+| "Never do X" rules  | Bug fixes and learnings       |
 
 ### Decision Tree
 
@@ -29,6 +29,7 @@ Is it static/permanent?
 ### When to Suggest Rules
 
 User says:
+
 - "We always..." / "Never..."
 - "Everyone should know..."
 - "Add to project standards"
@@ -38,6 +39,7 @@ User says:
 ### When to Write Memories
 
 You discover:
+
 - Bug/footgun while working
 - Pattern while exploring code
 - Decision rationale with user
@@ -63,6 +65,7 @@ write_memory('pattern-auth'): 'JWT middleware in src/auth/check.ts, 1hr expiry'
 ```
 
 Only explain if non-obvious:
+
 ```
 write_memory('footgun-prisma'): 'batch updates bypass row-level hooks, use updateMany carefully'
 ```

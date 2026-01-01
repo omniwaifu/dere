@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  Archive,
-  Clock,
-  FileText,
-  History,
-  Loader2,
-  Search,
-  UserRound,
-} from "lucide-react";
+import { Archive, Clock, FileText, History, Loader2, Search, UserRound } from "lucide-react";
 import {
   useConfig,
   useSessions,
@@ -214,11 +206,8 @@ function CoreMemoryCard({
   const isDirty = draft !== (block?.content ?? "");
   const exceedsLimit = charCount > charLimit;
   const canSave =
-    !exceedsLimit &&
-    (scope === "user" ? Boolean(userId) : Boolean(sessionId)) &&
-    isDirty;
-  const isSaving =
-    updateMemory.isPending && updateMemory.variables?.block_type === blockType;
+    !exceedsLimit && (scope === "user" ? Boolean(userId) : Boolean(sessionId)) && isDirty;
+  const isSaving = updateMemory.isPending && updateMemory.variables?.block_type === blockType;
 
   const handleReset = () => {
     setDraft(block?.content ?? "");
@@ -233,7 +222,7 @@ function CoreMemoryCard({
       content: draft,
       reason: trimmedReason ? trimmedReason : undefined,
       scope,
-      session_id: scope === "session" ? sessionId ?? undefined : undefined,
+      session_id: scope === "session" ? (sessionId ?? undefined) : undefined,
       user_id: scope === "user" ? userId : undefined,
     });
     setReason("");
@@ -263,9 +252,7 @@ function CoreMemoryCard({
           <span className={exceedsLimit ? "text-destructive" : undefined}>
             {charCount} / {charLimit} chars
           </span>
-          <span>
-            Updated {block?.updated_at ? formatRelativeTime(block.updated_at) : "never"}
-          </span>
+          <span>Updated {block?.updated_at ? formatRelativeTime(block.updated_at) : "never"}</span>
         </div>
         <Input
           value={reason}
@@ -313,17 +300,11 @@ function CoreMemoryHistory({
   }
 
   if (isError) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No history yet for this block.
-      </p>
-    );
+    return <p className="text-sm text-muted-foreground">No history yet for this block.</p>;
   }
 
   if (!entries || entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">No memory edits yet.</p>
-    );
+    return <p className="text-sm text-muted-foreground">No memory edits yet.</p>;
   }
 
   return (
@@ -345,13 +326,9 @@ function CoreMemoryHistory({
             </Button>
           </div>
           {entry.reason && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Reason: {entry.reason}
-            </p>
+            <p className="mt-2 text-xs text-muted-foreground">Reason: {entry.reason}</p>
           )}
-          <p className="mt-2 text-sm whitespace-pre-wrap text-muted-foreground">
-            {entry.content}
-          </p>
+          <p className="mt-2 text-sm whitespace-pre-wrap text-muted-foreground">{entry.content}</p>
         </div>
       ))}
     </div>
@@ -361,13 +338,8 @@ function CoreMemoryHistory({
 function RecallResultCard({ result }: { result: RecallSearchResult }) {
   const messageType = result.message_type ?? result.result_type;
   const messageVariant =
-    messageType === "user"
-      ? "default"
-      : messageType === "assistant"
-        ? "secondary"
-        : "outline";
-  const badgeLabel =
-    result.result_type === "exploration_finding" ? "exploration" : messageType;
+    messageType === "user" ? "default" : messageType === "assistant" ? "secondary" : "outline";
+  const badgeLabel = result.result_type === "exploration_finding" ? "exploration" : messageType;
 
   return (
     <div className="rounded-lg border border-border bg-card p-3">
@@ -376,17 +348,13 @@ function RecallResultCard({ result }: { result: RecallSearchResult }) {
           <Badge variant={messageVariant} className="capitalize">
             {badgeLabel}
           </Badge>
-          <span className="text-xs text-muted-foreground">
-            {formatEpoch(result.timestamp)}
-          </span>
+          <span className="text-xs text-muted-foreground">{formatEpoch(result.timestamp)}</span>
         </div>
         <Badge variant="outline" className="text-xs">
           {result.score.toFixed(3)}
         </Badge>
       </div>
-      <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">
-        {result.text}
-      </p>
+      <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">{result.text}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {result.session_id !== undefined && result.session_id !== null && (
           <span>Session {result.session_id}</span>
@@ -426,11 +394,7 @@ const RUN_STAT_LABELS: Array<{ key: string; label: string }> = [
 function ConsolidationRunCard({ run }: { run: ConsolidationRun }) {
   const duration = formatDuration(run.started_at, run.finished_at);
   const statusVariant =
-    run.status === "completed"
-      ? "secondary"
-      : run.status === "failed"
-        ? "destructive"
-        : "outline";
+    run.status === "completed" ? "secondary" : run.status === "failed" ? "destructive" : "outline";
 
   const stats = run.stats ?? {};
   const statChips = RUN_STAT_LABELS.map(({ key, label }) => {
@@ -453,9 +417,7 @@ function ConsolidationRunCard({ run }: { run: ConsolidationRun }) {
           <span className="text-xs text-muted-foreground">
             {run.started_at ? formatRelativeTime(run.started_at) : "unknown"}
           </span>
-          {duration && (
-            <span className="text-xs text-muted-foreground">({duration})</span>
-          )}
+          {duration && <span className="text-xs text-muted-foreground">({duration})</span>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {run.triggered_by && (
@@ -477,13 +439,9 @@ function ConsolidationRunCard({ run }: { run: ConsolidationRun }) {
           </Badge>
         </div>
       )}
-      {statChips.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">{statChips}</div>
-      )}
+      {statChips.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{statChips}</div>}
       {run.error_message && (
-        <p className="mt-2 text-xs text-destructive line-clamp-3">
-          {run.error_message}
-        </p>
+        <p className="mt-2 text-xs text-destructive line-clamp-3">{run.error_message}</p>
       )}
     </div>
   );
@@ -547,9 +505,7 @@ export function MemoryPanel() {
   const { data: sessionsData, isLoading: sessionsLoading } = useSessions();
   const [scope, setScope] = useState<CoreMemoryScope>("user");
   const [sessionId, setSessionId] = useState<number | null>(null);
-  const [historyBlockType, setHistoryBlockType] = useState<CoreMemoryBlockType>(
-    "persona"
-  );
+  const [historyBlockType, setHistoryBlockType] = useState<CoreMemoryBlockType>("persona");
   const [historyLimit, setHistoryLimit] = useState("12");
 
   const [recallQuery, setRecallQuery] = useState("");
@@ -567,7 +523,9 @@ export function MemoryPanel() {
   const [archivalLimit, setArchivalLimit] = useState("25");
   const [archivalIncludeExpired, setArchivalIncludeExpired] = useState(false);
   const [selectedArchivalFact, setSelectedArchivalFact] = useState<KGFactSummary | null>(null);
-  const [lastInsert, setLastInsert] = useState<{ created: boolean; fact: KGFactSummary } | null>(null);
+  const [lastInsert, setLastInsert] = useState<{ created: boolean; fact: KGFactSummary } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (scope === "session" && !sessionId && sessionsData?.sessions?.length) {
@@ -581,37 +539,44 @@ export function MemoryPanel() {
   const blocksEnabled = scope === "user" ? Boolean(userId) : Boolean(sessionId);
   const historyEnabled = blocksEnabled;
 
-  const { data: blocks, isLoading: blocksLoading, isError: blocksError } =
-    useCoreMemoryBlocks(
-      {
-        user_id: scope === "user" ? userId : undefined,
-        session_id: scope === "session" ? sessionId ?? undefined : undefined,
-      },
-      { enabled: blocksEnabled }
-    );
+  const {
+    data: blocks,
+    isLoading: blocksLoading,
+    isError: blocksError,
+  } = useCoreMemoryBlocks(
+    {
+      user_id: scope === "user" ? userId : undefined,
+      session_id: scope === "session" ? (sessionId ?? undefined) : undefined,
+    },
+    { enabled: blocksEnabled },
+  );
 
-  const { data: history, isLoading: historyLoading, isError: historyError } =
-    useCoreMemoryHistory(
-      {
-        block_type: historyBlockType,
-        limit: Number(historyLimit) || 12,
-        scope,
-        session_id: scope === "session" ? sessionId ?? undefined : undefined,
-        user_id: scope === "user" ? userId : undefined,
-      },
-      { enabled: historyEnabled }
-    );
+  const {
+    data: history,
+    isLoading: historyLoading,
+    isError: historyError,
+  } = useCoreMemoryHistory(
+    {
+      block_type: historyBlockType,
+      limit: Number(historyLimit) || 12,
+      scope,
+      session_id: scope === "session" ? (sessionId ?? undefined) : undefined,
+      user_id: scope === "user" ? userId : undefined,
+    },
+    { enabled: historyEnabled },
+  );
 
   const rollbackMemory = useRollbackCoreMemory();
 
   const recallSessions = useMemo(
-    () => [{ label: "All sessions", value: "all" }].concat(
-      sessions.map((session) => ({
-        label: sessionLabel(session),
-        value: String(session.session_id),
-      }))
-    ),
-    [sessions]
+    () =>
+      [{ label: "All sessions", value: "all" }].concat(
+        sessions.map((session) => ({
+          label: sessionLabel(session),
+          value: String(session.session_id),
+        })),
+      ),
+    [sessions],
   );
 
   const debouncedQuery = useDebounce(recallQuery, 300);
@@ -631,7 +596,7 @@ export function MemoryPanel() {
       session_id: recallSessionValue,
       user_id: userId,
     },
-    { enabled: debouncedQuery.length >= 2 }
+    { enabled: debouncedQuery.length >= 2 },
   );
 
   const archivalInsert = useArchivalFactInsert();
@@ -653,7 +618,7 @@ export function MemoryPanel() {
       archival_only: true,
       user_id: userId,
     },
-    { enabled: debouncedArchivalQuery.length >= 2 }
+    { enabled: debouncedArchivalQuery.length >= 2 },
   );
 
   const {
@@ -680,7 +645,7 @@ export function MemoryPanel() {
       block_type: historyBlockType,
       target_version: entry.version,
       scope,
-      session_id: scope === "session" ? sessionId ?? undefined : undefined,
+      session_id: scope === "session" ? (sessionId ?? undefined) : undefined,
       user_id: scope === "user" ? userId : undefined,
     });
   };
@@ -710,7 +675,7 @@ export function MemoryPanel() {
           setArchivalValidAt("");
           setArchivalInvalidAt("");
         },
-      }
+      },
     );
   };
 
@@ -998,9 +963,7 @@ export function MemoryPanel() {
                   onClick={handleArchivalInsert}
                   disabled={!archivalFact.trim() || archivalInsert.isPending}
                 >
-                  {archivalInsert.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
+                  {archivalInsert.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Save to archival memory
                 </Button>
                 <Button
@@ -1165,10 +1128,7 @@ export function MemoryPanel() {
         Core memory updates are applied immediately; history is stored for rollback.
       </div>
 
-      <FactDetailPanel
-        fact={selectedArchivalFact}
-        onClose={() => setSelectedArchivalFact(null)}
-      />
+      <FactDetailPanel fact={selectedArchivalFact} onClose={() => setSelectedArchivalFact(null)} />
     </div>
   );
 }

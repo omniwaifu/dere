@@ -4,7 +4,7 @@ Standards and templates for technical documentation.
 
 ## README Template
 
-```markdown
+````markdown
 # Project Name
 
 One-sentence description of what it is.
@@ -24,7 +24,7 @@ Prerequisites: Language version, required tools with links
 git clone <repo>
 cd project
 tool install
-```
+````
 
 ## Usage
 
@@ -58,7 +58,8 @@ src/
 ├── module1/  # What it does
 └── module2/  # What it does
 ```
-```
+
+````
 
 ## API Documentation Template
 
@@ -81,8 +82,9 @@ Type - What it contains
 **Example:**
 ```language
 result = function_name(value)
-```
-```
+````
+
+````
 
 ## Architecture Guide Template
 
@@ -103,8 +105,10 @@ Dependencies: What it uses
 
 ## Data Flow
 
-```
+````
+
 Input → Component1 → Component2 → Output
+
 ```
 
 1. Input arrives from X
@@ -154,6 +158,7 @@ Input → Component1 → Component2 → Output
 ### Required Elements
 
 **README:**
+
 - [ ] One-sentence "what it is" description
 - [ ] What it does (3-5 bullets max)
 - [ ] Prerequisites with version numbers
@@ -163,6 +168,7 @@ Input → Component1 → Component2 → Output
 - [ ] Under 200 lines total
 
 **API Docs:**
+
 - [ ] Function signature at top
 - [ ] One-sentence purpose
 - [ ] Parameter table with types
@@ -171,6 +177,7 @@ Input → Component1 → Component2 → Output
 - [ ] Exception documentation
 
 **Architecture:**
+
 - [ ] System overview (what, not why)
 - [ ] Component descriptions
 - [ ] Data flow diagram
@@ -181,7 +188,7 @@ Input → Component1 → Component2 → Output
 
 ### README: Factual and Clear
 
-```markdown
+````markdown
 # tasklib
 
 Python library for Taskwarrior task management.
@@ -199,7 +206,7 @@ Prerequisites: Python 3.7+, Taskwarrior 2.6+
 
 ```bash
 pip install tasklib
-```
+````
 
 ## Usage
 
@@ -218,7 +225,8 @@ Uses Taskwarrior config at `~/.taskrc`
 ```python
 tw = TaskWarrior(data_location='/custom/path')
 ```
-```
+
+````
 
 ### API Docs: Complete and Concrete
 
@@ -243,8 +251,9 @@ tw = TaskWarrior()
 work_tasks = tw.tasks.filter(status='pending', tags=['work'])
 for task in work_tasks:
     print(task['description'])
-```
-```
+````
+
+````
 
 ## Bad Examples
 
@@ -265,9 +274,10 @@ seamlessly integrate with your workflow.
 - Robust feature set
 
 [No install instructions, no code examples]
-```
+````
 
 **Problems:**
+
 - Marketing language everywhere
 - No factual description
 - Missing prerequisites
@@ -276,7 +286,7 @@ seamlessly integrate with your workflow.
 
 ### API Docs: Incomplete
 
-```markdown
+````markdown
 ## filter_tasks(filters)
 
 Filters tasks based on criteria.
@@ -286,7 +296,8 @@ Returns filtered tasks.
 Example:
 ```python
 tasks = filter_tasks(some_filter)
-```
+````
+
 ```
 
 **Problems:**
@@ -308,3 +319,4 @@ If documentation exceeds these, split into:
 - docs/API.md (detailed API reference)
 - docs/ARCHITECTURE.md (system design)
 - docs/SETUP.md (detailed installation)
+```

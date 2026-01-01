@@ -10,11 +10,13 @@ description: Format task completion reports with verification checklists, file c
 When finishing a significant task, provide:
 
 **1. Summary**
+
 - What was accomplished
 - Approach taken
 - Any deviations from plan
 
 **2. Files Changed**
+
 ```
 - src/auth/login.py:123 - Added authentication
 - src/middleware/auth.py - New file for middleware
@@ -22,12 +24,14 @@ When finishing a significant task, provide:
 ```
 
 **3. Verification Checklist**
+
 - [ ] Code compiles/runs
 - [ ] Tests pass (or added if none exist)
 - [ ] No breaking changes to existing functionality
 - [ ] Documentation updated if needed
 
 **4. Next Steps** (if applicable)
+
 - Remaining work
 - Potential improvements
 - Known limitations
@@ -42,6 +46,7 @@ When finishing a significant task, provide:
 ## Remember
 
 Structured reports make it easy to:
+
 - Verify work is complete
 - Understand what changed
 - Know what's left to do

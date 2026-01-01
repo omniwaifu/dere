@@ -22,17 +22,11 @@ function parseIso(value: string | null | undefined): Date | null {
 
 function getItemStatus(item: KGTimelineFact, windowStart: Date, windowEnd: Date) {
   const validAt =
-    item.kind === "edge"
-      ? parseIso(item.edge?.valid_at)
-      : parseIso(item.fact?.valid_at);
+    item.kind === "edge" ? parseIso(item.edge?.valid_at) : parseIso(item.fact?.valid_at);
   const invalidAt =
-    item.kind === "edge"
-      ? parseIso(item.edge?.invalid_at)
-      : parseIso(item.fact?.invalid_at);
+    item.kind === "edge" ? parseIso(item.edge?.invalid_at) : parseIso(item.fact?.invalid_at);
   const createdAt =
-    item.kind === "edge"
-      ? parseIso(item.edge?.created_at)
-      : parseIso(item.fact?.created_at);
+    item.kind === "edge" ? parseIso(item.edge?.created_at) : parseIso(item.fact?.created_at);
 
   if (invalidAt && invalidAt >= windowStart && invalidAt <= windowEnd) return "expired";
   if (createdAt && createdAt >= windowStart && createdAt <= windowEnd) return "new";
@@ -75,21 +69,15 @@ function aggregateTimeline(items: KGTimelineFact[], windowStart: Date, windowEnd
         summary.topRoles.set(role.role, (summary.topRoles.get(role.role) || 0) + 1);
         summary.topEntities.set(
           role.entity_name,
-          (summary.topEntities.get(role.entity_name) || 0) + 1
+          (summary.topEntities.get(role.entity_name) || 0) + 1,
         );
       });
     }
   });
 
-  const topEntities = [...summary.topEntities.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  const topRoles = [...summary.topRoles.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  const topRelations = [...summary.topRelations.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  const topEntities = [...summary.topEntities.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topRoles = [...summary.topRoles.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topRelations = [...summary.topRelations.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   return { ...summary, topEntities, topRoles, topRelations };
 }
@@ -118,7 +106,7 @@ export function TimelineSummary() {
 
   const summary = useMemo(
     () => aggregateTimeline(data?.facts ?? [], windowStart, windowEnd),
-    [data?.facts, windowStart, windowEnd]
+    [data?.facts, windowStart, windowEnd],
   );
 
   return (
@@ -135,7 +123,9 @@ export function TimelineSummary() {
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="summary-start" className="text-xs">From</Label>
+            <Label htmlFor="summary-start" className="text-xs">
+              From
+            </Label>
             <Input
               id="summary-start"
               type="date"
@@ -145,7 +135,9 @@ export function TimelineSummary() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="summary-end" className="text-xs">To</Label>
+            <Label htmlFor="summary-end" className="text-xs">
+              To
+            </Label>
             <Input
               id="summary-end"
               type="date"

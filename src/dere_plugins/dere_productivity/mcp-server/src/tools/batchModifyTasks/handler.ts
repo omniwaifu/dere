@@ -51,10 +51,10 @@ export async function handleBatchModifyTasks(
         }
 
         if (modifications.addTags && modifications.addTags.length > 0) {
-          modifications.addTags.forEach(tag => commandArgs.push(`+${tag}`));
+          modifications.addTags.forEach((tag) => commandArgs.push(`+${tag}`));
         }
         if (modifications.removeTags && modifications.removeTags.length > 0) {
-          modifications.removeTags.forEach(tag => commandArgs.push(`-${tag}`));
+          modifications.removeTags.forEach((tag) => commandArgs.push(`-${tag}`));
         }
 
         await executeTaskWarriorCommandRaw(commandArgs);
@@ -68,15 +68,17 @@ export async function handleBatchModifyTasks(
       }
     }
 
-    const successCount = results.filter(r => r.success).length;
-    const failureCount = results.filter(r => !r.success).length;
+    const successCount = results.filter((r) => r.success).length;
+    const failureCount = results.filter((r) => !r.success).length;
 
     const warnings: string[] = [];
     if (failureCount > 0) {
       warnings.push(`${failureCount} task(s) failed to modify`);
-      results.filter(r => !r.success).forEach(r => {
-        warnings.push(`${r.uuid}: ${r.error}`);
-      });
+      results
+        .filter((r) => !r.success)
+        .forEach((r) => {
+          warnings.push(`${r.uuid}: ${r.error}`);
+        });
     }
 
     const summary = `Batch modified ${successCount}/${args.uuids.length} tasks`;

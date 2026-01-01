@@ -33,6 +33,7 @@ Create and manage calendar events through natural language interaction.
 ## Natural Language Time Parsing
 
 Support flexible time expressions:
+
 - "tomorrow at 2pm"
 - "next Monday 10am-11am"
 - "Friday afternoon" (interpret as 2pm)

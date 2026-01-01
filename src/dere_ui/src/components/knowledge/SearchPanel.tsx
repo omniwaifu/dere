@@ -47,9 +47,7 @@ function EntityResult({ entity }: { entity: KGEntitySummary }) {
         </Badge>
       </div>
       {entity.summary && (
-        <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-          {entity.summary}
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{entity.summary}</p>
       )}
     </div>
   );
@@ -61,19 +59,17 @@ function EdgeResult({ edge }: { edge: KGEdgeSummary }) {
       <div className="flex items-center gap-2 text-sm">
         <span className="font-medium truncate">{edge.source_name}</span>
         <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-        <Badge variant="secondary" className="shrink-0">{edge.relation}</Badge>
+        <Badge variant="secondary" className="shrink-0">
+          {edge.relation}
+        </Badge>
         <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="font-medium truncate">{edge.target_name}</span>
       </div>
-      <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-        {edge.fact}
-      </p>
+      <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{edge.fact}</p>
       {edge.valid_at && (
         <div className="mt-2 text-xs text-muted-foreground">
           Valid: {new Date(edge.valid_at).toLocaleDateString()}
-          {edge.invalid_at && (
-            <span> - {new Date(edge.invalid_at).toLocaleDateString()}</span>
-          )}
+          {edge.invalid_at && <span> - {new Date(edge.invalid_at).toLocaleDateString()}</span>}
         </div>
       )}
     </div>
@@ -97,9 +93,7 @@ function FactResult({
       onClick={() => onSelect?.(fact)}
       className="w-full rounded-lg border border-border bg-card p-3 text-left hover:bg-accent/50 transition-colors"
     >
-      <p className="text-sm text-muted-foreground line-clamp-3">
-        {fact.fact}
-      </p>
+      <p className="text-sm text-muted-foreground line-clamp-3">{fact.fact}</p>
       {fact.roles.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {fact.roles.map((role) => (
@@ -121,9 +115,7 @@ function FactResult({
       {fact.valid_at && (
         <div className="mt-2 text-xs text-muted-foreground">
           Valid: {new Date(fact.valid_at).toLocaleDateString()}
-          {fact.invalid_at && (
-            <span> - {new Date(fact.invalid_at).toLocaleDateString()}</span>
-          )}
+          {fact.invalid_at && <span> - {new Date(fact.invalid_at).toLocaleDateString()}</span>}
         </div>
       )}
     </button>
@@ -151,14 +143,12 @@ export function SearchPanel() {
       labels: selectedLabels.length > 0 ? selectedLabels : undefined,
       limit: 30,
     },
-    { enabled: debouncedQuery.length >= 2 }
+    { enabled: debouncedQuery.length >= 2 },
   );
 
   const handleLabelToggle = (label: string) => {
     setSelectedLabels((prev) =>
-      prev.includes(label)
-        ? prev.filter((l) => l !== label)
-        : [...prev, label]
+      prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label],
     );
   };
 
@@ -169,10 +159,13 @@ export function SearchPanel() {
     if (!factRoleFilter && !factEntityFilter) return facts;
     return facts.filter((fact) =>
       fact.roles.some((role) => {
-        const roleMatch = !factRoleFilter || role.role.toLowerCase().includes(factRoleFilter.toLowerCase());
-        const entityMatch = !factEntityFilter || role.entity_name.toLowerCase().includes(factEntityFilter.toLowerCase());
+        const roleMatch =
+          !factRoleFilter || role.role.toLowerCase().includes(factRoleFilter.toLowerCase());
+        const entityMatch =
+          !factEntityFilter ||
+          role.entity_name.toLowerCase().includes(factEntityFilter.toLowerCase());
         return roleMatch && entityMatch;
-      })
+      }),
     );
   }, [data?.facts, factRoleFilter, factEntityFilter]);
   const showFacts = includeFacts && filteredFacts.length > 0;
@@ -200,21 +193,13 @@ export function SearchPanel() {
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Switch
-              id="include-facts"
-              checked={includeFacts}
-              onCheckedChange={setIncludeFacts}
-            />
+            <Switch id="include-facts" checked={includeFacts} onCheckedChange={setIncludeFacts} />
             <Label htmlFor="include-facts" className="text-sm">
               Show facts
             </Label>
           </div>
           <div className="flex items-center gap-2">
-            <Switch
-              id="include-edges"
-              checked={includeEdges}
-              onCheckedChange={setIncludeEdges}
-            />
+            <Switch id="include-edges" checked={includeEdges} onCheckedChange={setIncludeEdges} />
             <Label htmlFor="include-edges" className="text-sm">
               Show relationships
             </Label>
@@ -243,9 +228,7 @@ export function SearchPanel() {
                 </DropdownMenuCheckboxItem>
               ))}
               {(!labelsData?.labels || labelsData.labels.length === 0) && (
-                <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                  No labels found
-                </div>
+                <div className="px-2 py-1.5 text-sm text-muted-foreground">No labels found</div>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -255,9 +238,7 @@ export function SearchPanel() {
       {query.length < 2 ? (
         <div className="flex flex-col items-center justify-center py-16">
           <Search className="h-12 w-12 text-muted-foreground/50" />
-          <p className="mt-4 text-muted-foreground">
-            Enter at least 2 characters to search
-          </p>
+          <p className="mt-4 text-muted-foreground">Enter at least 2 characters to search</p>
         </div>
       ) : showLoading ? (
         <div className="space-y-3">
@@ -347,29 +328,20 @@ export function SearchPanel() {
           )}
 
           {!showEntities && !showFacts && !showEdges && (
-              <div className="flex flex-col items-center justify-center py-16">
-                <Search className="h-12 w-12 text-muted-foreground/50" />
-                <p className="mt-4 text-muted-foreground">
-                  No results found for "{query}"
-                </p>
-                {selectedLabels.length > 0 && (
-                  <Button
-                    variant="link"
-                    className="mt-2"
-                    onClick={() => setSelectedLabels([])}
-                  >
-                    Clear label filter
-                  </Button>
-                )}
-              </div>
+            <div className="flex flex-col items-center justify-center py-16">
+              <Search className="h-12 w-12 text-muted-foreground/50" />
+              <p className="mt-4 text-muted-foreground">No results found for "{query}"</p>
+              {selectedLabels.length > 0 && (
+                <Button variant="link" className="mt-2" onClick={() => setSelectedLabels([])}>
+                  Clear label filter
+                </Button>
+              )}
+            </div>
           )}
         </>
       )}
 
-      <FactDetailPanel
-        fact={selectedFact}
-        onClose={() => setSelectedFact(null)}
-      />
+      <FactDetailPanel fact={selectedFact} onClose={() => setSelectedFact(null)} />
     </div>
   );
 }

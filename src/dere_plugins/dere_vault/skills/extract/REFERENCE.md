@@ -31,24 +31,24 @@ derivations:            # Notes that build on this one
 
 ## Domain Values
 
-| Domain | Description |
-|--------|-------------|
-| `computation` | Algorithms, software, data structures, systems |
-| `economics` | Markets, incentives, mechanisms, institutions |
-| `philosophy` | Concepts, arguments, definitions, analysis |
-| `mathematics` | Theorems, proofs, formal definitions |
-| `science` | Empirical claims, evidence, experiments |
-| `strategy` | Decisions, trade-offs, game theory, planning |
-| `history` | Causal narratives, counterfactuals, evidence |
-| `practical` | Procedures, habits, heuristics, personal systems |
+| Domain        | Description                                      |
+| ------------- | ------------------------------------------------ |
+| `computation` | Algorithms, software, data structures, systems   |
+| `economics`   | Markets, incentives, mechanisms, institutions    |
+| `philosophy`  | Concepts, arguments, definitions, analysis       |
+| `mathematics` | Theorems, proofs, formal definitions             |
+| `science`     | Empirical claims, evidence, experiments          |
+| `strategy`    | Decisions, trade-offs, game theory, planning     |
+| `history`     | Causal narratives, counterfactuals, evidence     |
+| `practical`   | Procedures, habits, heuristics, personal systems |
 
 ## Formalization Levels
 
-| Level | Description | Criteria |
-|-------|-------------|----------|
-| `prose` | Natural language only | Ideas described but not formalized |
-| `semi-formal` | Mix of prose and formal | Some structure: pseudocode, diagrams, logical arguments |
-| `formal` | Rigorous representation | Code, proofs, mathematical notation, executable specifications |
+| Level         | Description             | Criteria                                                       |
+| ------------- | ----------------------- | -------------------------------------------------------------- |
+| `prose`       | Natural language only   | Ideas described but not formalized                             |
+| `semi-formal` | Mix of prose and formal | Some structure: pseudocode, diagrams, logical arguments        |
+| `formal`      | Rigorous representation | Code, proofs, mathematical notation, executable specifications |
 
 ## Thickness Criteria
 
@@ -73,16 +73,19 @@ See `domains/*.md` for domain-specific thickness requirements.
 ## Derivation Graph
 
 ### derived_from
+
 - Lists notes that this note synthesizes or builds upon
 - Set at creation time
 - Claude asks: "What existing notes does this build on?"
 
 ### derivations
+
 - Lists notes that build on this one (backlinks)
 - Updated when new notes reference this note
 - Claude maintains: adds entry when creating derived notes
 
 ### Graph Integrity
+
 - If A is in B's `derived_from`, B should be in A's `derivations`
 - Claude enforces bidirectional links at creation time
 
@@ -93,6 +96,7 @@ domain/subdomain/concept
 ```
 
 Examples:
+
 - `computation/algorithms/sorting`
 - `economics/markets/price-mechanism`
 - `philosophy/epistemology/justification`
@@ -119,6 +123,7 @@ Use 2-4 tags per note. Match existing taxonomy where possible.
 ## Thickness Enforcement
 
 Notes **cannot be finalized** until:
+
 1. All universal thickness criteria pass (testable, productive, bounded)
 2. Domain-specific criteria from template are satisfied
 3. At least one derived_from link exists (unless this is a root concept)

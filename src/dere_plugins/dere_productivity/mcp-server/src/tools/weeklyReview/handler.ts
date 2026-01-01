@@ -6,11 +6,11 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
 
   try {
     const allPending = await executeTaskWarriorCommandJson(["status:pending"]);
-    const inboxTasks = allPending.filter(t => t.tags && t.tags.includes('inbox'));
+    const inboxTasks = allPending.filter((t) => t.tags && t.tags.includes("inbox"));
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
 
     const completedThisWeek = await executeTaskWarriorCommandJson([
       "status:completed",
@@ -18,8 +18,8 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
     ]);
 
     const now = new Date();
-    const waitingTasks = allPending.filter(task => {
-      if (task.status === 'waiting') return true;
+    const waitingTasks = allPending.filter((task) => {
+      if (task.status === "waiting") return true;
       if (task.wait) {
         const waitDate = new Date(task.wait);
         return waitDate > now;
@@ -27,10 +27,10 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
       return false;
     });
 
-    const overdueTasks = allPending.filter(task => {
+    const overdueTasks = allPending.filter((task) => {
       if (!task.due) return false;
       const dueDate = new Date(task.due);
-      return dueDate < now && task.status === 'pending';
+      return dueDate < now && task.status === "pending";
     });
 
     const projects = new Set<string>();
@@ -40,8 +40,8 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
 
     const projectsWithoutNextActions: string[] = [];
     for (const project of projects) {
-      const projectTasks = allPending.filter(t => t.project === project);
-      const nextActions = projectTasks.filter(task => {
+      const projectTasks = allPending.filter((t) => t.project === project);
+      const nextActions = projectTasks.filter((task) => {
         if (task.depends && task.depends.length > 0) return false;
         if (task.wait) {
           const waitDate = new Date(task.wait);
@@ -56,9 +56,7 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
 
     const stalledProjects: string[] = [];
     for (const project of projects) {
-      const projectTasks = await executeTaskWarriorCommandJson([
-        `project:${project}`,
-      ]);
+      const projectTasks = await executeTaskWarriorCommandJson([`project:${project}`]);
 
       let lastActivity: Date | null = null;
       for (const task of projectTasks) {
@@ -78,7 +76,7 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
 
       if (lastActivity) {
         const daysSinceActivity = Math.floor(
-          (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24)
+          (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24),
         );
         if (daysSinceActivity >= 7) {
           stalledProjects.push(project);
@@ -103,7 +101,7 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
         totalHabitCompletionRate += completionRate;
 
         // Check for broken streaks (last character is not +)
-        if (mask.length > 0 && mask[mask.length - 1] !== '+') {
+        if (mask.length > 0 && mask[mask.length - 1] !== "+") {
           habitsWithBrokenStreaks.push(description);
         }
 
@@ -114,9 +112,8 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
       }
     }
 
-    const avgHabitCompletion = recurringTasks.length > 0
-      ? Math.round(totalHabitCompletionRate / recurringTasks.length)
-      : 0;
+    const avgHabitCompletion =
+      recurringTasks.length > 0 ? Math.round(totalHabitCompletionRate / recurringTasks.length) : 0;
 
     const summary = `Weekly Review: ${completedThisWeek.length} completed, ${inboxTasks.length} inbox, ${overdueTasks.length} overdue, ${projects.size} active projects, ${recurringTasks.length} habits (${avgHabitCompletion}% avg)`;
 
@@ -128,26 +125,26 @@ export async function handleWeeklyReview(): Promise<EnrichedResponse> {
       recommendations.push(`⚠️ Review ${overdueTasks.length} overdue tasks`);
     }
     if (projectsWithoutNextActions.length > 0) {
-      recommendations.push(
-        `📋 Define next actions for: ${projectsWithoutNextActions.join(", ")}`
-      );
+      recommendations.push(`📋 Define next actions for: ${projectsWithoutNextActions.join(", ")}`);
     }
     if (stalledProjects.length > 0) {
-      recommendations.push(
-        `⏸️ Review stalled projects: ${stalledProjects.join(", ")}`
-      );
+      recommendations.push(`⏸️ Review stalled projects: ${stalledProjects.join(", ")}`);
     }
     if (completedThisWeek.length > 0) {
       recommendations.push(`✅ Celebrate ${completedThisWeek.length} completed tasks!`);
     }
     if (habitsWithBrokenStreaks.length > 0) {
-      recommendations.push(`🔄 ${habitsWithBrokenStreaks.length} habits need attention: ${habitsWithBrokenStreaks.slice(0, 3).join(", ")}${habitsWithBrokenStreaks.length > 3 ? ", ..." : ""}`);
+      recommendations.push(
+        `🔄 ${habitsWithBrokenStreaks.length} habits need attention: ${habitsWithBrokenStreaks.slice(0, 3).join(", ")}${habitsWithBrokenStreaks.length > 3 ? ", ..." : ""}`,
+      );
     }
     if (strongHabits.length > 0) {
       recommendations.push(`💪 ${strongHabits.length} strong habits maintained`);
     }
     if (recurringTasks.length > 0 && avgHabitCompletion < 50) {
-      recommendations.push(`⚠️ Overall habit completion low (${avgHabitCompletion}%) - review recurring tasks`);
+      recommendations.push(
+        `⚠️ Overall habit completion low (${avgHabitCompletion}%) - review recurring tasks`,
+      );
     }
 
     const groups = {

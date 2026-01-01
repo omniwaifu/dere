@@ -42,7 +42,7 @@ export async function handleCreateProjectTree(
       if (task.priority) commandArgs.push(`priority:${task.priority}`);
       if (task.context) commandArgs.push(`context:${task.context}`);
       if (task.tags) {
-        task.tags.forEach(tag => commandArgs.push(`+${tag}`));
+        task.tags.forEach((tag) => commandArgs.push(`+${tag}`));
       }
 
       const result = await executeTaskWarriorCommandRaw(commandArgs);
@@ -66,7 +66,7 @@ export async function handleCreateProjectTree(
       const task = args.tasks[i];
       if (task.depends_on_indices && task.depends_on_indices.length > 0) {
         const taskUuid = createdTasks[i].uuid;
-        const dependsUuids = task.depends_on_indices.map(idx => createdTasks[idx].uuid);
+        const dependsUuids = task.depends_on_indices.map((idx) => createdTasks[idx].uuid);
 
         await executeTaskWarriorCommandRaw([
           taskUuid,
@@ -82,8 +82,9 @@ export async function handleCreateProjectTree(
       tasks: createdTasks,
       metadata: {
         total: createdTasks.length + 1, // +1 for project root
-        actionable: createdTasks.filter((_, i) =>
-          !args.tasks[i].depends_on_indices || args.tasks[i].depends_on_indices!.length === 0
+        actionable: createdTasks.filter(
+          (_, i) =>
+            !args.tasks[i].depends_on_indices || args.tasks[i].depends_on_indices!.length === 0,
         ).length,
       },
       insights: {

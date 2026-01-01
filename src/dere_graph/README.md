@@ -3,6 +3,7 @@
 Knowledge graph library used by `dere` (primarily the daemon) for entity/relationship extraction, retrieval, and “memory” recall.
 
 Current storage + services:
+
 - Graph DB: FalkorDB (RedisGraph-compatible)
 - Embeddings: OpenAI (`OPENAI_API_KEY`)
 - Optional metadata store: Postgres (used by the daemon for richer context)
@@ -10,6 +11,7 @@ Current storage + services:
 ## How it’s used in dere
 
 The daemon initializes `dere_graph.DereGraph` when:
+
 - `[dere_graph].enabled = true` (default in `config.toml.example`)
 - `OPENAI_API_KEY` is set
 

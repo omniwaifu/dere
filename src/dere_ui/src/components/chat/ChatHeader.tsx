@@ -41,7 +41,9 @@ export function ChatHeader() {
   const personalityColor = personalityInfo?.color;
   const tintBg = isHexColor(personalityColor) ? alphaHex(personalityColor, 0.06) : undefined;
   const tintBorder = isHexColor(personalityColor) ? alphaHex(personalityColor, 0.25) : undefined;
-  const avatarUrl = personalityInfo ? `/api/personalities/${encodeURIComponent(personalityInfo.name)}/avatar` : undefined;
+  const avatarUrl = personalityInfo
+    ? `/api/personalities/${encodeURIComponent(personalityInfo.name)}/avatar`
+    : undefined;
 
   return (
     <header
@@ -55,7 +57,11 @@ export function ChatHeader() {
           ) : (
             <div
               className="flex h-full w-full items-center justify-center text-sm font-semibold"
-              style={personalityColor ? { backgroundColor: personalityColor + "20", color: personalityColor } : undefined}
+              style={
+                personalityColor
+                  ? { backgroundColor: personalityColor + "20", color: personalityColor }
+                  : undefined
+              }
             >
               {personalityInfo?.icon || "●"}
             </div>
@@ -64,15 +70,11 @@ export function ChatHeader() {
 
         <div className="min-w-0">
           {sessionName && (
-            <h1 className="text-sm font-semibold truncate max-w-[260px]">
-              {sessionName}
-            </h1>
+            <h1 className="text-sm font-semibold truncate max-w-[260px]">{sessionName}</h1>
           )}
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <FolderOpen className="h-3.5 w-3.5" />
-            <span className="truncate max-w-[260px]">
-              {sessionConfig.working_dir}
-            </span>
+            <span className="truncate max-w-[260px]">{sessionConfig.working_dir}</span>
           </div>
         </div>
       </div>
@@ -80,7 +82,10 @@ export function ChatHeader() {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 rounded-md px-2 py-1 text-sm" style={{ backgroundColor: tintBg }}>
+        <div
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-sm"
+          style={{ backgroundColor: tintBg }}
+        >
           <User className="h-4 w-4 text-muted-foreground" />
           <select
             value={currentPersonality}
@@ -116,11 +121,13 @@ export function ChatHeader() {
             "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm",
             thinkingEnabled
               ? "border-foreground/30 bg-foreground/10 text-foreground"
-              : "border-transparent text-muted-foreground"
+              : "border-transparent text-muted-foreground",
           )}
-          title={thinkingEnabled
-            ? "Extended thinking enabled (set at session start)"
-            : "Extended thinking disabled (set at session start)"}
+          title={
+            thinkingEnabled
+              ? "Extended thinking enabled (set at session start)"
+              : "Extended thinking disabled (set at session start)"
+          }
         >
           <Brain className="h-4 w-4" />
         </div>
@@ -132,7 +139,10 @@ export function ChatHeader() {
         )}
 
         {sessionConfig.sandbox_mode && (
-          <Badge variant="outline" className="gap-1 border-amber-500/50 text-amber-600 dark:text-amber-400">
+          <Badge
+            variant="outline"
+            className="gap-1 border-amber-500/50 text-amber-600 dark:text-amber-400"
+          >
             <Shield className="h-3 w-3" />
             sandbox
           </Badge>

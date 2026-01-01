@@ -1,5 +1,15 @@
 import { useMemo, useState } from "react";
-import { Clock, ArrowRight, ChevronLeft, ChevronRight, Calendar, CheckCircle, XCircle, Clock4, FileText } from "lucide-react";
+import {
+  Clock,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  CheckCircle,
+  XCircle,
+  Clock4,
+  FileText,
+} from "lucide-react";
 import { useKGFactsTimeline, useKGFactsAtTime } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,8 +74,7 @@ function FactCard({
   fact: KGTimelineFact;
   onSelectFact?: (fact: KGFactSummary) => void;
 }) {
-  const statusConfig =
-    TEMPORAL_STATUS_CONFIG[fact.temporal_status] ?? TEMPORAL_STATUS_CONFIG.valid;
+  const statusConfig = TEMPORAL_STATUS_CONFIG[fact.temporal_status] ?? TEMPORAL_STATUS_CONFIG.valid;
   const StatusIcon = statusConfig.icon;
 
   return (
@@ -86,20 +95,16 @@ function FactCard({
               <div className="flex flex-wrap items-center gap-1.5 text-sm">
                 <span className="font-medium">{fact.edge.source_name}</span>
                 <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                <Badge variant="secondary" className="text-xs">{fact.edge.relation}</Badge>
+                <Badge variant="secondary" className="text-xs">
+                  {fact.edge.relation}
+                </Badge>
                 <ArrowRight className="h-3 w-3 text-muted-foreground" />
                 <span className="font-medium">{fact.edge.target_name}</span>
               </div>
-              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2">
-                {fact.edge.fact}
-              </p>
+              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2">{fact.edge.fact}</p>
               <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                {fact.edge.valid_at && (
-                  <span>From: {formatDate(fact.edge.valid_at)}</span>
-                )}
-                {fact.edge.invalid_at && (
-                  <span>Until: {formatDate(fact.edge.invalid_at)}</span>
-                )}
+                {fact.edge.valid_at && <span>From: {formatDate(fact.edge.valid_at)}</span>}
+                {fact.edge.invalid_at && <span>Until: {formatDate(fact.edge.invalid_at)}</span>}
                 {fact.edge.strength !== null && (
                   <span>Strength: {fact.edge.strength.toFixed(2)}</span>
                 )}
@@ -108,11 +113,11 @@ function FactCard({
           ) : fact.fact ? (
             <>
               <div className="flex items-center gap-2 text-sm">
-                <Badge variant="secondary" className="text-xs">Fact</Badge>
+                <Badge variant="secondary" className="text-xs">
+                  Fact
+                </Badge>
               </div>
-              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-3">
-                {fact.fact.fact}
-              </p>
+              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-3">{fact.fact.fact}</p>
               {fact.fact.roles.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {fact.fact.roles.slice(0, 4).map((role) => (
@@ -132,12 +137,8 @@ function FactCard({
                 </div>
               )}
               <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                {fact.fact.valid_at && (
-                  <span>From: {formatDate(fact.fact.valid_at)}</span>
-                )}
-                {fact.fact.invalid_at && (
-                  <span>Until: {formatDate(fact.fact.invalid_at)}</span>
-                )}
+                {fact.fact.valid_at && <span>From: {formatDate(fact.fact.valid_at)}</span>}
+                {fact.fact.invalid_at && <span>Until: {formatDate(fact.fact.invalid_at)}</span>}
               </div>
             </>
           ) : null}
@@ -156,21 +157,24 @@ function DateGroup({
   facts: KGTimelineFact[];
   onSelectFact?: (fact: KGFactSummary) => void;
 }) {
-  const displayDate = dateKey === "undated"
-    ? "Undated"
-    : new Date(dateKey).toLocaleDateString(undefined, {
-        weekday: "short",
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+  const displayDate =
+    dateKey === "undated"
+      ? "Undated"
+      : new Date(dateKey).toLocaleDateString(undefined, {
+          weekday: "short",
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
 
   return (
     <div className="space-y-2">
       <div className="sticky top-0 z-10 flex items-center gap-2 bg-background py-2">
         <Calendar className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">{displayDate}</span>
-        <Badge variant="outline" className="text-xs">{facts.length}</Badge>
+        <Badge variant="outline" className="text-xs">
+          {facts.length}
+        </Badge>
       </div>
       <div className="space-y-2 pl-6 border-l border-border">
         {facts.map((fact, index) => (
@@ -239,13 +243,10 @@ export function FactsTimeline() {
     offset,
   });
 
-  const {
-    data: snapshotData,
-    isLoading: snapshotLoading,
-  } = useKGFactsAtTime(
+  const { data: snapshotData, isLoading: snapshotLoading } = useKGFactsAtTime(
     snapshotIso,
     { include_roles: true, limit: 20 },
-    { enabled: snapshotIso.length > 0 }
+    { enabled: snapshotIso.length > 0 },
   );
 
   const totalPages = Math.ceil((data?.total ?? 0) / PAGE_SIZE);
@@ -308,7 +309,9 @@ export function FactsTimeline() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-4">
         <div className="space-y-1.5">
-          <Label htmlFor="start-date" className="text-xs">From</Label>
+          <Label htmlFor="start-date" className="text-xs">
+            From
+          </Label>
           <Input
             id="start-date"
             type="date"
@@ -318,7 +321,9 @@ export function FactsTimeline() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="end-date" className="text-xs">To</Label>
+          <Label htmlFor="end-date" className="text-xs">
+            To
+          </Label>
           <Input
             id="end-date"
             type="date"
@@ -341,23 +346,21 @@ export function FactsTimeline() {
           </Button>
         )}
         <div className="flex items-center gap-2">
-          <Switch
-            id="show-edges"
-            checked={showEdges}
-            onCheckedChange={setShowEdges}
-          />
-          <Label htmlFor="show-edges" className="text-xs">Edges</Label>
+          <Switch id="show-edges" checked={showEdges} onCheckedChange={setShowEdges} />
+          <Label htmlFor="show-edges" className="text-xs">
+            Edges
+          </Label>
         </div>
         <div className="flex items-center gap-2">
-          <Switch
-            id="show-facts"
-            checked={showFacts}
-            onCheckedChange={setShowFacts}
-          />
-          <Label htmlFor="show-facts" className="text-xs">Facts</Label>
+          <Switch id="show-facts" checked={showFacts} onCheckedChange={setShowFacts} />
+          <Label htmlFor="show-facts" className="text-xs">
+            Facts
+          </Label>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="snapshot-time" className="text-xs">Snapshot</Label>
+          <Label htmlFor="snapshot-time" className="text-xs">
+            Snapshot
+          </Label>
           <Input
             id="snapshot-time"
             type="datetime-local"
@@ -367,11 +370,7 @@ export function FactsTimeline() {
           />
         </div>
         {snapshotTime && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSnapshotTime("")}
-          >
+          <Button variant="ghost" size="sm" onClick={() => setSnapshotTime("")}>
             Clear snapshot
           </Button>
         )}
@@ -394,17 +393,11 @@ export function FactsTimeline() {
           </div>
           <div className="mt-3 space-y-2">
             {snapshotLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-20 w-full" />
-              ))
+              Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
             ) : snapshotData?.facts?.length ? (
-              snapshotData.facts.map((fact) => (
-                <FactSnapshotCard key={fact.uuid} fact={fact} />
-              ))
+              snapshotData.facts.map((fact) => <FactSnapshotCard key={fact.uuid} fact={fact} />)
             ) : (
-              <p className="text-sm text-muted-foreground">
-                No facts found at this time.
-              </p>
+              <p className="text-sm text-muted-foreground">No facts found at this time.</p>
             )}
           </div>
         </div>
@@ -453,9 +446,7 @@ export function FactsTimeline() {
         <div className="flex flex-col items-center justify-center py-12">
           <Clock className="h-12 w-12 text-muted-foreground/50" />
           <p className="mt-4 text-muted-foreground">
-            {data?.facts?.length
-              ? "No timeline items match your filters"
-              : "No facts in timeline"}
+            {data?.facts?.length ? "No timeline items match your filters" : "No facts in timeline"}
           </p>
           {(startDate || endDate) && (
             <Button
@@ -472,10 +463,7 @@ export function FactsTimeline() {
         </div>
       )}
 
-      <FactDetailPanel
-        fact={selectedFact}
-        onClose={() => setSelectedFact(null)}
-      />
+      <FactDetailPanel fact={selectedFact} onClose={() => setSelectedFact(null)} />
     </div>
   );
 }

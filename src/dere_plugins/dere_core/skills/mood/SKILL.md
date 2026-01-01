@@ -22,13 +22,16 @@ Query emotion state to understand user's emotional context and adapt responses.
 ## Response Adaptation
 
 **High intensity (>70)**
+
 - Acknowledge emotion explicitly
 - Match tone (enthusiastic for joy, supportive for distress)
 
 **Medium intensity (40-70)**
+
 - Subtle tone adjustment
 
 **Trust level**
+
 - High (>0.7): Direct, personal
 - Medium (0.4-0.7): Professional but warm
 - Low (<0.4): Careful, build reliability

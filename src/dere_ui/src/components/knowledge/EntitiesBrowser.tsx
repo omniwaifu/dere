@@ -67,9 +67,7 @@ function EntityCard({ entity }: { entity: KGEntitySummary }) {
       </div>
 
       {entity.summary && (
-        <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
-          {entity.summary}
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{entity.summary}</p>
       )}
 
       <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
@@ -100,9 +98,7 @@ export function EntitiesBrowser() {
 
   const handleLabelToggle = (label: string) => {
     setSelectedLabels((prev) =>
-      prev.includes(label)
-        ? prev.filter((l) => l !== label)
-        : [...prev, label]
+      prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label],
     );
     setOffset(0);
   };
@@ -188,18 +184,14 @@ export function EntitiesBrowser() {
               </DropdownMenuCheckboxItem>
             ))}
             {(!labelsData?.labels || labelsData.labels.length === 0) && (
-              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                No labels found
-              </div>
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No labels found</div>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
 
         <div className="flex-1" />
 
-        <span className="text-sm text-muted-foreground">
-          {data?.total ?? 0} entities
-        </span>
+        <span className="text-sm text-muted-foreground">{data?.total ?? 0} entities</span>
       </div>
 
       {data?.entities && data.entities.length > 0 ? (
@@ -241,11 +233,7 @@ export function EntitiesBrowser() {
           <Brain className="h-12 w-12 text-muted-foreground/50" />
           <p className="mt-4 text-muted-foreground">No entities found</p>
           {selectedLabels.length > 0 && (
-            <Button
-              variant="link"
-              className="mt-2"
-              onClick={() => setSelectedLabels([])}
-            >
+            <Button variant="link" className="mt-2" onClick={() => setSelectedLabels([])}>
               Clear label filter
             </Button>
           )}

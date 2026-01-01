@@ -45,7 +45,14 @@ function RootLayout() {
       removeFirstResponse();
       stopDashboardPolling();
     };
-  }, [connect, addOnSessionCreated, addOnFirstResponse, queryClient, startDashboardPolling, stopDashboardPolling]);
+  }, [
+    connect,
+    addOnSessionCreated,
+    addOnFirstResponse,
+    queryClient,
+    startDashboardPolling,
+    stopDashboardPolling,
+  ]);
 
   return (
     <AppLayout>

@@ -1,13 +1,5 @@
 import { useState } from "react";
-import {
-  CheckCircle,
-  XCircle,
-  Clock,
-  Loader2,
-  ChevronDown,
-  ChevronUp,
-  Wrench,
-} from "lucide-react";
+import { CheckCircle, XCircle, Clock, Loader2, ChevronDown, ChevronUp, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -62,9 +54,7 @@ function ExecutionRow({ execution }: { execution: MissionExecution }) {
         <StatusIcon status={execution.status} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {formatTime(execution.started_at)}
-            </span>
+            <span className="text-sm font-medium">{formatTime(execution.started_at)}</span>
             <Badge variant="outline" className="text-xs">
               {execution.trigger_type}
             </Badge>
@@ -131,18 +121,12 @@ export function ExecutionHistory({ missionId }: ExecutionHistoryProps) {
 
   if (isError) {
     return (
-      <div className="py-8 text-center text-destructive">
-        Failed to load execution history
-      </div>
+      <div className="py-8 text-center text-destructive">Failed to load execution history</div>
     );
   }
 
   if (!executions || executions.length === 0) {
-    return (
-      <div className="py-8 text-center text-muted-foreground">
-        No executions yet
-      </div>
-    );
+    return <div className="py-8 text-center text-muted-foreground">No executions yet</div>;
   }
 
   return (

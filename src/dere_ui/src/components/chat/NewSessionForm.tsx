@@ -1,5 +1,16 @@
 import { useState, useRef, useEffect } from "react";
-import { FolderOpen, Loader2, ArrowUp, ChevronDown, User, Palette, Cpu, Brain, Shield, Globe } from "lucide-react";
+import {
+  FolderOpen,
+  Loader2,
+  ArrowUp,
+  ChevronDown,
+  User,
+  Palette,
+  Cpu,
+  Brain,
+  Shield,
+  Globe,
+} from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import {
   usePersonalities,
@@ -89,7 +100,11 @@ export function NewSessionForm() {
   const isCopyMode = sandboxEnabled && sandboxMountType === "copy";
   const normalizedDir = workingDir.trim().replace(/\/+$/, "") || "/";
   const isDangerousCopy = isCopyMode && dangerousCopyPaths.includes(normalizedDir);
-  const canSubmit = (isEmptySandbox || workingDir.trim()) && status === "connected" && !isCreating && !isDangerousCopy;
+  const canSubmit =
+    (isEmptySandbox || workingDir.trim()) &&
+    status === "connected" &&
+    !isCreating &&
+    !isDangerousCopy;
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -128,7 +143,8 @@ export function NewSessionForm() {
     const c = preset.config;
     if (c.working_dir !== undefined) setWorkingDir(c.working_dir);
     if (c.output_style !== undefined) setOutputStyle(c.output_style || "web");
-    if (c.personality !== undefined) setPersonality(typeof c.personality === "string" ? c.personality : "");
+    if (c.personality !== undefined)
+      setPersonality(typeof c.personality === "string" ? c.personality : "");
     if (c.model !== undefined) setModel(c.model || "");
     if (c.thinking_enabled !== undefined) setThinkingEnabled(!!c.thinking_enabled);
     if (c.sandbox_mode !== undefined) setSandboxEnabled(!!c.sandbox_mode);
@@ -162,16 +178,10 @@ export function NewSessionForm() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-8 relative overflow-hidden">
       <StarsBackground className="z-0" />
-      <ShootingStars
-        starColor="hsl(240 5% 84%)"
-        trailColor="hsl(240 5% 65%)"
-        className="z-0"
-      />
+      <ShootingStars starColor="hsl(240 5% 84%)" trailColor="hsl(240 5% 65%)" className="z-0" />
       <div className="w-full max-w-2xl space-y-8 relative z-10">
         {/* Greeting */}
-        <h1 className="text-center text-3xl font-light text-foreground/80">
-          {greeting}
-        </h1>
+        <h1 className="text-center text-3xl font-light text-foreground/80">{greeting}</h1>
 
         {/* Main input card */}
         <div className="rounded-xl border border-border bg-card shadow-sm">
@@ -200,7 +210,7 @@ export function NewSessionForm() {
                   "group relative flex items-center gap-1 rounded-md border px-1.5 py-0.5 transition-colors",
                   sandboxEnabled
                     ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                    : "border-border text-muted-foreground"
+                    : "border-border text-muted-foreground",
                 )}
               >
                 <Shield className="h-3.5 w-3.5" />
@@ -225,10 +235,18 @@ export function NewSessionForm() {
                 <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-md border border-border bg-popover p-2 text-xs text-popover-foreground shadow-lg group-hover:block">
                   <div className="font-medium mb-1">Sandbox Mode</div>
                   <div className="space-y-1 text-muted-foreground">
-                    <div><span className="text-foreground">Off:</span> Run locally, full access</div>
-                    <div><span className="text-foreground">Copy:</span> Copy files to temp container</div>
-                    <div><span className="text-foreground">Direct:</span> Mount directory in container</div>
-                    <div><span className="text-foreground">Empty:</span> Empty container, no files</div>
+                    <div>
+                      <span className="text-foreground">Off:</span> Run locally, full access
+                    </div>
+                    <div>
+                      <span className="text-foreground">Copy:</span> Copy files to temp container
+                    </div>
+                    <div>
+                      <span className="text-foreground">Direct:</span> Mount directory in container
+                    </div>
+                    <div>
+                      <span className="text-foreground">Empty:</span> Empty container, no files
+                    </div>
                   </div>
                 </div>
               </div>
@@ -241,7 +259,7 @@ export function NewSessionForm() {
                   "group relative flex items-center gap-1 rounded-md border px-1.5 py-0.5 transition-colors",
                   webEnabled
                     ? "border-sky-500/50 bg-sky-500/10 text-sky-600 dark:text-sky-400"
-                    : "border-border text-muted-foreground"
+                    : "border-border text-muted-foreground",
                 )}
                 title={webEnabled ? "Web enabled" : "Web disabled"}
               >
@@ -255,7 +273,12 @@ export function NewSessionForm() {
                 </div>
               </button>
 
-              <FolderOpen className={cn("h-4 w-4", isEmptySandbox ? "text-muted-foreground/50" : "text-muted-foreground")} />
+              <FolderOpen
+                className={cn(
+                  "h-4 w-4",
+                  isEmptySandbox ? "text-muted-foreground/50" : "text-muted-foreground",
+                )}
+              />
               <input
                 ref={dirInputRef}
                 type="text"
@@ -266,7 +289,7 @@ export function NewSessionForm() {
                 placeholder={isEmptySandbox ? "Not used in empty sandbox" : "Working directory"}
                 className={cn(
                   "flex-1 bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none",
-                  isEmptySandbox && "cursor-not-allowed opacity-50"
+                  isEmptySandbox && "cursor-not-allowed opacity-50",
                 )}
               />
               {recentDirs?.directories && recentDirs.directories.length > 0 && !isEmptySandbox && (
@@ -281,31 +304,29 @@ export function NewSessionForm() {
             </div>
 
             {/* Recent directories dropdown */}
-            {showDirDropdown &&
-              recentDirs?.directories &&
-              recentDirs.directories.length > 0 && (
-                <div
-                  ref={dropdownRef}
-                  className="absolute left-0 right-0 top-full z-10 mt-1 rounded-md border border-border bg-popover shadow-lg"
-                >
-                  <div className="p-1">
-                    <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                      Recent
-                    </div>
-                    {recentDirs.directories.map((dir) => (
-                      <button
-                        key={dir}
-                        type="button"
-                        onClick={() => selectDirectory(dir)}
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                      >
-                        <FolderOpen className="h-3 w-3 text-muted-foreground" />
-                        <span className="truncate">{dir}</span>
-                      </button>
-                    ))}
+            {showDirDropdown && recentDirs?.directories && recentDirs.directories.length > 0 && (
+              <div
+                ref={dropdownRef}
+                className="absolute left-0 right-0 top-full z-10 mt-1 rounded-md border border-border bg-popover shadow-lg"
+              >
+                <div className="p-1">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    Recent
                   </div>
+                  {recentDirs.directories.map((dir) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      onClick={() => selectDirectory(dir)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <FolderOpen className="h-3 w-3 text-muted-foreground" />
+                      <span className="truncate">{dir}</span>
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
           </div>
 
           {/* Preset save / manage */}
@@ -402,7 +423,7 @@ export function NewSessionForm() {
                   "flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors",
                   thinkingEnabled
                     ? "border-foreground/30 bg-foreground/10 text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground",
                 )}
                 title="Extended thinking mode"
               >
@@ -455,9 +476,7 @@ export function NewSessionForm() {
         )}
 
         {/* Connection status hint (only after brief grace period) */}
-        {status !== "connected" && (
-          <DisconnectedHint />
-        )}
+        {status !== "connected" && <DisconnectedHint />}
       </div>
     </div>
   );
@@ -482,9 +501,5 @@ function DisconnectedHint() {
   }, [status, disconnectedAt]);
 
   if (!show) return null;
-  return (
-    <p className="text-center text-sm text-muted-foreground">
-      Connecting to server...
-    </p>
-  );
+  return <p className="text-center text-sm text-muted-foreground">Connecting to server...</p>;
 }

@@ -8,6 +8,7 @@ Engage in active learning discussion about sources.
 **Usage**: `/discuss <sources> [optional scope]`
 
 Examples:
+
 - `/discuss smithML2023` - whole paper
 - `/discuss smithML2023 "chapter 4"` - specific section
 - `/discuss https://youtube.com/watch?v=xyz` - video
@@ -25,20 +26,24 @@ Best-effort: continue with abstract if full content unavailable.
 ## Step 2: Discuss
 
 **Single source:**
+
 1. Ask what they understand about main concept
 2. Probe with "why" and "how" questions
 3. Test with counter-examples or edge cases
 4. Connect to related concepts
 
 **Multiple sources:**
+
 1. Briefly summarize each source's core argument
 2. Where do they agree/diverge?
 3. What does each uniquely contribute?
 4. What synthesis emerges?
 
 **Throughout:**
+
 - Capture insights to literature notes as they emerge
 - Use insight boxes for key reasoning:
+
 ```
 ★ Insight ─────────────────────────────────────
 [2-3 key points]

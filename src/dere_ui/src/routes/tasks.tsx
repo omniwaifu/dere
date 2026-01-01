@@ -72,7 +72,9 @@ function TaskRow({ task }: { task: Task }) {
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <Badge variant={task.urgency > 10 ? "destructive" : task.urgency > 5 ? "default" : "secondary"}>
+        <Badge
+          variant={task.urgency > 10 ? "destructive" : task.urgency > 5 ? "default" : "secondary"}
+        >
           {task.urgency.toFixed(1)}
         </Badge>
       </div>
@@ -203,9 +205,7 @@ function TasksPage() {
           <h1 className="text-2xl font-semibold">Tasks</h1>
         </div>
         {pendingData && (
-          <div className="text-sm text-muted-foreground">
-            {pendingData.pending_count} pending
-          </div>
+          <div className="text-sm text-muted-foreground">{pendingData.pending_count} pending</div>
         )}
       </div>
 

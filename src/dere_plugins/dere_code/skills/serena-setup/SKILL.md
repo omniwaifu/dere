@@ -32,11 +32,13 @@ No action needed - static conventions are active.
 ### Step 2: Activate Serena (if available)
 
 1. **Check Onboarding Status**
+
    ```
    mcp__plugin_dere-code_serena__check_onboarding_performed()
    ```
 
 2. **If Not Onboarded - Run Onboarding**
+
    ```
    mcp__plugin_dere-code_serena__onboarding()
    # Creates: architecture_overview, code_style, suggested_commands
@@ -51,6 +53,7 @@ No action needed - static conventions are active.
 ### Step 3: If Serena Fails
 
 If MCP unavailable or onboarding fails:
+
 - Rules still provide baseline project knowledge
 - Session can proceed without dynamic context
 - Note: Discoveries won't persist this session
@@ -58,10 +61,12 @@ If MCP unavailable or onboarding fails:
 ## After Onboarding
 
 Consider migrating static content to rules for reliability:
+
 - `code_style` → `.claude/rules/code-style.md`
 - `suggested_commands` → `.claude/rules/commands.md`
 
 Keep in Serena:
+
 - `architecture_overview` (may evolve)
 - `footgun-*`, `pattern-*`, `decision-*` (dynamic)
 

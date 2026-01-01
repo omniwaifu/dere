@@ -86,12 +86,8 @@ export const ShootingStars: React.FC<ShootingStarsProps> = ({
       if (star) {
         setStar((prevStar) => {
           if (!prevStar) return null;
-          const newX =
-            prevStar.x +
-            prevStar.speed * Math.cos((prevStar.angle * Math.PI) / 180);
-          const newY =
-            prevStar.y +
-            prevStar.speed * Math.sin((prevStar.angle * Math.PI) / 180);
+          const newX = prevStar.x + prevStar.speed * Math.cos((prevStar.angle * Math.PI) / 180);
+          const newY = prevStar.y + prevStar.speed * Math.sin((prevStar.angle * Math.PI) / 180);
           const newDistance = prevStar.distance + prevStar.speed;
           const newScale = 1 + newDistance / 100;
 
@@ -119,7 +115,10 @@ export const ShootingStars: React.FC<ShootingStarsProps> = ({
   }, [star]);
 
   return (
-    <svg ref={svgRef} className={cn("absolute inset-0 w-full h-full pointer-events-none", className)}>
+    <svg
+      ref={svgRef}
+      className={cn("absolute inset-0 w-full h-full pointer-events-none", className)}
+    >
       {star && (
         <rect
           key={star.id}

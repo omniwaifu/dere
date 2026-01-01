@@ -2,7 +2,7 @@
 
 Clear, concise API documentation with complete information.
 
-```markdown
+````markdown
 # ZoteroClient API
 
 ## ZoteroClient(config: ZoteroConfig)
@@ -27,7 +27,7 @@ config = ZoteroConfig(
     library_type="user"
 )
 client = ZoteroClient(config)
-```
+````
 
 ## search_items(query: str, search_type: str = "title") -> list[ZoteroItem]
 
@@ -43,6 +43,7 @@ Search library for items matching query.
 list[ZoteroItem] - Matching items with metadata
 
 **Example:**
+
 ```python
 # Search by title
 items = client.search_items("Computational Complexity", search_type="title")
@@ -70,10 +71,12 @@ Add new item to library.
 str - Item key for created item
 
 **Raises:**
+
 - ValueError: If title is empty
 - APIError: If Zotero API request fails
 
 **Example:**
+
 ```python
 # Add journal article
 key = client.add_item(
@@ -101,6 +104,7 @@ List all collections with hierarchy.
 dict[str, CollectionInfo] - Mapping of collection keys to metadata
 
 **Example:**
+
 ```python
 collections = client.get_collections()
 
@@ -112,6 +116,7 @@ for key, info in collections.items():
 # AI/Robotics: Robotics
 # Physics: Physics
 ```
+
 ```
 
 ## Why This Works
@@ -146,3 +151,4 @@ for key, info in collections.items():
 - Direct, factual language
 - No "powerful" or "easy to use"
 - Focuses on what it does
+```

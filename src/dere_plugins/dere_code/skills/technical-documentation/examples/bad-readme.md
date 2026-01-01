@@ -40,12 +40,14 @@ Thousands of developers are already experiencing the future of AI-assisted devel
 ## Why This Fails
 
 ### Marketing Overload
+
 - ❌ "Ultimate", "revolutionary", "cutting-edge"
 - ❌ Emoji spam
 - ❌ Hyperbolic language throughout
 - ❌ "Best-in-class", "enterprise-grade"
 
 ### Missing Critical Information
+
 - ❌ No installation commands
 - ❌ No prerequisites listed
 - ❌ No code examples
@@ -53,18 +55,21 @@ Thousands of developers are already experiencing the future of AI-assisted devel
 - ❌ No version numbers
 
 ### Vague Features
+
 - ❌ "Intelligent" and "powerful" everywhere
 - ❌ No concrete functionality described
 - ❌ No actual capabilities listed
 - ❌ Features described with adjectives, not facts
 
 ### Vision Over Substance
+
 - ❌ "Welcome to" opening
 - ❌ "Why choose us" section
 - ❌ "Join the revolution" CTA
 - ❌ More marketing than documentation
 
 ### User Frustration
+
 - Users can't install it
 - Users don't know what it actually does
 - Users can't configure it
@@ -75,21 +80,27 @@ Thousands of developers are already experiencing the future of AI-assisted devel
 Replace every section with factual information:
 
 **Instead of:**
+
 > "Revolutionary AI-powered task management with cutting-edge algorithms"
 
 **Write:**
+
 > "Task management via Taskwarrior integration"
 
 **Instead of:**
+
 > "Seamlessly integrates with your workflow through our powerful plugin architecture"
 
 **Write:**
+
 > "Plugin system for conditional features (productivity, vault, coding)"
 
 **Instead of:**
+
 > "Getting started is simple! Just..."
 
 **Write:**
+
 > ```bash
 > git clone repo
 > cd project

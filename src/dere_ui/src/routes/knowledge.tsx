@@ -26,7 +26,8 @@ function KnowledgePage() {
         </div>
         {stats && (
           <div className="text-sm text-muted-foreground">
-            {stats.total_entities} entities, {stats.total_edges} relationships, {stats.total_facts} facts
+            {stats.total_entities} entities, {stats.total_edges} relationships, {stats.total_facts}{" "}
+            facts
           </div>
         )}
       </div>

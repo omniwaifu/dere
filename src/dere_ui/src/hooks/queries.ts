@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { SessionConfig, DereConfig, CreateMissionRequest, UpdateMissionRequest, PersonalityData } from "@/types/api";
+import type {
+  SessionConfig,
+  DereConfig,
+  CreateMissionRequest,
+  UpdateMissionRequest,
+  PersonalityData,
+} from "@/types/api";
 
 export const queryKeys = {
   sessions: ["sessions"] as const,
@@ -18,8 +24,7 @@ export const queryKeys = {
     ["emotion", "history", "db", startTime, endTime] as const,
   emotionProfile: ["emotion", "profile"] as const,
   userInfo: ["userInfo"] as const,
-  tasks: (params?: { status?: string; project?: string }) =>
-    ["tasks", params] as const,
+  tasks: (params?: { status?: string; project?: string }) => ["tasks", params] as const,
   config: ["config"] as const,
   configSchema: ["configSchema"] as const,
   missions: ["missions"] as const,
@@ -65,7 +70,7 @@ export function useSession(id: number) {
 
 export function useSessionMessages(
   id: number,
-  params?: { limit?: number; before_timestamp?: number }
+  params?: { limit?: number; before_timestamp?: number },
 ) {
   return useQuery({
     queryKey: queryKeys.sessionMessages(id),
@@ -136,8 +141,7 @@ export function useGenerateSessionName() {
 export function useRenameSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) =>
-      api.sessions.rename(id, name),
+    mutationFn: ({ id, name }: { id: number; name: string }) => api.sessions.rename(id, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
     },
@@ -199,11 +203,7 @@ export function useEmotionHistory(limit?: number) {
   });
 }
 
-export function useEmotionHistoryDB(
-  startTime?: number,
-  endTime?: number,
-  limit?: number
-) {
+export function useEmotionHistoryDB(startTime?: number, endTime?: number, limit?: number) {
   return useQuery({
     queryKey: queryKeys.emotionHistoryDB(startTime, endTime),
     queryFn: () => api.emotion.historyDB(startTime, endTime, limit),
@@ -227,7 +227,11 @@ export function useUserInfo() {
   });
 }
 
-export function useTasks(params?: { status?: string; project?: string; include_completed?: boolean }) {
+export function useTasks(params?: {
+  status?: string;
+  project?: string;
+  include_completed?: boolean;
+}) {
   return useQuery({
     queryKey: queryKeys.tasks(params),
     queryFn: () => api.taskwarrior.tasks(params),
@@ -265,7 +269,7 @@ export function useConfigSchema() {
 // Memory
 export function useCoreMemoryBlocks(
   params?: { user_id?: string; session_id?: number },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: queryKeys.coreMemory(params),
@@ -301,7 +305,7 @@ export function useCoreMemoryHistory(
     session_id?: number;
     user_id?: string;
   },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: queryKeys.coreMemoryHistory(params),
@@ -336,7 +340,7 @@ export function useRecallSearch(
     session_id?: number;
     user_id?: string;
   },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: queryKeys.recallSearch(query, params),
@@ -486,7 +490,7 @@ export function useKGSearch(
     rerank_method?: string;
     labels?: string[];
   },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: queryKeys.kgSearch(query, params),
@@ -506,7 +510,7 @@ export function useKGFactSearch(
     archival_only?: boolean;
     user_id?: string;
   },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: queryKeys.kgFactSearch(query, params),
@@ -538,7 +542,7 @@ export function useKGFactsAtTime(
     limit?: number;
     include_roles?: boolean;
   },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean },
 ) {
   return useQuery({
     queryKey: queryKeys.kgFactsAtTime(timestamp, params),

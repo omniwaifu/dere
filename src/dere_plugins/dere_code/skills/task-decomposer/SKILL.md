@@ -7,9 +7,9 @@ description: Break complex tasks into focused subtasks with dependencies. Trigge
 
 ## When to Decompose
 
-- >3 files affected
+- > 3 files affected
 - Multiple dependencies
-- >10 tool calls expected
+- > 10 tool calls expected
 
 ## Pattern
 
@@ -22,6 +22,7 @@ description: Break complex tasks into focused subtasks with dependencies. Trigge
 **Bad:** "Add authentication to the app"
 
 **Good:**
+
 1. Find existing auth patterns (`find_symbol("auth")`)
 2. Create user model/schema
 3. Implement login endpoint

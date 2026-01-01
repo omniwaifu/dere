@@ -31,9 +31,7 @@ export function executeTaskWarriorCommandRaw(
     console.log(`Executing: ${command}`);
     return execSync(command, finalOptions).toString().trim();
   } catch (error: unknown) {
-    console.error(
-      `Error executing TaskWarrior command: task ${commandArgs.join(" ")}`,
-    );
+    console.error(`Error executing TaskWarrior command: task ${commandArgs.join(" ")}`);
     let stderrMessage = "";
     let stdoutMessage = ""; // stdout might contain info even on error for some commands
     let errorMessage = "TaskWarrior command failed";
@@ -47,7 +45,8 @@ export function executeTaskWarriorCommandRaw(
           : String(execError.stderr).trim();
         console.error(`TaskWarrior stderr: ${stderrMessage}`);
       }
-      if (execError.stdout) { // Capture stdout on error as well
+      if (execError.stdout) {
+        // Capture stdout on error as well
         stdoutMessage = Buffer.isBuffer(execError.stdout)
           ? execError.stdout.toString().trim()
           : String(execError.stdout).trim();
@@ -57,11 +56,15 @@ export function executeTaskWarriorCommandRaw(
       // Check for benign "no tasks" messages in stderr or stdout
       const noMatchRegex = /No matches|No tasks specified/i;
       if (noMatchRegex.test(stderrMessage)) {
-        console.debug("[executeTaskWarriorCommandRaw] 'No matches' detected in stderr. Returning stderr content.");
+        console.debug(
+          "[executeTaskWarriorCommandRaw] 'No matches' detected in stderr. Returning stderr content.",
+        );
         return stderrMessage; // Return the benign message for further processing
       }
       if (noMatchRegex.test(stdoutMessage)) {
-        console.debug("[executeTaskWarriorCommandRaw] 'No matches' detected in stdout. Returning stdout content.");
+        console.debug(
+          "[executeTaskWarriorCommandRaw] 'No matches' detected in stdout. Returning stdout content.",
+        );
         return stdoutMessage; // Return the benign message
       }
 
@@ -72,9 +75,7 @@ export function executeTaskWarriorCommandRaw(
       }
     }
     // If it wasn't a benign "no matches" message, throw the error.
-    throw new Error(
-      `${errorMessage}` + (stderrMessage ? ` (stderr: ${stderrMessage})` : ""),
-    );
+    throw new Error(`${errorMessage}` + (stderrMessage ? ` (stderr: ${stderrMessage})` : ""));
   }
 }
 
@@ -84,15 +85,13 @@ export function executeTaskWarriorCommandRaw(
  * @param commandArgs Array of arguments for the task command (should include "export")
  * @returns Array of validated TaskWarriorTask objects.
  */
-export async function executeTaskWarriorCommandJson(
-  args: string[],
-): Promise<TaskWarriorTask[]> {
+export async function executeTaskWarriorCommandJson(args: string[]): Promise<TaskWarriorTask[]> {
   try {
     // Always add export if not already present
-    if (!args.some(arg => arg.toLowerCase().includes('export'))) {
+    if (!args.some((arg) => arg.toLowerCase().includes("export"))) {
       args.push("export");
     }
-    
+
     const rawOutput = executeTaskWarriorCommandRaw(args);
 
     // Handle known "no tasks" messages from Taskwarrior
@@ -104,7 +103,9 @@ export async function executeTaskWarriorCommandJson(
       trimmedOutput === "No pending tasks." ||
       trimmedOutput === "" // Handles completely empty output
     ) {
-      console.log(`executeTaskWarriorCommandJson - Received "No matches" equivalent: "${trimmedOutput}". Returning empty array.`);
+      console.log(
+        `executeTaskWarriorCommandJson - Received "No matches" equivalent: "${trimmedOutput}". Returning empty array.`,
+      );
       return [];
     }
 
@@ -113,8 +114,10 @@ export async function executeTaskWarriorCommandJson(
       // First attempt: try to parse the whole output as a single JSON array
       const parsedArray = JSON.parse(trimmedOutput);
       if (Array.isArray(parsedArray)) {
-        console.log(`Successfully parsed output as a complete JSON array with ${parsedArray.length} items`);
-        
+        console.log(
+          `Successfully parsed output as a complete JSON array with ${parsedArray.length} items`,
+        );
+
         // Validate all objects in the array
         const validatedObjects = [];
         for (let i = 0; i < parsedArray.length; i++) {
@@ -123,8 +126,11 @@ export async function executeTaskWarriorCommandJson(
             const validatedObj = TaskWarriorTaskSchema.parse(parsedArray[i]);
             validatedObjects.push(validatedObj);
           } catch (validationError) {
-            console.error(`Validation failed for task in array at index ${i}:`, 
-              JSON.stringify(parsedArray[i]).substring(0, 100), validationError);
+            console.error(
+              `Validation failed for task in array at index ${i}:`,
+              JSON.stringify(parsedArray[i]).substring(0, 100),
+              validationError,
+            );
             // Skip invalid objects but continue with valid ones
           }
         }
@@ -137,30 +143,35 @@ export async function executeTaskWarriorCommandJson(
     // Fallback: If parsing the whole output failed, try parsing each line as a separate JSON object
     const validObjects = [];
     const lines = trimmedOutput.split("\n");
-    
+
     for (const line of lines) {
-      if (!line.trim() || line.trim() === '[' || line.trim() === ']') continue; // Skip empty lines and array brackets
-      
+      if (!line.trim() || line.trim() === "[" || line.trim() === "]") continue; // Skip empty lines and array brackets
+
       // Remove any trailing commas (common in pretty-printed JSON arrays)
-      const cleanLine = line.trim().replace(/,\s*$/, '');
-      
+      const cleanLine = line.trim().replace(/,\s*$/, "");
+
       try {
         const parsedObj = JSON.parse(cleanLine);
         validObjects.push(parsedObj);
       } catch (parseError) {
-        console.error(`Failed to parse line: ${cleanLine.substring(0, 50)}... - Skipping this line and continuing.`, parseError);
+        console.error(
+          `Failed to parse line: ${cleanLine.substring(0, 50)}... - Skipping this line and continuing.`,
+          parseError,
+        );
       }
     }
-    
+
     // If we couldn't parse any valid objects, return empty array
     if (validObjects.length === 0) {
-      console.warn("No valid JSON objects could be parsed from TaskWarrior output. Returning empty array.");
+      console.warn(
+        "No valid JSON objects could be parsed from TaskWarrior output. Returning empty array.",
+      );
       return [];
     }
 
     // Validate each object with Zod, skipping any that fail validation
     const validatedObjects = [];
-    
+
     for (let i = 0; i < validObjects.length; i++) {
       const obj = validObjects[i];
       try {
@@ -168,27 +179,32 @@ export async function executeTaskWarriorCommandJson(
         const validatedObj = TaskWarriorTaskSchema.parse(obj);
         validatedObjects.push(validatedObj);
       } catch (validationError) {
-        console.error(`Validation failed for task object at index ${i}:`, 
-          JSON.stringify(obj).substring(0, 100), validationError);
+        console.error(
+          `Validation failed for task object at index ${i}:`,
+          JSON.stringify(obj).substring(0, 100),
+          validationError,
+        );
         // Skip this object but continue with others - don't throw
       }
     }
-    
+
     return validatedObjects;
   } catch (error) {
     // Special case for "No matches" that might have leaked through error handling
     if (error instanceof Error) {
       if (
-        error.message.includes("No matches") || 
+        error.message.includes("No matches") ||
         error.message.includes("No tasks found") ||
         error.message.includes("No tasks") ||
         error.message.includes("No pending tasks")
       ) {
-        console.log(`executeTaskWarriorCommandJson - Caught error with "No matches" pattern: "${error.message}". Returning empty array.`);
+        console.log(
+          `executeTaskWarriorCommandJson - Caught error with "No matches" pattern: "${error.message}". Returning empty array.`,
+        );
         return [];
       }
     }
-    
+
     // For ANY other error, return empty array instead of throwing
     console.error("Error processing TaskWarrior JSON output:", error);
     return []; // Always return empty array on errors for robustness
@@ -212,9 +228,7 @@ export async function getTaskByUuid(uuid: string): Promise<TaskWarriorTask> {
   }
   if (tasks.length > 1) {
     // This should ideally not happen if UUIDs are unique
-    console.warn(
-      `Multiple tasks found for UUID '${uuid}'. Returning the first one.`,
-    );
+    console.warn(`Multiple tasks found for UUID '${uuid}'. Returning the first one.`);
   }
   return tasks[0];
 }

@@ -1,7 +1,4 @@
-import type {
-  GetTaskDetailsRequest,
-  TaskWarriorTask,
-} from "../../types/task.js";
+import type { GetTaskDetailsRequest, TaskWarriorTask } from "../../types/task.js";
 import { getTaskByUuid } from "../../utils/taskwarrior.js";
 
 // --- Standard MCP Interfaces (should ideally be imported) ---

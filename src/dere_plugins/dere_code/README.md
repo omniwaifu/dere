@@ -7,6 +7,7 @@ Coding workflow automation for dere - behavioral nudges and automation to make C
 **Problem:** Claude often falls back to basic tools (Read/Grep) instead of using Serena's powerful symbol navigation, and forgets to persist discoveries to memory.
 
 **Solution:** Automated behavioral nudges at key decision points:
+
 - SessionStart: Auto-prompts Serena activation and memory loading
 - PreToolUse: Suggests symbol tools when about to Read code files or Grep for code
 - PostToolUse: Reminds to write_memory() after research or symbol exploration
@@ -14,7 +15,9 @@ Coding workflow automation for dere - behavioral nudges and automation to make C
 ## Features
 
 ### 1. Auto-Activating Skills
+
 Skills trigger automatically based on context (no manual invocation needed):
+
 - `serena-project-activator` - Activates Serena and runs onboarding
 - `serena-symbol-navigator` - Use symbol tools instead of Read/Grep
 - `library-docs-fetcher` - Query Context7 for library docs
@@ -28,14 +31,18 @@ Skills trigger automatically based on context (no manual invocation needed):
 - `claude-code-reference` - Technical reference for plugin system mechanics (hooks/skills/agents/commands/MCP)
 
 ### 2. Tool-Restricted Subagents
+
 Specialized agents with constrained tool access:
+
 - `code-archeologist` - Read-only analysis (no Write/Edit)
 - `implementation-engineer` - Full editing with symbol-aware refactoring
 - `research-specialist` - WebFetch/Context7 only (no file editing)
 - `document-architect` - Documentation writing with code analysis
 
 ### 3. Behavioral Nudge Hooks
+
 Automatic reminders at decision points:
+
 - **SessionStart** → Activate Serena + load memories
 - **PreToolUse(Read)** → Suggest get_symbols_overview for code files
 - **PreToolUse(Grep)** → Suggest find_symbol for code searches
@@ -45,7 +52,9 @@ Automatic reminders at decision points:
 - **PreToolUse(Bash)** → Safe mode validation for destructive commands
 
 ### 4. Workforce Mode Output Style
+
 Custom output style that reinforces symbol-first workflows:
+
 - Symbol-first exploration (get_symbols_overview, find_symbol)
 - Memory persistence after discoveries (write_memory)
 - Context7 for library documentation
@@ -71,12 +80,14 @@ The plugin will be automatically enabled/disabled based on your config when you 
 ## Requirements
 
 **Serena MCP (required):**
+
 ```bash
 claude mcp add serena -- uvx --from git+https://github.com/oraios/serena \
   serena start-mcp-server --context ide-assistant --project "$(pwd)"
 ```
 
 **Context7 (optional but recommended):**
+
 ```bash
 claude mcp add context7 -- npx -y @upstash/context7-mcp
 ```
@@ -92,19 +103,25 @@ claude mcp add context7 -- npx -y @upstash/context7-mcp
 ## How It Works
 
 ### Skills Auto-Activate
+
 When you ask questions matching skill descriptions, Claude automatically gets those skill prompts. For example:
+
 - "How does authentication work?" → `systematic-codebase-explorer` activates
 - "Refactor the User class" → `safe-refactoring-workflow` activates
 - "Find all uses of this function" → `serena-symbol-navigator` activates
 
 ### Hooks Nudge Behavior
+
 At key moments, hooks inject reminders:
+
 - About to `Read src/auth.py`? → "Consider get_symbols_overview() first"
 - Just did `WebFetch` for React docs? → "Consider write_memory('library-docs-react-hooks', ...)"
 - Made 5+ symbol exploration calls? → "Consider documenting discoveries"
 
 ### Agents Provide Constraints
+
 Invoke agents explicitly for specialized workflows:
+
 - `@code-archeologist` → Explore code without risk of accidental edits
 - `@research-specialist` → Research with enforced citation discipline
 - `@implementation-engineer` → Implement with symbol-aware refactoring
@@ -124,12 +141,14 @@ workforce-assistant/
 ## Philosophy
 
 **Do, Don't Teach:**
+
 - Hooks automate at decision points
 - Skills provide concise context when relevant
 - Agents enforce constraints through tool restrictions
 - No verbose tutorials or teaching materials
 
 **Lean into Serena:**
+
 - Symbol tools over Read/Grep for code
 - write_memory() for cross-session persistence
 - onboarding() for systematic exploration

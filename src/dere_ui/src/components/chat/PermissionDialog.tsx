@@ -37,9 +37,7 @@ export function PermissionDialog() {
             <div className="space-y-3">
               <p>
                 Claude wants to use the{" "}
-                <span className="font-semibold text-foreground">
-                  {pendingPermission.toolName}
-                </span>{" "}
+                <span className="font-semibold text-foreground">{pendingPermission.toolName}</span>{" "}
                 tool:
               </p>
               <pre className="max-h-48 overflow-auto rounded-md bg-muted p-3 text-xs">
@@ -56,9 +54,7 @@ export function PermissionDialog() {
             <Shield className="mr-2 h-4 w-4" />
             Deny
           </Button>
-          <Button onClick={handleAllow}>
-            Allow
-          </Button>
+          <Button onClick={handleAllow}>Allow</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

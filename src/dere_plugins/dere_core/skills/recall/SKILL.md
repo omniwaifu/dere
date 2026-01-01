@@ -17,21 +17,25 @@ Query memory system to recall relevant past conversations and entity relationshi
 ## Workflow
 
 **For entity mentions:**
+
 1. Run `scripts/entity_search.py <entity>` for timeline
 2. Run `scripts/related_entities.py <entity>` for connections
 3. Integrate naturally into response
 
 **For session history:**
+
 1. Run `scripts/session_history.py <session_id>`
 2. Pull relevant context
 
 ## Integration Style
 
 **Don't say:**
+
 - "According to the database..."
 - "The API shows..."
 
 **Instead:**
+
 - "Oh yeah, we were working on X a few weeks ago..."
 - "Last time you mentioned them, you were dealing with..."
 - "That reminds me of when you were..."

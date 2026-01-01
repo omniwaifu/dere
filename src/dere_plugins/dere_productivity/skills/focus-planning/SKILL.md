@@ -74,6 +74,7 @@ Historical insights:
 **5. Score and Rank Options**
 
 Consider multiple factors:
+
 - **Urgency**: Due date, dependencies
 - **Energy match**: Task complexity vs current energy
 - **Time fit**: Will it finish before next meeting?
@@ -113,6 +114,7 @@ Not recommended now:
 **7. Start Focus Session**
 
 After user selects:
+
 ```
 - start_task(task_id)
 - Optionally: create_calendar_event for time blocking
@@ -209,26 +211,31 @@ Pick one and I'll start tracking?"
 ## Integration Points
 
 ### With `calendar-context` skill:
+
 - Pull upcoming events
 - Identify free blocks
 - Calculate available time
 
 ### With `activity-summary` skill:
+
 - Historical productivity patterns
 - Best times for different work types
 - Typical focus session length
 
 ### With `focus` skill (base):
+
 - Enhanced version that adds calendar + activity intelligence
 - Falls back to simple focus if data unavailable
 
 ### With `schedule-planning` skill:
+
 - If no good tasks for now, suggest scheduling future blocks
 - "You don't have time for deep work now, want to block tomorrow morning?"
 
 ## Configuration
 
 Optional user preferences:
+
 ```toml
 [productivity.focus_planning]
 work_hours_start = 9
@@ -243,6 +250,7 @@ energy_weight = 1.5  # how much to weight energy matching
 ### Proactive Suggestions
 
 If enabled, could proactively suggest during context injection:
+
 ```
 [Productivity Context]
 Tasks: 5 pending, 2 due today
@@ -253,6 +261,7 @@ Suggestion: Great time for deep work on API refactoring (est: 2.5h)
 ### Learning Over Time
 
 Track what suggestions user accepts:
+
 - Which factors matter most to this user
 - Typical task duration accuracy
 - Energy level patterns by time of day

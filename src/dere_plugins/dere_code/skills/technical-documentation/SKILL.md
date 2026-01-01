@@ -21,7 +21,7 @@ description: Write clear, factual documentation without marketing language. Trig
 
 ## README Template
 
-```markdown
+````markdown
 # Project Name
 
 One-sentence description.
@@ -51,7 +51,7 @@ command --flag value
 [section]
 key = "value"
 \```
-```
+````
 
 ## API Docs Template
 

@@ -1,10 +1,5 @@
-import type {
-  StartTaskRequest,
-} from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import type { StartTaskRequest } from "../../types/task.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 
 // --- Standard MCP Interfaces (should ideally be imported) ---
 interface JsonContentItem {
@@ -60,7 +55,7 @@ export const startTaskHandler = async (
         error: {
           code: "START_TIME_MISSING",
           message: `Task with UUID '${uuid}' was attempted to be started, but it does not have a start time after the command.`,
-        details:
+          details:
             "The 'start' command might have failed silently, or Taskwarrior's state is inconsistent.",
         },
         result: {
@@ -112,7 +107,8 @@ export const startTaskHandler = async (
         message: message,
         details: details,
       },
-      result: { // Optionally, provide a text error in content as well
+      result: {
+        // Optionally, provide a text error in content as well
         content: [
           {
             type: "text",

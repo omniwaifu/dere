@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Save, RotateCcw, X, Plus } from "lucide-react";
-import { usePersonalityEditor, useSavePersonality, useDeletePersonality, useUploadPersonalityAvatar } from "@/hooks/queries";
+import {
+  usePersonalityEditor,
+  useSavePersonality,
+  useDeletePersonality,
+  useUploadPersonalityAvatar,
+} from "@/hooks/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -130,7 +135,7 @@ function PersonalityEditPage() {
   const removeAlias = (alias: string) => {
     updateMetadata(
       "aliases",
-      (formData.metadata.aliases || []).filter((a) => a !== alias)
+      (formData.metadata.aliases || []).filter((a) => a !== alias),
     );
   };
 
@@ -147,7 +152,7 @@ function PersonalityEditPage() {
             navigate({ to: "/personality/$name", params: { name: saveName } });
           }
         },
-      }
+      },
     );
   };
 
@@ -186,7 +191,7 @@ function PersonalityEditPage() {
                 display: { ...formData.display, avatar: res.avatar },
               },
             },
-            { onSuccess: () => setHasChanges(false) }
+            { onSuccess: () => setHasChanges(false) },
           );
           setAvatarCacheBust((v) => v + 1);
           setAvatarPreviewUrl(null);
@@ -194,7 +199,7 @@ function PersonalityEditPage() {
         onError: (err: unknown) => {
           setAvatarError(err instanceof Error ? err.message : "Upload failed");
         },
-      }
+      },
     );
   };
 
@@ -286,7 +291,9 @@ function PersonalityEditPage() {
             )}
             <Button
               onClick={handleSave}
-              disabled={!hasChanges || savePersonality.isPending || (isNew && !formData.metadata.short_name)}
+              disabled={
+                !hasChanges || savePersonality.isPending || (isNew && !formData.metadata.short_name)
+              }
             >
               <Save className="mr-2 h-4 w-4" />
               {savePersonality.isPending ? "Saving..." : "Save"}
@@ -409,7 +416,8 @@ function PersonalityEditPage() {
                       htmlFor="avatarFile"
                       className={cn(
                         "inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground",
-                        isNew && "cursor-not-allowed opacity-50 hover:bg-background hover:text-foreground"
+                        isNew &&
+                          "cursor-not-allowed opacity-50 hover:bg-background hover:text-foreground",
                       )}
                     >
                       Choose file
@@ -417,9 +425,7 @@ function PersonalityEditPage() {
                     {uploadAvatar.isPending && (
                       <p className="text-xs text-muted-foreground">Uploading...</p>
                     )}
-                    {avatarError && (
-                      <p className="text-xs text-destructive">{avatarError}</p>
-                    )}
+                    {avatarError && <p className="text-xs text-destructive">{avatarError}</p>}
                     {isNew && (
                       <p className="text-xs text-muted-foreground">
                         Save personality first to upload an image.

@@ -1,10 +1,6 @@
 import { useState, useEffect } from "react";
 import { ChevronRight } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 interface ThinkingIndicatorProps {
@@ -45,12 +41,7 @@ export function ThinkingIndicator({
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
       <CollapsibleTrigger className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-        <ChevronRight
-          className={cn(
-            "h-4 w-4 transition-transform",
-            expanded && "rotate-90"
-          )}
-        />
+        <ChevronRight className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")} />
 
         {isActivelyThinking ? (
           <>
@@ -59,7 +50,9 @@ export function ThinkingIndicator({
           </>
         ) : (
           <span>
-            {thinkingDuration !== undefined ? `Thought for ${formattedDuration}s` : "Thought process"}
+            {thinkingDuration !== undefined
+              ? `Thought for ${formattedDuration}s`
+              : "Thought process"}
           </span>
         )}
       </CollapsibleTrigger>
@@ -67,9 +60,7 @@ export function ThinkingIndicator({
       {thinking && (
         <CollapsibleContent>
           <div className="mt-1 rounded border border-border bg-muted/50 p-2">
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {thinking}
-            </p>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{thinking}</p>
           </div>
         </CollapsibleContent>
       )}

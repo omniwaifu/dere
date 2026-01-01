@@ -23,7 +23,13 @@ import {
   Brain,
   MessageSquare,
 } from "lucide-react";
-import { useTasks, useEmotionState, useMissions, useKGStats, useSummaryContext } from "@/hooks/queries";
+import {
+  useTasks,
+  useEmotionState,
+  useMissions,
+  useKGStats,
+  useSummaryContext,
+} from "@/hooks/queries";
 import { useDashboardStore } from "@/stores/dashboard";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -59,8 +65,8 @@ function Widget({ title, icon, href, children }: WidgetProps) {
 }
 
 export function RightPanel() {
-  const [isCollapsed, setIsCollapsed] = useState(() =>
-    localStorage.getItem("right-panel-collapsed") === "true"
+  const [isCollapsed, setIsCollapsed] = useState(
+    () => localStorage.getItem("right-panel-collapsed") === "true",
   );
 
   useEffect(() => {
@@ -210,9 +216,7 @@ function TasksPreview() {
   }
 
   if (isError) {
-    return (
-      <p className="text-xs text-destructive">Failed to load tasks</p>
-    );
+    return <p className="text-xs text-destructive">Failed to load tasks</p>;
   }
 
   return (
@@ -236,9 +240,7 @@ function TasksPreview() {
           </ResponsiveContainer>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        {data?.completed_count ?? 0} completed
-      </p>
+      <p className="text-xs text-muted-foreground">{data?.completed_count ?? 0} completed</p>
     </div>
   );
 }
@@ -310,9 +312,7 @@ function EmotionPreview() {
   }
 
   if (isError) {
-    return (
-      <p className="text-xs text-destructive">Failed to load emotion state</p>
-    );
+    return <p className="text-xs text-destructive">Failed to load emotion state</p>;
   }
 
   if (!data?.has_emotion || !data.dominant_emotion) {
@@ -344,9 +344,7 @@ function EmotionPreview() {
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium">{formatEmotionName(data.dominant_emotion)}</p>
-          <p className="text-xs text-muted-foreground">
-            Intensity: {intensity.toFixed(0)}%
-          </p>
+          <p className="text-xs text-muted-foreground">Intensity: {intensity.toFixed(0)}%</p>
         </div>
       </div>
       <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
@@ -375,17 +373,15 @@ function MissionsPreview() {
   }
 
   if (isError) {
-    return (
-      <p className="text-xs text-destructive">Failed to load missions</p>
-    );
+    return <p className="text-xs text-destructive">Failed to load missions</p>;
   }
 
   const active = missions?.filter((m) => m.status === "active").length ?? 0;
   const paused = missions?.filter((m) => m.status === "paused").length ?? 0;
   const nextMission = missions
     ?.filter((m) => m.status === "active" && m.next_execution_at)
-    .sort((a, b) =>
-      new Date(a.next_execution_at!).getTime() - new Date(b.next_execution_at!).getTime()
+    .sort(
+      (a, b) => new Date(a.next_execution_at!).getTime() - new Date(b.next_execution_at!).getTime(),
     )[0];
 
   const formatNextRun = (dateStr: string) => {
@@ -404,9 +400,7 @@ function MissionsPreview() {
       <div className="flex items-baseline gap-2">
         <span className="text-2xl font-bold">{active}</span>
         <span className="text-xs text-muted-foreground">active</span>
-        {paused > 0 && (
-          <span className="text-xs text-muted-foreground">({paused} paused)</span>
-        )}
+        {paused > 0 && <span className="text-xs text-muted-foreground">({paused} paused)</span>}
       </div>
       {nextMission && (
         <p className="text-xs text-muted-foreground">
@@ -438,9 +432,7 @@ function AmbientPreview() {
     <div className="flex items-center gap-2">
       <div className={`h-2 w-2 rounded-full ${config.color}`} />
       <span className="text-xs">{config.label}</span>
-      {!ambient?.is_enabled && (
-        <span className="text-xs text-muted-foreground">(disabled)</span>
-      )}
+      {!ambient?.is_enabled && <span className="text-xs text-muted-foreground">(disabled)</span>}
     </div>
   );
 }
@@ -458,9 +450,7 @@ function KnowledgePreview() {
   }
 
   if (isError) {
-    return (
-      <p className="text-xs text-destructive">Failed to load knowledge stats</p>
-    );
+    return <p className="text-xs text-destructive">Failed to load knowledge stats</p>;
   }
 
   const topEntity = data?.top_mentioned?.[0];
@@ -475,11 +465,7 @@ function KnowledgePreview() {
         <span>{data?.total_edges ?? 0} relationships</span>
         <span>{data?.total_communities ?? 0} clusters</span>
       </div>
-      {topEntity && (
-        <p className="text-xs text-muted-foreground truncate">
-          Top: {topEntity.name}
-        </p>
-      )}
+      {topEntity && <p className="text-xs text-muted-foreground truncate">Top: {topEntity.name}</p>}
     </div>
   );
 }
@@ -525,9 +511,7 @@ function SummaryContextCard() {
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">
-        {data.summary}
-      </p>
+      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{data.summary}</p>
     </div>
   );
 }

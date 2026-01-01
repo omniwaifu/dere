@@ -1,10 +1,5 @@
-import type {
-  MarkTaskDoneRequest,
-} from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import type { MarkTaskDoneRequest } from "../../types/task.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 // isValidUuid and getIdentifierType might be useful if we need to distinguish,
 // but getTaskByIdOrUuid should handle both directly for fetching.
 // import { isValidUuid, getIdentifierType } from "../../utils/uuid.js";
@@ -74,7 +69,7 @@ export const markTaskDoneHandler = async (
         error: {
           code: "STATUS_NOT_COMPLETED",
           message: `Task with UUID '${uuid}' was attempted to be marked done, but its status is '${updatedTask.status}' instead of 'completed'.`,
-        details:
+          details:
             "This might indicate an issue with Taskwarrior hooks, a race condition, or the 'done' command not behaving as expected.",
         },
         result: {
@@ -126,7 +121,8 @@ export const markTaskDoneHandler = async (
         message: message,
         details: details,
       },
-      result: { // Optionally, provide a text error in content as well
+      result: {
+        // Optionally, provide a text error in content as well
         content: [
           {
             type: "text",

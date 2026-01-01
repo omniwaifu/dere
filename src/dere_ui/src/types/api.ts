@@ -435,12 +435,15 @@ export interface ConfigSchemaProperty {
 }
 
 export interface ConfigSchema {
-  $defs: Record<string, {
-    type: string;
-    title?: string;
-    description?: string;
-    properties: Record<string, ConfigSchemaProperty>;
-  }>;
+  $defs: Record<
+    string,
+    {
+      type: string;
+      title?: string;
+      description?: string;
+      properties: Record<string, ConfigSchemaProperty>;
+    }
+  >;
   properties: Record<string, ConfigSchemaProperty>;
   title: string;
   type: string;

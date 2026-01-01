@@ -8,15 +8,13 @@ export async function handleGetProjectStatus(
   console.log(`getProjectStatus called with:`, args);
 
   try {
-    const allProjectTasks = await executeTaskWarriorCommandJson([
-      `project:${args.project}`,
-    ]);
+    const allProjectTasks = await executeTaskWarriorCommandJson([`project:${args.project}`]);
 
-    const pendingTasks = allProjectTasks.filter(t => t.status === 'pending');
-    const completedTasks = allProjectTasks.filter(t => t.status === 'completed');
+    const pendingTasks = allProjectTasks.filter((t) => t.status === "pending");
+    const completedTasks = allProjectTasks.filter((t) => t.status === "completed");
 
     const now = new Date();
-    const nextActions = pendingTasks.filter(task => {
+    const nextActions = pendingTasks.filter((task) => {
       if (task.depends && task.depends.length > 0) return false;
       if (task.wait) {
         const waitDate = new Date(task.wait);
@@ -25,7 +23,7 @@ export async function handleGetProjectStatus(
       return true;
     });
 
-    const blockedTasks = pendingTasks.filter(task => {
+    const blockedTasks = pendingTasks.filter((task) => {
       return task.depends && task.depends.length > 0;
     });
 
@@ -49,9 +47,10 @@ export async function handleGetProjectStatus(
       ? Math.floor((Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24))
       : 999;
 
-    const completionPct = allProjectTasks.length > 0
-      ? Math.round((completedTasks.length / allProjectTasks.length) * 100)
-      : 0;
+    const completionPct =
+      allProjectTasks.length > 0
+        ? Math.round((completedTasks.length / allProjectTasks.length) * 100)
+        : 0;
 
     const summary = `Project ${args.project}: ${completionPct}% complete, ${nextActions.length} next actions, ${blockedTasks.length} blocked`;
 

@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dere_shared.llm_schemas import ExplorationOutput
 from dere_shared.models import (
     ExplorationFinding,
     Mission,
@@ -48,14 +48,6 @@ Return output that matches the provided JSON schema.
 """
 
 EXPLORATION_ALLOWED_TOOLS = ["Read", "WebSearch", "WebFetch"]
-
-
-class ExplorationOutput(BaseModel):
-    findings: list[str] = []
-    confidence: float = 0.0
-    follow_up_questions: list[str] = []
-    worth_sharing: bool = False
-    share_message: str | None = None
 
 
 @dataclass

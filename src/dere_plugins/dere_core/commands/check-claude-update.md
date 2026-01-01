@@ -26,6 +26,7 @@ Extract the last $1 versions (default to 3 if no argument provided).
 **IMPORTANT: Do NOT scan or reference any `.claude` directory. You are banned from touching it.**
 
 Scan the current project directory to identify what Claude Code features are used:
+
 - Look for `commands/` directories (slash commands)
 - Look for `skills/` directories (skills)
 - Look for `agents/` directories (agents)
@@ -37,6 +38,7 @@ Scan the current project directory to identify what Claude Code features are use
 Match release note topics against features found in Step 2:
 
 **Topic matching keywords:**
+
 - "hooks" / "hook" -> affects hooks
 - "plugins" / "plugin" -> affects plugins
 - "skills" / "skill" -> affects skills

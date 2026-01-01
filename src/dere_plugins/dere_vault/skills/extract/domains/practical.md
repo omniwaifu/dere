@@ -27,6 +27,7 @@ Procedures, if-then rules, checklists, decision triggers, review mechanisms.
 **Thin**: "Exercise regularly"
 
 **Thick**:
+
 ```
 Morning exercise protocol:
 - Trigger: Alarm at 6:30 AM; clothes laid out night before

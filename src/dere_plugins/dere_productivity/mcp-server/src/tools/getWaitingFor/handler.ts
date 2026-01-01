@@ -6,9 +6,7 @@ import { generateInsights, type EnrichedResponse } from "../../utils/mcpResponse
  * Get waiting for - What am I waiting on?
  * Returns tasks with status:waiting OR wait date set, grouped by blocker/date/project
  */
-export async function handleGetWaitingFor(
-  args: GetWaitingForRequest,
-): Promise<EnrichedResponse> {
+export async function handleGetWaitingFor(args: GetWaitingForRequest): Promise<EnrichedResponse> {
   console.log(`getWaitingFor called with:`, args);
 
   try {
@@ -16,9 +14,9 @@ export async function handleGetWaitingFor(
     const allTasks = await executeTaskWarriorCommandJson(["status:pending"]);
 
     const now = new Date();
-    const waitingTasks = allTasks.filter(task => {
+    const waitingTasks = allTasks.filter((task) => {
       // Include if status is waiting
-      if (task.status === 'waiting') return true;
+      if (task.status === "waiting") return true;
 
       // Include if wait date is set and in the future
       if (task.wait) {
@@ -67,9 +65,7 @@ export async function handleGetWaitingFor(
     } else {
       insights.summary = `${waitingTasks.length} tasks waiting`;
       insights.recommendations = insights.recommendations || [];
-      insights.recommendations.unshift(
-        `Review waiting items and follow up if needed`
-      );
+      insights.recommendations.unshift(`Review waiting items and follow up if needed`);
     }
 
     const response: EnrichedResponse = {

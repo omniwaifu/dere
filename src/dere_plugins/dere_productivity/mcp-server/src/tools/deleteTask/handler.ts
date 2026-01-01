@@ -1,11 +1,5 @@
-import type {
-  DeleteTaskRequest,
-  DeleteTaskResponse,
-} from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import type { DeleteTaskRequest, DeleteTaskResponse } from "../../types/task.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 
 // --- Standard MCP Interfaces (should ideally be imported) ---
 interface JsonContentItem {
@@ -64,7 +58,14 @@ export const deleteTaskHandler = async (
           code: "TASK_NOT_DELETED",
           message: `Task with UUID '${uuid}' was attempted to be deleted, but it still exists. TaskWarrior output: ${deleteOutput}`,
         },
-        result: { content: [{type: 'text', text: `Task '${uuid}' still exists after deletion attempt. Output: ${deleteOutput}` }]}
+        result: {
+          content: [
+            {
+              type: "text",
+              text: `Task '${uuid}' still exists after deletion attempt. Output: ${deleteOutput}`,
+            },
+          ],
+        },
       };
     } catch (fetchError: unknown) {
       // If getTaskByUuid throws an error, we check if it's a 'not found' error
@@ -93,10 +94,7 @@ export const deleteTaskHandler = async (
         };
       } else {
         // An unexpected error occurred while trying to confirm deletion
-        console.error(
-          `Unexpected error while confirming deletion of task '${uuid}':`,
-          fetchError,
-        );
+        console.error(`Unexpected error while confirming deletion of task '${uuid}':`, fetchError);
         return {
           tool_name: toolName,
           status: "error",
@@ -105,7 +103,14 @@ export const deleteTaskHandler = async (
             message: `Task '${uuid}' deletion status uncertain. Confirmation check failed: ${fetchErrorMessage}`,
             details: deleteOutput, // Include original delete output
           },
-          result: { content: [{type: 'text', text: `Task '${uuid}' deletion status uncertain. Confirmation check failed: ${fetchErrorMessage}` }]}
+          result: {
+            content: [
+              {
+                type: "text",
+                text: `Task '${uuid}' deletion status uncertain. Confirmation check failed: ${fetchErrorMessage}`,
+              },
+            ],
+          },
         };
       }
     }
@@ -121,10 +126,7 @@ export const deleteTaskHandler = async (
         errorCode = "TASK_NOT_FOUND";
       }
       // Check for confirmation error specifically for the delete command itself
-      else if (
-        !skipConfirmation &&
-        message.toLowerCase().includes("confirmation")
-      ) {
+      else if (!skipConfirmation && message.toLowerCase().includes("confirmation")) {
         errorCode = "DELETION_CONFIRMATION_REQUIRED";
         details = error.message; // Original error message
         message = `Deletion requires confirmation. Use skipConfirmation:true or ensure your Taskwarrior configuration allows deletion without confirmation.`;
@@ -141,9 +143,9 @@ export const deleteTaskHandler = async (
       error: {
         code: errorCode,
         message: message,
-      details: details,
+        details: details,
       },
-      result: { content: [{type: 'text', text: `Error in ${toolName}: ${message}` }]}
+      result: { content: [{ type: "text", text: `Error in ${toolName}: ${message}` }] },
     };
   }
 };

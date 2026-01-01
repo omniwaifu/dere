@@ -5,41 +5,35 @@ description = "Personality-layered wrapper for Claude Code with conversation per
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi>=0.118.0",
-    "uvicorn>=0.37.0",
-    "claude-agent-sdk>=0.1.0",
-    "httpx>=0.28.1",
-    "pydantic>=2.11.10",
-    "typer>=0.12.0",
-    "discord.py>=2.4.0",
-    "loguru>=0.7.3",
-    "sqlalchemy>=2.0.0",
-    "sqlmodel>=0.0.22",
-    "asyncpg>=0.30.0",
-    "alembic>=1.14.0",
-    "pgvector>=0.3.0",
-    "pymupdf>=1.23.0",
-    "tiktoken>=0.5.0",
-    "pyyaml>=6.0.0",
-    "jinja2>=3.1.0",
-    "dere-graph",
-    "pyzotero>=1.7.5",
-    "fastmcp>=2.14.0",
-    "youtube-transcript-api>=1.2.3",
-    "aiodocker>=0.23.0",
-    "tomlkit>=0.12.0",
-    "croniter>=2.0.0",
-    "sentry-sdk[fastapi,loguru]>=2.19.0",
+  "fastapi>=0.118.0",
+  "uvicorn>=0.37.0",
+  "claude-agent-sdk>=0.1.0",
+  "httpx>=0.28.1",
+  "pydantic>=2.11.10",
+  "typer>=0.12.0",
+  "discord.py>=2.4.0",
+  "loguru>=0.7.3",
+  "sqlalchemy>=2.0.0",
+  "sqlmodel>=0.0.22",
+  "asyncpg>=0.30.0",
+  "alembic>=1.14.0",
+  "pgvector>=0.3.0",
+  "pymupdf>=1.23.0",
+  "tiktoken>=0.5.0",
+  "pyyaml>=6.0.0",
+  "jinja2>=3.1.0",
+  "dere-graph",
+  "pyzotero>=1.7.5",
+  "fastmcp>=2.14.0",
+  "youtube-transcript-api>=1.2.3",
+  "aiodocker>=0.23.0",
+  "tomlkit>=0.12.0",
+  "croniter>=2.0.0",
+  "sentry-sdk[fastapi,loguru]>=2.19.0",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff>=0.13.3",
-    "mypy>=1.18.2",
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.2.0",
-    "honcho>=1.1.0",
-]
+dev = ["ruff>=0.13.3", "mypy>=1.18.2", "pytest>=8.4.2", "pytest-asyncio>=1.2.0", "honcho>=1.1.0"]
 
 [project.scripts]
 dere = "dere_cli.main:app"
@@ -53,7 +47,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dere_daemon", "src/dere_cli", "src/dere_shared", "src/dere_discord", "src/dere_ambient", "src/dere_plugins"]
+packages = [
+  "src/dere_daemon",
+  "src/dere_cli",
+  "src/dere_shared",
+  "src/dere_discord",
+  "src/dere_ambient",
+  "src/dere_plugins",
+]
 
 [tool.ruff]
 line-length = 100
@@ -90,9 +91,7 @@ unresolved-import = "ignore"
 unresolved-reference = "warn"
 
 [tool.uv.workspace]
-members = [
-    "src/dere_graph",
-]
+members = ["src/dere_graph"]
 
 [tool.uv.sources]
 dere-graph = { workspace = true }

@@ -62,14 +62,16 @@ export function VelocityChart({ tasks }: VelocityChartProps) {
     for (let i = 11; i >= 0; i--) {
       const weekStart = new Date(now);
       weekStart.setDate(weekStart.getDate() - i * 7);
-      const weekKey = `W${Math.ceil((weekStart.getDate()) / 7)}`;
+      const weekKey = `W${Math.ceil(weekStart.getDate() / 7)}`;
       weeks[weekKey] = 0;
     }
 
     for (const task of tasks) {
       if (task.end) {
         const endDate = parseTaskDate(task.end);
-        const weeksAgo = Math.floor((now.getTime() - endDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        const weeksAgo = Math.floor(
+          (now.getTime() - endDate.getTime()) / (7 * 24 * 60 * 60 * 1000),
+        );
         if (weeksAgo >= 0 && weeksAgo < 12) {
           const weekKey = Object.keys(weeks)[11 - weeksAgo];
           if (weekKey) weeks[weekKey]++;
@@ -213,7 +215,12 @@ export function TagDistribution({ tasks }: TagDistributionProps) {
           <BarChart data={tagData} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis type="number" tick={{ fill: "#9ca3af", fontSize: 12 }} />
-            <YAxis dataKey="name" type="category" width={80} tick={{ fill: "#9ca3af", fontSize: 12 }} />
+            <YAxis
+              dataKey="name"
+              type="category"
+              width={80}
+              tick={{ fill: "#9ca3af", fontSize: 12 }}
+            />
             <Tooltip
               contentStyle={{
                 backgroundColor: "#1f2937",
@@ -284,7 +291,11 @@ export function BurndownChart({ tasks }: BurndownChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={burndownData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="date" tick={{ fill: "#9ca3af", fontSize: 12 }} interval="preserveStartEnd" />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: "#9ca3af", fontSize: 12 }}
+              interval="preserveStartEnd"
+            />
             <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} />
             <Tooltip
               contentStyle={{
@@ -295,8 +306,20 @@ export function BurndownChart({ tasks }: BurndownChartProps) {
               }}
             />
             <Legend wrapperStyle={{ color: "#9ca3af" }} />
-            <Area type="monotone" dataKey="pending" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
-            <Area type="monotone" dataKey="completed" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} />
+            <Area
+              type="monotone"
+              dataKey="pending"
+              stroke="#3b82f6"
+              fill="#3b82f6"
+              fillOpacity={0.3}
+            />
+            <Area
+              type="monotone"
+              dataKey="completed"
+              stroke="#22c55e"
+              fill="#22c55e"
+              fillOpacity={0.3}
+            />
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -320,7 +343,8 @@ export function CalendarHeatmap({ tasks }: CalendarHeatmapProps) {
       }
     }
 
-    const weeks: { week: number; days: { date: string; count: number; dayOfWeek: number }[] }[] = [];
+    const weeks: { week: number; days: { date: string; count: number; dayOfWeek: number }[] }[] =
+      [];
     const now = new Date();
     const startDate = new Date(now);
     startDate.setDate(startDate.getDate() - 364);

@@ -14,9 +14,7 @@
  * @param dueDateString The due date string to check.
  * @returns True if the due date is today or in the future, false otherwise.
  */
-export function isDueDateNotInPast(
-  dueDateString: string | undefined | null,
-): boolean {
+export function isDueDateNotInPast(dueDateString: string | undefined | null): boolean {
   if (!dueDateString) return true; // Or false, depending on whether due date is required
   try {
     const dueDate = new Date(dueDateString);

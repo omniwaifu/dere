@@ -31,11 +31,13 @@ Search vault, synthesize findings, create Hub notes.
 ## Hub vs Synthesis
 
 **Hub Note:**
+
 - Index/map of topic area
 - Links organized by category
 - Example: "Distributed Systems Concepts"
 
 **Synthesis Note:**
+
 - Original insight combining sources
 - Atomic permanent note
 - Example: "Trade-offs Between Consistency Models"

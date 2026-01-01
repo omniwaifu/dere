@@ -1,44 +1,46 @@
 import { z } from "zod";
 
 // Base task schema that covers common TaskWarrior fields
-export const TaskWarriorTaskSchema = z.object({
-  id: z.number().int(),
-  uuid: z.string().uuid(),
-  description: z.string(),
-  status: z.enum(["pending", "completed", "deleted", "waiting", "recurring"]),
-  entry: z.string(), // Accept any string format for dates from TaskWarrior
-  modified: z.string().optional(),
-  start: z.string().optional(),
-  due: z.string().optional(),
-  end: z.string().optional(), // Completion date
-  priority: z.enum(["H", "M", "L"]).optional(),
-  project: z
-    .string()
-    .regex(/^[a-zA-Z0-9 ._-]+$/)
-    .optional(),
-  tags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
-  annotations: z
-    .array(
-      z.object({
-        entry: z.string(),
-        description: z.string(),
-      }),
-    )
-    .optional(),
-  // GTD-specific fields
-  depends: z.array(z.string().uuid()).optional(), // Task dependencies (UUIDs)
-  wait: z.string().optional(), // Wait until date (defer)
-  scheduled: z.string().optional(), // Scheduled start date
-  until: z.string().optional(), // Task expiration date
-  parent: z.string().uuid().optional(), // Parent task UUID
-  context: z.string().optional(), // GTD context (@home, @work, etc.)
-  energy: z.string().optional(), // Energy level required
-  urgency: z.number().optional(), // Calculated urgency score
-  complexity: z.union([z.number(), z.string()]).optional(), // Time estimate / complexity
-  recur: z.string().optional(), // Recurrence pattern
-  mask: z.string().optional(), // Recurrence mask
-  imask: z.number().optional(), // Recurrence instance mask
-}).passthrough(); // Allow additional fields from TaskWarrior without validation errors
+export const TaskWarriorTaskSchema = z
+  .object({
+    id: z.number().int(),
+    uuid: z.string().uuid(),
+    description: z.string(),
+    status: z.enum(["pending", "completed", "deleted", "waiting", "recurring"]),
+    entry: z.string(), // Accept any string format for dates from TaskWarrior
+    modified: z.string().optional(),
+    start: z.string().optional(),
+    due: z.string().optional(),
+    end: z.string().optional(), // Completion date
+    priority: z.enum(["H", "M", "L"]).optional(),
+    project: z
+      .string()
+      .regex(/^[a-zA-Z0-9 ._-]+$/)
+      .optional(),
+    tags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
+    annotations: z
+      .array(
+        z.object({
+          entry: z.string(),
+          description: z.string(),
+        }),
+      )
+      .optional(),
+    // GTD-specific fields
+    depends: z.array(z.string().uuid()).optional(), // Task dependencies (UUIDs)
+    wait: z.string().optional(), // Wait until date (defer)
+    scheduled: z.string().optional(), // Scheduled start date
+    until: z.string().optional(), // Task expiration date
+    parent: z.string().uuid().optional(), // Parent task UUID
+    context: z.string().optional(), // GTD context (@home, @work, etc.)
+    energy: z.string().optional(), // Energy level required
+    urgency: z.number().optional(), // Calculated urgency score
+    complexity: z.union([z.number(), z.string()]).optional(), // Time estimate / complexity
+    recur: z.string().optional(), // Recurrence pattern
+    mask: z.string().optional(), // Recurrence mask
+    imask: z.number().optional(), // Recurrence instance mask
+  })
+  .passthrough(); // Allow additional fields from TaskWarrior without validation errors
 
 export type TaskWarriorTask = z.infer<typeof TaskWarriorTaskSchema>;
 
@@ -51,14 +53,10 @@ export const ListPendingTasksRequestSchema = z.object({
     .optional(),
   tags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
 });
-export type ListPendingTasksRequest = z.infer<
-  typeof ListPendingTasksRequestSchema
->;
+export type ListPendingTasksRequest = z.infer<typeof ListPendingTasksRequestSchema>;
 
 export const ListTasksRequestSchema = z.object({
-  status: z
-    .enum(["pending", "completed", "deleted", "waiting", "recurring"])
-    .optional(),
+  status: z.enum(["pending", "completed", "deleted", "waiting", "recurring"]).optional(),
   project: z
     .string()
     .regex(/^[a-zA-Z0-9 ._-]+$/)
@@ -113,9 +111,7 @@ export type GetTaskDetailsRequest = z.infer<typeof GetTaskDetailsRequestSchema>;
 export const ModifyTaskRequestSchema = z.object({
   uuid: z.string().uuid(),
   description: z.string().optional(),
-  status: z
-    .enum(["pending", "completed", "deleted", "waiting", "recurring"])
-    .optional(),
+  status: z.enum(["pending", "completed", "deleted", "waiting", "recurring"]).optional(),
   due: z.string().optional(),
   priority: z.enum(["H", "M", "L"]).optional(),
   project: z
@@ -164,9 +160,7 @@ export const RemoveAnnotationRequestSchema = z.object({
   uuid: z.string().uuid(),
   annotation: z.string(), // Exact text of the annotation to remove
 });
-export type RemoveAnnotationRequest = z.infer<
-  typeof RemoveAnnotationRequestSchema
->;
+export type RemoveAnnotationRequest = z.infer<typeof RemoveAnnotationRequestSchema>;
 
 // Response Schemas specific to tools
 export const AddAnnotationResponseSchema = z.object({
@@ -208,13 +202,19 @@ export const GetWaitingForRequestSchema = z.object({
 export type GetWaitingForRequest = z.infer<typeof GetWaitingForRequestSchema>;
 
 export const GetBlockedTasksRequestSchema = z.object({
-  project: z.string().regex(/^[a-zA-Z0-9 ._-]+$/).optional(),
+  project: z
+    .string()
+    .regex(/^[a-zA-Z0-9 ._-]+$/)
+    .optional(),
   include_waiting: z.boolean().optional().default(false),
 });
 export type GetBlockedTasksRequest = z.infer<typeof GetBlockedTasksRequestSchema>;
 
 export const GetTaskTreeRequestSchema = z.object({
-  project: z.string().regex(/^[a-zA-Z0-9 ._-]+$/).optional(),
+  project: z
+    .string()
+    .regex(/^[a-zA-Z0-9 ._-]+$/)
+    .optional(),
   uuid: z.string().uuid().optional(), // Root task UUID
   depth: z.number().int().positive().optional(), // Max depth to traverse
 });
@@ -247,13 +247,15 @@ export type SetContextRequest = z.infer<typeof SetContextRequestSchema>;
 export const CreateProjectTreeRequestSchema = z.object({
   project_name: z.string().regex(/^[a-zA-Z0-9 ._-]+$/),
   project_description: z.string(),
-  tasks: z.array(z.object({
-    description: z.string(),
-    depends_on_indices: z.array(z.number().int()).optional(), // Indices in tasks array
-    priority: z.enum(["H", "M", "L"]).optional(),
-    tags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
-    context: z.string().optional(),
-  })),
+  tasks: z.array(
+    z.object({
+      description: z.string(),
+      depends_on_indices: z.array(z.number().int()).optional(), // Indices in tasks array
+      priority: z.enum(["H", "M", "L"]).optional(),
+      tags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
+      context: z.string().optional(),
+    }),
+  ),
 });
 export type CreateProjectTreeRequest = z.infer<typeof CreateProjectTreeRequestSchema>;
 
@@ -281,7 +283,10 @@ export type SetDeadlineRequest = z.infer<typeof SetDeadlineRequestSchema>;
 export const ProcessInboxItemRequestSchema = z.object({
   uuid: z.string().uuid(),
   action: z.enum(["next_action", "project", "waiting", "someday", "delete", "reference"]),
-  project: z.string().regex(/^[a-zA-Z0-9 ._-]+$/).optional(),
+  project: z
+    .string()
+    .regex(/^[a-zA-Z0-9 ._-]+$/)
+    .optional(),
   context: z.string().optional(),
   priority: z.enum(["H", "M", "L"]).optional(),
   due: z.string().optional(),
@@ -318,7 +323,10 @@ export const BatchModifyTasksRequestSchema = z.object({
     status: z.enum(["pending", "completed", "deleted", "waiting", "recurring"]).optional(),
     due: z.string().optional(),
     priority: z.enum(["H", "M", "L"]).optional(),
-    project: z.string().regex(/^[a-zA-Z0-9 ._-]*$/).optional(),
+    project: z
+      .string()
+      .regex(/^[a-zA-Z0-9 ._-]*$/)
+      .optional(),
     addTags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
     removeTags: z.array(z.string().regex(/^[a-zA-Z0-9_-]+$/)).optional(),
     scheduled: z.string().optional(),
@@ -331,7 +339,10 @@ export const BatchModifyTasksRequestSchema = z.object({
 export type BatchModifyTasksRequest = z.infer<typeof BatchModifyTasksRequestSchema>;
 
 export const GetSomedayMaybeRequestSchema = z.object({
-  project: z.string().regex(/^[a-zA-Z0-9 ._-]+$/).optional(),
+  project: z
+    .string()
+    .regex(/^[a-zA-Z0-9 ._-]+$/)
+    .optional(),
   limit: z.number().int().positive().optional(),
 });
 export type GetSomedayMaybeRequest = z.infer<typeof GetSomedayMaybeRequestSchema>;

@@ -5,20 +5,17 @@ description = "Minimal Graphiti clone using Claude Agent SDK + FalkorDB"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pydantic>=2.11.5",
-    "falkordb>=1.0.0",
-    "claude-agent-sdk>=0.1.0",
-    "openai>=1.0.0",
-    "numpy>=1.26.0",
-    "loguru>=0.7.0",
-    "tiktoken>=0.7.0",
+  "pydantic>=2.11.5",
+  "falkordb>=1.0.0",
+  "claude-agent-sdk>=0.1.0",
+  "openai>=1.0.0",
+  "numpy>=1.26.0",
+  "loguru>=0.7.0",
+  "tiktoken>=0.7.0",
 ]
 
 [dependency-groups]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
-]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0"]
 
 [build-system]
 requires = ["hatchling"]

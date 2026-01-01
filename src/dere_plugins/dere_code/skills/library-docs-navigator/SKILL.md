@@ -8,12 +8,14 @@ description: Query Context7 MCP for up-to-date library/framework documentation i
 ## When to Use Context7
 
 **Before WebSearch for library questions:**
+
 - How to use a library API
 - Framework-specific patterns
 - Current version syntax
 - Official code examples
 
 **Libraries Context7 knows:**
+
 - Frontend: React, Next.js, Vue, Angular, Svelte
 - Backend: Express, FastAPI, Django, Rails
 - Databases: MongoDB, PostgreSQL, Prisma
@@ -22,12 +24,14 @@ description: Query Context7 MCP for up-to-date library/framework documentation i
 ## Workflow
 
 **1. Resolve Library ID**
+
 ```
 mcp__context7__resolve-library-id(libraryName="react")
 # Returns: /facebook/react
 ```
 
 **2. Get Documentation**
+
 ```
 mcp__context7__get-library-docs(
   context7CompatibleLibraryID="/facebook/react",

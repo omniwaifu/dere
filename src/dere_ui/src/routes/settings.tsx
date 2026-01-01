@@ -96,7 +96,7 @@ function SettingsPage() {
           }
         });
       },
-      { rootMargin: "-20% 0px -70% 0px" }
+      { rootMargin: "-20% 0px -70% 0px" },
     );
 
     Object.values(sectionRefs.current).forEach((ref) => {
@@ -116,7 +116,7 @@ function SettingsPage() {
     setPendingChanges((prev) => ({
       ...prev,
       [sectionKey]: {
-        ...(prev[sectionKey as keyof DereConfig] as object || {}),
+        ...((prev[sectionKey as keyof DereConfig] as object) || {}),
         [field]: value,
       },
     }));
@@ -138,7 +138,12 @@ function SettingsPage() {
     const merged: Record<string, unknown> = { ...config };
     for (const [key, changes] of Object.entries(pendingChanges)) {
       const base = config[key as keyof DereConfig];
-      if (typeof base === "object" && base !== null && typeof changes === "object" && changes !== null) {
+      if (
+        typeof base === "object" &&
+        base !== null &&
+        typeof changes === "object" &&
+        changes !== null
+      ) {
         merged[key] = { ...base, ...changes };
       } else if (changes !== undefined) {
         merged[key] = changes;
@@ -203,10 +208,7 @@ function SettingsPage() {
             <Settings className="h-6 w-6" />
             <h1 className="text-2xl font-semibold">Settings</h1>
           </div>
-          <Button
-            onClick={saveChanges}
-            disabled={!hasChanges || updateConfig.isPending}
-          >
+          <Button onClick={saveChanges} disabled={!hasChanges || updateConfig.isPending}>
             {updateConfig.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </div>
@@ -221,7 +223,7 @@ function SettingsPage() {
                 "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                 resolvedActiveSection === id
                   ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
               )}
             >
               <Icon className="h-4 w-4" />
@@ -242,7 +244,9 @@ function SettingsPage() {
               <section
                 key={section.id}
                 id={section.id}
-                ref={(el) => { sectionRefs.current[section.id] = el; }}
+                ref={(el) => {
+                  sectionRefs.current[section.id] = el;
+                }}
               >
                 <Card>
                   <CardHeader>

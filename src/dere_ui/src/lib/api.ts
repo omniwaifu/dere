@@ -82,22 +82,18 @@ export const api = {
       }),
 
     delete: (id: number) =>
-      fetchJson<{ status: string; session_id: number }>(
-        `/agent/sessions/${id}`,
-        { method: "DELETE" }
-      ),
+      fetchJson<{ status: string; session_id: number }>(`/agent/sessions/${id}`, {
+        method: "DELETE",
+      }),
 
-    messages: (
-      id: number,
-      params?: { limit?: number; before_timestamp?: number }
-    ) => {
+    messages: (id: number, params?: { limit?: number; before_timestamp?: number }) => {
       const searchParams = new URLSearchParams();
       if (params?.limit) searchParams.set("limit", String(params.limit));
       if (params?.before_timestamp)
         searchParams.set("before_timestamp", String(params.before_timestamp));
       const query = searchParams.toString();
       return fetchJson<MessageHistoryResponse>(
-        `/agent/sessions/${id}/messages${query ? `?${query}` : ""}`
+        `/agent/sessions/${id}/messages${query ? `?${query}` : ""}`,
       );
     },
 
@@ -106,15 +102,14 @@ export const api = {
       if (params?.limit) searchParams.set("limit", String(params.limit));
       const query = searchParams.toString();
       return fetchJson<ConversationMetricsResponse>(
-        `/agent/sessions/${id}/metrics${query ? `?${query}` : ""}`
+        `/agent/sessions/${id}/metrics${query ? `?${query}` : ""}`,
       );
     },
 
     generateName: (id: number) =>
-      fetchJson<{ name: string; generated: boolean }>(
-        `/agent/sessions/${id}/generate-name`,
-        { method: "POST" }
-      ),
+      fetchJson<{ name: string; generated: boolean }>(`/agent/sessions/${id}/generate-name`, {
+        method: "POST",
+      }),
 
     rename: (id: number, name: string) =>
       fetchJson<{ name: string }>(`/agent/sessions/${id}/name`, {
@@ -124,16 +119,13 @@ export const api = {
   },
 
   metadata: {
-    outputStyles: () =>
-      fetchJson<AvailableOutputStylesResponse>("/agent/output-styles"),
+    outputStyles: () => fetchJson<AvailableOutputStylesResponse>("/agent/output-styles"),
 
-    personalities: () =>
-      fetchJson<AvailablePersonalitiesResponse>("/agent/personalities"),
+    personalities: () => fetchJson<AvailablePersonalitiesResponse>("/agent/personalities"),
 
     models: () => fetchJson<AvailableModelsResponse>("/agent/models"),
 
-    recentDirectories: () =>
-      fetchJson<RecentDirectoriesResponse>("/agent/recent-directories"),
+    recentDirectories: () => fetchJson<RecentDirectoriesResponse>("/agent/recent-directories"),
   },
 
   emotion: {
@@ -153,7 +145,7 @@ export const api = {
       if (limit) params.set("limit", limit.toString());
       const queryString = params.toString();
       return fetchJson<EmotionHistoryDBResponse>(
-        `/emotion/history/db${queryString ? `?${queryString}` : ""}`
+        `/emotion/history/db${queryString ? `?${queryString}` : ""}`,
       );
     },
 
@@ -211,11 +203,9 @@ export const api = {
         method: "DELETE",
       }),
 
-    pause: (id: number) =>
-      fetchJson<Mission>(`/missions/${id}/pause`, { method: "POST" }),
+    pause: (id: number) => fetchJson<Mission>(`/missions/${id}/pause`, { method: "POST" }),
 
-    resume: (id: number) =>
-      fetchJson<Mission>(`/missions/${id}/resume`, { method: "POST" }),
+    resume: (id: number) => fetchJson<Mission>(`/missions/${id}/resume`, { method: "POST" }),
 
     execute: (id: number) =>
       fetchJson<{ status: string; mission_id: number }>(`/missions/${id}/execute`, {
@@ -304,7 +294,7 @@ export const api = {
       if (params?.offset) searchParams.set("offset", String(params.offset));
       const query = searchParams.toString();
       return fetchJson<ConsolidationRunsResponse>(
-        `/memory/consolidation/runs${query ? `?${query}` : ""}`
+        `/memory/consolidation/runs${query ? `?${query}` : ""}`,
       );
     },
   },
@@ -410,7 +400,7 @@ export const api = {
         {
           method: "POST",
           body: JSON.stringify(body),
-        }
+        },
       );
     },
 
@@ -453,7 +443,8 @@ export const api = {
   personalities: {
     list: () => fetchJson<PersonalitiesEditorResponse>("/personalities"),
 
-    get: (name: string) => fetchJson<PersonalityDetailResponse>(`/personalities/${encodeURIComponent(name)}`),
+    get: (name: string) =>
+      fetchJson<PersonalityDetailResponse>(`/personalities/${encodeURIComponent(name)}`),
 
     save: (name: string, data: PersonalityData) =>
       fetchJson<{ status: string; name: string }>(`/personalities/${encodeURIComponent(name)}`, {
@@ -478,7 +469,7 @@ export const api = {
     delete: (name: string) =>
       fetchJson<{ status: string; name: string; has_embedded: boolean }>(
         `/personalities/${encodeURIComponent(name)}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       ),
   },
 };

@@ -5,13 +5,7 @@
   "author": {
     "name": "dere"
   },
-  "keywords": [
-    "automation",
-    "multi-agent",
-    "research",
-    "productivity",
-    "workflow"
-  ],
+  "keywords": ["automation", "multi-agent", "research", "productivity", "workflow"],
   "mcpServers": {
     "serena": {
       "command": "uvx",
@@ -28,10 +22,7 @@
     },
     "context7": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp"
-      ]
+      "args": ["-y", "@upstash/context7-mcp"]
     }
   }
 }

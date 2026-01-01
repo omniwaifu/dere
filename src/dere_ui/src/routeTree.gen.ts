@@ -8,230 +8,230 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as PersonalitiesRouteImport } from './routes/personalities'
-import { Route as MissionsRouteImport } from './routes/missions'
-import { Route as KnowledgeRouteImport } from './routes/knowledge'
-import { Route as EmotionRouteImport } from './routes/emotion'
-import { Route as AmbientRouteImport } from './routes/ambient'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as PersonalityNameRouteImport } from './routes/personality.$name'
-import { Route as ChatSessionIdRouteImport } from './routes/chat.$sessionId'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as TasksRouteImport } from "./routes/tasks";
+import { Route as SettingsRouteImport } from "./routes/settings";
+import { Route as PersonalitiesRouteImport } from "./routes/personalities";
+import { Route as MissionsRouteImport } from "./routes/missions";
+import { Route as KnowledgeRouteImport } from "./routes/knowledge";
+import { Route as EmotionRouteImport } from "./routes/emotion";
+import { Route as AmbientRouteImport } from "./routes/ambient";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as PersonalityNameRouteImport } from "./routes/personality.$name";
+import { Route as ChatSessionIdRouteImport } from "./routes/chat.$sessionId";
 
 const TasksRoute = TasksRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
+  id: "/tasks",
+  path: "/tasks",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+  id: "/settings",
+  path: "/settings",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const PersonalitiesRoute = PersonalitiesRouteImport.update({
-  id: '/personalities',
-  path: '/personalities',
+  id: "/personalities",
+  path: "/personalities",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const MissionsRoute = MissionsRouteImport.update({
-  id: '/missions',
-  path: '/missions',
+  id: "/missions",
+  path: "/missions",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const KnowledgeRoute = KnowledgeRouteImport.update({
-  id: '/knowledge',
-  path: '/knowledge',
+  id: "/knowledge",
+  path: "/knowledge",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const EmotionRoute = EmotionRouteImport.update({
-  id: '/emotion',
-  path: '/emotion',
+  id: "/emotion",
+  path: "/emotion",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const AmbientRoute = AmbientRouteImport.update({
-  id: '/ambient',
-  path: '/ambient',
+  id: "/ambient",
+  path: "/ambient",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const PersonalityNameRoute = PersonalityNameRouteImport.update({
-  id: '/personality/$name',
-  path: '/personality/$name',
+  id: "/personality/$name",
+  path: "/personality/$name",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const ChatSessionIdRoute = ChatSessionIdRouteImport.update({
-  id: '/chat/$sessionId',
-  path: '/chat/$sessionId',
+  id: "/chat/$sessionId",
+  path: "/chat/$sessionId",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/ambient': typeof AmbientRoute
-  '/emotion': typeof EmotionRoute
-  '/knowledge': typeof KnowledgeRoute
-  '/missions': typeof MissionsRoute
-  '/personalities': typeof PersonalitiesRoute
-  '/settings': typeof SettingsRoute
-  '/tasks': typeof TasksRoute
-  '/chat/$sessionId': typeof ChatSessionIdRoute
-  '/personality/$name': typeof PersonalityNameRoute
+  "/": typeof IndexRoute;
+  "/ambient": typeof AmbientRoute;
+  "/emotion": typeof EmotionRoute;
+  "/knowledge": typeof KnowledgeRoute;
+  "/missions": typeof MissionsRoute;
+  "/personalities": typeof PersonalitiesRoute;
+  "/settings": typeof SettingsRoute;
+  "/tasks": typeof TasksRoute;
+  "/chat/$sessionId": typeof ChatSessionIdRoute;
+  "/personality/$name": typeof PersonalityNameRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/ambient': typeof AmbientRoute
-  '/emotion': typeof EmotionRoute
-  '/knowledge': typeof KnowledgeRoute
-  '/missions': typeof MissionsRoute
-  '/personalities': typeof PersonalitiesRoute
-  '/settings': typeof SettingsRoute
-  '/tasks': typeof TasksRoute
-  '/chat/$sessionId': typeof ChatSessionIdRoute
-  '/personality/$name': typeof PersonalityNameRoute
+  "/": typeof IndexRoute;
+  "/ambient": typeof AmbientRoute;
+  "/emotion": typeof EmotionRoute;
+  "/knowledge": typeof KnowledgeRoute;
+  "/missions": typeof MissionsRoute;
+  "/personalities": typeof PersonalitiesRoute;
+  "/settings": typeof SettingsRoute;
+  "/tasks": typeof TasksRoute;
+  "/chat/$sessionId": typeof ChatSessionIdRoute;
+  "/personality/$name": typeof PersonalityNameRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/ambient': typeof AmbientRoute
-  '/emotion': typeof EmotionRoute
-  '/knowledge': typeof KnowledgeRoute
-  '/missions': typeof MissionsRoute
-  '/personalities': typeof PersonalitiesRoute
-  '/settings': typeof SettingsRoute
-  '/tasks': typeof TasksRoute
-  '/chat/$sessionId': typeof ChatSessionIdRoute
-  '/personality/$name': typeof PersonalityNameRoute
+  __root__: typeof rootRouteImport;
+  "/": typeof IndexRoute;
+  "/ambient": typeof AmbientRoute;
+  "/emotion": typeof EmotionRoute;
+  "/knowledge": typeof KnowledgeRoute;
+  "/missions": typeof MissionsRoute;
+  "/personalities": typeof PersonalitiesRoute;
+  "/settings": typeof SettingsRoute;
+  "/tasks": typeof TasksRoute;
+  "/chat/$sessionId": typeof ChatSessionIdRoute;
+  "/personality/$name": typeof PersonalityNameRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
+  fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
-    | '/'
-    | '/ambient'
-    | '/emotion'
-    | '/knowledge'
-    | '/missions'
-    | '/personalities'
-    | '/settings'
-    | '/tasks'
-    | '/chat/$sessionId'
-    | '/personality/$name'
-  fileRoutesByTo: FileRoutesByTo
+    | "/"
+    | "/ambient"
+    | "/emotion"
+    | "/knowledge"
+    | "/missions"
+    | "/personalities"
+    | "/settings"
+    | "/tasks"
+    | "/chat/$sessionId"
+    | "/personality/$name";
+  fileRoutesByTo: FileRoutesByTo;
   to:
-    | '/'
-    | '/ambient'
-    | '/emotion'
-    | '/knowledge'
-    | '/missions'
-    | '/personalities'
-    | '/settings'
-    | '/tasks'
-    | '/chat/$sessionId'
-    | '/personality/$name'
+    | "/"
+    | "/ambient"
+    | "/emotion"
+    | "/knowledge"
+    | "/missions"
+    | "/personalities"
+    | "/settings"
+    | "/tasks"
+    | "/chat/$sessionId"
+    | "/personality/$name";
   id:
-    | '__root__'
-    | '/'
-    | '/ambient'
-    | '/emotion'
-    | '/knowledge'
-    | '/missions'
-    | '/personalities'
-    | '/settings'
-    | '/tasks'
-    | '/chat/$sessionId'
-    | '/personality/$name'
-  fileRoutesById: FileRoutesById
+    | "__root__"
+    | "/"
+    | "/ambient"
+    | "/emotion"
+    | "/knowledge"
+    | "/missions"
+    | "/personalities"
+    | "/settings"
+    | "/tasks"
+    | "/chat/$sessionId"
+    | "/personality/$name";
+  fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AmbientRoute: typeof AmbientRoute
-  EmotionRoute: typeof EmotionRoute
-  KnowledgeRoute: typeof KnowledgeRoute
-  MissionsRoute: typeof MissionsRoute
-  PersonalitiesRoute: typeof PersonalitiesRoute
-  SettingsRoute: typeof SettingsRoute
-  TasksRoute: typeof TasksRoute
-  ChatSessionIdRoute: typeof ChatSessionIdRoute
-  PersonalityNameRoute: typeof PersonalityNameRoute
+  IndexRoute: typeof IndexRoute;
+  AmbientRoute: typeof AmbientRoute;
+  EmotionRoute: typeof EmotionRoute;
+  KnowledgeRoute: typeof KnowledgeRoute;
+  MissionsRoute: typeof MissionsRoute;
+  PersonalitiesRoute: typeof PersonalitiesRoute;
+  SettingsRoute: typeof SettingsRoute;
+  TasksRoute: typeof TasksRoute;
+  ChatSessionIdRoute: typeof ChatSessionIdRoute;
+  PersonalityNameRoute: typeof PersonalityNameRoute;
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    '/tasks': {
-      id: '/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof TasksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/personalities': {
-      id: '/personalities'
-      path: '/personalities'
-      fullPath: '/personalities'
-      preLoaderRoute: typeof PersonalitiesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/missions': {
-      id: '/missions'
-      path: '/missions'
-      fullPath: '/missions'
-      preLoaderRoute: typeof MissionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/knowledge': {
-      id: '/knowledge'
-      path: '/knowledge'
-      fullPath: '/knowledge'
-      preLoaderRoute: typeof KnowledgeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/emotion': {
-      id: '/emotion'
-      path: '/emotion'
-      fullPath: '/emotion'
-      preLoaderRoute: typeof EmotionRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ambient': {
-      id: '/ambient'
-      path: '/ambient'
-      fullPath: '/ambient'
-      preLoaderRoute: typeof AmbientRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/personality/$name': {
-      id: '/personality/$name'
-      path: '/personality/$name'
-      fullPath: '/personality/$name'
-      preLoaderRoute: typeof PersonalityNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chat/$sessionId': {
-      id: '/chat/$sessionId'
-      path: '/chat/$sessionId'
-      fullPath: '/chat/$sessionId'
-      preLoaderRoute: typeof ChatSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
+    "/tasks": {
+      id: "/tasks";
+      path: "/tasks";
+      fullPath: "/tasks";
+      preLoaderRoute: typeof TasksRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/settings": {
+      id: "/settings";
+      path: "/settings";
+      fullPath: "/settings";
+      preLoaderRoute: typeof SettingsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/personalities": {
+      id: "/personalities";
+      path: "/personalities";
+      fullPath: "/personalities";
+      preLoaderRoute: typeof PersonalitiesRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/missions": {
+      id: "/missions";
+      path: "/missions";
+      fullPath: "/missions";
+      preLoaderRoute: typeof MissionsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/knowledge": {
+      id: "/knowledge";
+      path: "/knowledge";
+      fullPath: "/knowledge";
+      preLoaderRoute: typeof KnowledgeRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/emotion": {
+      id: "/emotion";
+      path: "/emotion";
+      fullPath: "/emotion";
+      preLoaderRoute: typeof EmotionRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/ambient": {
+      id: "/ambient";
+      path: "/ambient";
+      fullPath: "/ambient";
+      preLoaderRoute: typeof AmbientRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/": {
+      id: "/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/personality/$name": {
+      id: "/personality/$name";
+      path: "/personality/$name";
+      fullPath: "/personality/$name";
+      preLoaderRoute: typeof PersonalityNameRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/chat/$sessionId": {
+      id: "/chat/$sessionId";
+      path: "/chat/$sessionId";
+      fullPath: "/chat/$sessionId";
+      preLoaderRoute: typeof ChatSessionIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
   }
 }
 
@@ -246,7 +246,7 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   ChatSessionIdRoute: ChatSessionIdRoute,
   PersonalityNameRoute: PersonalityNameRoute,
-}
+};
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+  ._addFileTypes<FileRouteTypes>();

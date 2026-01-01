@@ -1,0 +1,11 @@
+{
+  "properties": {
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": ["title"],
+  "title": "SessionTitleResult",
+  "type": "object"
+}

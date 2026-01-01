@@ -27,6 +27,7 @@ Falsifiable hypotheses, experimental designs, evidence quality assessment, effec
 **Thin**: "Exercise improves mood"
 
 **Thick**:
+
 ```
 Exercise and mood:
 - Claim: Acute aerobic exercise (20-40min, moderate intensity) reduces depressive symptoms

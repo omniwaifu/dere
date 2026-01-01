@@ -1,10 +1,5 @@
-import type {
-  RemoveAnnotationRequest,
-} from "../../types/task.js";
-import {
-  executeTaskWarriorCommandRaw,
-  getTaskByUuid,
-} from "../../utils/taskwarrior.js";
+import type { RemoveAnnotationRequest } from "../../types/task.js";
+import { executeTaskWarriorCommandRaw, getTaskByUuid } from "../../utils/taskwarrior.js";
 
 // --- Standard MCP Interfaces (should ideally be imported) ---
 interface JsonContentItem {
@@ -54,7 +49,11 @@ export const removeAnnotationHandler = async (
           message: `Annotation with description "${annotation}" not found on task '${uuid}'.`,
           details: "No changes made as the specified annotation does not exist on the task.",
         },
-        result: { content: [{ type: "text", text: `Annotation "${annotation}" not found on task '${uuid}'.` }]}
+        result: {
+          content: [
+            { type: "text", text: `Annotation "${annotation}" not found on task '${uuid}'.` },
+          ],
+        },
       };
     }
 
@@ -65,8 +64,8 @@ export const removeAnnotationHandler = async (
     executeTaskWarriorCommandRaw([uuid, "denotate", `'${escapedAnnotation}'`]);
 
     const updatedTask = await getTaskByUuid(uuid); // Refetch to get the modified task
-    
-      return {
+
+    return {
       tool_name: toolName,
       status: "success",
       result: {
@@ -79,7 +78,10 @@ export const removeAnnotationHandler = async (
       },
     };
   } catch (error: unknown) {
-    console.error(`Error in ${toolName} handler for UUID '${uuid}', annotation '${annotation}':`, error);
+    console.error(
+      `Error in ${toolName} handler for UUID '${uuid}', annotation '${annotation}':`,
+      error,
+    );
     let message = `Failed to execute ${toolName}.`;
     let details: string | undefined;
     let errorCode = "TOOL_EXECUTION_ERROR";
@@ -88,7 +90,7 @@ export const removeAnnotationHandler = async (
       message = error.message;
       if (message.toLowerCase().includes("not found")) {
         // This would be from the initial getTaskByUuid if the task itself doesn't exist
-        errorCode = "TASK_NOT_FOUND"; 
+        errorCode = "TASK_NOT_FOUND";
       }
       details = error.stack;
     } else if (typeof error === "string") {
@@ -103,7 +105,8 @@ export const removeAnnotationHandler = async (
         message: message,
         details: details,
       },
-      result: { // Optionally, provide a text error in content as well
+      result: {
+        // Optionally, provide a text error in content as well
         content: [
           {
             type: "text",

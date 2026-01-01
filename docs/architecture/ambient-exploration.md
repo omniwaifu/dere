@@ -40,14 +40,14 @@ class CuriosityExtra(TypedDict):
 
 Curiosity items are created by analyzing conversation turns:
 
-| Trigger Type | Detection Method | Example |
-|--------------|------------------|---------|
-| `unfamiliar_entity` | NER + low KG confidence | "I've been playing Balatro" → unknown game |
-| `correction` | Pattern match + semantic contradiction | "No, it's actually X" |
-| `emotional_peak` | Emotion intensity > threshold | User very excited about topic |
-| `unfinished_thread` | Topic embedding jump + open question | Conversation pivoted mid-discussion |
-| `knowledge_gap` | AI hedging / low confidence markers | "I think..." / "I believe..." |
-| `research_chain` | Prior exploration spawned new question | Learning about X revealed Y |
+| Trigger Type        | Detection Method                       | Example                                    |
+| ------------------- | -------------------------------------- | ------------------------------------------ |
+| `unfamiliar_entity` | NER + low KG confidence                | "I've been playing Balatro" → unknown game |
+| `correction`        | Pattern match + semantic contradiction | "No, it's actually X"                      |
+| `emotional_peak`    | Emotion intensity > threshold          | User very excited about topic              |
+| `unfinished_thread` | Topic embedding jump + open question   | Conversation pivoted mid-discussion        |
+| `knowledge_gap`     | AI hedging / low confidence markers    | "I think..." / "I believe..."              |
+| `research_chain`    | Prior exploration spawned new question | Learning about X revealed Y                |
 
 ### 1.3 Priority Calculation
 
@@ -68,13 +68,13 @@ def compute_curiosity_priority(item: CuriosityExtra) -> float:
 
 ### 1.4 Backlog Management
 
-| Constraint | Value | Rationale |
-|------------|-------|-----------|
-| Max pending items | 100 | Prevent unbounded growth |
-| Max per type | 25 | No single type dominates |
-| Default TTL | 14 days | Stale items expire |
-| Correction TTL | 7 days | Corrections are urgent |
-| Prune threshold | < 0.15 score | Very low priority auto-expires |
+| Constraint        | Value        | Rationale                      |
+| ----------------- | ------------ | ------------------------------ |
+| Max pending items | 100          | Prevent unbounded growth       |
+| Max per type      | 25           | No single type dominates       |
+| Default TTL       | 14 days      | Stale items expire             |
+| Correction TTL    | 7 days       | Corrections are urgent         |
+| Prune threshold   | < 0.15 score | Very low priority auto-expires |
 
 Deduplication: Normalize topic text, boost priority on repeat triggers.
 
@@ -300,14 +300,14 @@ async def mark_finding_surfaced(
 
 **Goal:** Basic exploration during idle time
 
-| Task | Files | Effort |
-|------|-------|--------|
-| Add `EXPLORING` state to FSM | `src/dere_ambient/fsm.py` | S |
-| Add state transition logic | `src/dere_ambient/fsm.py` | S |
-| Add `ExploringConfig` | `src/dere_ambient/config.py` | S |
-| Create exploration work selection | `src/dere_ambient/explorer.py` (new) | M |
-| Add `_do_exploration_work()` to monitor | `src/dere_ambient/monitor.py` | M |
-| Create curiosity task type handling | `src/dere_daemon/work_queue/` | S |
+| Task                                    | Files                                | Effort |
+| --------------------------------------- | ------------------------------------ | ------ |
+| Add `EXPLORING` state to FSM            | `src/dere_ambient/fsm.py`            | S      |
+| Add state transition logic              | `src/dere_ambient/fsm.py`            | S      |
+| Add `ExploringConfig`                   | `src/dere_ambient/config.py`         | S      |
+| Create exploration work selection       | `src/dere_ambient/explorer.py` (new) | M      |
+| Add `_do_exploration_work()` to monitor | `src/dere_ambient/monitor.py`        | M      |
+| Create curiosity task type handling     | `src/dere_daemon/work_queue/`        | S      |
 
 **Deliverable:** Can manually add curiosity tasks, dere explores them during idle.
 
@@ -315,13 +315,13 @@ async def mark_finding_surfaced(
 
 **Goal:** Detect curiosity triggers from conversations
 
-| Task | Files | Effort |
-|------|-------|--------|
-| Unfamiliar entity detector | `src/dere_ambient/triggers/entities.py` | M |
-| Correction detector | `src/dere_ambient/triggers/corrections.py` | M |
-| Emotional peak detector | `src/dere_ambient/triggers/emotions.py` | S |
-| Post-conversation hook | `src/dere_daemon/routers/conversations.py` | S |
-| Priority calculation | `src/dere_ambient/triggers/priority.py` | S |
+| Task                       | Files                                      | Effort |
+| -------------------------- | ------------------------------------------ | ------ |
+| Unfamiliar entity detector | `src/dere_ambient/triggers/entities.py`    | M      |
+| Correction detector        | `src/dere_ambient/triggers/corrections.py` | M      |
+| Emotional peak detector    | `src/dere_ambient/triggers/emotions.py`    | S      |
+| Post-conversation hook     | `src/dere_daemon/routers/conversations.py` | S      |
+| Priority calculation       | `src/dere_ambient/triggers/priority.py`    | S      |
 
 **Deliverable:** Curiosity items auto-created from conversation analysis.
 
@@ -329,12 +329,12 @@ async def mark_finding_surfaced(
 
 **Goal:** Findings surface naturally in future conversations
 
-| Task | Files | Effort |
-|------|-------|--------|
-| Finding storage model | `src/dere_shared/models.py` | S |
-| Finding → KG promotion | `src/dere_graph/operations.py` | M |
-| Extended recall search | `src/dere_daemon/routers/recall.py` | M |
-| Surfacing deduplication | `src/dere_daemon/routers/recall.py` | S |
+| Task                    | Files                               | Effort |
+| ----------------------- | ----------------------------------- | ------ |
+| Finding storage model   | `src/dere_shared/models.py`         | S      |
+| Finding → KG promotion  | `src/dere_graph/operations.py`      | M      |
+| Extended recall search  | `src/dere_daemon/routers/recall.py` | M      |
+| Surfacing deduplication | `src/dere_daemon/routers/recall.py` | S      |
 
 **Deliverable:** "While you were away, I learned X" appears naturally.
 
@@ -342,23 +342,23 @@ async def mark_finding_surfaced(
 
 **Goal:** Belief revision, metrics, tuning
 
-| Task | Files | Effort |
-|------|-------|--------|
-| Contradicting fact detection | `src/dere_graph/dedup.py` | M |
-| Supersedes/superseded_by tracking | `src/dere_graph/models.py` | S |
-| Exploration metrics dashboard | `src/dere_daemon/routers/metrics.py` | M |
-| Cost tracking | `src/dere_ambient/explorer.py` | S |
+| Task                              | Files                                | Effort |
+| --------------------------------- | ------------------------------------ | ------ |
+| Contradicting fact detection      | `src/dere_graph/dedup.py`            | M      |
+| Supersedes/superseded_by tracking | `src/dere_graph/models.py`           | S      |
+| Exploration metrics dashboard     | `src/dere_daemon/routers/metrics.py` | M      |
+| Cost tracking                     | `src/dere_ambient/explorer.py`       | S      |
 
 ---
 
 ## 6. Open Questions
 
-| Question | Options | Recommendation |
-|----------|---------|----------------|
-| Exploration working_dir? | User home vs project-specific | User home (curiosity is cross-project) |
-| Concurrent session limit? | 1 vs allow parallel | 1 (avoid resource contention) |
-| Tool write access? | Read-only vs full | Read-only for MVP (safer) |
-| Daily cost budget? | Fixed vs user-configurable | User-configurable with sensible default |
+| Question                  | Options                       | Recommendation                          |
+| ------------------------- | ----------------------------- | --------------------------------------- |
+| Exploration working_dir?  | User home vs project-specific | User home (curiosity is cross-project)  |
+| Concurrent session limit? | 1 vs allow parallel           | 1 (avoid resource contention)           |
+| Tool write access?        | Read-only vs full             | Read-only for MVP (safer)               |
+| Daily cost budget?        | Fixed vs user-configurable    | User-configurable with sensible default |
 | Notification of findings? | Never vs high-confidence only | High-confidence only, natural insertion |
 
 ---

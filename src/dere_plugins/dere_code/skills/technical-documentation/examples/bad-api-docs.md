@@ -2,7 +2,7 @@
 
 Incomplete and vague API documentation.
 
-```markdown
+````markdown
 # ZoteroClient API
 
 ## ZoteroClient
@@ -12,7 +12,7 @@ Creates a powerful client for interacting with Zotero's comprehensive API.
 Example:
 ```python
 client = ZoteroClient(config)
-```
+````
 
 ## search_items
 
@@ -21,6 +21,7 @@ Intelligently searches your library using advanced algorithms.
 Returns the items you're looking for!
 
 Example:
+
 ```python
 results = client.search_items("some query")
 ```
@@ -31,10 +32,12 @@ Easily add items to your library. Simply provide the details and our robust
 system handles the rest!
 
 Parameters:
+
 - title - the title
 - other stuff - optional
 
 Example:
+
 ```python
 client.add_item(title, some_url, author, type)
 ```
@@ -46,7 +49,8 @@ Gets all your collections in a convenient format.
 ```python
 collections = client.get_collections()
 ```
-```
+
+````
 
 ## Why This Fails
 
@@ -93,9 +97,10 @@ search_items(query)
 
 # Good
 search_items(query: str, search_type: str = "title") -> list[ZoteroItem]
-```
+````
 
 ### Document All Parameters
+
 ```markdown
 # Bad
 Parameters:
@@ -112,6 +117,7 @@ Parameters:
 ```
 
 ### Show Real Examples
+
 ```python
 # Bad
 client.search_items("some query")
@@ -123,6 +129,7 @@ for item in items:
 ```
 
 ### Document Exceptions
+
 ```markdown
 # Bad
 [nothing]
@@ -134,6 +141,7 @@ for item in items:
 ```
 
 ### Remove Marketing
+
 ```markdown
 # Bad
 Intelligently searches your library using advanced algorithms.

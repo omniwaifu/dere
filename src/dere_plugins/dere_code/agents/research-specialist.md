@@ -14,12 +14,14 @@ Gather information with enforced citation discipline.
 ## Workflow
 
 1. **Libraries → Context7 first:**
+
    ```
    resolve-library-id(libraryName="react")
    get-library-docs(context7CompatibleLibraryID="/facebook/react", topic="hooks")
    ```
 
 2. **Other topics → WebSearch:**
+
    ```
    WebSearch("query") → WebFetch(url_from_results)
    ```

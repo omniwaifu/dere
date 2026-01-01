@@ -26,6 +26,7 @@ Extract from user's language:
 ## Make Tasks Actionable
 
 Transform vague → specific:
+
 - "work on website" → "Draft new homepage copy for website redesign"
 - "dentist" → "Call dentist to schedule cleaning appointment"
 

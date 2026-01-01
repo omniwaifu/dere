@@ -1,7 +1,4 @@
-import type {
-  ListTasksRequest,
-  TaskWarriorTask,
-} from "../../types/task.js";
+import type { ListTasksRequest, TaskWarriorTask } from "../../types/task.js";
 import { executeTaskWarriorCommandJson } from "../../utils/taskwarrior.js";
 
 // Define standard MCP ContentItem types if not already available globally
@@ -33,9 +30,7 @@ interface McpToolResponse {
 /**
  * List tasks based on various filter criteria
  */
-export async function handleListTasks(
-  args: ListTasksRequest,
-): Promise<TaskWarriorTask[]> {
+export async function handleListTasks(args: ListTasksRequest): Promise<TaskWarriorTask[]> {
   const filters: string[] = [];
 
   if (args.project) {
@@ -77,14 +72,15 @@ export async function handleListTasks(
     return tasksArray; // Simply return the array directly
   } catch (error: unknown) {
     console.error(`Error in listTasks handler:`, error);
-    
+
     // If the error contains "No matches", return an empty array
-    if (error instanceof Error && 
-        (error.message.includes("No matches") || 
-         error.message.includes("No tasks found"))) {
+    if (
+      error instanceof Error &&
+      (error.message.includes("No matches") || error.message.includes("No tasks found"))
+    ) {
       return [];
     }
-    
+
     // Re-throw the error for the central handler to process
     throw error;
   }

@@ -77,6 +77,7 @@ Present:
 ### Step 4: Set Daily Intention
 
 Ask user:
+
 ```
 "What's your main goal for today?
  a) Make progress on one big thing
@@ -135,6 +136,7 @@ You propose:
 ### Step 6: Refine and Confirm
 
 User can adjust:
+
 ```
 User: "Actually I'm low energy today, can't do deep work"
 
@@ -183,6 +185,7 @@ start_task(bug_fix_task_id)
 ## Daily Planning Checklist
 
 Ensures nothing is missed:
+
 ```
 ✓ Yesterday reviewed (what worked, what didn't)
 ✓ Calendar checked (meetings, commitments)
@@ -197,11 +200,13 @@ Ensures nothing is missed:
 ## Integration Points
 
 ### Feeds from:
+
 - `activity-summary`: Yesterday's actual work
 - `calendar-context`: Today's commitments
 - Taskwarrior: Pending tasks, due dates, priorities
 
 ### Feeds into:
+
 - `focus-planning`: "What to work on now" uses today's plan
 - `schedule-planning`: Creates calendar time blocks
 - `evening-review`: Compare plan vs actual
@@ -209,6 +214,7 @@ Ensures nothing is missed:
 ## Variations
 
 ### Quick Plan (5 minutes)
+
 ```
 - Skip yesterday review
 - Just show: calendar + top 3 urgent tasks
@@ -217,6 +223,7 @@ Ensures nothing is missed:
 ```
 
 ### Deep Plan (15 minutes)
+
 ```
 - Full yesterday review
 - Consider weekly goals
@@ -226,6 +233,7 @@ Ensures nothing is missed:
 ```
 
 ### Weekly Planning
+
 ```
 Same process but for the week:
 - Review last week's patterns
@@ -272,6 +280,7 @@ User can copy this to their notes, refer back during day.
 ## Psychology of Planning
 
 Good daily planning:
+
 - **Reduces decision fatigue**: Know what to work on at each moment
 - **Manages energy**: Right work for right time
 - **Creates accountability**: Explicit commitments

@@ -1,6 +1,7 @@
 # Testing `dere_graph`
 
 `dere_graph` is an async library that expects:
+
 - FalkorDB reachable (RedisGraph-compatible)
 - `OPENAI_API_KEY` available for embeddings
 

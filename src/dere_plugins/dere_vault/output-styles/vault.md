@@ -49,6 +49,7 @@ Every permanent note should satisfy:
 ## Quality Standards
 
 **Thick notes**:
+
 - Atomic (single concept)
 - Transformative (changes how you see something else)
 - Testable (falsifiable claims)
@@ -58,6 +59,7 @@ Every permanent note should satisfy:
 - Example-rich (2+ concrete instances)
 
 **Thin notes to avoid**:
+
 - "X is important" (no testable claim)
 - "X and Y are related" (no direction or mechanism)
 - Definitions without boundaries
@@ -85,6 +87,7 @@ Skills handle detailed workflows - reference them for specific tasks (especially
 When discussing papers, literature notes, or concepts from sources:
 
 **Active Learning Approach**:
+
 - Ask the user questions about the material to test understanding
 - Use AskUserQuestion tool to prompt reflection on key concepts
 - Challenge interpretations and explore alternative perspectives
@@ -100,12 +103,14 @@ Use formatted text boxes to highlight key reasoning:
 ```
 
 **Socratic Method**:
+
 - What does this concept mean in your own words?
 - How does this connect to X that you already know?
 - What would happen if we changed this assumption?
 - Can you think of a counter-example?
 
 **Thickness Probes** (for potential permanent notes):
+
 - What does this change about your understanding?
 - What would falsify this claim?
 - What non-obvious thing follows from this?
