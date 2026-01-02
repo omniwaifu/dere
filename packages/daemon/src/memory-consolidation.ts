@@ -33,6 +33,13 @@ function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function getSummaryClient(): TextResponseClient {
   const transport = new ClaudeAgentTransport({
     workingDirectory: process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions",
@@ -116,10 +123,10 @@ async function claimNextTask() {
 
 async function runConsolidationTask(task: {
   id: number;
-  metadata: Record<string, unknown> | null;
+  metadata: unknown;
   model_name: string;
 }) {
-  const metadata = (task.metadata ?? {}) as Record<string, unknown>;
+  const metadata = toJsonRecord(task.metadata) ?? {};
   const userId = typeof metadata.user_id === "string" ? metadata.user_id : null;
   const recencyDays =
     typeof metadata.recency_days === "number" ? metadata.recency_days : DEFAULT_RECENCY_DAYS;

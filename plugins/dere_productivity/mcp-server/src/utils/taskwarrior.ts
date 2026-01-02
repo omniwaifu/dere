@@ -136,7 +136,7 @@ export async function executeTaskWarriorCommandJson(args: string[]): Promise<Tas
         }
         return validatedObjects;
       }
-    } catch (wholeParseFailed) {
+    } catch {
       console.log("Failed to parse output as a complete JSON array, trying line by line parsing");
     }
 

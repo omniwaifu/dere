@@ -12,7 +12,7 @@ type ActivityEvent = {
   data?: Record<string, unknown>;
 };
 
-function parseNumber(value: string | null, fallback: number): number {
+function parseNumber(value: string | null | undefined, fallback: number): number {
   if (!value) {
     return fallback;
   }
@@ -20,7 +20,7 @@ function parseNumber(value: string | null, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function parseBoolean(value: string | null, fallback: boolean): boolean {
+function parseBoolean(value: string | null | undefined, fallback: boolean): boolean {
   if (!value) {
     return fallback;
   }

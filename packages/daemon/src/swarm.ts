@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKAssistantMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
+import { sql } from "kysely";
 import type { Hono } from "hono";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -8,6 +9,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { getDb } from "./db.js";
+import type { JsonValue } from "./db-types.js";
 import { listPersonalityInfos } from "./personalities.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
@@ -135,6 +137,22 @@ function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function toJsonValue(value: unknown): JsonValue {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value as JsonValue;
+  }
+  if (typeof value === "object") {
+    return value as JsonValue;
+  }
+  return null;
+}
+
 async function parseJson<T>(req: Request): Promise<T | null> {
   try {
     return (await req.json()) as T;
@@ -237,24 +255,37 @@ function extractBlocksFromAssistantMessage(message: SDKAssistantMessage): {
       if (name) {
         toolNames.push(name);
       }
-      blocks.push({
-        type,
-        id: typeof block.id === "string" ? block.id : undefined,
-        name,
-        input:
-          typeof block.input === "object" && block.input
-            ? (block.input as Record<string, unknown>)
-            : {},
-      });
+      const toolUseBlock: {
+        type: "tool_use";
+        id?: string;
+        name?: string;
+        input?: Record<string, unknown>;
+      } = { type: "tool_use" };
+      if (typeof block.id === "string") {
+        toolUseBlock.id = block.id;
+      }
+      if (name) {
+        toolUseBlock.name = name;
+      }
+      if (typeof block.input === "object" && block.input && !Array.isArray(block.input)) {
+        toolUseBlock.input = block.input as Record<string, unknown>;
+      }
+      blocks.push(toolUseBlock);
       continue;
     }
     if (type === "tool_result") {
-      blocks.push({
-        type,
-        tool_use_id: typeof block.tool_use_id === "string" ? block.tool_use_id : undefined,
-        output: collectText(block.content ?? ""),
-        is_error: Boolean(block.is_error),
-      });
+      const toolResultBlock: {
+        type: "tool_result";
+        tool_use_id?: string;
+        output?: string;
+        is_error?: boolean;
+      } = { type: "tool_result" };
+      if (typeof block.tool_use_id === "string") {
+        toolResultBlock.tool_use_id = block.tool_use_id;
+      }
+      toolResultBlock.output = collectText(block.content ?? "");
+      toolResultBlock.is_error = Boolean(block.is_error);
+      blocks.push(toolResultBlock);
     }
   }
 
@@ -853,6 +884,7 @@ async function getSwarmWithAgents(
 async function createSessionForAgent(agent: SwarmAgentRow, swarm: SwarmRow): Promise<number> {
   const db = await getDb();
   const now = nowDate();
+  const sandboxMountType = agent.sandbox_mode ? "copy" : "none";
   const session = await db
     .insertInto("sessions")
     .values({
@@ -869,6 +901,7 @@ async function createSessionForAgent(agent: SwarmAgentRow, swarm: SwarmRow): Pro
       user_id: null,
       thinking_budget: agent.thinking_budget,
       sandbox_mode: agent.sandbox_mode,
+      sandbox_mount_type: sandboxMountType,
       sandbox_settings: null,
       is_locked: false,
       mission_id: null,
@@ -1254,9 +1287,7 @@ async function claimTaskForAgent(
   }
 
   if (requiredTools && requiredTools.length > 0) {
-    query = query.where(
-      ({ ref, sql }) => sql`${ref("required_tools")} && ${sql.array(requiredTools)}`,
-    );
+    query = query.where(sql<boolean>`required_tools && ${requiredTools}::text[]`);
   }
 
   const task = await query
@@ -1343,7 +1374,7 @@ async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentRow): Pr
       .execute();
 
     const prompt = buildTaskPrompt(agent, task, swarm);
-    const { outputText: rawOutput, toolCount } = await runAgentQuery({
+    const { outputText: rawOutput } = await runAgentQuery({
       swarm,
       agent,
       prompt,
@@ -1512,7 +1543,7 @@ async function updateSwarmCompletion(swarmId: number) {
     .where("swarm_id", "=", swarmId)
     .execute()) as SwarmAgentRow[];
 
-  const finalStatuses = new Set([
+  const finalStatuses = new Set<string>([
     STATUS.COMPLETED,
     STATUS.FAILED,
     STATUS.CANCELLED,
@@ -1523,7 +1554,7 @@ async function updateSwarmCompletion(swarmId: number) {
     return;
   }
 
-  let finalStatus = STATUS.COMPLETED;
+  let finalStatus: string = STATUS.COMPLETED;
   if (agents.some((agent) => agent.status === STATUS.FAILED)) {
     finalStatus = STATUS.FAILED;
   }
@@ -1727,7 +1758,7 @@ async function listPlugins() {
 
 export function registerSwarmRoutes(app: Hono): void {
   app.post("/swarm/create", async (c) => {
-    const payload = await parseJson<Record<string, unknown>>(c.req.raw);
+    const payload = await parseJson<Record<string, JsonValue>>(c.req.raw);
     if (!payload) {
       return c.json({ error: "Invalid JSON payload" }, 400);
     }
@@ -2096,7 +2127,7 @@ export function registerSwarmRoutes(app: Hono): void {
         "s.created_at",
         "s.started_at",
         "s.completed_at",
-        db.fn.count("a.id").as("agent_count"),
+        sql<number>`count(a.id)`.as("agent_count"),
       ])
       .groupBy("s.id")
       .orderBy("s.created_at", "desc")
@@ -2648,11 +2679,12 @@ export function registerSwarmRoutes(app: Hono): void {
       .executeTakeFirst();
 
     const now = nowDate();
+    const scratchValue = toJsonValue(payload.value);
     if (existing) {
       await db
         .updateTable("swarm_scratchpad")
         .set({
-          value: payload.value ?? null,
+          value: scratchValue,
           set_by_agent_id: typeof payload.agent_id === "number" ? payload.agent_id : null,
           set_by_agent_name: typeof payload.agent_name === "string" ? payload.agent_name : null,
           updated_at: now,
@@ -2665,7 +2697,7 @@ export function registerSwarmRoutes(app: Hono): void {
         .values({
           swarm_id: swarmId,
           key,
-          value: payload.value ?? null,
+          value: scratchValue,
           set_by_agent_id: typeof payload.agent_id === "number" ? payload.agent_id : null,
           set_by_agent_name: typeof payload.agent_name === "string" ? payload.agent_name : null,
           created_at: now,

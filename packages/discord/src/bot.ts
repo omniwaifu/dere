@@ -7,6 +7,7 @@ import {
   Partials,
   PermissionFlagsBits,
   type Message,
+  type TextBasedChannelFields,
 } from "discord.js";
 
 import type { DiscordAgent } from "./agent.js";
@@ -22,6 +23,14 @@ type NotificationPayload = {
   target_location: string;
   message: string;
 };
+
+function isTextBasedChannel(channel: unknown): channel is TextBasedChannelFields {
+  return Boolean(
+    channel &&
+      typeof (channel as { isTextBased?: () => boolean }).isTextBased === "function" &&
+      (channel as { isTextBased: () => boolean }).isTextBased(),
+  );
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -218,7 +227,7 @@ export class DereDiscordClient extends Client {
 
     try {
       const channel = await this.channels.fetch(target_location).catch(() => null);
-      if (channel && channel.isTextBased()) {
+      if (isTextBasedChannel(channel)) {
         await channel.send({ content: message });
         await this.daemon.markNotificationDelivered(id);
         this.addRecentNotification(channel.id, id);

@@ -68,7 +68,7 @@ function parseStreamEvent(raw: string): StreamEvent {
     type: parsed.type,
     data: parsed.data ?? {},
     timestamp: parsed.timestamp ?? Date.now() / 1000,
-    seq: parsed.seq,
+    seq: parsed.seq ?? 0,
   };
 }
 

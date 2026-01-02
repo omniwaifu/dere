@@ -64,7 +64,7 @@ export async function loadConfig(schema: z.ZodTypeAny = DereConfigSchema): Promi
 
   try {
     return schema.parse(rawData) as DereConfig;
-  } catch (error) {
+  } catch {
     // Fall back to defaults if validation fails.
     return schema.parse({}) as DereConfig;
   }

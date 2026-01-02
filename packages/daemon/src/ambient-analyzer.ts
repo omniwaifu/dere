@@ -89,10 +89,6 @@ function contextSimilarity(prev: JsonRecord, current: JsonRecord): number {
   return 0.5 * activityScore + 0.3 * entityScore + 0.2 * taskScore;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export class ContextAnalyzer {
   private config: AmbientConfig;
   private daemonUrl: string;

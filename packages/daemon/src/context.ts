@@ -68,6 +68,7 @@ async function ensureSession(
       medium: medium ?? "cli",
       last_activity: now,
       sandbox_mode: false,
+      sandbox_mount_type: "none",
       is_locked: false,
       sandbox_settings: null,
       continued_from: null,
@@ -369,7 +370,6 @@ export function registerContextRoutes(app: Hono): void {
 
     const sessionId = typeof payload.session_id === "number" ? payload.session_id : null;
     const projectPath = typeof payload.project_path === "string" ? payload.project_path : "";
-    const personality = typeof payload.personality === "string" ? payload.personality : "assistant";
     const userId = typeof payload.user_id === "string" ? payload.user_id : null;
     const contextDepth = toNumber(payload.context_depth, 5);
     const includeCitations = payload.include_citations !== false;
@@ -381,7 +381,7 @@ export function registerContextRoutes(app: Hono): void {
       return c.json({ error: "session_id and current_prompt are required" }, 400);
     }
 
-    const session = await ensureSession(sessionId, projectPath, userId, null);
+    await ensureSession(sessionId, projectPath, userId, null);
     const groupId = userId ?? "default";
 
     if (!(await graphAvailable())) {

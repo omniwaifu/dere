@@ -1,6 +1,6 @@
 import type { paths } from "./openapi.js";
 
-type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
+export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 
 type PathKey = keyof paths;
 

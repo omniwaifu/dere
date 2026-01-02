@@ -35,16 +35,16 @@ function pickBestChannel(
     return ["dm", "private", "direct_message"].includes(type);
   });
   if (dmChannels.length > 0) {
-    return dmChannels[0];
+    return dmChannels[0] ?? null;
   }
   const generalChannels = dictChannels.filter((ch) => {
     const name = String(ch.name ?? "").toLowerCase();
     return ["general", "main", "chat"].some((keyword) => name.includes(keyword));
   });
   if (generalChannels.length > 0) {
-    return generalChannels[0];
+    return generalChannels[0] ?? null;
   }
-  return channels[0];
+  return channels[0] ?? null;
 }
 
 class AmbientMonitor {
@@ -532,9 +532,9 @@ class AmbientMonitor {
   }
 
   private async routeMessage(
-    message: string,
-    priority: string,
-    userActivity: JsonRecord | null,
+    _message: string,
+    _priority: string,
+    _userActivity: JsonRecord | null,
   ): Promise<{ medium: string; location: string; reasoning: string } | null> {
     const method = this.config.notification_method.toLowerCase();
     if (method === "notify-send") {
@@ -567,6 +567,9 @@ class AmbientMonitor {
     }
 
     const active = mediums[0];
+    if (!active) {
+      return null;
+    }
     const channels = (active.available_channels ?? []) as Array<Record<string, unknown> | string>;
     const selected = pickBestChannel(channels);
     const location =

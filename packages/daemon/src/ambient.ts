@@ -81,11 +81,6 @@ function readBoolean(value: unknown, fallback: boolean): boolean {
   return parsed ?? fallback;
 }
 
-function readString(value: unknown, fallback: string): string {
-  const parsed = toString(value);
-  return parsed ?? fallback;
-}
-
 function readNonEmptyString(value: unknown, fallback: string): string {
   const parsed = toString(value);
   if (parsed && parsed.trim().length > 0) {
@@ -211,7 +206,7 @@ function previewMessage(message: string | null, limit = 160): string | null {
   return `${message.slice(0, limit)}...`;
 }
 
-function resolveLimit(value: string | null, fallback: number): number {
+function resolveLimit(value: string | null | undefined, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallback;
@@ -353,7 +348,7 @@ export function registerAmbientRoutes(app: Hono): void {
         ref("me.execution_metadata").as("execution_metadata"),
         ref("me.created_at").as("created_at"),
       ])
-      .where(sql`m.name ILIKE ${"ambient-%"}`)
+      .where(sql<boolean>`m.name ILIKE ${"ambient-%"}`)
       .orderBy(sql`me.started_at desc nulls last`)
       .orderBy("me.created_at", "desc")
       .limit(limitRuns)

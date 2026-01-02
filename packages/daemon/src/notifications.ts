@@ -13,6 +13,13 @@ async function parseJson<T>(req: Request): Promise<T | null> {
   }
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 export function registerNotificationRoutes(app: Hono): void {
   app.post("/notifications/create", async (c) => {
     const payload = await parseJson<Record<string, unknown>>(c.req.raw);
@@ -72,14 +79,8 @@ export function registerNotificationRoutes(app: Hono): void {
           notification_id: notification.id,
           trigger_type: typeof payload.trigger_type === "string" ? payload.trigger_type : null,
           trigger_id: typeof payload.trigger_id === "string" ? payload.trigger_id : null,
-          trigger_data:
-            payload.trigger_data && typeof payload.trigger_data === "object"
-              ? payload.trigger_data
-              : null,
-          context_snapshot:
-            payload.context_snapshot && typeof payload.context_snapshot === "object"
-              ? payload.context_snapshot
-              : null,
+          trigger_data: toJsonRecord(payload.trigger_data),
+          context_snapshot: toJsonRecord(payload.context_snapshot),
           created_at: now,
         })
         .execute();

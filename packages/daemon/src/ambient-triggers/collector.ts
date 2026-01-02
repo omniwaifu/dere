@@ -27,6 +27,25 @@ type DbTask = {
   extra: Record<string, unknown> | null;
 };
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeTask(task: {
+  id: number;
+  title: string;
+  status: string;
+  priority: number | null;
+  created_at: Date | null;
+  updated_at: Date | null;
+  extra: unknown;
+}): DbTask {
+  return { ...task, extra: toJsonRecord(task.extra) };
+}
+
 export interface ProcessCuriosityOptions {
   db: Kysely<Database>;
   prompt: string;
@@ -190,13 +209,14 @@ async function upsertCuriosityTask(
   options: { workingDir: string; userId: string | null; conversationId: number },
 ): Promise<number> {
   const normalizedTopic = normalizeTopic(signal.topic);
-  const existing = await db
+  const existingRaw = await db
     .selectFrom("project_tasks")
     .select(["id", "title", "status", "priority", "created_at", "updated_at", "extra"])
     .where("task_type", "=", "curiosity")
     .where(sql<string>`lower(title)`, "=", normalizedTopic)
     .limit(1)
     .executeTakeFirst();
+  const existing = existingRaw ? normalizeTask(existingRaw) : null;
 
   const now = new Date();
 
@@ -313,10 +333,10 @@ async function enforceBacklogLimits(db: Kysely<Database>, userId: string | null)
     .where("status", "in", pendingStatuses);
 
   if (userId) {
-    query = query.where(sql`extra->>'user_id' = ${userId}`);
+    query = query.where(sql<boolean>`extra->>'user_id' = ${userId}`);
   }
 
-  const tasks = await query.execute();
+  const tasks = (await query.execute()).map(normalizeTask);
   if (tasks.length === 0) {
     return;
   }

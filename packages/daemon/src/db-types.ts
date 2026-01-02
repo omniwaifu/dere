@@ -2,9 +2,9 @@ import type { ColumnType, Generated } from "kysely";
 
 type Timestamp = ColumnType<Date | null, Date | string | null, Date | string | null>;
 
-type JsonValue = Record<string, unknown> | unknown[] | string | number | boolean | null;
+export type JsonValue = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
-type JsonArray = unknown[] | null;
+export type JsonArray = unknown[] | null;
 
 type StringArray = string[] | null;
 
@@ -27,7 +27,7 @@ export interface MissionsTable {
   model: string;
   working_dir: string;
   sandbox_mode: boolean;
-  sandbox_mount_type: string;
+  sandbox_mount_type: ColumnType<string, string | undefined, string | undefined>;
   sandbox_settings: JsonValue;
   status: string;
   next_execution_at: Timestamp;
@@ -68,6 +68,7 @@ export interface SessionsTable {
   user_id: string | null;
   thinking_budget: number | null;
   sandbox_mode: boolean;
+  sandbox_mount_type: string;
   sandbox_settings: JsonValue;
   is_locked: boolean;
   mission_id: number | null;

@@ -15,6 +15,7 @@ import {
   EmotionPhysics,
   EMOTION_CHARACTERISTICS,
   type EmotionInstance,
+  type EmotionPhysicsContext,
 } from "./emotion-physics.js";
 import { SmartDecay, DEFAULT_DECAY_CONTEXT, type DecayContext } from "./emotion-decay.js";
 
@@ -50,6 +51,17 @@ function getClient(): StructuredOutputClient {
     transport,
     model: process.env.DERE_EMOTION_MODEL ?? DEFAULT_MODEL,
   });
+}
+
+function stringifyStimulus(value: Record<string, unknown> | string): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 function collectEmotions(active: Record<string, EmotionInstance>): Array<EmotionInstance> {
@@ -175,7 +187,10 @@ export class EmotionManager {
     }
 
     const entries = this.pending.splice(0, MAX_BATCH_SIZE);
-    const combinedStimulus = entries.map((entry) => entry.stimulus);
+    const combinedStimulus =
+      entries.length === 1
+        ? entries[0]?.stimulus ?? ""
+        : entries.map((entry) => stringifyStimulus(entry.stimulus)).join("\n");
     const context = entries[0]?.context ?? {};
     const personaPrompt = entries[0]?.personaPrompt ?? "";
     const currentEmotionState = buildEmotionStateFromActive(this.activeEmotions);
@@ -307,7 +322,7 @@ export class EmotionManager {
       this.pushRecentStimulus({ timestamp, valence });
 
       const recordContext: Record<string, unknown> = {
-        ...(entry.context ?? {}),
+        ...entry.context,
         resulting_emotions: appraisal?.resulting_emotions ?? [],
         reasoning: appraisal?.reasoning ?? null,
       };
@@ -327,14 +342,15 @@ export class EmotionManager {
     }
   }
 
-  private buildPhysicsContext(context: Record<string, unknown>) {
+  private buildPhysicsContext(context: Record<string, unknown>): EmotionPhysicsContext {
     const recentWindow = 10 * 60 * 1000;
     const cutoff = nowMs() - recentWindow;
+    const socialContext = toJsonRecord(context.social_context);
     return {
       current_emotions: this.activeEmotions,
       recent_stimuli_history: this.recentStimuli.filter((entry) => entry.timestamp >= cutoff),
       time_since_last_major_change: nowMs() - this.lastMajorChangeTime,
-      social_context: typeof context.social_context === "object" ? context.social_context : null,
+      social_context: socialContext,
     };
   }
 

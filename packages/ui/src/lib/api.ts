@@ -394,7 +394,7 @@ export const api = {
       const searchParams = new URLSearchParams();
       if (payload.user_id) searchParams.set("user_id", payload.user_id);
       const query = searchParams.toString();
-      const { user_id, ...body } = payload;
+      const { user_id: _user_id, ...body } = payload;
       return fetchJson<ArchivalFactInsertResponse>(
         `/kg/facts/archival${query ? `?${query}` : ""}`,
         {

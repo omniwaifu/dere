@@ -302,7 +302,7 @@ async function getWeatherContext(
       { timeout: 5000, encoding: "utf-8" },
     );
 
-    const text = typeof stdout === "string" ? stdout : stdout.toString("utf-8");
+    const text = String(stdout);
     const payload = JSON.parse(text) as Record<string, unknown>;
     const tempUnit = units === "imperial" ? "°F" : "°C";
     return {

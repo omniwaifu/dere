@@ -16,7 +16,11 @@ import { buildSessionContextXml } from "./prompt-context.js";
 import { extractCitedEntityUuids } from "./context-tracking.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
-import { DockerSandboxRunner } from "./sandbox/docker-runner.js";
+import {
+  DockerSandboxRunner,
+  type SandboxMountType,
+  type SandboxNetworkMode,
+} from "./sandbox/docker-runner.js";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 
@@ -31,9 +35,9 @@ type SessionConfig = {
   enable_streaming?: boolean;
   thinking_budget?: number | null;
   sandbox_mode?: boolean;
-  sandbox_mount_type?: string;
+  sandbox_mount_type?: SandboxMountType;
   sandbox_settings?: Record<string, unknown> | null;
-  sandbox_network_mode?: string;
+  sandbox_network_mode?: SandboxNetworkMode;
   mission_id?: number | null;
   session_name?: string | null;
   auto_approve?: boolean;
@@ -106,6 +110,24 @@ function nowMs(): number {
   return Date.now();
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeSandboxMountType(value: unknown): SandboxMountType {
+  if (value === "direct" || value === "copy" || value === "none") {
+    return value;
+  }
+  return "copy";
+}
+
+function normalizeSandboxNetworkMode(value: unknown): SandboxNetworkMode {
+  return value === "host" ? "host" : "bridge";
+}
+
 function getSessionLog(sessionId: number): SessionEventLog {
   const existing = sessionEventLogs.get(sessionId);
   if (existing) {
@@ -147,7 +169,7 @@ async function ensureSandboxSession(args: {
     return existing;
   }
 
-  const env = { ...(args.config.env ?? {}) } as Record<string, string>;
+  const env = { ...args.config.env } as Record<string, string>;
   if (!("DERE_SESSION_ID" in env)) {
     env.DERE_SESSION_ID = String(args.sessionId);
   }
@@ -159,7 +181,7 @@ async function ensureSandboxSession(args: {
     model: args.config.model ?? null,
     thinkingBudget: args.config.thinking_budget ?? null,
     allowedTools: args.config.allowed_tools ?? null,
-    resumeSessionId: args.claudeSessionId ?? undefined,
+    resumeSessionId: args.claudeSessionId ?? null,
     autoApprove: args.config.auto_approve ?? false,
     outputFormat: args.config.output_format ?? null,
     sandboxSettings: args.config.sandbox_settings ?? null,
@@ -314,14 +336,9 @@ function normalizeConfig(raw: Record<string, unknown>): SessionConfig | null {
     enable_streaming: typeof raw.enable_streaming === "boolean" ? raw.enable_streaming : false,
     thinking_budget: typeof raw.thinking_budget === "number" ? raw.thinking_budget : null,
     sandbox_mode: typeof raw.sandbox_mode === "boolean" ? raw.sandbox_mode : false,
-    sandbox_mount_type:
-      typeof raw.sandbox_mount_type === "string" ? raw.sandbox_mount_type : "copy",
-    sandbox_settings:
-      raw.sandbox_settings && typeof raw.sandbox_settings === "object"
-        ? (raw.sandbox_settings as Record<string, unknown>)
-        : null,
-    sandbox_network_mode:
-      typeof raw.sandbox_network_mode === "string" ? raw.sandbox_network_mode : "bridge",
+    sandbox_mount_type: normalizeSandboxMountType(raw.sandbox_mount_type),
+    sandbox_settings: toJsonRecord(raw.sandbox_settings),
+    sandbox_network_mode: normalizeSandboxNetworkMode(raw.sandbox_network_mode),
     mission_id: typeof raw.mission_id === "number" ? raw.mission_id : null,
     session_name: typeof raw.session_name === "string" ? raw.session_name : null,
     auto_approve: typeof raw.auto_approve === "boolean" ? raw.auto_approve : false,
@@ -421,8 +438,8 @@ async function loadSessionState(sessionId: number): Promise<LoadedSessionState |
       enable_streaming: false,
       thinking_budget: row.thinking_budget ?? null,
       sandbox_mode: row.sandbox_mode,
-      sandbox_mount_type: row.sandbox_mount_type ?? "copy",
-      sandbox_settings: row.sandbox_settings ?? null,
+      sandbox_mount_type: normalizeSandboxMountType(row.sandbox_mount_type),
+      sandbox_settings: toJsonRecord(row.sandbox_settings),
       sandbox_network_mode: "bridge",
       mission_id: row.mission_id ?? null,
       session_name: row.name ?? null,
@@ -692,7 +709,7 @@ async function dequeueShareableFinding(
       .where("ef.confidence", ">=", 0.8)
       .where("ef.user_id", "=", userId)
       .where(
-        sql`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff} and sf.session_id = ${sessionId})`,
+        sql<boolean>`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff} and sf.session_id = ${sessionId})`,
       )
       .orderBy("ef.created_at", "desc")
       .limit(1)
@@ -821,7 +838,7 @@ export function registerAgentWebSocket(app: Hono) {
               const systemPrompt = await buildSessionContextXml({
                 sessionId,
                 personalityOverride: resolvePersonalityName(config.personality),
-                includeContext: config.include_context && !config.lean_mode,
+                includeContext: (config.include_context ?? true) && !config.lean_mode,
               });
               try {
                 const sandboxSession = await ensureSandboxSession({
@@ -870,7 +887,7 @@ export function registerAgentWebSocket(app: Hono) {
             const systemPrompt = await buildSessionContextXml({
               sessionId,
               personalityOverride: resolvePersonalityName(loaded.config.personality),
-              includeContext: loaded.config.include_context && !loaded.config.lean_mode,
+              includeContext: (loaded.config.include_context ?? true) && !loaded.config.lean_mode,
             });
             try {
               const sandboxSession = await ensureSandboxSession({
@@ -1044,7 +1061,7 @@ export function registerAgentWebSocket(app: Hono) {
               contextXml = await buildSessionContextXml({
                 sessionId,
                 personalityOverride: resolvePersonalityName(config.personality),
-                includeContext: config.include_context && !config.lean_mode,
+                includeContext: (config.include_context ?? true) && !config.lean_mode,
               });
             } catch {
               contextXml = "";
@@ -1063,7 +1080,7 @@ export function registerAgentWebSocket(app: Hono) {
             const canUseTool = async (
               toolName: string,
               input: Record<string, unknown>,
-              options: { toolUseID: string; suggestions?: unknown },
+              _options: { toolUseID: string; suggestions?: unknown },
             ): Promise<PermissionResult> => {
               if (config.auto_approve) {
                 return { behavior: "allow", updatedInput: input };
@@ -1255,7 +1272,7 @@ export function registerAgentWebSocket(app: Hono) {
                 if (config.output_format) {
                   options.outputFormat = config.output_format;
                 }
-                const env = { ...(config.env ?? {}) } as Record<string, string>;
+                const env = { ...config.env } as Record<string, string>;
                 if (!("DERE_SESSION_ID" in env)) {
                   env.DERE_SESSION_ID = String(sessionId);
                 }

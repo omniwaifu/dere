@@ -183,10 +183,14 @@ export class SessionManager {
     channelId?: string;
     key?: string;
     reason?: string;
+    queueSummary?: boolean;
   }): Promise<void> {
     const key = args.key ?? this.makeKey(args.guildId ?? null, args.channelId ?? "");
     await this.withLock(key, async () => {
-      await this.closeSessionInternal(key, { reason: args.reason ?? "manual", queueSummary: true });
+      await this.closeSessionInternal(key, {
+        reason: args.reason ?? "manual",
+        queueSummary: args.queueSummary ?? true,
+      });
     });
   }
 

@@ -34,17 +34,24 @@ function toNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function toEmotionEvents(
   rows: Array<{
     timestamp: number;
     stimulus_type: string;
     valence: number;
     intensity: number;
-    context: Record<string, unknown> | null;
+    context: unknown;
   }>,
 ): EmotionEvent[] {
   return rows.map((row) => {
-    const ctx = row.context ?? {};
+    const ctx = toJsonRecord(row.context) ?? {};
     const resulting = Array.isArray(ctx.resulting_emotions)
       ? ctx.resulting_emotions
           .filter((item) => item && typeof item === "object")

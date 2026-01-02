@@ -17,6 +17,15 @@ function nowDate(): Date {
   return new Date();
 }
 
+type JsonRecord = Record<string, unknown>;
+
+function toJsonRecord(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as JsonRecord;
+}
+
 async function parseJson<T>(req: Request): Promise<T | null> {
   try {
     return (await req.json()) as T;
@@ -31,8 +40,9 @@ function buildSessionConfig(row: {
   user_id: string | null;
   thinking_budget: number | null;
   sandbox_mode: boolean;
-  sandbox_settings: Record<string, unknown> | null;
+  sandbox_settings: unknown;
 }): Record<string, unknown> {
+  const sandboxSettings = toJsonRecord(row.sandbox_settings);
   return {
     working_dir: row.working_dir,
     output_style: "default",
@@ -40,11 +50,11 @@ function buildSessionConfig(row: {
     user_id: row.user_id ?? undefined,
     thinking_budget: row.thinking_budget ?? undefined,
     sandbox_mode: row.sandbox_mode,
-    sandbox_settings: row.sandbox_settings ?? undefined,
+    sandbox_settings: sandboxSettings ?? undefined,
   };
 }
 
-function resolveLimit(value: string | null, fallback: number): number {
+function resolveLimit(value: string | null | undefined, fallback: number): number {
   const parsed = value ? Number(value) : fallback;
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallback;
@@ -448,7 +458,7 @@ export function registerAgentRoutes(app: Hono): void {
         .where("id", "=", sessionId)
         .execute();
       return c.json({ name: finalTitle, generated: true });
-    } catch (error) {
+    } catch {
       return c.json({ error: "Failed to generate name" }, 500);
     }
   });
@@ -469,6 +479,7 @@ export function registerAgentRoutes(app: Hono): void {
     const thinkingBudget =
       typeof payload.thinking_budget === "number" ? payload.thinking_budget : null;
     const sandboxMode = Boolean(payload.sandbox_mode);
+    const sandboxMountType = sandboxMode ? "copy" : "none";
     const sandboxSettings =
       payload.sandbox_settings && typeof payload.sandbox_settings === "object"
         ? (payload.sandbox_settings as Record<string, unknown>)
@@ -488,6 +499,7 @@ export function registerAgentRoutes(app: Hono): void {
         user_id: userId,
         thinking_budget: thinkingBudget,
         sandbox_mode: sandboxMode,
+        sandbox_mount_type: sandboxMountType,
         sandbox_settings: sandboxSettings,
         mission_id: missionId,
         name: sessionName,

@@ -64,7 +64,7 @@ async function backfillConversationBlocks(): Promise<void> {
       .select(["c.id as conversation_id", "c.prompt as prompt"])
       .where("cb.id", "is", null)
       .where("c.prompt", "is not", null)
-      .where(sql`c.prompt <> ''`)
+      .where(sql<boolean>`c.prompt <> ''`)
       .limit(RECALL_EMBEDDING_BATCH_SIZE)
       .execute();
 
@@ -95,7 +95,7 @@ async function backfillConversationBlocks(): Promise<void> {
       .where("cb.content_embedding", "is", null)
       .where("cb.block_type", "=", "text")
       .where("cb.text", "is not", null)
-      .where(sql`cb.text <> ''`)
+      .where(sql<boolean>`cb.text <> ''`)
       .limit(RECALL_EMBEDDING_BATCH_SIZE)
       .execute();
 
@@ -107,6 +107,10 @@ async function backfillConversationBlocks(): Promise<void> {
     const embeddings = await embedder.createBatch(texts);
 
     for (let i = 0; i < blocks.length; i += 1) {
+      const block = blocks[i];
+      if (!block) {
+        continue;
+      }
       const embedding = embeddings[i];
       if (!embedding || embedding.length === 0) {
         continue;
@@ -115,7 +119,7 @@ async function backfillConversationBlocks(): Promise<void> {
       await db
         .updateTable("conversation_blocks")
         .set({ content_embedding: sql`${vector}::vector` })
-        .where("id", "=", blocks[i].block_id as number)
+        .where("id", "=", block.block_id as number)
         .execute();
     }
   } catch (error) {

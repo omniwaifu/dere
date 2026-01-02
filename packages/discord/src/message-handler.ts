@@ -1,9 +1,17 @@
-import type { EmbedBuilder, Message } from "discord.js";
+import type { EmbedBuilder, Message, TextBasedChannelFields } from "discord.js";
 
 import type { DiscordAgent } from "./agent.js";
 import type { PersonaProfile } from "./persona.js";
 
 type BuildEmbedFn = (toolEvents: string[], personaProfile: PersonaProfile) => EmbedBuilder;
+
+function isTextBasedChannel(channel: unknown): channel is TextBasedChannelFields {
+  return Boolean(
+    channel &&
+      typeof (channel as { isTextBased?: () => boolean }).isTextBased === "function" &&
+      (channel as { isTextBased: () => boolean }).isTextBased(),
+  );
+}
 
 class TypingIndicator {
   private interval: ReturnType<typeof setInterval> | null = null;
@@ -47,6 +55,10 @@ class MessageHandlerCallbacks {
     this.buildEmbedFn = buildEmbedFn;
   }
 
+  private getChannel(): TextBasedChannelFields | null {
+    return isTextBasedChannel(this.message.channel) ? this.message.channel : null;
+  }
+
   async sendInitial(): Promise<void> {
     // Typing indicator already active; no placeholder message needed.
   }
@@ -56,7 +68,11 @@ class MessageHandlerCallbacks {
     if (!content) {
       return;
     }
-    await this.message.channel.send({
+    const channel = this.getChannel();
+    if (!channel) {
+      return;
+    }
+    await channel.send({
       content,
       allowedMentions: { parse: [] },
     });
@@ -67,7 +83,11 @@ class MessageHandlerCallbacks {
       return;
     }
     const embed = this.buildEmbedFn(toolEvents, personaProfile);
-    await this.message.channel.send({
+    const channel = this.getChannel();
+    if (!channel) {
+      return;
+    }
+    await channel.send({
       embeds: [embed],
       allowedMentions: { parse: [] },
     });
@@ -85,7 +105,10 @@ export async function handleDiscordMessage(args: {
 }): Promise<void> {
   const callbacks = new MessageHandlerCallbacks(args.message, args.buildEmbedFn);
   const typing = new TypingIndicator();
-  await typing.start(args.message.channel);
+  const textChannel = isTextBasedChannel(args.message.channel) ? args.message.channel : null;
+  if (textChannel) {
+    await typing.start(textChannel);
+  }
 
   const finalize = async () => {
     typing.stop();
@@ -106,10 +129,12 @@ export async function handleDiscordMessage(args: {
     });
   } catch (error) {
     console.error(`Failed handling message in channel ${args.channelId}: ${String(error)}`);
-    await args.message.channel.send({
-      content: "Sorry, something went wrong while contacting Claude.",
-      allowedMentions: { parse: [] },
-    });
+    if (textChannel) {
+      await textChannel.send({
+        content: "Sorry, something went wrong while contacting Claude.",
+        allowedMentions: { parse: [] },
+      });
+    }
     typing.stop();
   }
 }

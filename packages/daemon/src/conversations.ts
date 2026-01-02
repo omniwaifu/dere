@@ -65,6 +65,7 @@ export function registerConversationRoutes(app: Hono): void {
           medium: medium ?? "cli",
           last_activity: now,
           sandbox_mode: false,
+          sandbox_mount_type: "none",
           is_locked: false,
           sandbox_settings: null,
           continued_from: null,

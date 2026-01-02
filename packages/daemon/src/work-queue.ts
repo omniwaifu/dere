@@ -17,6 +17,13 @@ function nowDate(): Date {
   return new Date();
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 async function parseJson<T>(req: Request): Promise<T | null> {
   try {
     return (await req.json()) as T;
@@ -53,7 +60,7 @@ async function refreshBlockedTasks(completedTaskId: number): Promise<void> {
   const blockedTasks = await db
     .selectFrom("project_tasks")
     .select(["id", "blocked_by"])
-    .where(sql`blocked_by @> ${sql.array([completedTaskId])}`)
+    .where(sql<boolean>`blocked_by @> ${[completedTaskId]}::int[]`)
     .where("status", "=", STATUS.BLOCKED)
     .execute();
 
@@ -138,7 +145,7 @@ export function registerWorkQueueRoutes(app: Hono): void {
             : null,
         discovery_reason:
           typeof payload.discovery_reason === "string" ? payload.discovery_reason : null,
-        extra: payload.extra && typeof payload.extra === "object" ? payload.extra : null,
+        extra: toJsonRecord(payload.extra),
         claimed_by_session_id: null,
         claimed_by_agent_id: null,
         claimed_at: null,
@@ -185,7 +192,7 @@ export function registerWorkQueueRoutes(app: Hono): void {
       countQuery = countQuery.where("task_type", "=", taskType);
     }
     if (tags && tags.length > 0) {
-      const overlap = sql<boolean>`tags && ${sql.array(tags)}`;
+      const overlap = sql<boolean>`tags && ${tags}::text[]`;
       query = query.where(overlap);
       countQuery = countQuery.where(overlap);
     }
@@ -232,7 +239,7 @@ export function registerWorkQueueRoutes(app: Hono): void {
     }
 
     if (requiredTools && requiredTools.length > 0) {
-      query = query.where(sql<boolean>`required_tools <@ ${sql.array(requiredTools)}`);
+      query = query.where(sql<boolean>`required_tools <@ ${requiredTools}::text[]`);
     }
 
     const tasks = await query.execute();
@@ -344,7 +351,8 @@ export function registerWorkQueueRoutes(app: Hono): void {
       return c.json({ error: `Task ${taskId} not found` }, 404);
     }
 
-    if (![STATUS.CLAIMED, STATUS.IN_PROGRESS].includes(task.status as string)) {
+    const releaseable = new Set<string>([STATUS.CLAIMED, STATUS.IN_PROGRESS]);
+    if (!releaseable.has(String(task.status))) {
       return c.json({ error: `Task ${taskId} cannot be released (status: ${task.status})` }, 400);
     }
 

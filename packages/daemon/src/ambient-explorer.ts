@@ -26,6 +26,13 @@ Return output that matches the provided JSON schema.
 const EXPLORATION_ALLOWED_TOOLS = ["Read", "WebSearch", "WebFetch"];
 const PROMOTION_CONFIDENCE_THRESHOLD = 0.7;
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 export interface ExplorationResult {
   findings: string[];
   confidence: number;
@@ -122,7 +129,10 @@ export class AmbientExplorer {
         .where("id", "=", task.id)
         .execute();
 
-      claimed = task;
+      claimed = {
+        ...task,
+        extra: toJsonRecord(task.extra),
+      };
     });
 
     return claimed;
@@ -284,7 +294,7 @@ export class AmbientExplorer {
     }
 
     const now = new Date();
-    const extra = { ...(task.extra ?? {}) } as Record<string, unknown>;
+    const extra = { ...toJsonRecord(task.extra) };
 
     if (result) {
       extra.findings = mergeFindings(extra.findings as string[] | undefined, result.findings);

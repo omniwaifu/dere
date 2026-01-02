@@ -63,8 +63,9 @@ function parseLabels(url: URL): string[] {
   if (raw.length === 0) {
     return [];
   }
-  if (raw.length === 1 && raw[0].includes(",")) {
-    return raw[0]
+  const first = raw[0];
+  if (raw.length === 1 && first && first.includes(",")) {
+    return first
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
@@ -634,14 +635,15 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
         { group_id: groupId, fact: factText },
       );
 
-      if (existing.length > 0) {
+      const existingRecord = existing[0];
+      if (existingRecord) {
         const roles = await fetchFactRoles(
-          [String(existing[0].uuid ?? "")].filter(Boolean),
+          [String(existingRecord.uuid ?? "")].filter(Boolean),
           groupId,
         );
         return c.json({
           created: false,
-          fact: toFactSummary(existing[0], roles.get(String(existing[0].uuid ?? "")) ?? []),
+          fact: toFactSummary(existingRecord, roles.get(String(existingRecord.uuid ?? "")) ?? []),
         });
       }
 
@@ -941,6 +943,9 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
       }
 
       const primary = records[0];
+      if (!primary) {
+        return c.json({ entity: entityName, found: false, nodes: [], edges: [] });
+      }
       const primaryUuid = String(primary.uuid ?? "");
 
       const relatedNodes = await queryGraph(
@@ -1025,7 +1030,11 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
         return c.json({ entity: entityName, found: false, related: [] });
       }
 
-      const primaryUuid = String(records[0].uuid ?? "");
+      const primary = records[0];
+      if (!primary) {
+        return c.json({ entity: entityName, found: false, related: [] });
+      }
+      const primaryUuid = String(primary.uuid ?? "");
       const relatedNodes = await queryGraph(
         `
           MATCH (n:Entity {group_id: $group_id, uuid: $uuid})-[:RELATES_TO*1..2]-(m:Entity {group_id: $group_id})

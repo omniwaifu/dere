@@ -45,25 +45,24 @@ function defaultEmbeddedDir(): string {
   return join(process.cwd(), "packages", "shared-assets", "personalities");
 }
 
-function defaultUserDir(): string {
-  return join(dirname(getConfigPath()), "personalities");
-}
-
 function parsePersonality(data: string): Personality {
   const parsed = parse(data) as PersonalityDoc;
   const metadata = parsed.metadata ?? {};
   const display = parsed.display ?? {};
   const prompt = parsed.prompt ?? {};
 
-  return {
+  const personality: Personality = {
     name: metadata.name ?? "",
     short_name: metadata.short_name ?? "",
     aliases: metadata.aliases ?? [],
     color: display.color ?? "white",
     icon: display.icon ?? "*",
     prompt_content: prompt.content ?? "",
-    announcement: display.announcement,
   };
+  if (display.announcement) {
+    personality.announcement = display.announcement;
+  }
+  return personality;
 }
 
 async function loadPersonalityFromFile(path: string): Promise<Personality> {

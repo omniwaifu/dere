@@ -8,6 +8,13 @@ function nowDate(): Date {
   return new Date();
 }
 
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 async function parseJson<T>(req: Request): Promise<T | null> {
   try {
     return (await req.json()) as T;
@@ -41,8 +48,7 @@ export function registerQueueRoutes(app: Hono): void {
         task_type: taskType,
         model_name: modelName,
         content,
-        metadata:
-          payload.metadata && typeof payload.metadata === "object" ? payload.metadata : null,
+        metadata: toJsonRecord(payload.metadata),
         priority: typeof payload.priority === "number" ? payload.priority : 5,
         status: "pending",
         session_id: typeof payload.session_id === "number" ? payload.session_id : null,

@@ -77,7 +77,7 @@ async function summarizeIdleSessions(): Promise<void> {
     .where("last_activity", ">=", recentThreshold)
     .where("last_activity", "<=", idleThreshold)
     .where("end_time", "is", null)
-    .where(sql`(summary is null or summary_updated_at < last_activity)`)
+    .where(sql<boolean>`(summary is null or summary_updated_at < last_activity)`)
     .execute();
 
   if (sessions.length === 0) {

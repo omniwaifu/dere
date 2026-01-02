@@ -1,32 +1,6 @@
 import type { ListTasksRequest, TaskWarriorTask } from "../../types/task.js";
 import { executeTaskWarriorCommandJson } from "../../utils/taskwarrior.js";
 
-// Define standard MCP ContentItem types if not already available globally
-// For simplicity, defining inline; ideally, these come from an MCP SDK package
-interface JsonContentItem {
-  type: "json";
-  data: any;
-}
-
-interface TextContentItem {
-  type: "text";
-  text: string;
-}
-
-// Define a standard MCP ToolResponse structure
-interface McpToolResponse {
-  tool_name: string;
-  status: "success" | "error";
-  result?: {
-    content: Array<JsonContentItem | TextContentItem>;
-  };
-  error?: {
-    code: string;
-    message: string;
-    details?: any;
-  };
-}
-
 /**
  * List tasks based on various filter criteria
  */

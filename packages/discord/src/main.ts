@@ -158,7 +158,6 @@ async function run(): Promise<void> {
     Sentry.init({
       dsn: process.env.DERE_SENTRY_DSN,
       tracesSampleRate: 0.1,
-      profilesSampleRate: 0.1,
       environment: process.env.DERE_ENV ?? "development",
       attachStacktrace: true,
       maxBreadcrumbs: 50,

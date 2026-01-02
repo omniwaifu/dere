@@ -5,7 +5,10 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { getConfigPath } from "@dere/shared-config";
 import type { Hono } from "hono";
 
-type PersonalityDoc = Record<string, unknown>;
+type TomlValue = boolean | number | string | Date | TomlMap | TomlArray;
+type TomlArray = TomlValue[] | TomlValue[][];
+type TomlMap = { [key: string]: TomlValue | TomlArray };
+type PersonalityDoc = TomlMap;
 
 const AVATAR_ALLOWED_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
@@ -107,7 +110,7 @@ export function registerPersonalityRoutes(app: Hono): void {
         data = null;
       }
       const metadata = (data?.metadata ?? {}) as Record<string, unknown>;
-      const display = (data?.display ?? {}) as Record<string, unknown>;
+      const display = (data?.display ?? {}) as TomlMap;
 
       personalities.push({
         name,
@@ -190,7 +193,7 @@ export function registerPersonalityRoutes(app: Hono): void {
     }
 
     const metadata = (data.metadata ?? {}) as Record<string, unknown>;
-    const display = (data.display ?? {}) as Record<string, unknown>;
+    const display = (data.display ?? {}) as TomlMap;
     const shortName =
       (typeof metadata.short_name === "string" && metadata.short_name) ||
       (typeof metadata.name === "string" && metadata.name) ||
@@ -224,7 +227,7 @@ export function registerPersonalityRoutes(app: Hono): void {
       return c.json({ error: String(error) }, 404);
     }
 
-    const display = (data.display ?? {}) as Record<string, unknown>;
+    const display = (data.display ?? {}) as TomlMap;
     const avatarRel = typeof display.avatar === "string" ? display.avatar : null;
     if (!avatarRel) {
       return c.json({ error: "No avatar set" }, 404);

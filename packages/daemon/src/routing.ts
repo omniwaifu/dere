@@ -21,16 +21,16 @@ function pickBestChannel(
     return ["dm", "private", "direct_message"].includes(type);
   });
   if (dmChannels.length > 0) {
-    return dmChannels[0];
+    return dmChannels[0] ?? null;
   }
   const generalChannels = dictChannels.filter((ch) => {
     const name = String(ch.name ?? "").toLowerCase();
     return ["general", "main", "chat"].some((keyword) => name.includes(keyword));
   });
   if (generalChannels.length > 0) {
-    return generalChannels[0];
+    return generalChannels[0] ?? null;
   }
-  return channels[0];
+  return channels[0] ?? null;
 }
 
 async function parseJson<T>(req: Request): Promise<T | null> {
@@ -82,6 +82,14 @@ export function registerRoutingRoutes(app: Hono): void {
     }
 
     const active = available[0];
+    if (!active) {
+      return c.json({
+        medium: "desktop",
+        location: "notify-send",
+        reasoning: "No conversational mediums online",
+        fallback: true,
+      });
+    }
     const channels = (active.available_channels ?? []) as Array<Record<string, unknown> | string>;
     const selected = pickBestChannel(channels);
     const location =

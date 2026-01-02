@@ -445,10 +445,25 @@ export async function runDockerSandboxQuery(args: {
         const name = typeof event.data?.name === "string" ? event.data.name : undefined;
         const id = typeof event.data?.id === "string" ? event.data.id : undefined;
         const input =
-          event.data?.input && typeof event.data.input === "object"
+          event.data?.input && typeof event.data.input === "object" && !Array.isArray(event.data.input)
             ? (event.data.input as Record<string, unknown>)
-            : {};
-        blocks.push({ type: "tool_use", id, name, input });
+            : undefined;
+        const toolUseBlock: {
+          type: "tool_use";
+          id?: string;
+          name?: string;
+          input?: Record<string, unknown>;
+        } = { type: "tool_use" };
+        if (id) {
+          toolUseBlock.id = id;
+        }
+        if (name) {
+          toolUseBlock.name = name;
+        }
+        if (input) {
+          toolUseBlock.input = input;
+        }
+        blocks.push(toolUseBlock);
         if (name) {
           toolNames.add(name);
         }
@@ -460,13 +475,22 @@ export async function runDockerSandboxQuery(args: {
         const toolUseId =
           typeof event.data?.tool_use_id === "string" ? event.data.tool_use_id : undefined;
         const output = typeof event.data?.output === "string" ? event.data.output : "";
-        blocks.push({
-          type: "tool_result",
-          tool_use_id: toolUseId,
-          name,
-          output,
-          is_error: Boolean(event.data?.is_error),
-        });
+        const toolResultBlock: {
+          type: "tool_result";
+          tool_use_id?: string;
+          name?: string;
+          output?: string;
+          is_error?: boolean;
+        } = { type: "tool_result" };
+        if (toolUseId) {
+          toolResultBlock.tool_use_id = toolUseId;
+        }
+        if (name) {
+          toolResultBlock.name = name;
+        }
+        toolResultBlock.output = output;
+        toolResultBlock.is_error = Boolean(event.data?.is_error);
+        blocks.push(toolResultBlock);
         if (name) {
           toolNames.add(name);
         }

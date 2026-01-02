@@ -7,7 +7,10 @@ import { getDb } from "./db.js";
 import { buildSessionContextXml } from "./prompt-context.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
-import { runDockerSandboxQuery } from "./sandbox/docker-runner.js";
+import {
+  runDockerSandboxQuery,
+  type SandboxMountType,
+} from "./sandbox/docker-runner.js";
 
 const MAX_OUTPUT_SIZE = 50 * 1024;
 const SUMMARY_THRESHOLD = 1000;
@@ -23,7 +26,7 @@ type MissionRow = {
   working_dir: string;
   sandbox_mode: boolean;
   sandbox_mount_type: string;
-  sandbox_settings: Record<string, unknown> | null;
+  sandbox_settings: unknown;
   user_id: string | null;
   allowed_tools: string[] | null;
   mcp_servers: string[] | null;
@@ -42,7 +45,7 @@ type MissionExecutionRow = {
   output_summary: string | null;
   tool_count: number | null;
   error_message: string | null;
-  execution_metadata: Record<string, unknown> | null;
+  execution_metadata: unknown;
   created_at: Date | null;
 };
 
@@ -61,14 +64,29 @@ function truncateOutput(text: string): string {
   return `${text.slice(0, MAX_OUTPUT_SIZE)}\n\n[Output truncated]`;
 }
 
+function normalizeSandboxMountType(value: string | null | undefined): SandboxMountType {
+  if (value === "direct" || value === "copy" || value === "none") {
+    return value;
+  }
+  return "copy";
+}
+
+function toJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function getTextClient(model?: string): TextResponseClient {
   const transport = new ClaudeAgentTransport({
     workingDirectory: process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions",
   });
-  return new TextResponseClient({
-    transport,
-    model,
-  });
+  const options: { transport: ClaudeAgentTransport; model?: string } = { transport };
+  if (model) {
+    options.model = model;
+  }
+  return new TextResponseClient(options);
 }
 
 async function dequeueShareableFinding(
@@ -89,7 +107,7 @@ async function dequeueShareableFinding(
       .where("ef.confidence", ">=", 0.8)
       .where("ef.user_id", "=", userId)
       .where(
-        sql`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff} and sf.session_id = ${sessionId})`,
+        sql<boolean>`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff} and sf.session_id = ${sessionId})`,
       )
       .orderBy("ef.created_at", "desc")
       .limit(1)
@@ -316,7 +334,10 @@ async function createMissionSession(mission: MissionRow): Promise<number> {
       user_id: mission.user_id,
       thinking_budget: mission.thinking_budget,
       sandbox_mode: mission.sandbox_mode,
-      sandbox_settings: mission.sandbox_settings ?? null,
+      sandbox_mount_type: mission.sandbox_mode
+        ? normalizeSandboxMountType(mission.sandbox_mount_type)
+        : "none",
+      sandbox_settings: toJsonRecord(mission.sandbox_settings),
       is_locked: false,
       mission_id: mission.id,
       created_at: now,
@@ -426,26 +447,42 @@ function extractBlocksFromAssistantMessage(message: SDKAssistantMessage): {
         if (name) {
           toolNames.push(name);
         }
-        blocks.push({
-          type: "tool_use",
-          id: typeof record.id === "string" ? record.id : undefined,
-          name,
-          input:
-            record.input && typeof record.input === "object"
-              ? (record.input as Record<string, unknown>)
-              : undefined,
-        });
+        const toolUseBlock: {
+          type: "tool_use";
+          id?: string;
+          name?: string;
+          input?: Record<string, unknown>;
+        } = { type: "tool_use" };
+        if (typeof record.id === "string") {
+          toolUseBlock.id = record.id;
+        }
+        if (name) {
+          toolUseBlock.name = name;
+        }
+        if (record.input && typeof record.input === "object" && !Array.isArray(record.input)) {
+          toolUseBlock.input = record.input as Record<string, unknown>;
+        }
+        blocks.push(toolUseBlock);
         continue;
       }
       if (type === "tool_result") {
         const output = record.content ? collectText(record.content) : collectText(record);
-        blocks.push({
-          type: "tool_result",
-          tool_use_id: typeof record.tool_use_id === "string" ? record.tool_use_id : undefined,
-          name: typeof record.name === "string" ? record.name : undefined,
-          output: output ?? "",
-          is_error: Boolean(record.is_error),
-        });
+        const toolResultBlock: {
+          type: "tool_result";
+          tool_use_id?: string;
+          name?: string;
+          output?: string;
+          is_error?: boolean;
+        } = { type: "tool_result" };
+        if (typeof record.tool_use_id === "string") {
+          toolResultBlock.tool_use_id = record.tool_use_id;
+        }
+        if (typeof record.name === "string") {
+          toolResultBlock.name = record.name;
+        }
+        toolResultBlock.output = output ?? "";
+        toolResultBlock.is_error = Boolean(record.is_error);
+        blocks.push(toolResultBlock);
         continue;
       }
 
@@ -492,11 +529,11 @@ async function runMissionQuery(
         allowedTools: mission.allowed_tools ?? null,
         autoApprove: true,
         outputFormat: null,
-        sandboxSettings: mission.sandbox_settings ?? null,
+        sandboxSettings: toJsonRecord(mission.sandbox_settings),
         plugins: mission.plugins ?? null,
         env: sessionId ? { DERE_SESSION_ID: String(sessionId) } : null,
         sandboxNetworkMode: "bridge",
-        mountType: mission.sandbox_mount_type,
+        mountType: normalizeSandboxMountType(mission.sandbox_mount_type),
       },
     });
   }

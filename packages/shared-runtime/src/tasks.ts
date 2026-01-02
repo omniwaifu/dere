@@ -26,7 +26,11 @@ function getNextTasks(args: {
   }
 
   try {
-    const result = spawnSync(cmd[0], cmd.slice(1), {
+    const [command, ...commandArgs] = cmd;
+    if (!command) {
+      return [];
+    }
+    const result = spawnSync(command, commandArgs, {
       encoding: "utf-8",
       timeout: 2000,
     });

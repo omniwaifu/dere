@@ -31,7 +31,7 @@ function rrfScores(resultLists: string[][], rankConst = 60): Record<string, numb
   return scores;
 }
 
-function toNumber(value: string | null, fallback: number): number {
+function toNumber(value: string | null | undefined, fallback: number): number {
   if (!value) {
     return fallback;
   }
@@ -88,9 +88,11 @@ export function registerRecallRoutes(app: Hono): void {
       ])
       .where("cb.block_type", "=", "text")
       .where("cb.text", "is not", null)
-      .where(sql`cb.text <> ''`)
+      .where(sql<boolean>`cb.text <> ''`)
       .where("c.message_type", "in", ["user", "assistant", "system"])
-      .where(sql`to_tsvector('english', cb.text) @@ websearch_to_tsquery('english', ${query})`)
+      .where(
+        sql<boolean>`to_tsvector('english', cb.text) @@ websearch_to_tsquery('english', ${query})`,
+      )
       .orderBy("score", "desc")
       .limit(limit * 2);
 
@@ -131,7 +133,7 @@ export function registerRecallRoutes(app: Hono): void {
           ])
           .where("cb.block_type", "=", "text")
           .where("cb.text", "is not", null)
-          .where(sql`cb.text <> ''`)
+          .where(sql<boolean>`cb.text <> ''`)
           .where("c.message_type", "in", ["user", "assistant", "system"])
           .where("cb.content_embedding", "is not", null)
           .orderBy(sql`cb.content_embedding <=> ${vector}::vector`)
@@ -157,8 +159,8 @@ export function registerRecallRoutes(app: Hono): void {
     const surfacedCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const surfacedClause =
       sessionId && Number.isFinite(Number(sessionId))
-        ? sql`not exists (select 1 from surfaced_findings sf where sf.finding_id = f.id and (sf.surfaced_at > ${surfacedCutoff} or sf.session_id = ${Number(sessionId)}))`
-        : sql`not exists (select 1 from surfaced_findings sf where sf.finding_id = f.id and sf.surfaced_at > ${surfacedCutoff})`;
+        ? sql<boolean>`not exists (select 1 from surfaced_findings sf where sf.finding_id = f.id and (sf.surfaced_at > ${surfacedCutoff} or sf.session_id = ${Number(sessionId)}))`
+        : sql<boolean>`not exists (select 1 from surfaced_findings sf where sf.finding_id = f.id and sf.surfaced_at > ${surfacedCutoff})`;
 
     let findingQuery = db
       .selectFrom("exploration_findings as f")
@@ -175,9 +177,11 @@ export function registerRecallRoutes(app: Hono): void {
           "score",
         ),
       ])
-      .where(sql`f.finding <> ''`)
+      .where(sql<boolean>`f.finding <> ''`)
       .where(surfacedClause)
-      .where(sql`to_tsvector('english', f.finding) @@ websearch_to_tsquery('english', ${query})`)
+      .where(
+        sql<boolean>`to_tsvector('english', f.finding) @@ websearch_to_tsquery('english', ${query})`,
+      )
       .orderBy("score", "desc")
       .limit(limit * 2);
 
@@ -193,7 +197,7 @@ export function registerRecallRoutes(app: Hono): void {
 
     const scores = rrfScores([fulltextIds, vectorIds, findingIds]);
     const ranked = Object.keys(scores)
-      .sort((a, b) => scores[b] - scores[a])
+      .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0))
       .slice(0, limit);
 
     const rowMap = new Map<string, Record<string, unknown>>();

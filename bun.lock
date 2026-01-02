@@ -45,6 +45,9 @@
         "kysely": "^0.28.7",
         "pg": "^8.13.1",
       },
+      "devDependencies": {
+        "@types/pg": "^8.15.1",
+      },
     },
     "packages/daemon-client": {
       "name": "@dere/daemon-client",

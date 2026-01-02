@@ -25,10 +25,10 @@ function averageEmbeddings(embeddings: number[][]): number[] {
     return embeddings[0] ?? [];
   }
   const dim = embeddings[0]?.length ?? 0;
-  const avg = new Array(dim).fill(0);
+  const avg = Array.from({ length: dim }, () => 0);
   for (const embedding of embeddings) {
     for (let i = 0; i < dim; i += 1) {
-      avg[i] += embedding[i] ?? 0;
+      avg[i] = (avg[i] ?? 0) + (embedding[i] ?? 0);
     }
   }
   return avg.map((value) => value / embeddings.length);

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadConfig, getConfigPath, type DereConfig } from "@dere/shared-config";
@@ -144,7 +144,9 @@ function parseArgs(args: string[]): ParsedArgs {
       break;
     }
 
-    state.passthrough.push(arg);
+    if (arg !== undefined) {
+      state.passthrough.push(arg);
+    }
     i += 1;
   }
 
@@ -354,27 +356,6 @@ class SettingsBuilder {
   private addHookEnvironment(settings: Record<string, any>): void {
     const env = settings.env ?? {};
 
-    const pluginsPath = this.findPluginsPath();
-    if (pluginsPath) {
-      const siteRoot = dirname(pluginsPath);
-      const existingPythonPath = process.env.PYTHONPATH ?? "";
-      const pythonParts = [pluginsPath, siteRoot];
-      if (existingPythonPath) {
-        pythonParts.push(existingPythonPath);
-      }
-      const pythonpathValue = pythonParts.join(delimiter);
-      env.PYTHONPATH = pythonpathValue;
-      env.DERE_PYTHONPATH = pythonpathValue;
-    }
-
-    const pythonBin =
-      process.env.DERE_PYTHON_BIN ?? process.env.UV_PYTHON ?? process.env.PYTHON ?? "";
-    if (pythonBin) {
-      const pythonDir = dirname(pythonBin);
-      const existingPath = process.env.PATH ?? "";
-      env.PATH = existingPath ? `${pythonDir}${delimiter}${existingPath}` : pythonDir;
-    }
-
     if (this.personality) {
       env.DERE_PERSONALITY = this.personality;
     }
@@ -583,7 +564,11 @@ export async function runClaude(rawArgs: string[]): Promise<void> {
       return;
     }
 
-    const child = spawn(cmd[0], cmd.slice(1), { stdio: "inherit" });
+    const [command, ...commandArgs] = cmd;
+    if (!command) {
+      throw new Error("No command provided to launch Claude CLI");
+    }
+    const child = spawn(command, commandArgs, { stdio: "inherit" });
 
     const forwardSignal = (signal: NodeJS.Signals) => {
       child.kill(signal);

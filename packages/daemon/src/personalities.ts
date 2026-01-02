@@ -66,19 +66,24 @@ function parsePersonality(data: string): Personality {
   const prompt = parsed.prompt ?? {};
   const occ = parsed.occ ?? {};
 
-  return {
+  const personality: Personality = {
     name: metadata.name ?? "",
     short_name: metadata.short_name ?? "",
     aliases: metadata.aliases ?? [],
     color: display.color ?? "white",
     icon: display.icon ?? "*",
-    avatar: display.avatar,
     prompt_content: prompt.content ?? "",
-    announcement: display.announcement,
     occ_goals: occ.goals ?? [],
     occ_standards: occ.standards ?? [],
     occ_attitudes: occ.attitudes ?? [],
   };
+  if (display.avatar) {
+    personality.avatar = display.avatar;
+  }
+  if (display.announcement) {
+    personality.announcement = display.announcement;
+  }
+  return personality;
 }
 
 async function loadPersonalityFromFile(path: string): Promise<Personality> {

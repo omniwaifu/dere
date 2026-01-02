@@ -39,7 +39,9 @@ type DecayResult = {
   should_remove: boolean;
 };
 
-const EMOTION_DECAY_PROFILES: Record<string, EmotionDecayProfile> = {
+const EMOTION_DECAY_PROFILES: Record<string, EmotionDecayProfile> & {
+  neutral: EmotionDecayProfile;
+} = {
   joy: {
     base_decay_rate: 0.08,
     half_life: 12,
@@ -218,9 +220,15 @@ const EMOTION_DECAY_PROFILES: Record<string, EmotionDecayProfile> = {
 };
 
 export class SmartDecay {
-  private readonly profiles: Record<string, EmotionDecayProfile>;
+  private readonly profiles: Record<string, EmotionDecayProfile> & {
+    neutral: EmotionDecayProfile;
+  };
 
-  constructor(profiles: Record<string, EmotionDecayProfile> = EMOTION_DECAY_PROFILES) {
+  constructor(
+    profiles: Record<string, EmotionDecayProfile> & {
+      neutral: EmotionDecayProfile;
+    } = EMOTION_DECAY_PROFILES,
+  ) {
     this.profiles = profiles;
   }
 

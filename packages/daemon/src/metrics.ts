@@ -13,7 +13,7 @@ const STATUSES = [
   "cancelled",
 ] as const;
 
-function toNumber(value: string | null, fallback: number): number {
+function toNumber(value: string | null | undefined, fallback: number): number {
   if (!value) {
     return fallback;
   }
@@ -46,7 +46,7 @@ export function registerMetricsRoutes(app: Hono): void {
       .where("surfaced_at", ">=", cutoff);
 
     if (userId) {
-      tasksQuery = tasksQuery.where(sql`extra->>'user_id' = ${userId}`);
+      tasksQuery = tasksQuery.where(sql<boolean>`extra->>'user_id' = ${userId}`);
       findingsQuery = findingsQuery.where("user_id", "=", userId);
     }
 

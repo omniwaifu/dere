@@ -26,7 +26,7 @@ type MissionRow = {
   working_dir: string;
   sandbox_mode: boolean;
   sandbox_mount_type: string;
-  sandbox_settings: Record<string, unknown> | null;
+  sandbox_settings: unknown;
   run_once: boolean;
   created_at: Date | null;
   updated_at: Date | null;

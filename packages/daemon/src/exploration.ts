@@ -33,8 +33,8 @@ export function registerExplorationRoutes(app: Hono): void {
 
     const surfacedFilter =
       sessionId !== null
-        ? sql`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff} and sf.session_id = ${sessionId})`
-        : sql`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff})`;
+        ? sql<boolean>`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff} and sf.session_id = ${sessionId})`
+        : sql<boolean>`not exists (select 1 from surfaced_findings sf where sf.finding_id = ef.id and sf.surfaced_at > ${surfacedCutoff})`;
 
     let query = db
       .selectFrom("exploration_findings as ef")

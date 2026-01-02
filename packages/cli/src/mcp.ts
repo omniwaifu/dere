@@ -109,13 +109,16 @@ export async function buildMcpConfig(
     if (!serverConfig) {
       throw new Error(`MCP server '${name}' not found in dere config`);
     }
-    filtered.mcpServers[name] = {
-      command: serverConfig.command,
+    const entry: { command?: string; args?: string[]; env?: Record<string, string> } = {
       args: serverConfig.args ?? [],
     };
-    if (serverConfig.env) {
-      filtered.mcpServers[name].env = serverConfig.env;
+    if (serverConfig.command) {
+      entry.command = serverConfig.command;
     }
+    if (serverConfig.env) {
+      entry.env = serverConfig.env;
+    }
+    filtered.mcpServers[name] = entry;
   }
 
   const filePath = join(

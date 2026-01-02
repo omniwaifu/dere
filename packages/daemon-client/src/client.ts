@@ -1,6 +1,7 @@
 import type { paths } from "./openapi.js";
 import type {
   HeadersFor,
+  HttpMethod,
   MethodKeys,
   PathKeys,
   PathParamsFor,
@@ -86,15 +87,18 @@ export function createDaemonClient(options: DaemonClientOptions) {
     requestOptions: RequestOptions = {},
   ): Promise<unknown> {
     const url = buildUrl(baseUrl, path, requestOptions.query, requestOptions.pathParams);
-    const response = await fetcher(url, {
+    const init: RequestInit = {
       method: method.toUpperCase(),
       headers: {
         "Content-Type": "application/json",
         ...baseHeaders,
         ...requestOptions.headers,
       },
-      body: requestOptions.body === undefined ? undefined : JSON.stringify(requestOptions.body),
-    });
+    };
+    if (requestOptions.body !== undefined) {
+      init.body = JSON.stringify(requestOptions.body);
+    }
+    const response = await fetcher(url, init);
 
     if (!response.ok) {
       const text = await response.text();
@@ -113,7 +117,20 @@ export function createDaemonClient(options: DaemonClientOptions) {
     method: M,
     requestOptions: RequestOptionsFor<P, M> = {},
   ): Promise<ResponseJson<paths[P][M]>> {
-    const result = await rawRequest(path as string, method, requestOptions);
+    const normalized: RequestOptions = {};
+    if (requestOptions.query !== undefined) {
+      normalized.query = requestOptions.query as Record<string, unknown>;
+    }
+    if (requestOptions.pathParams !== undefined) {
+      normalized.pathParams = requestOptions.pathParams as Record<string, string | number>;
+    }
+    if (requestOptions.headers !== undefined) {
+      normalized.headers = requestOptions.headers;
+    }
+    if (requestOptions.body !== undefined) {
+      normalized.body = requestOptions.body;
+    }
+    const result = await rawRequest(path as string, method, normalized);
     return result as ResponseJson<paths[P][M]>;
   }
 

@@ -29,6 +29,13 @@ export type EmotionPhysicsResult = {
   reasoning: string;
 };
 
+type EmotionFactors = {
+  momentum_resistance: number;
+  valence_damping: number;
+  diminishing_factor: number;
+  contextual_bias: number;
+};
+
 const EMOTION_PHYSICS_CONSTANTS = {
   MOMENTUM_FACTOR: 0.8,
   POSITIVE_NEGATIVE_INTERFERENCE: 0.7,
@@ -39,7 +46,9 @@ const EMOTION_PHYSICS_CONSTANTS = {
   BUFFERING_STRENGTH: 0.5,
 } as const;
 
-export const EMOTION_CHARACTERISTICS: Record<string, EmotionCharacteristics> = {
+export const EMOTION_CHARACTERISTICS: Record<string, EmotionCharacteristics> & {
+  neutral: EmotionCharacteristics;
+} = {
   joy: {
     valence: "positive",
     arousal: "high",
@@ -380,7 +389,7 @@ export class EmotionPhysics {
     adjustedDelta: number,
     currentIntensity: number,
     finalIntensity: number,
-    factors: Record<string, number>,
+    factors: EmotionFactors,
   ): string {
     const parts: string[] = [];
     parts.push(`${emotionType} change: ${rawDelta.toFixed(1)} -> ${adjustedDelta.toFixed(1)}`);

@@ -37,9 +37,6 @@ export async function handleGetRecurringTasks(
       const total = mask.length;
       const completed = (mask.match(/\+/g) || []).length;
       const pending = (mask.match(/-/g) || []).length;
-      const deleted = (mask.match(/X/g) || []).length;
-      const waiting = (mask.match(/W/g) || []).length;
-
       const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
 
       // Calculate current streak (consecutive + from the right)

@@ -116,7 +116,7 @@ function SettingsPage() {
     setPendingChanges((prev) => ({
       ...prev,
       [sectionKey]: {
-        ...((prev[sectionKey as keyof DereConfig] as object) || {}),
+        ...(prev[sectionKey as keyof DereConfig] as object),
         [field]: value,
       },
     }));

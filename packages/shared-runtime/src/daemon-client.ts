@@ -94,25 +94,37 @@ export async function daemonRequest<T = JsonRecord>(args: {
   let text: string;
 
   if (socketPath) {
-    const response = await requestViaSocket({
+    const socketArgs: {
+      socketPath: string;
+      method: string;
+      url: URL;
+      timeoutMs: number;
+      body?: string;
+    } = {
       socketPath,
       method,
       url: target,
-      body,
       timeoutMs,
-    });
+    };
+    if (body !== undefined) {
+      socketArgs.body = body;
+    }
+    const response = await requestViaSocket(socketArgs);
     status = response.status;
     text = response.body;
   } else {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(target.toString(), {
+      const requestInit: RequestInit = {
         method,
-        headers: body ? { "content-type": "application/json" } : undefined,
-        body,
         signal: controller.signal,
-      });
+      };
+      if (body !== undefined) {
+        requestInit.body = body;
+        requestInit.headers = { "content-type": "application/json" };
+      }
+      const response = await fetch(target.toString(), requestInit);
       status = response.status;
       text = await response.text();
     } finally {

@@ -766,7 +766,7 @@ Only extract facts that are clearly supported by the text and involve two distin
   return edges;
 }
 
-async function deduplicateEdges(edges: EntityEdge[], episode: EpisodicNode): Promise<EntityEdge[]> {
+async function deduplicateEdges(edges: EntityEdge[]): Promise<EntityEdge[]> {
   if (edges.length === 0) {
     return [];
   }
@@ -1018,7 +1018,7 @@ Avoid purely narrative or speculative statements.
       continue;
     }
 
-    const factAttributes: Record<string, unknown> = { ...(factData.attributes ?? {}) };
+    const factAttributes: Record<string, unknown> = { ...factData.attributes };
     const factType = (factData.fact_type ?? "").trim();
     if (factType && factType.toUpperCase() !== "DEFAULT") {
       factAttributes.fact_type = factType;
@@ -1543,7 +1543,7 @@ export async function addEpisode(options: AddEpisodeOptions): Promise<AddEpisode
     extractionContent,
   });
 
-  const dedupedEdges = await deduplicateEdges(edges, episode);
+  const dedupedEdges = await deduplicateEdges(edges);
 
   const enableEdgeDateRefinement = false;
   if (enableEdgeDateRefinement) {
@@ -1651,7 +1651,7 @@ export async function addFact(options: AddFactOptions): Promise<AddFactResult> {
     throw new Error("Fact text cannot be empty");
   }
 
-  const mergedAttributes: Record<string, unknown> = { ...(options.attributes ?? {}) };
+  const mergedAttributes: Record<string, unknown> = { ...options.attributes };
   if (options.archival) {
     mergedAttributes.archival = true;
   }
