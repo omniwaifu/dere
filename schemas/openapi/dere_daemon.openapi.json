@@ -10986,7 +10986,7 @@
     },
     "/swarm/plugins": {
       "get": {
-        "description": "List available plugins for swarm agents.\n\nScans the dere_plugins directory and returns metadata from each plugin.json.",
+        "description": "List available plugins for swarm agents.\n\nScans the plugins directory and returns metadata from each plugin.json.",
         "operationId": "list_plugins_swarm_plugins_get",
         "responses": {
           "200": {

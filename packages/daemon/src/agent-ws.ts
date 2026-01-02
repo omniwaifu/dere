@@ -16,6 +16,7 @@ import { buildSessionContextXml } from "./prompt-context.js";
 import { extractCitedEntityUuids } from "./context-tracking.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
+import { DockerSandboxRunner } from "./sandbox/docker-runner.js";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 
@@ -53,7 +54,10 @@ type WsState = {
   localSeq: number;
   sessionId: number | null;
   config: SessionConfig | null;
+  isLocked: boolean;
+  claudeSessionId: string | null;
   currentQuery: Query | null;
+  currentSandbox: DockerSandboxRunner | null;
   queryTask: Promise<void> | null;
   pendingPermissions: Map<string, PendingPermission>;
   cancelRequested: boolean;
@@ -74,12 +78,32 @@ type SessionEventLog = {
 const MAX_EVENT_LOG = 500;
 const sessionEventLogs = new Map<number, SessionEventLog>();
 
+const SANDBOX_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const SANDBOX_CLEANUP_INTERVAL_MS = 60 * 1000;
+
+type SandboxSession = {
+  sessionId: number;
+  runner: DockerSandboxRunner;
+  lastActivity: number;
+  createdAt: number;
+  claudeSessionId: string | null;
+  isLocked: boolean;
+  config: SessionConfig;
+};
+
+const sandboxSessions = new Map<number, SandboxSession>();
+let sandboxCleanupStarted = false;
+
 function nowDate(): Date {
   return new Date();
 }
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function nowMs(): number {
+  return Date.now();
 }
 
 function getSessionLog(sessionId: number): SessionEventLog {
@@ -90,6 +114,111 @@ function getSessionLog(sessionId: number): SessionEventLog {
   const created: SessionEventLog = { seq: 0, events: [] };
   sessionEventLogs.set(sessionId, created);
   return created;
+}
+
+async function updateClaudeSessionId(sessionId: number, claudeSessionId: string): Promise<void> {
+  const db = await getDb();
+  await db
+    .updateTable("sessions")
+    .set({ claude_session_id: claudeSessionId })
+    .where("id", "=", sessionId)
+    .execute();
+}
+
+async function lockSandboxSession(sessionId: number): Promise<void> {
+  const db = await getDb();
+  await db.updateTable("sessions").set({ is_locked: true }).where("id", "=", sessionId).execute();
+}
+
+async function ensureSandboxSession(args: {
+  sessionId: number;
+  config: SessionConfig;
+  claudeSessionId: string | null;
+  systemPrompt: string;
+}): Promise<SandboxSession> {
+  const existing = sandboxSessions.get(args.sessionId);
+  if (existing && !existing.isLocked) {
+    existing.config = args.config;
+    existing.lastActivity = nowMs();
+    return existing;
+  }
+
+  if (existing && existing.isLocked) {
+    return existing;
+  }
+
+  const env = { ...(args.config.env ?? {}) } as Record<string, string>;
+  if (!("DERE_SESSION_ID" in env)) {
+    env.DERE_SESSION_ID = String(args.sessionId);
+  }
+
+  const runner = new DockerSandboxRunner({
+    workingDir: args.config.working_dir,
+    outputStyle: args.config.output_style ?? "default",
+    systemPrompt: args.systemPrompt,
+    model: args.config.model ?? null,
+    thinkingBudget: args.config.thinking_budget ?? null,
+    allowedTools: args.config.allowed_tools ?? null,
+    resumeSessionId: args.claudeSessionId ?? undefined,
+    autoApprove: args.config.auto_approve ?? false,
+    outputFormat: args.config.output_format ?? null,
+    sandboxSettings: args.config.sandbox_settings ?? null,
+    plugins: args.config.plugins ?? null,
+    env,
+    sandboxNetworkMode: args.config.sandbox_network_mode ?? "bridge",
+    mountType: args.config.sandbox_mount_type ?? "copy",
+  });
+
+  await runner.start();
+
+  const created: SandboxSession = {
+    sessionId: args.sessionId,
+    runner,
+    lastActivity: nowMs(),
+    createdAt: nowMs(),
+    claudeSessionId: runner.claudeSessionId ?? args.claudeSessionId,
+    isLocked: false,
+    config: args.config,
+  };
+
+  sandboxSessions.set(args.sessionId, created);
+
+  if (runner.claudeSessionId && runner.claudeSessionId !== args.claudeSessionId) {
+    await updateClaudeSessionId(args.sessionId, runner.claudeSessionId);
+  }
+
+  return created;
+}
+
+async function cleanupIdleSandboxes(): Promise<void> {
+  const now = nowMs();
+  for (const [sessionId, session] of sandboxSessions.entries()) {
+    if (session.isLocked) {
+      sandboxSessions.delete(sessionId);
+      continue;
+    }
+    if (now - session.lastActivity < SANDBOX_IDLE_TIMEOUT_MS) {
+      continue;
+    }
+    try {
+      await session.runner.close();
+    } catch {
+      // ignore
+    }
+    session.isLocked = true;
+    sandboxSessions.delete(sessionId);
+    await lockSandboxSession(sessionId);
+  }
+}
+
+function startSandboxCleanupLoop(): void {
+  if (sandboxCleanupStarted) {
+    return;
+  }
+  sandboxCleanupStarted = true;
+  setInterval(() => {
+    void cleanupIdleSandboxes();
+  }, SANDBOX_CLEANUP_INTERVAL_MS);
 }
 
 function nextSeq(state: WsState): number {
@@ -231,6 +360,7 @@ async function createSession(config: SessionConfig): Promise<number> {
       user_id: config.user_id ?? null,
       thinking_budget: config.thinking_budget ?? null,
       sandbox_mode: Boolean(config.sandbox_mode),
+      sandbox_mount_type: config.sandbox_mount_type ?? "copy",
       sandbox_settings: config.sandbox_settings ?? null,
       mission_id: config.mission_id ?? null,
       last_activity: now,
@@ -249,7 +379,13 @@ async function createSession(config: SessionConfig): Promise<number> {
   return inserted.id;
 }
 
-async function loadSessionConfig(sessionId: number): Promise<SessionConfig | null> {
+type LoadedSessionState = {
+  config: SessionConfig;
+  isLocked: boolean;
+  claudeSessionId: string | null;
+};
+
+async function loadSessionState(sessionId: number): Promise<LoadedSessionState | null> {
   const db = await getDb();
   const row = await db
     .selectFrom("sessions")
@@ -259,9 +395,12 @@ async function loadSessionConfig(sessionId: number): Promise<SessionConfig | nul
       "user_id",
       "thinking_budget",
       "sandbox_mode",
+      "sandbox_mount_type",
       "sandbox_settings",
       "mission_id",
       "name",
+      "is_locked",
+      "claude_session_id",
     ])
     .where("id", "=", sessionId)
     .executeTakeFirst();
@@ -271,27 +410,31 @@ async function loadSessionConfig(sessionId: number): Promise<SessionConfig | nul
   }
 
   return {
-    working_dir: row.working_dir,
-    output_style: "default",
-    personality: row.personality ?? "",
-    model: null,
-    user_id: row.user_id ?? null,
-    allowed_tools: null,
-    include_context: true,
-    enable_streaming: false,
-    thinking_budget: row.thinking_budget ?? null,
-    sandbox_mode: row.sandbox_mode,
-    sandbox_mount_type: "copy",
-    sandbox_settings: row.sandbox_settings ?? null,
-    sandbox_network_mode: "bridge",
-    mission_id: row.mission_id ?? null,
-    session_name: row.name ?? null,
-    auto_approve: false,
-    lean_mode: false,
-    swarm_agent_id: null,
-    plugins: null,
-    env: null,
-    output_format: null,
+    config: {
+      working_dir: row.working_dir,
+      output_style: "default",
+      personality: row.personality ?? "",
+      model: null,
+      user_id: row.user_id ?? null,
+      allowed_tools: null,
+      include_context: true,
+      enable_streaming: false,
+      thinking_budget: row.thinking_budget ?? null,
+      sandbox_mode: row.sandbox_mode,
+      sandbox_mount_type: row.sandbox_mount_type ?? "copy",
+      sandbox_settings: row.sandbox_settings ?? null,
+      sandbox_network_mode: "bridge",
+      mission_id: row.mission_id ?? null,
+      session_name: row.name ?? null,
+      auto_approve: false,
+      lean_mode: false,
+      swarm_agent_id: null,
+      plugins: null,
+      env: null,
+      output_format: null,
+    },
+    isLocked: row.is_locked,
+    claudeSessionId: row.claude_session_id ?? null,
   };
 }
 
@@ -302,7 +445,7 @@ function resolvePluginPaths(
   if (resolved.length === 0) {
     return undefined;
   }
-  const base = `${process.cwd()}/src/dere_plugins`;
+  const base = `${process.cwd()}/plugins`;
   return resolved.map((name) => ({ type: "local", path: `${base}/${name}` }));
 }
 
@@ -630,7 +773,10 @@ export function registerAgentWebSocket(app: Hono) {
         localSeq: 0,
         sessionId: null,
         config: null,
+        isLocked: false,
+        claudeSessionId: null,
         currentQuery: null,
+        currentSandbox: null,
         queryTask: null,
         pendingPermissions: new Map(),
         cancelRequested: false,
@@ -669,10 +815,33 @@ export function registerAgentWebSocket(app: Hono) {
             sessionEventLogs.set(sessionId, { seq: 0, events: [] });
             state.sessionId = sessionId;
             state.config = config;
+            state.isLocked = false;
+            state.claudeSessionId = null;
+            if (config.sandbox_mode) {
+              const systemPrompt = await buildSessionContextXml({
+                sessionId,
+                personalityOverride: resolvePersonalityName(config.personality),
+                includeContext: config.include_context && !config.lean_mode,
+              });
+              try {
+                const sandboxSession = await ensureSandboxSession({
+                  sessionId,
+                  config,
+                  claudeSessionId: null,
+                  systemPrompt,
+                });
+                state.currentSandbox = sandboxSession.runner;
+              } catch (error) {
+                await lockSandboxSession(sessionId);
+                state.isLocked = true;
+                sendError(ws, state, `Failed to start sandbox: ${String(error)}`, true);
+                return;
+              }
+            }
             sendEvent(ws, state, "session_ready", {
               session_id: sessionId,
               config,
-              is_locked: false,
+              is_locked: state.isLocked,
               name: config.session_name ?? null,
             });
           } catch (error) {
@@ -688,18 +857,41 @@ export function registerAgentWebSocket(app: Hono) {
             sendError(ws, state, "resume_session requires session_id", true);
             return;
           }
-          const config = await loadSessionConfig(sessionId);
-          if (!config) {
+          const loaded = await loadSessionState(sessionId);
+          if (!loaded) {
             sendError(ws, state, `Session ${sessionId} not found`, true);
             return;
           }
           state.sessionId = sessionId;
-          state.config = config;
+          state.config = loaded.config;
+          state.isLocked = loaded.isLocked;
+          state.claudeSessionId = loaded.claudeSessionId;
+          if (loaded.config.sandbox_mode && !loaded.isLocked) {
+            const systemPrompt = await buildSessionContextXml({
+              sessionId,
+              personalityOverride: resolvePersonalityName(loaded.config.personality),
+              includeContext: loaded.config.include_context && !loaded.config.lean_mode,
+            });
+            try {
+              const sandboxSession = await ensureSandboxSession({
+                sessionId,
+                config: loaded.config,
+                claudeSessionId: loaded.claudeSessionId,
+                systemPrompt,
+              });
+              state.currentSandbox = sandboxSession.runner;
+            } catch (error) {
+              await lockSandboxSession(sessionId);
+              state.isLocked = true;
+              sendError(ws, state, `Failed to resume sandbox: ${String(error)}`, true);
+              return;
+            }
+          }
           sendEvent(ws, state, "session_ready", {
             session_id: sessionId,
-            config,
-            is_locked: false,
-            name: config.session_name ?? null,
+            config: loaded.config,
+            is_locked: loaded.isLocked,
+            name: loaded.config.session_name ?? null,
           });
           replayEvents(ws, sessionId, lastSeq);
           return;
@@ -731,6 +923,7 @@ export function registerAgentWebSocket(app: Hono) {
                 user_id: config.user_id ?? null,
                 thinking_budget: config.thinking_budget ?? null,
                 sandbox_mode: Boolean(config.sandbox_mode),
+                sandbox_mount_type: config.sandbox_mount_type ?? "copy",
                 sandbox_settings: config.sandbox_settings ?? null,
                 mission_id: config.mission_id ?? null,
                 name: config.session_name ?? null,
@@ -738,10 +931,23 @@ export function registerAgentWebSocket(app: Hono) {
               })
               .where("id", "=", state.sessionId)
               .execute();
+            if (config.sandbox_mode) {
+              const sandboxSession = sandboxSessions.get(state.sessionId);
+              if (sandboxSession && !sandboxSession.isLocked) {
+                sandboxSession.config = config;
+                sandboxSession.lastActivity = nowMs();
+              }
+            } else {
+              const sandboxSession = sandboxSessions.get(state.sessionId);
+              if (sandboxSession) {
+                await sandboxSession.runner.close();
+                sandboxSessions.delete(state.sessionId);
+              }
+            }
             sendEvent(ws, state, "session_ready", {
               session_id: state.sessionId,
               config,
-              is_locked: false,
+              is_locked: state.isLocked,
               name: config.session_name ?? null,
             });
           }
@@ -787,6 +993,9 @@ export function registerAgentWebSocket(app: Hono) {
             state.cancelRequested = true;
             void state.currentQuery.interrupt();
             sendEvent(ws, state, "cancelled", { message: "Query cancelled by user" });
+          } else if (state.currentSandbox) {
+            state.cancelRequested = true;
+            sendEvent(ws, state, "cancelled", { message: "Query cancelled by user" });
           } else {
             sendError(ws, state, "No active query to cancel", true);
           }
@@ -801,6 +1010,10 @@ export function registerAgentWebSocket(app: Hono) {
           }
           if (!state.sessionId || !state.config) {
             sendError(ws, state, "No active session", true);
+            return;
+          }
+          if (state.isLocked) {
+            sendError(ws, state, "Session locked (sandbox container stopped)", true);
             return;
           }
           if (state.queryTask) {
@@ -876,117 +1089,250 @@ export function registerAgentWebSocket(app: Hono) {
               });
             };
 
+            let sandboxRunner: DockerSandboxRunner | null = null;
+            let sandboxFailed = false;
             try {
-              const options: Record<string, unknown> = {
-                cwd: config.working_dir,
-                model: config.model ?? undefined,
-                includePartialMessages: Boolean(config.enable_streaming),
-                permissionMode: config.auto_approve ? "bypassPermissions" : "default",
-                allowDangerouslySkipPermissions: Boolean(config.auto_approve),
-                persistSession: false,
-                settingSources: ["project"],
-              };
-
-              if (config.allowed_tools && config.allowed_tools.length > 0) {
-                options.tools = config.allowed_tools;
-                options.allowedTools = config.allowed_tools;
-              }
-              if (plugins && plugins.length > 0) {
-                options.plugins = plugins;
-              }
-              if (systemPrompt) {
-                options.systemPrompt = {
-                  type: "preset",
-                  preset: "claude_code",
-                  append: systemPrompt,
-                };
-              }
-              if (config.output_format) {
-                options.outputFormat = config.output_format;
-              }
-              const env = { ...(config.env ?? {}) } as Record<string, string>;
-              if (!("DERE_SESSION_ID" in env)) {
-                env.DERE_SESSION_ID = String(sessionId);
-              }
-              if (Object.keys(env).length > 0) {
-                options.env = env;
-              }
-              if (!config.auto_approve) {
-                options.canUseTool = canUseTool;
-              }
               if (config.sandbox_mode) {
-                options.sandbox = {
-                  ...(config.sandbox_settings ?? {}),
-                  enabled: true,
+                const sandboxSession = await ensureSandboxSession({
+                  sessionId,
+                  config,
+                  claudeSessionId: state.claudeSessionId,
+                  systemPrompt: systemPrompt ?? "",
+                });
+                if (sandboxSession.isLocked) {
+                  state.isLocked = true;
+                  sendError(ws, state, "Session locked (sandbox container stopped)", true);
+                  return;
+                }
+                sandboxRunner = sandboxSession.runner;
+                state.currentSandbox = sandboxRunner;
+                sandboxSession.lastActivity = nowMs();
+                await sandboxRunner.query(promptForModel);
+
+                const appendText = (text: string) => {
+                  if (!text) {
+                    return;
+                  }
+                  const last = blocks[blocks.length - 1];
+                  if (last && last.type === "text") {
+                    last.text = `${last.text ?? ""}${text}`;
+                  } else {
+                    blocks.push({ type: "text", text });
+                  }
                 };
+
+                for await (const event of sandboxRunner.receiveResponse()) {
+                  if (event.type === "session_id") {
+                    const sessionValue =
+                      typeof event.data?.session_id === "string" ? event.data.session_id : null;
+                    if (sessionValue && sessionValue !== state.claudeSessionId) {
+                      state.claudeSessionId = sessionValue;
+                      sandboxSession.claudeSessionId = sessionValue;
+                      await updateClaudeSessionId(sessionId, sessionValue);
+                    }
+                    continue;
+                  }
+                  if (state.cancelRequested) {
+                    if (event.type === "done") {
+                      break;
+                    }
+                    continue;
+                  }
+                  if (event.type === "text") {
+                    const text = typeof event.data?.text === "string" ? event.data.text : "";
+                    if (text) {
+                      if (firstTokenTime === null) {
+                        firstTokenTime = performance.now();
+                      }
+                      sendEvent(ws, state, "text", { text });
+                      appendText(text);
+                      responseText += text;
+                    }
+                    continue;
+                  }
+                  if (event.type === "thinking") {
+                    const thinkingText =
+                      typeof event.data?.text === "string" ? event.data.text : "";
+                    if (thinkingText) {
+                      if (firstTokenTime === null) {
+                        firstTokenTime = performance.now();
+                      }
+                      sendEvent(ws, state, "thinking", { text: thinkingText });
+                    }
+                    continue;
+                  }
+                  if (event.type === "tool_use") {
+                    toolCount += 1;
+                    const id = typeof event.data?.id === "string" ? event.data.id : null;
+                    const name = typeof event.data?.name === "string" ? event.data.name : null;
+                    const input =
+                      event.data?.input && typeof event.data.input === "object"
+                        ? (event.data.input as Record<string, unknown>)
+                        : {};
+                    blocks.push({
+                      type: "tool_use",
+                      id: id ?? undefined,
+                      name: name ?? undefined,
+                      input,
+                    });
+                    if (name) {
+                      toolNames.add(name);
+                    }
+                    sendEvent(ws, state, "tool_use", {
+                      id,
+                      name,
+                      input,
+                    });
+                    continue;
+                  }
+                  if (event.type === "tool_result") {
+                    const toolUseId =
+                      typeof event.data?.tool_use_id === "string" ? event.data.tool_use_id : null;
+                    const name = typeof event.data?.name === "string" ? event.data.name : null;
+                    const output = typeof event.data?.output === "string" ? event.data.output : "";
+                    const isError = Boolean(event.data?.is_error);
+                    blocks.push({
+                      type: "tool_result",
+                      tool_use_id: toolUseId ?? undefined,
+                      name: name ?? undefined,
+                      output,
+                      is_error: isError,
+                    });
+                    if (name) {
+                      toolNames.add(name);
+                    }
+                    sendEvent(ws, state, "tool_result", {
+                      tool_use_id: toolUseId,
+                      name,
+                      output,
+                      is_error: isError,
+                    });
+                    continue;
+                  }
+                  if (event.type === "done") {
+                    if (typeof event.data?.response_text === "string" && event.data.response_text) {
+                      responseText = event.data.response_text;
+                    }
+                    if (event.data?.structured_output !== undefined) {
+                      structuredOutput = event.data.structured_output;
+                    }
+                    break;
+                  }
+                  if (event.type === "error") {
+                    const message =
+                      typeof event.data?.message === "string"
+                        ? event.data.message
+                        : "Sandbox error";
+                    throw new Error(message);
+                  }
+                }
+                sandboxSession.lastActivity = nowMs();
               } else {
+                const options: Record<string, unknown> = {
+                  cwd: config.working_dir,
+                  model: config.model ?? undefined,
+                  includePartialMessages: Boolean(config.enable_streaming),
+                  permissionMode: config.auto_approve ? "bypassPermissions" : "default",
+                  allowDangerouslySkipPermissions: Boolean(config.auto_approve),
+                  persistSession: false,
+                  settingSources: ["project"],
+                };
+
+                if (config.allowed_tools && config.allowed_tools.length > 0) {
+                  options.tools = config.allowed_tools;
+                  options.allowedTools = config.allowed_tools;
+                }
+                if (plugins && plugins.length > 0) {
+                  options.plugins = plugins;
+                }
+                if (systemPrompt) {
+                  options.systemPrompt = {
+                    type: "preset",
+                    preset: "claude_code",
+                    append: systemPrompt,
+                  };
+                }
+                if (config.output_format) {
+                  options.outputFormat = config.output_format;
+                }
+                const env = { ...(config.env ?? {}) } as Record<string, string>;
+                if (!("DERE_SESSION_ID" in env)) {
+                  env.DERE_SESSION_ID = String(sessionId);
+                }
+                if (Object.keys(env).length > 0) {
+                  options.env = env;
+                }
+                if (!config.auto_approve) {
+                  options.canUseTool = canUseTool;
+                }
+
                 options.sandbox = { enabled: false };
-              }
 
-              const q = query({ prompt: promptForModel, options });
-              state.currentQuery = q;
+                const q = query({ prompt: promptForModel, options });
+                state.currentQuery = q;
 
-              for await (const message of q) {
-                if (message.type === "stream_event") {
-                  const streamEvent = message as SDKPartialAssistantMessage;
-                  const raw = streamEvent.event as Record<string, unknown>;
-                  if (raw.type === "content_block_delta") {
-                    const delta = raw.delta as Record<string, unknown>;
-                    if (delta.type === "text_delta" && typeof delta.text === "string") {
-                      if (firstTokenTime === null) {
-                        firstTokenTime = performance.now();
+                for await (const message of q) {
+                  if (message.type === "stream_event") {
+                    const streamEvent = message as SDKPartialAssistantMessage;
+                    const raw = streamEvent.event as Record<string, unknown>;
+                    if (raw.type === "content_block_delta") {
+                      const delta = raw.delta as Record<string, unknown>;
+                      if (delta.type === "text_delta" && typeof delta.text === "string") {
+                        if (firstTokenTime === null) {
+                          firstTokenTime = performance.now();
+                        }
+                        sendEvent(ws, state, "text", { text: delta.text });
+                      } else if (
+                        delta.type === "thinking_delta" &&
+                        typeof delta.thinking === "string"
+                      ) {
+                        if (firstTokenTime === null) {
+                          firstTokenTime = performance.now();
+                        }
+                        sendEvent(ws, state, "thinking", { text: delta.thinking });
                       }
-                      sendEvent(ws, state, "text", { text: delta.text });
-                    } else if (
-                      delta.type === "thinking_delta" &&
-                      typeof delta.thinking === "string"
-                    ) {
-                      if (firstTokenTime === null) {
-                        firstTokenTime = performance.now();
+                    }
+                    continue;
+                  }
+
+                  if (message.type === "assistant") {
+                    const { blocks: assistantBlocks, toolNames: assistantTools } =
+                      extractAssistantBlocks(message as SDKAssistantMessage);
+                    if (assistantBlocks.length > 0) {
+                      blocks.push(...assistantBlocks);
+                    }
+                    for (const name of assistantTools) {
+                      toolNames.add(name);
+                    }
+                    for (const block of assistantBlocks) {
+                      if (block.type === "tool_use") {
+                        toolCount += 1;
+                        sendEvent(ws, state, "tool_use", {
+                          id: block.id ?? null,
+                          name: block.name ?? null,
+                          input: block.input ?? {},
+                        });
                       }
-                      sendEvent(ws, state, "thinking", { text: delta.thinking });
+                      if (block.type === "tool_result") {
+                        sendEvent(ws, state, "tool_result", {
+                          tool_use_id: block.tool_use_id ?? null,
+                          name: block.name ?? null,
+                          output: block.output ?? "",
+                          is_error: Boolean(block.is_error),
+                        });
+                      }
                     }
+                    continue;
                   }
-                  continue;
-                }
 
-                if (message.type === "assistant") {
-                  const { blocks: assistantBlocks, toolNames: assistantTools } =
-                    extractAssistantBlocks(message as SDKAssistantMessage);
-                  if (assistantBlocks.length > 0) {
-                    blocks.push(...assistantBlocks);
-                  }
-                  for (const name of assistantTools) {
-                    toolNames.add(name);
-                  }
-                  for (const block of assistantBlocks) {
-                    if (block.type === "tool_use") {
-                      toolCount += 1;
-                      sendEvent(ws, state, "tool_use", {
-                        id: block.id ?? null,
-                        name: block.name ?? null,
-                        input: block.input ?? {},
-                      });
+                  if (message.type === "result") {
+                    const resultMessage = message as SDKResultMessage;
+                    if ("structured_output" in resultMessage && resultMessage.structured_output) {
+                      structuredOutput = resultMessage.structured_output;
                     }
-                    if (block.type === "tool_result") {
-                      sendEvent(ws, state, "tool_result", {
-                        tool_use_id: block.tool_use_id ?? null,
-                        name: block.name ?? null,
-                        output: block.output ?? "",
-                        is_error: Boolean(block.is_error),
-                      });
+                    if ("result" in resultMessage && typeof resultMessage.result === "string") {
+                      responseText = resultMessage.result;
                     }
-                  }
-                  continue;
-                }
-
-                if (message.type === "result") {
-                  const resultMessage = message as SDKResultMessage;
-                  if ("structured_output" in resultMessage && resultMessage.structured_output) {
-                    structuredOutput = resultMessage.structured_output;
-                  }
-                  if ("result" in resultMessage && typeof resultMessage.result === "string") {
-                    responseText = resultMessage.result;
                   }
                 }
               }
@@ -994,9 +1340,19 @@ export function registerAgentWebSocket(app: Hono) {
               if (!state.cancelRequested) {
                 sendError(ws, state, `Query failed: ${String(error)}`, true);
               }
+              sandboxFailed = true;
               return;
             } finally {
               state.currentQuery = null;
+              if (sandboxFailed && sandboxRunner) {
+                await sandboxRunner.close();
+                if (state.currentSandbox === sandboxRunner) {
+                  state.currentSandbox = null;
+                }
+                sandboxSessions.delete(sessionId);
+                state.isLocked = true;
+                await lockSandboxSession(sessionId);
+              }
             }
 
             if (state.cancelRequested) {
@@ -1101,11 +1457,14 @@ export function registerAgentWebSocket(app: Hono) {
             void state.currentQuery.interrupt();
           }
           state.currentQuery = null;
+          state.currentSandbox = null;
           state.queryTask = null;
         },
       };
     }),
   );
 }
+
+startSandboxCleanupLoop();
 
 export { websocket, upgradeWebSocket };

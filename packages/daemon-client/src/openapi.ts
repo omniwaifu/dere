@@ -1952,7 +1952,7 @@ export interface paths {
      * List Plugins
      * @description List available plugins for swarm agents.
      *
-     *     Scans the dere_plugins directory and returns metadata from each plugin.json.
+     *     Scans the plugins directory and returns metadata from each plugin.json.
      */
     get: operations["list_plugins_swarm_plugins_get"];
     put?: never;

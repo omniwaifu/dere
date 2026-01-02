@@ -273,14 +273,14 @@ class SettingsBuilder {
 
   private findPluginsPath(): string | null {
     const here = fileURLToPath(import.meta.url);
-    const repoCandidate = resolve(dirname(here), "..", "..", "src", "dere_plugins");
+    const repoCandidate = resolve(dirname(here), "..", "..", "plugins");
     if (existsSync(join(repoCandidate, ".claude-plugin", "marketplace.json"))) {
       return repoCandidate;
     }
 
     let current = resolve(process.cwd());
     while (true) {
-      const candidate = resolve(current, "src", "dere_plugins");
+      const candidate = resolve(current, "plugins");
       if (existsSync(join(candidate, ".claude-plugin", "marketplace.json"))) {
         return candidate;
       }
@@ -301,24 +301,25 @@ class SettingsBuilder {
     }
 
     settings.extraKnownMarketplaces ??= {};
-    settings.extraKnownMarketplaces.dere_plugins = {
+    const marketplace = "dere-plugins";
+    settings.extraKnownMarketplaces[marketplace] = {
       source: { source: "directory", path: pluginsPath },
     };
 
     settings.enabledPlugins ??= {};
-    settings.enabledPlugins["dere-core@dere_plugins"] = true;
+    settings.enabledPlugins[`dere-core@${marketplace}`] = true;
 
     const config = await loadConfig();
 
     const pluginChecks: Array<[string, string | null, () => Promise<boolean>]> = [
-      ["dere-vault@dere_plugins", "vault", () => this.shouldEnableVaultPlugin()],
+      [`dere-vault@${marketplace}`, "vault", () => this.shouldEnableVaultPlugin()],
       [
-        "dere-productivity@dere_plugins",
+        `dere-productivity@${marketplace}`,
         "productivity",
         () => this.shouldEnableProductivityPlugin(config),
       ],
-      ["dere-graph-features@dere_plugins", null, () => this.shouldEnableGraphFeaturesPlugin()],
-      ["dere-code@dere_plugins", "code", () => this.shouldEnableCodePlugin(config)],
+      [`dere-graph-features@${marketplace}`, null, () => this.shouldEnableGraphFeaturesPlugin()],
+      [`dere-code@${marketplace}`, "code", () => this.shouldEnableCodePlugin(config)],
     ];
 
     for (const [pluginName, modeName, checkFn] of pluginChecks) {

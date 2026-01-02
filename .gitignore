@@ -54,7 +54,8 @@ __pycache__/
 
 # Miscellaneous
 .serena/
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Workforce Assistant
 .agent-notes/

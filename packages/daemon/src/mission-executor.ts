@@ -7,6 +7,7 @@ import { getDb } from "./db.js";
 import { buildSessionContextXml } from "./prompt-context.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
+import { runDockerSandboxQuery } from "./sandbox/docker-runner.js";
 
 const MAX_OUTPUT_SIZE = 50 * 1024;
 const SUMMARY_THRESHOLD = 1000;
@@ -335,7 +336,7 @@ function resolvePluginPaths(
   if (resolved.length === 0) {
     return undefined;
   }
-  const base = `${process.cwd()}/src/dere_plugins`;
+  const base = `${process.cwd()}/plugins`;
   return resolved.map((name) => ({ type: "local", path: `${base}/${name}` }));
 }
 
@@ -479,6 +480,27 @@ async function runMissionQuery(
   toolCount: number;
   structuredOutput?: unknown;
 }> {
+  if (mission.sandbox_mode) {
+    return await runDockerSandboxQuery({
+      prompt,
+      config: {
+        workingDir: mission.working_dir,
+        outputStyle: "default",
+        systemPrompt: systemPrompt ?? null,
+        model: mission.model,
+        thinkingBudget: mission.thinking_budget ?? null,
+        allowedTools: mission.allowed_tools ?? null,
+        autoApprove: true,
+        outputFormat: null,
+        sandboxSettings: mission.sandbox_settings ?? null,
+        plugins: mission.plugins ?? null,
+        env: sessionId ? { DERE_SESSION_ID: String(sessionId) } : null,
+        sandboxNetworkMode: "bridge",
+        mountType: mission.sandbox_mount_type,
+      },
+    });
+  }
+
   const plugins = resolvePluginPaths(mission.plugins);
 
   const options: Record<string, unknown> = {
@@ -516,16 +538,7 @@ async function runMissionQuery(
     options.env = { DERE_SESSION_ID: String(sessionId) };
   }
 
-  if (mission.sandbox_mode) {
-    options.sandbox = {
-      ...(mission.sandbox_settings ?? {}),
-      enabled: true,
-    };
-  } else {
-    options.sandbox = {
-      enabled: false,
-    };
-  }
+  options.sandbox = { enabled: false };
 
   const blocks: Array<{
     type: string;

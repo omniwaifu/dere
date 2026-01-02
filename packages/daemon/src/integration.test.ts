@@ -21,7 +21,7 @@ describe("daemon integration", () => {
   });
 });
 
-const graphBaseUrl = process.env.DERE_GRAPH_TEST_URL ?? process.env.DERE_PY_DAEMON_URL;
+const graphBaseUrl = process.env.DERE_GRAPH_TEST_URL;
 const graphTest = graphBaseUrl ? test : test.skip;
 
 graphTest("graph /kg/stats responds with summary fields", async () => {

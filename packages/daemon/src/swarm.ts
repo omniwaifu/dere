@@ -11,6 +11,7 @@ import { getDb } from "./db.js";
 import { listPersonalityInfos } from "./personalities.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
+import { runDockerSandboxQuery } from "./sandbox/docker-runner.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -156,7 +157,7 @@ function resolvePluginPaths(
   if (resolved.length === 0) {
     return undefined;
   }
-  const base = `${process.cwd()}/src/dere_plugins`;
+  const base = `${process.cwd()}/plugins`;
   return resolved.map((name) => ({ type: "local", path: `${base}/${name}` }));
 }
 
@@ -281,6 +282,32 @@ async function runAgentQuery(args: {
   toolCount: number;
   structuredOutput?: unknown;
 }> {
+  if (args.agent.sandbox_mode) {
+    return await runDockerSandboxQuery({
+      prompt: args.prompt,
+      config: {
+        workingDir: args.swarm.working_dir,
+        outputStyle: "default",
+        systemPrompt: null,
+        model: args.agent.model ?? null,
+        thinkingBudget: args.agent.thinking_budget ?? null,
+        allowedTools: args.agent.allowed_tools ?? null,
+        autoApprove: true,
+        outputFormat: null,
+        sandboxSettings: null,
+        plugins: args.agent.plugins ?? null,
+        env: {
+          DERE_SESSION_ID: String(args.sessionId),
+          DERE_SWARM_ID: String(args.swarm.id),
+          DERE_SWARM_AGENT_ID: String(args.agent.id),
+          DERE_SWARM_AGENT_NAME: args.agent.name,
+        },
+        sandboxNetworkMode: "bridge",
+        mountType: "copy",
+      },
+    });
+  }
+
   const plugins = resolvePluginPaths(args.agent.plugins);
 
   const options: Record<string, unknown> = {
@@ -310,11 +337,7 @@ async function runAgentQuery(args: {
     DERE_SWARM_AGENT_NAME: args.agent.name,
   };
 
-  if (args.agent.sandbox_mode) {
-    options.sandbox = { enabled: true };
-  } else {
-    options.sandbox = { enabled: false };
-  }
+  options.sandbox = { enabled: false };
 
   const blocks: Array<{
     type: string;
@@ -1663,7 +1686,7 @@ async function mergeBranch(
 }
 
 async function listPlugins() {
-  const pluginsDir = join(process.cwd(), "src", "dere_plugins");
+  const pluginsDir = join(process.cwd(), "plugins");
   try {
     const entries = await readdir(pluginsDir, { withFileTypes: true });
     const plugins: Array<{

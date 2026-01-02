@@ -68,11 +68,11 @@ export DERE_PROJECT_PATH=/path/to/dere
 
 - `dere-core`: personality + baseline context (always)
 - `dere-code`: coding workflow automation (auto; Serena + Context7)  
-  Docs: `src/dere_plugins/dere_code/README.md`
+  Docs: `plugins/dere_code/README.md`
 - `dere-productivity`: GTD tasks/calendar/activity tooling (opt-in)  
-  Setup: `src/dere_plugins/dere_productivity/CALENDAR_SETUP.md`
+  Setup: `plugins/dere_productivity/CALENDAR_SETUP.md`
 - `dere-vault`: Obsidian/Zettelkasten workflows (opt-in)  
-  Docs: `src/dere_plugins/dere_vault/README.md`
+  Docs: `plugins/dere_vault/README.md`
 - `dere-graph-features`: graph extraction/visualization affordances (auto when daemon)
 
 ## Repo layout
@@ -87,7 +87,7 @@ packages/
 ├── shared-runtime/    # Runtime helpers (tasks, ActivityWatch, daemon client)
 └── ui/                # React/Vite UI
 src/
-└── dere_plugins/      # Claude Code plugins (modes, agents, commands, output styles)
+└── plugins/           # Claude Code plugins (modes, agents, commands, output styles)
 ```
 
 ## Dev commands

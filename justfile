@@ -3,18 +3,17 @@
 # Default recipe
 default: install
 
-# Install binaries to user PATH
-install: plugins
-      cd src/dere_plugins/dere_productivity/mcp-server && bun run build
-      uv sync --extra dev
-      uv tool install --force --editable .
+# Install dependencies and plugins
+install: plugins ts-install
+      cd plugins/dere_productivity/mcp-server && bun install
+      cd plugins/dere_productivity/mcp-server && bun run build
 
 # Reinstall Claude Code plugins (syncs hooks/skills/etc to cache)
 plugins:
-    claude plugin uninstall dere-code@dere_plugins 2>/dev/null || true
-    claude plugin uninstall dere-core@dere_plugins 2>/dev/null || true
-    claude plugin install dere-code@dere_plugins
-    claude plugin install dere-core@dere_plugins
+    claude plugin marketplace remove dere-plugins 2>/dev/null || true
+    claude plugin marketplace add ./plugins
+    claude plugin install dere-code@dere-plugins
+    claude plugin install dere-core@dere-plugins
 
 # Clean build artifacts
 clean:
@@ -24,10 +23,6 @@ clean:
 # Run tests
 test:
     bun test
-
-# Run knowledge graph evals
-kg-eval ARGS="":
-    uv run python -m dere_graph.eval_cli {{ARGS}}
 
 # Export JSON schemas (LLM + config)
 schemas:
@@ -61,7 +56,7 @@ ts-daemon:
 lint:
     bun run lint
 
-# Format Python code
+# Format code
 fmt:
     bun run format
 
@@ -97,21 +92,20 @@ stop:
         echo "No daemon PID file found"
     fi
 
-# Run all services (daemon + discord)
+# Run all services (daemon + discord + ui)
 dev-all:
-    DERE_SANDBOX_BIND_PLUGINS=1 uv run honcho start
-
-# Check for dependency updates
-deps-check:
-    uv pip list --outdated
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DERE_SANDBOX_BIND_PLUGINS=1 bun packages/daemon/src/index.ts &
+    bun run packages/discord/src/main.ts &
+    (cd packages/ui && bun run dev) &
+    wait
 
 # Show project info
 info:
     @echo "dere - personality-layered wrapper for Claude CLI"
     @echo "Version: $(git describe --tags --always 2>/dev/null || echo 'dev')"
     @echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
-    @echo "Python version: $(uv run python --version 2>/dev/null || echo 'not found')"
-    @echo "UV version: $(uv --version 2>/dev/null || echo 'not found')"
 
 # Start FalkorDB (graph database)
 falkordb:
@@ -144,4 +138,4 @@ ui-build:
 
 # Install UI dependencies
 ui-install:
-    cd src/dere_ui && bun install
+    cd packages/ui && bun install

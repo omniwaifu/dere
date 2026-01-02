@@ -300,14 +300,14 @@ async def mark_finding_surfaced(
 
 **Goal:** Basic exploration during idle time
 
-| Task                                    | Files                                | Effort |
-| --------------------------------------- | ------------------------------------ | ------ |
-| Add `EXPLORING` state to FSM            | `packages/daemon/src/ambient-fsm.ts` | S      |
-| Add state transition logic              | `packages/daemon/src/ambient-fsm.ts` | S      |
-| Add `ExploringConfig`                   | `packages/daemon/src/ambient-config.ts` | S   |
-| Create exploration work selection       | `packages/daemon/src/ambient-explorer.ts` | M |
-| Add `_do_exploration_work()` to monitor | `packages/daemon/src/ambient-monitor.ts` | M  |
-| Create curiosity task type handling     | `packages/daemon/src/work-queue.ts`  | S      |
+| Task                                    | Files                                     | Effort |
+| --------------------------------------- | ----------------------------------------- | ------ |
+| Add `EXPLORING` state to FSM            | `packages/daemon/src/ambient-fsm.ts`      | S      |
+| Add state transition logic              | `packages/daemon/src/ambient-fsm.ts`      | S      |
+| Add `ExploringConfig`                   | `packages/daemon/src/ambient-config.ts`   | S      |
+| Create exploration work selection       | `packages/daemon/src/ambient-explorer.ts` | M      |
+| Add `_do_exploration_work()` to monitor | `packages/daemon/src/ambient-monitor.ts`  | M      |
+| Create curiosity task type handling     | `packages/daemon/src/work-queue.ts`       | S      |
 
 **Deliverable:** Can manually add curiosity tasks, dere explores them during idle.
 
@@ -315,13 +315,13 @@ async def mark_finding_surfaced(
 
 **Goal:** Detect curiosity triggers from conversations
 
-| Task                       | Files                                      | Effort |
-| -------------------------- | ------------------------------------------ | ------ |
-| Unfamiliar entity detector | `packages/daemon/src/ambient-triggers/entities.ts` | M |
-| Correction detector        | `packages/daemon/src/ambient-triggers/corrections.ts` | M |
-| Emotional peak detector    | `packages/daemon/src/ambient-triggers/emotions.ts` | S |
-| Post-conversation hook     | `packages/daemon/src/conversations.ts` | S      |
-| Priority calculation       | `packages/daemon/src/ambient-triggers/priority.ts` | S |
+| Task                       | Files                                                 | Effort |
+| -------------------------- | ----------------------------------------------------- | ------ |
+| Unfamiliar entity detector | `packages/daemon/src/ambient-triggers/entities.ts`    | M      |
+| Correction detector        | `packages/daemon/src/ambient-triggers/corrections.ts` | M      |
+| Emotional peak detector    | `packages/daemon/src/ambient-triggers/emotions.ts`    | S      |
+| Post-conversation hook     | `packages/daemon/src/conversations.ts`                | S      |
+| Priority calculation       | `packages/daemon/src/ambient-triggers/priority.ts`    | S      |
 
 **Deliverable:** Curiosity items auto-created from conversation analysis.
 
@@ -329,12 +329,12 @@ async def mark_finding_surfaced(
 
 **Goal:** Findings surface naturally in future conversations
 
-| Task                    | Files                               | Effort |
-| ----------------------- | ----------------------------------- | ------ |
-| Finding storage model   | `packages/daemon/src/db-types.ts`   | S      |
-| Finding → KG promotion  | `packages/daemon/src/ambient-explorer.ts` | M |
-| Extended recall search  | `packages/daemon/src/recall.ts`     | M      |
-| Surfacing deduplication | `packages/daemon/src/recall.ts`     | S      |
+| Task                    | Files                                     | Effort |
+| ----------------------- | ----------------------------------------- | ------ |
+| Finding storage model   | `packages/daemon/src/db-types.ts`         | S      |
+| Finding → KG promotion  | `packages/daemon/src/ambient-explorer.ts` | M      |
+| Extended recall search  | `packages/daemon/src/recall.ts`           | M      |
+| Surfacing deduplication | `packages/daemon/src/recall.ts`           | S      |
 
 **Deliverable:** "While you were away, I learned X" appears naturally.
 
@@ -342,12 +342,12 @@ async def mark_finding_surfaced(
 
 **Goal:** Belief revision, metrics, tuning
 
-| Task                              | Files                                | Effort |
-| --------------------------------- | ------------------------------------ | ------ |
-| Contradicting fact detection      | `packages/dere-graph/src/graph-dedup.ts` | M   |
-| Supersedes/superseded_by tracking | `packages/dere-graph/src/graph-models.ts` | S |
-| Exploration metrics dashboard     | `packages/daemon/src/metrics.ts`     | M      |
-| Cost tracking                     | `packages/daemon/src/ambient-explorer.ts` | S |
+| Task                              | Files                                     | Effort |
+| --------------------------------- | ----------------------------------------- | ------ |
+| Contradicting fact detection      | `packages/dere-graph/src/graph-dedup.ts`  | M      |
+| Supersedes/superseded_by tracking | `packages/dere-graph/src/graph-models.ts` | S      |
+| Exploration metrics dashboard     | `packages/daemon/src/metrics.ts`          | M      |
+| Cost tracking                     | `packages/daemon/src/ambient-explorer.ts` | S      |
 
 ---
 
