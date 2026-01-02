@@ -79,7 +79,6 @@ export DERE_PROJECT_PATH=/path/to/dere
 
 ```
 src/
-├── dere_cli/          # CLI wrapper (entry: `dere`)
 ├── dere_ambient/      # Proactive monitoring/notifications (legacy Python)
 ├── dere_shared/       # Shared config/utilities (legacy Python)
 ├── dere_ui/           # React/Vite UI

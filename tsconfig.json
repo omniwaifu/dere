@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/daemon" },
+    { "path": "packages/cli" },
     { "path": "packages/discord" },
     { "path": "packages/dere-graph" },
     { "path": "packages/shared-llm" },
