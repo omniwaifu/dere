@@ -1,3 +1,3 @@
 daemon: uv run dere-daemon
-discord: uv run dere-discord
+discord: bun run packages/discord/src/main.ts
 ui: cd src/dere_ui && bun run dev
