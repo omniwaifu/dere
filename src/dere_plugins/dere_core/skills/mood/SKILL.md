@@ -15,7 +15,7 @@ Query emotion state to understand user's emotional context and adapt responses.
 
 ## Workflow
 
-1. Run `scripts/get_emotion.py` to query current state
+1. Run `bun scripts/get_emotion.ts` to query current state
 2. Check intensity levels and trust score
 3. Adapt tone based on guidelines
 
@@ -39,7 +39,7 @@ Query emotion state to understand user's emotional context and adapt responses.
 ## Example
 
 ```bash
-./scripts/get_emotion.py
+bun ./scripts/get_emotion.ts
 # Returns: {"primary": {"name": "frustration", "intensity": 65}, ...}
 ```
 

@@ -31,7 +31,7 @@ This filters out "interesting facts" that don't actually rewire understanding.
 
 1. Review source material (daily note, literature note, conversation)
 2. Identify candidate concept for extraction
-3. **Search for duplicates** - Use `concept_search.py [concept]` to check if similar note exists
+3. **Search for duplicates** - Use `bun scripts/concept_search.ts [concept]` to check if similar note exists
 
 ### Phase 2: Domain Detection
 
@@ -116,7 +116,7 @@ Return to Phase 4 until criteria met.
 Before finalizing, ask:
 
 - "What existing notes does this build on?" → Set `derived_from`
-- "What notes should this link to?" → Use `link_analysis.py --suggest "[title]"`
+- "What notes should this link to?" → Use `bun scripts/link_analysis.ts --suggest "[title]"`
 
 Update source notes' `derivations` field with backlink to this new note.
 
@@ -151,8 +151,8 @@ derivations: []
 
 ## Helper Tools
 
-- `concept_search.py [query]` - Search for similar permanent notes
-- `link_analysis.py --suggest [title]` - Connection suggestions
+- `bun scripts/concept_search.ts [query]` - Search for similar permanent notes
+- `bun scripts/link_analysis.ts --suggest [title]` - Connection suggestions
 - `domains/*.md` - Domain-specific thickness templates
 
 ## Examples

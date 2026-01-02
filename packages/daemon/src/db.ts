@@ -22,16 +22,22 @@ async function resolveDatabaseUrl(): Promise<string> {
   throw new Error("Database URL not configured. Set DERE_DATABASE_URL or config.database.url");
 }
 
+export async function createDb(): Promise<{ db: Kysely<Database>; pool: Pool }> {
+  const databaseUrl = await resolveDatabaseUrl();
+  const pool = new Pool({ connectionString: databaseUrl });
+  const instance = new Kysely<Database>({
+    dialect: new PostgresDialect({ pool }),
+  });
+  return { db: instance, pool };
+}
+
 export async function getDb(): Promise<Kysely<Database>> {
   if (db) {
     return db;
   }
 
-  const databaseUrl = await resolveDatabaseUrl();
-  const pool = new Pool({ connectionString: databaseUrl });
-  db = new Kysely<Database>({
-    dialect: new PostgresDialect({ pool }),
-  });
+  const created = await createDb();
+  db = created.db;
 
   return db;
 }

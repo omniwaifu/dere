@@ -13,7 +13,11 @@
     "typecheck:oxlint": "oxlint --type-aware --type-check",
     "lint": "oxlint",
     "format": "oxfmt --write .",
+    "migrate": "bun packages/daemon/src/migrate.ts",
     "check": "oxlint && tsc -b"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

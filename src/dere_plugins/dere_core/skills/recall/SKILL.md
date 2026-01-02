@@ -18,13 +18,13 @@ Query memory system to recall relevant past conversations and entity relationshi
 
 **For entity mentions:**
 
-1. Run `scripts/entity_search.py <entity>` for timeline
-2. Run `scripts/related_entities.py <entity>` for connections
+1. Run `bun scripts/entity_search.ts <entity>` for timeline
+2. Run `bun scripts/related_entities.ts <entity>` for connections
 3. Integrate naturally into response
 
 **For session history:**
 
-1. Run `scripts/session_history.py <session_id>`
+1. Run `bun scripts/session_history.ts <session_id>`
 2. Pull relevant context
 
 ## Integration Style
@@ -43,10 +43,10 @@ Query memory system to recall relevant past conversations and entity relationshi
 ## Example
 
 ```bash
-./scripts/entity_search.py "authentication"
+bun ./scripts/entity_search.ts "authentication"
 # Returns sessions where authentication was discussed
 
-./scripts/related_entities.py "authentication" 5
+bun ./scripts/related_entities.ts "authentication" 5
 # Returns: JWT, OAuth, sessions, etc.
 ```
 

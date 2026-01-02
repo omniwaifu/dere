@@ -14,7 +14,7 @@ Core thesis: squeeze real utility out of the subscription (coding, tasks, resear
 
 ### Prereqs
 
-- Python 3.13+, `uv`, `just`
+- Python 3.13+ (for legacy plugins), `uv`, `just`
 - Claude Code CLI installed and working
 - `bun` (required by `just install`; also used for UI + some MCP tooling)
 - PostgreSQL (daemon state)
@@ -78,18 +78,24 @@ export DERE_PROJECT_PATH=/path/to/dere
 ## Repo layout
 
 ```
+packages/
+├── daemon/            # TS daemon (Hono)
+├── dere-graph/        # TS graph service
+├── discord/           # Discord integration
+├── shared-config/     # Config loader + schema validation
+├── shared-llm/        # LLM schemas + clients
+├── shared-runtime/    # Runtime helpers (tasks, ActivityWatch, daemon client)
+└── ui/                # React/Vite UI
 src/
-├── dere_shared/       # Shared config/utilities (legacy Python)
-├── dere_ui/           # React/Vite UI
 └── dere_plugins/      # Claude Code plugins (modes, agents, commands, output styles)
 ```
 
 ## Dev commands
 
 ```bash
-just test       # pytest
-just lint       # ruff check
-just fmt        # ruff format
+just test       # bun test
+just lint       # oxlint
+just fmt        # oxfmt
 just dev        # run daemon
 just dev-all    # daemon + discord (+ UI via Procfile)
 just ui         # UI dev server

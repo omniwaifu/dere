@@ -340,11 +340,11 @@ class SettingsBuilder {
     if (!pluginsPath) {
       return;
     }
-    const statusline = resolve(pluginsPath, "dere_core", "scripts", "dere-statusline.py");
+    const statusline = resolve(pluginsPath, "dere_core", "scripts", "dere-statusline.ts");
     if (existsSync(statusline)) {
       settings.statusLine = {
         type: "command",
-        command: statusline,
+        command: `bun ${statusline}`,
         padding: 0,
       };
     }

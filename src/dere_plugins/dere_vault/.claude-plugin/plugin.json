@@ -4,7 +4,8 @@
   "description": "Zettelkasten knowledge vault skills for working with Obsidian-style markdown vaults following atomic note principles",
   "mcpServers": {
     "zotero": {
-      "command": "dere-vault-zotero-mcp"
+      "command": "bun",
+      "args": ["${DERE_PROJECT_PATH}/src/dere_plugins/dere_vault/mcp_server/server.ts"]
     }
   }
 }

@@ -17,8 +17,8 @@ Query and analyze ActivityWatch time tracking data to provide insights into actu
 
 ## Workflow
 
-1. **Query ActivityWatch**: Use `dere_shared.activitywatch` functions:
-   - `get_activity_context()` - Current/recent activity
+1. **Query ActivityWatch**: Use `@dere/shared-runtime` helpers:
+   - `getActivityContext()` - Current/recent activity
    - Could extend with time-range queries for historical data
 
 2. **Analyze patterns**:

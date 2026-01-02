@@ -23,7 +23,7 @@ clean:
 
 # Run tests
 test:
-    uv run pytest -v
+    bun test
 
 # Run knowledge graph evals
 kg-eval ARGS="":
@@ -31,11 +31,11 @@ kg-eval ARGS="":
 
 # Export JSON schemas (LLM + config)
 schemas:
-    uv run python scripts/export_schemas.py
+    bun scripts/export_schemas.ts
 
 # Export OpenAPI schema for the daemon
 openapi:
-    uv run python scripts/export_openapi.py
+    bun scripts/export_openapi.ts
 
 # Generate OpenAPI types for TS client
 gen-openapi:
@@ -59,15 +59,19 @@ ts-daemon:
 
 # Run linting
 lint:
-    uv run ruff check .
+    bun run lint
 
 # Format Python code
 fmt:
-    uv run ruff format .
+    bun run format
 
 # Run development daemon
 dev:
     bun packages/daemon/src/index.ts
+
+# Run DB migrations (Kysely baseline)
+db-migrate:
+    bun packages/daemon/src/migrate.ts
 
 # Stop running daemon
 stop:

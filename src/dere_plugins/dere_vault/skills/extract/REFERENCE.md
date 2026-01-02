@@ -117,7 +117,7 @@ Use 2-4 tags per note. Match existing taxonomy where possible.
 ## Wikilink Requirements
 
 - Minimum 3 wikilinks to other permanent notes
-- Use `link_analysis.py --suggest "[title]"` for suggestions
+- Use `bun scripts/link_analysis.ts --suggest "[title]"` for suggestions
 - Link to: related concepts, examples, counterexamples, parent concepts
 
 ## Thickness Enforcement

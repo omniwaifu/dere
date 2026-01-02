@@ -118,7 +118,7 @@ Process fleeting notes within 1-2 days to maintain flow.
 
 ## Configuration
 
-Vault detection is automatic via `scripts/detect_vault.py`. Override in `~/.config/dere/config.toml`:
+Vault detection is automatic via `bun scripts/detect_vault.ts`. Override in `~/.config/dere/config.toml`:
 
 ```toml
 [vault]
@@ -127,22 +127,22 @@ path = "/path/to/your/vault"
 
 ## Tools
 
-### link_analysis.py
+### link_analysis.ts
 
 Analyze knowledge graph health:
 
 ```bash
-./scripts/link_analysis.py --stats        # Vault statistics
-./scripts/link_analysis.py --orphans      # Notes with < 3 links
-./scripts/link_analysis.py --suggest "X"  # Connection suggestions
+bun ./scripts/link_analysis.ts --stats        # Vault statistics
+bun ./scripts/link_analysis.ts --orphans      # Notes with < 3 links
+bun ./scripts/link_analysis.ts --suggest "X"  # Connection suggestions
 ```
 
-### concept_search.py
+### concept_search.ts
 
 Search for similar permanent notes before creating duplicates:
 
 ```bash
-./scripts/concept_search.py "concept name"
+bun ./scripts/concept_search.ts "concept name"
 ```
 
 ## Example: Thin vs Thick

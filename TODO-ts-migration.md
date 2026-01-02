@@ -21,7 +21,7 @@ Goal: improve type rigor, tooling, and LLM authoring quality by moving daemon/gr
   - Use Bun workspaces for dependency management
 - [x] What Python components stay (graph storage, migrations, etc.)?
   - **dere_graph** (SQLModel/SQLAlchemy ORM and storage layer)
-  - **Database migrations** (Alembic scripts)
+  - **Database migrations** (TS baseline via Kysely migrator)
   - **MCP servers** (existing Python implementation)
   - **Plugins infrastructure** (existing Python implementation)
   - Note: graph/DB might migrate to TS later if beneficial
@@ -40,20 +40,20 @@ Goal: improve type rigor, tooling, and LLM authoring quality by moving daemon/gr
 ## Phase 1 — Contracts and schema source of truth
 
 - [x] What structured outputs exist (AppraisalOutput, mission outputs, summaries)?
-  - **AppraisalOutput** (emotion appraisal): `src/dere_shared/emotion/models.py`
-  - **AmbientEngagementDecision**: `src/dere_shared/models.py`
-  - **AmbientMissionDecision**: `src/dere_shared/models.py`
-  - **ExplorationOutput** (ambient curiosity): `src/dere_shared/llm_schemas.py`
-  - **ScheduleParseResult** (cron parser): `src/dere_shared/llm_schemas.py`
-  - **SessionTitleResult** (session naming): `src/dere_shared/llm_schemas.py`
-- [x] Do we have JSON Schemas exported from Python (Pydantic -> JSON Schema)?
-  - **Export script**: `scripts/export_schemas.py` → `schemas/llm/*.schema.json`
-  - **Config schema export**: `scripts/export_schemas.py` → `schemas/config/dere_config.schema.json`
+  - **AppraisalOutput** (emotion appraisal): `packages/shared-llm/src/schemas.ts`
+  - **AmbientEngagementDecision**: `packages/shared-llm/src/schemas.ts`
+  - **AmbientMissionDecision**: `packages/shared-llm/src/schemas.ts`
+  - **ExplorationOutput** (ambient curiosity): `packages/shared-llm/src/schemas.ts`
+  - **ScheduleParseResult** (cron parser): `packages/shared-llm/src/schemas.ts`
+  - **SessionTitleResult** (session naming): `packages/shared-llm/src/schemas.ts`
+- [x] Do we have JSON Schemas exported from TS (Zod -> JSON Schema)?
+  - **Export script**: `scripts/export_schemas.ts` → `schemas/llm/*.schema.json`
+  - **Config schema export**: `scripts/export_schemas.ts` → `schemas/config/dere_config.schema.json`
 - [x] Do we have TS types + validators generated (zod/valibot)?
   - **LLM schemas in Zod**: `packages/shared-llm/src/schemas.ts`
   - **Config typegen pipeline**: `package.json` script `gen:config-types` (JSON Schema → TS)
 - [x] Is OpenAPI defined for daemon endpoints?
-  - **FastAPI OpenAPI export**: `scripts/export_openapi.py` → `schemas/openapi/dere_daemon.openapi.json`
+  - **OpenAPI schema**: `scripts/export_openapi.ts` → `schemas/openapi/dere_daemon.openapi.json`
 - [x] Do we have a typed HTTP client for the daemon API?
   - **Client scaffold + OpenAPI typegen**: `packages/daemon-client`
   - Run `bun run gen:openapi` after exporting OpenAPI to generate `src/openapi.ts`
@@ -72,10 +72,10 @@ Goal: improve type rigor, tooling, and LLM authoring quality by moving daemon/gr
   - **XML prompt helpers + tests**: `packages/shared-llm/src/xml-utils.ts`, `packages/shared-llm/src/xml-utils.test.ts`
 - [x] Do we have schema conformance tests (golden fixtures)?
   - **Basic conformance tests**: `packages/shared-llm/src/structured-output.test.ts`
-- [x] Is dere_shared LLM client + structured output helpers ported?
+- [x] Is shared LLM client + structured output helpers ported?
   - **Generic client + Claude Agent SDK transport**: `packages/shared-llm/src/client.ts`, `packages/shared-llm/src/claude-agent-transport.ts`
   - Note: auth/session isolation parity still pending vs Python `ClaudeClient`
-- [x] Are dere_shared emotion models + appraisal prompt builder ported?
+- [x] Are shared emotion models + appraisal prompt builder ported?
   - **OCC types + prompt builder**: `packages/shared-llm/src/emotion.ts`
   - **Zod schemas for appraisal output** live in `packages/shared-llm/src/schemas.ts`
 - [x] Is shared config loader + validation in TS (TOML -> typed)?
@@ -89,7 +89,7 @@ Goal: improve type rigor, tooling, and LLM authoring quality by moving daemon/gr
 ## Phase 3 — Graph boundary + persistence
 
 - [x] Which TS ORM will we use (Prisma/Drizzle/Kysely) and how will migrations run?
-  - **Kysely** for TS daemon DB access; **Alembic** remains for migrations (Python)
+  - **Kysely** for TS daemon DB access; baseline migration in `packages/daemon/migrations/`
 - [x] Are SQLModel schemas mapped to TS types + migration scripts?
   - **Kysely DB types expanded**: `packages/daemon/src/db-types.ts` (entities, context_cache, swarms, scratchpad)
 - [x] What is the integration boundary for dere_graph (REST/gRPC/queue)?

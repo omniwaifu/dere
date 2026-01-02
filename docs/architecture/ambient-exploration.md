@@ -331,10 +331,10 @@ async def mark_finding_surfaced(
 
 | Task                    | Files                               | Effort |
 | ----------------------- | ----------------------------------- | ------ |
-| Finding storage model   | `src/dere_shared/models.py`         | S      |
-| Finding → KG promotion  | `src/dere_graph/operations.py`      | M      |
-| Extended recall search  | `src/dere_daemon/routers/recall.py` | M      |
-| Surfacing deduplication | `src/dere_daemon/routers/recall.py` | S      |
+| Finding storage model   | `packages/daemon/src/db-types.ts`   | S      |
+| Finding → KG promotion  | `packages/daemon/src/ambient-explorer.ts` | M |
+| Extended recall search  | `packages/daemon/src/recall.ts`     | M      |
+| Surfacing deduplication | `packages/daemon/src/recall.ts`     | S      |
 
 **Deliverable:** "While you were away, I learned X" appears naturally.
 
