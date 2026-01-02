@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/productivity-context-hook.py",
+            "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/productivity-context-hook.ts",
             "description": "Inject productivity context (tasks, activity, calendar) before user prompt",
             "timeout": 60
           }
