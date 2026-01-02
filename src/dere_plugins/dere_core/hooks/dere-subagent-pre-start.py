@@ -29,8 +29,15 @@ def load_personality_config(personality_name: str) -> dict | None:
         import tomllib
 
         # Check common locations for personality configs
+        repo_root = Path(__file__).resolve().parents[4]
+        embedded_dir = Path(
+            os.getenv(
+                "DERE_EMBEDDED_PERSONALITIES_DIR",
+                repo_root / "packages" / "shared-assets" / "personalities",
+            )
+        )
         config_paths = [
-            Path.cwd() / "src" / "dere_shared" / "personalities" / f"{personality_name}.toml",
+            embedded_dir / f"{personality_name}.toml",
             Path.home() / ".config" / "dere" / "personalities" / f"{personality_name}.toml",
         ]
 

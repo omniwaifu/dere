@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib.resources
+import os
 import tomllib
 from dataclasses import dataclass
 from enum import Enum
@@ -77,28 +77,19 @@ class PersonalityLoader:
 
     def _load_from_embedded(self, name: str) -> Personality | None:
         """Load personality from embedded resources"""
-        # Try direct match first
-        try:
-            data = (
-                importlib.resources.files("dere_shared")
-                .joinpath(f"personalities/{name}.toml")
-                .read_text()
-            )
-            return self._parse_toml(data)
-        except FileNotFoundError:
-            pass
+        personalities_dir = self._embedded_dir()
+        personality_path = personalities_dir / f"{name}.toml"
+        if personality_path.exists():
+            return self._parse_toml(personality_path.read_text())
 
         # Search all embedded personalities by alias
-        try:
-            personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
-            for file_path in personalities_path.iterdir():
+        if personalities_dir.exists():
+            for file_path in personalities_dir.iterdir():
                 if file_path.is_file() and file_path.name.endswith(".toml"):
                     data = file_path.read_text()
                     personality = self._parse_toml(data)
                     if self._matches(personality, name):
                         return personality
-        except FileNotFoundError:
-            pass
 
         return None
 
@@ -141,13 +132,11 @@ class PersonalityLoader:
         personalities = []
 
         # Embedded personalities
-        try:
-            personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
+        personalities_path = self._embedded_dir()
+        if personalities_path.exists():
             for file_path in personalities_path.iterdir():
                 if file_path.is_file() and file_path.name.endswith(".toml"):
                     personalities.append(file_path.name.removesuffix(".toml"))
-        except (FileNotFoundError, AttributeError):
-            pass
 
         # User config personalities
         if self.config_dir:
@@ -197,13 +186,11 @@ class PersonalityLoader:
     def _get_embedded_names(self) -> set[str]:
         """Get all embedded personality names"""
         names: set[str] = set()
-        try:
-            personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
+        personalities_path = self._embedded_dir()
+        if personalities_path.exists():
             for file_path in personalities_path.iterdir():
                 if file_path.is_file() and file_path.name.endswith(".toml"):
                     names.add(file_path.name.removesuffix(".toml"))
-        except (FileNotFoundError, AttributeError):
-            pass
         return names
 
     def _get_user_config_names(self) -> set[str]:
@@ -234,30 +221,29 @@ class PersonalityLoader:
                 return tomllib.loads(personality_path.read_text())
 
         # Fall back to embedded
-        try:
-            data = (
-                importlib.resources.files("dere_shared")
-                .joinpath(f"personalities/{normalized}.toml")
-                .read_text()
-            )
-            return tomllib.loads(data)
-        except FileNotFoundError:
-            pass
+        personalities_dir = self._embedded_dir()
+        personality_path = personalities_dir / f"{normalized}.toml"
+        if personality_path.exists():
+            return tomllib.loads(personality_path.read_text())
 
         # Search embedded by alias
-        try:
-            personalities_path = importlib.resources.files("dere_shared").joinpath("personalities")
-            for file_path in personalities_path.iterdir():
+        if personalities_dir.exists():
+            for file_path in personalities_dir.iterdir():
                 if file_path.is_file() and file_path.name.endswith(".toml"):
                     data = file_path.read_text()
                     parsed = tomllib.loads(data)
                     personality = self._parse_toml(data)
                     if self._matches(personality, normalized):
                         return parsed
-        except FileNotFoundError:
-            pass
 
         raise ValueError(f"Personality '{name}' not found")
+
+    def _embedded_dir(self) -> Path:
+        env_dir = os.getenv("DERE_EMBEDDED_PERSONALITIES_DIR")
+        if env_dir:
+            return Path(env_dir)
+        repo_root = Path(__file__).resolve().parents[2]
+        return repo_root / "packages" / "shared-assets" / "personalities"
 
     def save_to_user_config(self, name: str, data: dict[str, Any]) -> None:
         """Save personality to user config directory"""

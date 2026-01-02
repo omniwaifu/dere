@@ -15,7 +15,7 @@ function embeddedDir(): string {
   if (envDir) {
     return envDir;
   }
-  return join(process.cwd(), "src", "dere_shared", "personalities");
+  return join(process.cwd(), "packages", "shared-assets", "personalities");
 }
 
 function userDir(): string {
