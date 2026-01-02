@@ -132,11 +132,11 @@ sandbox-build:
 
 # Run UI development server
 ui:
-    cd src/dere_ui && bun run dev
+    cd packages/ui && bun run dev
 
 # Build UI for production
 ui-build:
-    cd src/dere_ui && bun run build
+    cd packages/ui && bun run build
 
 # Install UI dependencies
 ui-install:

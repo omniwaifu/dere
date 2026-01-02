@@ -100,4 +100,4 @@ just falkordb   # graph DB in docker
 
 ## Docs
 
-- UI: `src/dere_ui/README.md`
+- UI: `packages/ui/README.md`
