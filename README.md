@@ -80,10 +80,8 @@ export DERE_PROJECT_PATH=/path/to/dere
 ```
 src/
 ├── dere_cli/          # CLI wrapper (entry: `dere`)
-├── dere_daemon/       # FastAPI daemon (state, missions, graph init)
-├── dere_ambient/      # Proactive monitoring/notifications
-├── dere_graph/        # Knowledge graph library (FalkorDB + OpenAI embeddings)
-├── dere_shared/       # Shared config/utilities
+├── dere_ambient/      # Proactive monitoring/notifications (legacy Python)
+├── dere_shared/       # Shared config/utilities (legacy Python)
 ├── dere_ui/           # React/Vite UI
 └── dere_plugins/      # Claude Code plugins (modes, agents, commands, output styles)
 ```
@@ -102,5 +100,4 @@ just falkordb   # graph DB in docker
 
 ## Docs
 
-- Graph: `src/dere_graph/README.md`
 - UI: `src/dere_ui/README.md`

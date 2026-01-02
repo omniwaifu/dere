@@ -67,7 +67,7 @@ fmt:
 
 # Run development daemon
 dev:
-    uv run python -m dere_daemon.main
+    bun packages/daemon/src/index.ts
 
 # Stop running daemon
 stop:

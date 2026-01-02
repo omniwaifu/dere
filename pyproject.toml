@@ -21,7 +21,6 @@ dependencies = [
   "tiktoken>=0.5.0",
   "pyyaml>=6.0.0",
   "jinja2>=3.1.0",
-  "dere-graph",
   "pyzotero>=1.7.5",
   "fastmcp>=2.14.0",
   "youtube-transcript-api>=1.2.3",
@@ -36,7 +35,6 @@ dev = ["ruff>=0.13.3", "mypy>=1.18.2", "pytest>=8.4.2", "pytest-asyncio>=1.2.0",
 
 [project.scripts]
 dere = "dere_cli.main:app"
-dere-daemon = "dere_daemon.main:main"
 dere-taskwarrior-mcp = "dere_productivity.scripts.taskwarrior_mcp_wrapper:main"
 dere-vault-zotero-mcp = "dere_plugins.dere_vault.mcp_server.server:main"
 
@@ -46,7 +44,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = [
-  "src/dere_daemon",
   "src/dere_cli",
   "src/dere_shared",
   "src/dere_ambient",
@@ -86,9 +83,3 @@ include = ["src/dere_plugins/**/scripts/**/*.py"]
 [tool.ty.overrides.rules]
 unresolved-import = "ignore"
 unresolved-reference = "warn"
-
-[tool.uv.workspace]
-members = ["src/dere_graph"]
-
-[tool.uv.sources]
-dere-graph = { workspace = true }
