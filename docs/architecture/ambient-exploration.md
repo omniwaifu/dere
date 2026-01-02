@@ -302,12 +302,12 @@ async def mark_finding_surfaced(
 
 | Task                                    | Files                                | Effort |
 | --------------------------------------- | ------------------------------------ | ------ |
-| Add `EXPLORING` state to FSM            | `src/dere_ambient/fsm.py`            | S      |
-| Add state transition logic              | `src/dere_ambient/fsm.py`            | S      |
-| Add `ExploringConfig`                   | `src/dere_ambient/config.py`         | S      |
-| Create exploration work selection       | `src/dere_ambient/explorer.py` (new) | M      |
-| Add `_do_exploration_work()` to monitor | `src/dere_ambient/monitor.py`        | M      |
-| Create curiosity task type handling     | `src/dere_daemon/work_queue/`        | S      |
+| Add `EXPLORING` state to FSM            | `packages/daemon/src/ambient-fsm.ts` | S      |
+| Add state transition logic              | `packages/daemon/src/ambient-fsm.ts` | S      |
+| Add `ExploringConfig`                   | `packages/daemon/src/ambient-config.ts` | S   |
+| Create exploration work selection       | `packages/daemon/src/ambient-explorer.ts` | M |
+| Add `_do_exploration_work()` to monitor | `packages/daemon/src/ambient-monitor.ts` | M  |
+| Create curiosity task type handling     | `packages/daemon/src/work-queue.ts`  | S      |
 
 **Deliverable:** Can manually add curiosity tasks, dere explores them during idle.
 
@@ -317,11 +317,11 @@ async def mark_finding_surfaced(
 
 | Task                       | Files                                      | Effort |
 | -------------------------- | ------------------------------------------ | ------ |
-| Unfamiliar entity detector | `src/dere_ambient/triggers/entities.py`    | M      |
-| Correction detector        | `src/dere_ambient/triggers/corrections.py` | M      |
-| Emotional peak detector    | `src/dere_ambient/triggers/emotions.py`    | S      |
-| Post-conversation hook     | `src/dere_daemon/routers/conversations.py` | S      |
-| Priority calculation       | `src/dere_ambient/triggers/priority.py`    | S      |
+| Unfamiliar entity detector | `packages/daemon/src/ambient-triggers/entities.ts` | M |
+| Correction detector        | `packages/daemon/src/ambient-triggers/corrections.ts` | M |
+| Emotional peak detector    | `packages/daemon/src/ambient-triggers/emotions.ts` | S |
+| Post-conversation hook     | `packages/daemon/src/conversations.ts` | S      |
+| Priority calculation       | `packages/daemon/src/ambient-triggers/priority.ts` | S |
 
 **Deliverable:** Curiosity items auto-created from conversation analysis.
 
@@ -344,10 +344,10 @@ async def mark_finding_surfaced(
 
 | Task                              | Files                                | Effort |
 | --------------------------------- | ------------------------------------ | ------ |
-| Contradicting fact detection      | `src/dere_graph/dedup.py`            | M      |
-| Supersedes/superseded_by tracking | `src/dere_graph/models.py`           | S      |
-| Exploration metrics dashboard     | `src/dere_daemon/routers/metrics.py` | M      |
-| Cost tracking                     | `src/dere_ambient/explorer.py`       | S      |
+| Contradicting fact detection      | `packages/dere-graph/src/graph-dedup.ts` | M   |
+| Supersedes/superseded_by tracking | `packages/dere-graph/src/graph-models.ts` | S |
+| Exploration metrics dashboard     | `packages/daemon/src/metrics.ts`     | M      |
+| Cost tracking                     | `packages/daemon/src/ambient-explorer.ts` | S |
 
 ---
 
@@ -401,6 +401,6 @@ async def mark_finding_surfaced(
 - Strix: https://timkellogg.me/blog/2025/12/15/strix
 - MemGPT/Letta: https://docs.letta.com/concepts/memgpt/
 - ProactiveAgent: https://github.com/leomariga/ProactiveAgent
-- Existing AmbientFSM: `src/dere_ambient/fsm.py`
-- Existing MissionExecutor: `src/dere_daemon/missions/executor.py`
-- Existing WorkQueue: `src/dere_daemon/work_queue/`
+- Existing AmbientFSM: `packages/daemon/src/ambient-fsm.ts`
+- Existing MissionExecutor: `packages/daemon/src/mission-executor.ts`
+- Existing WorkQueue: `packages/daemon/src/work-queue.ts`

@@ -79,7 +79,6 @@ export DERE_PROJECT_PATH=/path/to/dere
 
 ```
 src/
-├── dere_ambient/      # Proactive monitoring/notifications (legacy Python)
 ├── dere_shared/       # Shared config/utilities (legacy Python)
 ├── dere_ui/           # React/Vite UI
 └── dere_plugins/      # Claude Code plugins (modes, agents, commands, output styles)

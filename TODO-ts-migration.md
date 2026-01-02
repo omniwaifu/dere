@@ -133,7 +133,7 @@ Goal: improve type rigor, tooling, and LLM authoring quality by moving daemon/gr
   - **Batch appraisal + decay loop + runtime wiring**: `packages/daemon/src/emotion-manager.ts`, `packages/daemon/src/emotion-runtime.ts`
 - [x] Is memory consolidation loop ported (queue + summaries + run tracking)?
   - **Task queue processing + summary blocks + run tracking**: `packages/daemon/src/memory-consolidation.ts`
-- [x] Is ambient monitor + analyzer ported (dere_ambient)?
+- [x] Is ambient monitor + analyzer ported (now in TS daemon)?
   - **Monitor + analyzer + FSM**: `packages/daemon/src/ambient-monitor.ts`, `packages/daemon/src/ambient-analyzer.ts`, `packages/daemon/src/ambient-fsm.ts`
   - **Exploration + curiosity triggers**: `packages/daemon/src/ambient-explorer.ts`, `packages/daemon/src/ambient-triggers/*`
   - **Note**: exploration now uses TS endpoints for ActivityWatch/Taskwarrior/emotion; KG/entity search still uses Python `/kg` + `/search`
