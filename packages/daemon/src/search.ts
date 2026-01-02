@@ -6,7 +6,7 @@ import {
   OpenAIEmbedder,
   type SearchFilters,
   hybridNodeSearch,
-  searchGraph
+  searchGraph,
 } from "@dere/graph";
 
 function parseLimit(value: unknown, fallback: number): number {

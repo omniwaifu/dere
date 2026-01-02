@@ -8,5 +8,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../shared-config" }, { "path": "../shared-llm" }]
+  "references": [{ "path": "../shared-config" }]
 }

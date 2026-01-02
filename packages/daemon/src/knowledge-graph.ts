@@ -9,7 +9,7 @@ import {
   toStringArray,
   hybridFactSearch,
   searchGraph,
-  type SearchFilters
+  type SearchFilters,
 } from "@dere/graph";
 
 type FactRoleSummary = {

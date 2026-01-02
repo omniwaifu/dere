@@ -11,7 +11,7 @@ Create concrete implementation plans from feature requests.
 
 ## Workflow
 
-1. **Read memories:** list_memories() → read architecture_overview, stack, code_style, relevant pattern-_/decision-_
+1. **Read memories:** list*memories() → read architecture_overview, stack, code_style, relevant pattern-*/decision-\_
 2. **Explore structure:** list_dir → find_file → get_symbols_overview on key files
 3. **Research if needed:** Context7 for new library best practices
 4. **Analyze scope:** what exists, what's new, what changes, dependencies between parts

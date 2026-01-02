@@ -61,9 +61,7 @@ function getScheduleClient(): StructuredOutputClient {
   });
 }
 
-export async function parseSchedule(
-  schedule: string,
-): Promise<{
+export async function parseSchedule(schedule: string): Promise<{
   cron_expression: string;
   timezone: string;
   natural_language_schedule: string | null;

@@ -81,7 +81,6 @@ export DERE_PROJECT_PATH=/path/to/dere
 src/
 ├── dere_cli/          # CLI wrapper (entry: `dere`)
 ├── dere_daemon/       # FastAPI daemon (state, missions, graph init)
-├── dere_discord/      # Discord bot
 ├── dere_ambient/      # Proactive monitoring/notifications
 ├── dere_graph/        # Knowledge graph library (FalkorDB + OpenAI embeddings)
 ├── dere_shared/       # Shared config/utilities

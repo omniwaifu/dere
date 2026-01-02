@@ -14,7 +14,7 @@ import {
   toStringArray,
   searchGraph,
   trackEntityRetrievals,
-  type SearchFilters
+  type SearchFilters,
 } from "@dere/graph";
 
 import { getDb } from "./db.js";
