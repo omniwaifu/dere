@@ -17,6 +17,26 @@ export class ConfigError extends Error {
 
 export type { DereConfig };
 
+export function getDaemonUrlFromConfig(config: DereConfig): string {
+  const ambientUrl = config.ambient?.daemon_url;
+  if (typeof ambientUrl === "string" && ambientUrl.trim().length > 0) {
+    return ambientUrl.trim();
+  }
+
+  const daemonSection = (config as Record<string, unknown>).daemon;
+  if (daemonSection && typeof daemonSection === "object" && !Array.isArray(daemonSection)) {
+    const record = daemonSection as Record<string, unknown>;
+    if (typeof record.url === "string" && record.url.trim().length > 0) {
+      return record.url.trim();
+    }
+    if (typeof record.daemon_url === "string" && record.daemon_url.trim().length > 0) {
+      return record.daemon_url.trim();
+    }
+  }
+
+  throw new ConfigError("daemon_url missing in config (ambient.daemon_url)");
+}
+
 export function parseTomlString(text: string): unknown {
   try {
     return parse(text) as unknown;

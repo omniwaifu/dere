@@ -71,6 +71,19 @@ function toEmotionEvents(
   });
 }
 
+async function loadEmotionSummary(sessionId: number | null): Promise<string> {
+  const db = await getDb();
+  const row = await db
+    .selectFrom("emotion_states")
+    .select(["primary_emotion", "primary_intensity"])
+    .where("session_id", "=", sessionId ?? null)
+    .orderBy("last_update", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  return formatSummary(row?.primary_emotion ?? null, row?.primary_intensity ?? null);
+}
+
 export function registerEmotionRoutes(app: Hono): void {
   app.get("/emotion/state", async (c) => {
     const db = await getDb();
@@ -119,16 +132,18 @@ export function registerEmotionRoutes(app: Hono): void {
   });
 
   app.get("/emotion/summary", async (c) => {
-    const db = await getDb();
-    const row = await db
-      .selectFrom("emotion_states")
-      .select(["primary_emotion", "primary_intensity"])
-      .where("session_id", "is", null)
-      .orderBy("last_update", "desc")
-      .limit(1)
-      .executeTakeFirst();
+    const summary = await loadEmotionSummary(null);
+    return c.json({ summary });
+  });
 
-    const summary = formatSummary(row?.primary_emotion ?? null, row?.primary_intensity ?? null);
+  app.get("/emotion/summary/:sessionId", async (c) => {
+    const raw = c.req.param("sessionId");
+    const sessionId = Number(raw);
+    if (!Number.isFinite(sessionId)) {
+      return c.json({ summary: formatSummary(null, null) });
+    }
+
+    const summary = await loadEmotionSummary(sessionId);
     return c.json({ summary });
   });
 

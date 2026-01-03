@@ -1,4 +1,4 @@
-import { daemonRequest } from "@dere/shared-runtime";
+import { daemonRequest } from "../lib/daemon-client.ts";
 
 type JsonRecord = Record<string, unknown>;
 

@@ -1,8 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-
-import { daemonRequest } from "@dere/shared-runtime";
+import { daemonRequest } from "../lib/daemon-client.ts";
 
 type JsonRecord = Record<string, unknown>;
 

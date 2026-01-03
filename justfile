@@ -43,6 +43,8 @@ gen-config-types:
 # Install JS/TS dependencies (workspace root)
 ts-install:
     bun install
+    mkdir -p ~/.local/bin
+    ln -sf $(pwd)/packages/cli/src/main.ts ~/.local/bin/dere
 
 # Run TS tests (shared-llm)
 ts-test:
@@ -94,12 +96,10 @@ stop:
 
 # Run all services (daemon + discord + ui)
 dev-all:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    DERE_SANDBOX_BIND_PLUGINS=1 bun packages/daemon/src/index.ts &
-    bun run packages/discord/src/main.ts &
-    (cd packages/ui && bun run dev) &
-    wait
+    DERE_SANDBOX_BIND_PLUGINS=1 bunx concurrently --kill-others -n daemon,discord,ui -c blue,magenta,cyan \
+        "bun packages/daemon/src/index.ts" \
+        "bun packages/discord/src/main.ts" \
+        "cd packages/ui && bun run dev"
 
 # Show project info
 info:

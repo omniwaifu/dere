@@ -4,9 +4,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getConfigPath } from "@dere/shared-config";
+import { getConfigPath, loadConfig, getDaemonUrlFromConfig } from "@dere/shared-config";
 
-const DEFAULT_DAEMON_URL = process.env.DERE_DAEMON_URL ?? "http://localhost:3000";
+async function resolveDaemonUrl(): Promise<string> {
+  const config = await loadConfig();
+  return getDaemonUrlFromConfig(config);
+}
 
 const MAIN_HELP = `Dere - Personality-layered wrapper for Claude Code
 
@@ -56,7 +59,8 @@ async function daemonStatus(): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2000);
   try {
-    const response = await fetch(`${DEFAULT_DAEMON_URL}/health`, {
+    const daemonUrl = await resolveDaemonUrl();
+    const response = await fetch(`${daemonUrl}/health`, {
       signal: controller.signal,
     });
     if (!response.ok) {

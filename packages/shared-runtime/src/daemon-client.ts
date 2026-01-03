@@ -2,12 +2,13 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 
-import { DEFAULT_DAEMON_URL } from "./constants.js";
+import { loadConfig, getDaemonUrlFromConfig } from "@dere/shared-config";
 
 export type JsonRecord = Record<string, unknown>;
 
-export function getDaemonUrl(): string {
-  return process.env.DERE_DAEMON_URL ?? DEFAULT_DAEMON_URL;
+export async function getDaemonUrl(): Promise<string> {
+  const config = await loadConfig();
+  return getDaemonUrlFromConfig(config);
 }
 
 export function parseDaemonUrl(url: string): { baseUrl: string; socketPath?: string } {
@@ -76,7 +77,7 @@ export async function daemonRequest<T = JsonRecord>(args: {
   body?: unknown;
   timeoutMs?: number;
 }): Promise<{ status: number; data: T | null; text: string }> {
-  const url = getDaemonUrl();
+  const url = await getDaemonUrl();
   const { baseUrl, socketPath } = parseDaemonUrl(url);
   const params = args.query
     ? new URLSearchParams(

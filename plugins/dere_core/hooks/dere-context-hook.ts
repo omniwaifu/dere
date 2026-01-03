@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 
-import { daemonRequest } from "@dere/shared-runtime";
+import { daemonRequest } from "../lib/daemon-client.ts";
 
 const DEFAULT_DOCS_TIMEOUT_MS = 10_000;
 const DEFAULT_CONTEXT_TIMEOUT_MS = 5_000;

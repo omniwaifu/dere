@@ -1,5 +1,5 @@
-export const DEFAULT_DAEMON_URL = "http://localhost:3000";
-export const DEFAULT_DAEMON_PORT = 3000;
+export const DEFAULT_DAEMON_URL = "http://localhost:8787";
+export const DEFAULT_DAEMON_PORT = 8787;
 
 export function getDaemonSocketPath(): string {
   const xdgRuntime = process.env.XDG_RUNTIME_DIR;

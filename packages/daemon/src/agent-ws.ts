@@ -1253,6 +1253,7 @@ export function registerAgentWebSocket(app: Hono) {
                   allowDangerouslySkipPermissions: Boolean(config.auto_approve),
                   persistSession: false,
                   settingSources: ["project"],
+                  resume: state.claudeSessionId ?? undefined,
                 };
 
                 if (config.allowed_tools && config.allowed_tools.length > 0) {
@@ -1289,6 +1290,17 @@ export function registerAgentWebSocket(app: Hono) {
                 state.currentQuery = q;
 
                 for await (const message of q) {
+                  if (message.type === "system") {
+                    const sysMsg = message as Record<string, unknown>;
+                    if (sysMsg.subtype === "init" && typeof sysMsg.session_id === "string") {
+                      if (sysMsg.session_id !== state.claudeSessionId) {
+                        state.claudeSessionId = sysMsg.session_id;
+                        await updateClaudeSessionId(sessionId, sysMsg.session_id);
+                      }
+                    }
+                    continue;
+                  }
+
                   if (message.type === "stream_event") {
                     const streamEvent = message as SDKPartialAssistantMessage;
                     const raw = streamEvent.event as Record<string, unknown>;

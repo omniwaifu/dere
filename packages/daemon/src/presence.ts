@@ -69,11 +69,14 @@ export function registerPresenceRoutes(app: Hono): void {
       .where("user_id", "=", userId)
       .executeTakeFirst();
 
+    // pg driver requires jsonb values to be stringified
+    const channelsJson = JSON.stringify(availableChannels) as unknown as typeof availableChannels;
+
     if (existing) {
       await db
         .updateTable("medium_presence")
         .set({
-          available_channels: availableChannels,
+          available_channels: channelsJson,
           last_heartbeat: now,
         })
         .where("medium", "=", medium)
@@ -87,7 +90,7 @@ export function registerPresenceRoutes(app: Hono): void {
           user_id: userId,
           status: "online",
           last_heartbeat: now,
-          available_channels: availableChannels,
+          available_channels: channelsJson,
           created_at: now,
         })
         .execute();

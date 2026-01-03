@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+import { getDaemonUrlFromConfig, loadConfig } from "@dere/shared-config";
+
 import { createApp } from "./app.js";
 import { startAmbientMonitor } from "./ambient-monitor.js";
 import { initMissionRuntime } from "./mission-runtime.js";
@@ -54,43 +56,70 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
-const { app, websocket: agentWebsocket } = createApp();
-
-startAmbientMonitor().catch((error) => {
-  console.log(`[ambient] failed to start: ${String(error)}`);
-});
-
-initMissionRuntime();
-startSessionSummaryLoop();
-startEmotionLoop();
-startMemoryConsolidationLoop();
-startRecallEmbeddingLoop();
-startPresenceCleanupLoop();
-
-const port = Number(process.env.DERE_DAEMON_PORT ?? 3000);
-const udsPath = process.env.DERE_DAEMON_UDS;
-
-// TCP server
-Bun.serve({
-  port,
-  fetch: app.fetch,
-  websocket: agentWebsocket,
-});
-console.log(`[daemon] listening on http://localhost:${port}`);
-
-// UDS server (optional)
-if (udsPath) {
+function parsePortFromUrl(value: string): number | null {
   try {
-    if (existsSync(udsPath)) {
-      unlinkSync(udsPath);
+    const url = new URL(value);
+    const port = Number(url.port);
+    if (!Number.isFinite(port)) {
+      return null;
     }
-    Bun.serve({
-      unix: udsPath,
-      fetch: app.fetch,
-      websocket: agentWebsocket,
-    });
-    console.log(`[daemon] listening on unix:${udsPath}`);
-  } catch (error) {
-    console.error(`[daemon] failed to start UDS server: ${String(error)}`);
+    return port > 0 ? port : null;
+  } catch {
+    return null;
   }
 }
+
+async function resolveDaemonPort(): Promise<number> {
+  const config = await loadConfig();
+  const daemonUrl = getDaemonUrlFromConfig(config);
+  const port = parsePortFromUrl(daemonUrl);
+  if (!port) {
+    throw new Error(`daemon_url missing port: ${daemonUrl}`);
+  }
+  return port;
+}
+
+async function main(): Promise<void> {
+  const { app, websocket: agentWebsocket } = createApp();
+
+  startAmbientMonitor().catch((error) => {
+    console.log(`[ambient] failed to start: ${String(error)}`);
+  });
+
+  initMissionRuntime();
+  startSessionSummaryLoop();
+  startEmotionLoop();
+  startMemoryConsolidationLoop();
+  startRecallEmbeddingLoop();
+  startPresenceCleanupLoop();
+
+  const port = await resolveDaemonPort();
+  const udsPath = process.env.DERE_DAEMON_UDS;
+
+  // TCP server
+  Bun.serve({
+    port,
+    fetch: app.fetch,
+    websocket: agentWebsocket,
+  });
+  console.log(`[daemon] listening on http://localhost:${port}`);
+
+  // UDS server (optional)
+  if (udsPath) {
+    try {
+      if (existsSync(udsPath)) {
+        unlinkSync(udsPath);
+      }
+      Bun.serve({
+        unix: udsPath,
+        fetch: app.fetch,
+        websocket: agentWebsocket,
+      });
+      console.log(`[daemon] listening on unix:${udsPath}`);
+    } catch (error) {
+      console.error(`[daemon] failed to start UDS server: ${String(error)}`);
+    }
+  }
+}
+
+void main();

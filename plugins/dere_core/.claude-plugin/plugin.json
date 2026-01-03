@@ -1,13 +1,13 @@
 {
   "name": "dere-core",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Core dere infrastructure: personality tone, emotion awareness (OCC), memory/recall, knowledge graph integration, and environmental context. Always enabled.",
   "mcpServers": {
     "swarm": {
       "command": "bun",
-      "args": ["${DERE_PROJECT_PATH}/src/dere_plugins/dere_core/mcp_server/swarm.ts"],
+      "args": ["${DERE_PROJECT_PATH}/plugins/dere_core/mcp_server/swarm.ts"],
       "env": {
-        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:3000}",
+        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:8787}",
         "DERE_SESSION_ID": "${DERE_SESSION_ID}",
         "DERE_SWARM_ID": "${DERE_SWARM_ID}",
         "DERE_SWARM_AGENT_ID": "${DERE_SWARM_AGENT_ID}",
@@ -16,9 +16,9 @@
     },
     "work-queue": {
       "command": "bun",
-      "args": ["${DERE_PROJECT_PATH}/src/dere_plugins/dere_core/mcp_server/work_queue.ts"],
+      "args": ["${DERE_PROJECT_PATH}/plugins/dere_core/mcp_server/work_queue.ts"],
       "env": {
-        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:3000}",
+        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:8787}",
         "DERE_SESSION_ID": "${DERE_SESSION_ID}",
         "DERE_SWARM_ID": "${DERE_SWARM_ID}",
         "DERE_SWARM_AGENT_ID": "${DERE_SWARM_AGENT_ID}"
@@ -26,9 +26,9 @@
     },
     "knowledge": {
       "command": "bun",
-      "args": ["${DERE_PROJECT_PATH}/src/dere_plugins/dere_core/mcp_server/knowledge_graph.ts"],
+      "args": ["${DERE_PROJECT_PATH}/plugins/dere_core/mcp_server/knowledge_graph.ts"],
       "env": {
-        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:3000}",
+        "DERE_DAEMON_URL": "${DERE_DAEMON_URL:-http://localhost:8787}",
         "DERE_SESSION_ID": "${DERE_SESSION_ID}"
       }
     }

@@ -5,12 +5,15 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadConfig, getConfigPath, type DereConfig } from "@dere/shared-config";
+import {
+  loadConfig,
+  getConfigPath,
+  getDaemonUrlFromConfig,
+  type DereConfig,
+} from "@dere/shared-config";
 
 import { buildMcpConfig } from "./mcp.js";
 import { PersonalityLoader } from "./persona.js";
-
-const DEFAULT_DAEMON_URL = process.env.DERE_DAEMON_URL ?? "http://localhost:3000";
 
 function generateSessionId(): number {
   const base = BigInt(Date.now()) * 1_000_000n;
@@ -168,11 +171,17 @@ async function isVault(): Promise<boolean> {
   return false;
 }
 
+async function resolveDaemonUrl(): Promise<string> {
+  const config = await loadConfig();
+  return getDaemonUrlFromConfig(config);
+}
+
 async function checkDaemonAvailable(): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 500);
   try {
-    const response = await fetch(`${DEFAULT_DAEMON_URL}/health`, { signal: controller.signal });
+    const daemonUrl = await resolveDaemonUrl();
+    const response = await fetch(`${daemonUrl}/health`, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;
@@ -223,7 +232,8 @@ class SettingsBuilder {
 
     await this.addDerePlugins(settings);
     this.addStatusLine(settings);
-    this.addHookEnvironment(settings);
+    const daemonUrl = await resolveDaemonUrl();
+    this.addHookEnvironment(settings, daemonUrl);
 
     return settings;
   }
@@ -353,13 +363,13 @@ class SettingsBuilder {
     }
   }
 
-  private addHookEnvironment(settings: Record<string, any>): void {
+  private addHookEnvironment(settings: Record<string, any>, daemonUrl: string): void {
     const env = settings.env ?? {};
 
     if (this.personality) {
       env.DERE_PERSONALITY = this.personality;
     }
-    env.DERE_DAEMON_URL = DEFAULT_DAEMON_URL;
+    env.DERE_DAEMON_URL = daemonUrl;
     if (this.mode === "productivity" || this.mode === "tasks") {
       env.DERE_PRODUCTIVITY = "true";
     }

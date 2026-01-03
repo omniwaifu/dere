@@ -9,6 +9,7 @@ import { DaemonAgentClient } from "./daemon-agent.js";
 import { DaemonClient } from "./daemon.js";
 import { PersonaService } from "./persona.js";
 import { SessionManager } from "./session.js";
+import { loadConfig, getDaemonUrlFromConfig } from "@dere/shared-config";
 
 type CliOptions = {
   token?: string | null;
@@ -187,9 +188,13 @@ async function run(): Promise<void> {
 
   displayConfig(config);
 
+  const coreConfig = await loadConfig();
+  const daemonUrl = getDaemonUrlFromConfig(coreConfig);
+  const wsUrl = daemonUrl.replace(/^http/, "ws");
+
   const personaService = new PersonaService(config.defaultPersonas);
-  const daemon = new DaemonClient();
-  const daemonAgent = new DaemonAgentClient();
+  const daemon = new DaemonClient(daemonUrl);
+  const daemonAgent = new DaemonAgentClient(wsUrl);
   const sessions = new SessionManager(config, daemon, personaService);
   const agent = new DiscordAgent(sessions, daemonAgent, config.contextEnabled);
   const client = new DereDiscordClient({

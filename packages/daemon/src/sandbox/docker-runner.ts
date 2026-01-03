@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 
+import { getDaemonUrlFromConfig, loadConfig } from "@dere/shared-config";
+
 type JsonRecord = Record<string, unknown>;
 
 export type SandboxMountType = "direct" | "copy" | "none";
@@ -85,6 +87,35 @@ function getDaemonSocketPath(): string {
     return `${xdgRuntime}/dere/daemon.sock`;
   }
   return "/run/dere/daemon.sock";
+}
+
+function rewriteDaemonHostForDocker(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
+      parsed.hostname = "host.docker.internal";
+      return parsed.toString();
+    }
+  } catch {
+    // ignore malformed URLs
+  }
+  return url;
+}
+
+async function resolveDaemonUrlForSandbox(
+  networkMode: SandboxNetworkMode,
+  daemonSocketPath: string,
+): Promise<string> {
+  if (existsSync(daemonSocketPath)) {
+    return "http+unix:///run/dere/daemon.sock";
+  }
+
+  const config = await loadConfig();
+  const daemonUrl = getDaemonUrlFromConfig(config);
+  if (networkMode === "bridge") {
+    return rewriteDaemonHostForDocker(daemonUrl);
+  }
+  return daemonUrl;
 }
 
 function normalizeMountType(value: string | null | undefined): SandboxMountType {
@@ -220,13 +251,8 @@ export class DockerSandboxRunner {
     }
 
     if (!env.some((value) => value.startsWith("DERE_DAEMON_URL="))) {
-      if (existsSync(daemonSocketPath)) {
-        env.push("DERE_DAEMON_URL=http+unix:///run/dere/daemon.sock");
-      } else if (networkMode === "host") {
-        env.push("DERE_DAEMON_URL=http://localhost:3000");
-      } else {
-        env.push("DERE_DAEMON_URL=http://host.docker.internal:3000");
-      }
+      const daemonUrl = await resolveDaemonUrlForSandbox(networkMode, daemonSocketPath);
+      env.push(`DERE_DAEMON_URL=${daemonUrl}`);
     }
 
     const args: string[] = ["run", "--rm", "-i", "--workdir", workingDir];
@@ -445,7 +471,9 @@ export async function runDockerSandboxQuery(args: {
         const name = typeof event.data?.name === "string" ? event.data.name : undefined;
         const id = typeof event.data?.id === "string" ? event.data.id : undefined;
         const input =
-          event.data?.input && typeof event.data.input === "object" && !Array.isArray(event.data.input)
+          event.data?.input &&
+          typeof event.data.input === "object" &&
+          !Array.isArray(event.data.input)
             ? (event.data.input as Record<string, unknown>)
             : undefined;
         const toolUseBlock: {

@@ -4,8 +4,8 @@ import { promisify } from "node:util";
 import { join, resolve } from "node:path";
 import { stat } from "node:fs/promises";
 
-import { loadConfig } from "@dere/shared-config";
-import { buildSessionContextXml } from "./prompt-context.js";
+import { loadConfig, type DereConfig } from "@dere/shared-config";
+import { addLineNumbers, renderTag, renderTextTag } from "@dere/shared-llm";
 import {
   graphAvailable,
   queryGraph,
@@ -23,6 +23,15 @@ import { buildContextMetadata } from "./context-tracking.js";
 const execFileAsync = promisify(execFile);
 
 type JsonRecord = Record<string, unknown>;
+type WeatherContext = {
+  temperature?: string;
+  feels_like?: string;
+  conditions?: string;
+  humidity?: string;
+  location?: string;
+  pressure?: string;
+  wind_speed?: string;
+};
 
 function nowDate(): Date {
   return new Date();
@@ -38,6 +47,255 @@ async function parseJson<T>(req: Request): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function readNumber(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function getTimeContext(): { time: string; date: string; timezone: string } {
+  const now = new Date();
+  const time = now.toLocaleTimeString("en-US", { hour12: false });
+  const date = now.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const tzPart = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+    .formatToParts(now)
+    .find((part) => part.type === "timeZoneName");
+  const timezone = tzPart?.value ?? "UTC";
+  return { time: `${time} ${timezone}`, date, timezone };
+}
+
+async function getWeatherContext(config: DereConfig): Promise<WeatherContext | null> {
+  const context = config.context as Record<string, unknown> | undefined;
+  if (!context || readBoolean(context.weather) !== true) {
+    return null;
+  }
+
+  const weatherConfig = (config.weather ?? {}) as Record<string, unknown>;
+  const city = readString(weatherConfig.city);
+  if (!city) {
+    return null;
+  }
+  const units = readString(weatherConfig.units) ?? "metric";
+
+  try {
+    const { stdout } = await execFileAsync(
+      "rustormy",
+      ["--format", "json", "--city", city, "--units", units],
+      { timeout: 5000, encoding: "utf-8" },
+    );
+
+    const payload = JSON.parse(String(stdout)) as Record<string, unknown>;
+    const tempUnit = units === "imperial" ? "°F" : "°C";
+    return {
+      temperature: `${payload.temperature ?? "N/A"}${tempUnit}`,
+      feels_like: `${payload.feels_like ?? "N/A"}${tempUnit}`,
+      conditions: String(payload.description ?? "N/A"),
+      humidity: `${payload.humidity ?? "N/A"}%`,
+      location: String(payload.location_name ?? city),
+      pressure: `${payload.pressure ?? "N/A"} hPa`,
+      wind_speed:
+        units === "imperial"
+          ? `${payload.wind_speed ?? "N/A"} mph`
+          : `${payload.wind_speed ?? "N/A"} m/s`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getRecentFilesContext(config: DereConfig): Promise<string[] | null> {
+  const context = config.context as Record<string, unknown> | undefined;
+  if (!context || readBoolean(context.recent_files) !== true) {
+    return null;
+  }
+
+  const timeframe = readString(context.recent_files_timeframe);
+  const basePath = readString(context.recent_files_base_path);
+  const maxDepth = readNumber(context.recent_files_max_depth);
+  if (!timeframe || !basePath || maxDepth === null) {
+    return null;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      "fd",
+      [
+        "--changed-within",
+        timeframe,
+        "--type",
+        "f",
+        "--max-depth",
+        String(maxDepth),
+        ".",
+        basePath,
+      ],
+      { timeout: 1000, encoding: "utf-8" },
+    );
+    const files = String(stdout)
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return files.length > 0 ? files : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getEmotionSummary(sessionId: number | null): Promise<string | null> {
+  const db = await getDb();
+  const row = await db
+    .selectFrom("emotion_states")
+    .select(["primary_emotion", "primary_intensity"])
+    .where("session_id", "=", sessionId ?? null)
+    .orderBy("last_update", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  const emotion = row?.primary_emotion ?? null;
+  if (!emotion || emotion === "neutral") {
+    return null;
+  }
+
+  const name = emotion.replace(/_/g, " ").toLowerCase();
+  const intensityValue = row?.primary_intensity ?? 0;
+  let guidance = "Minor signal, don't overreact.";
+  if (intensityValue > 70) {
+    guidance = "Respond with care and attention to this.";
+  } else if (intensityValue > 40) {
+    guidance = "Keep this in mind when responding.";
+  }
+
+  return `Context: User showing signs of ${name}. ${guidance}`;
+}
+
+async function getConversationContext(sessionId: number): Promise<string | null> {
+  const maxAgeMinutes = 30;
+  const minTimestamp = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
+
+  const db = await getDb();
+  const row = await db
+    .selectFrom("context_cache")
+    .select(["context_text"])
+    .where("session_id", "=", sessionId)
+    .where("created_at", ">=", minTimestamp)
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  const context = row?.context_text ?? "";
+  return context.trim() ? context : null;
+}
+
+async function buildFullContextXml(args: { sessionId: number | null }): Promise<string> {
+  const config = await loadConfig();
+  const context = config.context as Record<string, unknown> | undefined;
+
+  const sections: string[] = [];
+  const environmentalParts: string[] = [];
+
+  try {
+    if (context && readBoolean(context.time) === true) {
+      const timeCtx = getTimeContext();
+      const timeParts: string[] = [];
+      if (timeCtx.time) {
+        timeParts.push(renderTextTag("time_of_day", timeCtx.time, { indent: 6 }));
+      }
+      if (timeCtx.date) {
+        timeParts.push(renderTextTag("date", timeCtx.date, { indent: 6 }));
+      }
+      if (timeCtx.timezone) {
+        timeParts.push(renderTextTag("timezone", timeCtx.timezone, { indent: 6 }));
+      }
+      if (timeParts.length > 0) {
+        environmentalParts.push(renderTag("time", timeParts.join("\n"), { indent: 4 }));
+      }
+    }
+  } catch {
+    // ignore time context errors
+  }
+
+  try {
+    const weather = await getWeatherContext(config);
+    if (weather) {
+      const weatherParts: string[] = [];
+      for (const key of [
+        "location",
+        "conditions",
+        "temperature",
+        "feels_like",
+        "humidity",
+        "pressure",
+        "wind_speed",
+      ]) {
+        const value = weather[key as keyof WeatherContext];
+        if (value) {
+          weatherParts.push(renderTextTag(key, value, { indent: 6 }));
+        }
+      }
+      if (weatherParts.length > 0) {
+        environmentalParts.push(renderTag("weather", weatherParts.join("\n"), { indent: 4 }));
+      }
+    }
+  } catch {
+    // ignore weather context errors
+  }
+
+  try {
+    const files = await getRecentFilesContext(config);
+    if (files && files.length > 0) {
+      const fileParts = files.map((path) => renderTextTag("file", path, { indent: 6 }));
+      environmentalParts.push(renderTag("recent_files", fileParts.join("\n"), { indent: 4 }));
+    }
+  } catch {
+    // ignore recent files errors
+  }
+
+  if (environmentalParts.length > 0) {
+    sections.push(renderTag("environment", environmentalParts.join("\n"), { indent: 2 }));
+  }
+
+  if (args.sessionId) {
+    const emotionSummary = await getEmotionSummary(args.sessionId);
+    if (emotionSummary) {
+      sections.push(renderTextTag("emotion", emotionSummary, { indent: 2 }));
+    }
+  }
+
+  if (args.sessionId) {
+    const conversation = await getConversationContext(args.sessionId);
+    if (conversation) {
+      sections.push(renderTextTag("conversation", conversation, { indent: 2 }));
+    }
+  }
+
+  if (sections.length === 0) {
+    return "";
+  }
+
+  let contextXml = renderTag("context", sections.join("\n"), { indent: 0 });
+  if (context && readBoolean(context.line_numbered_xml) === true) {
+    contextXml = addLineNumbers(contextXml);
+  }
+  return contextXml;
 }
 
 async function ensureSession(
@@ -755,10 +1013,9 @@ export function registerContextRoutes(app: Hono): void {
     const sessionId = c.req.query("session_id");
     const parsedSessionId = sessionId ? Number(sessionId) : null;
 
-    const context = await buildSessionContextXml({
+    const context = await buildFullContextXml({
       sessionId: Number.isFinite(parsedSessionId) ? parsedSessionId : null,
-      includeContext: true,
     });
-    return c.json({ context: context ?? "" });
+    return c.json({ context });
   });
 }

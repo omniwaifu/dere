@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { runSubcommand } from "./subcommands.js";
 import { runClaude } from "./wrapper.js";
 

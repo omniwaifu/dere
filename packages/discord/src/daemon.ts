@@ -1,5 +1,3 @@
-const DEFAULT_DAEMON_URL = process.env.DERE_DAEMON_URL ?? "http://localhost:8787";
-
 export class DaemonError extends Error {
   constructor(message: string) {
     super(message);
@@ -33,7 +31,7 @@ export class DaemonClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
 
-  constructor(baseUrl: string = DEFAULT_DAEMON_URL, timeoutSeconds = 10) {
+  constructor(baseUrl: string, timeoutSeconds = 10) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.timeoutMs = Math.max(0, timeoutSeconds * 1000);
   }

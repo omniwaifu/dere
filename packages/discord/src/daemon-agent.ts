@@ -1,9 +1,3 @@
-const DEFAULT_WS_URL =
-  process.env.DERE_DAEMON_WS_URL ??
-  (process.env.DERE_DAEMON_URL
-    ? process.env.DERE_DAEMON_URL.replace(/^http/, "ws")
-    : "ws://localhost:8787");
-
 export type StreamEventType =
   | "session_ready"
   | "text"
@@ -137,7 +131,7 @@ export class DaemonAgentClient {
   private currentSessionId: number | null = null;
   private connectLock: Promise<void> | null = null;
 
-  constructor(baseUrl: string = DEFAULT_WS_URL) {
+  constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
