@@ -376,6 +376,24 @@ export interface SwarmScratchpadTable {
   updated_at: Timestamp;
 }
 
+export interface ContradictionReviewsTable {
+  id: Generated<number>;
+  new_fact: string;
+  existing_fact_uuid: string;
+  existing_fact_text: string;
+  similarity: number;
+  reason: string;
+  source: string | null;
+  context: string | null;
+  entity_names: JsonValue;
+  group_id: string;
+  status: string;
+  resolution: string | null;
+  resolved_by: string | null;
+  resolved_at: Timestamp;
+  created_at: Timestamp;
+}
+
 export interface Database {
   missions: MissionsTable;
   mission_executions: MissionExecutionsTable;
@@ -400,4 +418,5 @@ export interface Database {
   swarms: SwarmsTable;
   swarm_agents: SwarmAgentsTable;
   swarm_scratchpad: SwarmScratchpadTable;
+  contradiction_reviews: ContradictionReviewsTable;
 }

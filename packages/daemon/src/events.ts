@@ -97,6 +97,43 @@ export type AmbientExploreEvent = {
 };
 
 // ============================================================================
+// Integration Events (Phase 1: fact-checker)
+// ============================================================================
+
+export type ContradictionDetectedEvent = {
+  newFact: string;
+  existingFactUuid: string;
+  existingFactText: string;
+  similarity: number;
+  groupId: string;
+};
+
+export type FactSupersededEvent = {
+  oldFactUuid: string;
+  oldFactText: string;
+  newFactUuid: string;
+  newFactText: string;
+  reason: string;
+  groupId: string;
+};
+
+export type ExplorationQueuedEvent = {
+  taskId: number;
+  topic: string;
+  reason: string;
+  source: string;
+  groupId: string;
+};
+
+export type EntityMergedEvent = {
+  survivorUuid: string;
+  survivorName: string;
+  mergedUuids: string[];
+  mergedNames: string[];
+  groupId: string;
+};
+
+// ============================================================================
 // Event Map
 // ============================================================================
 
@@ -113,6 +150,10 @@ export interface DaemonEvents {
   "memory:consolidate": MemoryConsolidateEvent;
   "recall:embed": RecallEmbedEvent;
   "ambient:explore": AmbientExploreEvent;
+  "integration:contradiction_detected": ContradictionDetectedEvent;
+  "integration:fact_superseded": FactSupersededEvent;
+  "planning:exploration_queued": ExplorationQueuedEvent;
+  "consolidation:entity_merged": EntityMergedEvent;
   error: ErrorEvent;
 }
 

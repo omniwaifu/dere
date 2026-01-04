@@ -4,6 +4,7 @@ import {
   ExplorationOutputSchema,
 } from "@dere/shared-llm";
 import { addFact } from "@dere/graph";
+import { integrateFindings, type Finding } from "./services/fact-checker.js";
 import { sql } from "kysely";
 
 import type { AmbientConfig } from "./ambient-config.js";
@@ -463,21 +464,25 @@ export class AmbientExplorer {
     try {
       const groupId = this.config.user_id || "default";
       const source = `curiosity:${taskId}`;
-      const promoted: string[] = [];
       const now = new Date();
 
-      for (const finding of uniqueFindings) {
-        const { fact } = await addFact({
-          fact: finding,
-          groupId,
-          source,
-          validAt: now,
-          attributes: {
-            fact_type: "exploration_finding",
-            confidence: result.confidence,
-          },
+      // Convert findings to the fact-checker format
+      const findingsToCheck: Finding[] = uniqueFindings.map((text) => ({
+        fact: text,
+        entityNames: [], // TODO: extract entities from finding text
+        source,
+        context: `exploration task ${taskId}, confidence ${result.confidence}`,
+      }));
+
+      // Use fact-checker to integrate findings (checks for contradictions)
+      const integrationResult = await integrateFindings(findingsToCheck, groupId);
+      const promoted = integrationResult.added.map((f) => f.uuid);
+
+      if (integrationResult.queued > 0) {
+        log.ambient.info("Findings queued for contradiction review", {
+          taskId,
+          queued: integrationResult.queued,
         });
-        promoted.push(fact.uuid);
       }
 
       if (promoted.length === 0) {
