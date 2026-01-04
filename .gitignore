@@ -20,6 +20,7 @@ go.work
 # Build artifacts
 bin/
 dist/
+.vite/
 
 # IDE and editor files
 .vscode/
