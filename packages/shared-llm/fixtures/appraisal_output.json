@@ -1,0 +1,22 @@
+{
+  "event_outcome": {
+    "type": "desirable",
+    "prospect": "actual",
+    "affected_goals": ["ship"],
+    "desirability": 6
+  },
+  "agent_action": {
+    "agent": "self",
+    "type": "praiseworthy",
+    "affected_standards": ["quality"],
+    "praiseworthiness": 7
+  },
+  "object_attribute": {
+    "familiarity": "familiar",
+    "type": "appealing",
+    "affected_attitudes": ["tools"],
+    "appealingness": 5
+  },
+  "resulting_emotions": [{ "type": "joy", "intensity": 45, "eliciting": "success" }],
+  "reasoning": "Shipped feature."
+}

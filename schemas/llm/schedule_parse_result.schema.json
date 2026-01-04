@@ -1,0 +1,28 @@
+{
+  "properties": {
+    "cron": {
+      "title": "Cron",
+      "type": "string"
+    },
+    "explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Explanation"
+    },
+    "timezone": {
+      "default": "UTC",
+      "title": "Timezone",
+      "type": "string"
+    }
+  },
+  "required": ["cron"],
+  "title": "ScheduleParseResult",
+  "type": "object"
+}

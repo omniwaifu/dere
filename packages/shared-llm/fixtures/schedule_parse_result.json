@@ -1,0 +1,5 @@
+{
+  "cron": "0 18 * * *",
+  "timezone": "UTC",
+  "explanation": "Daily at 6pm"
+}

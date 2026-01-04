@@ -1,0 +1,263 @@
+{
+  "$defs": {
+    "AgentAction": {
+      "description": "Agent action appraisal",
+      "properties": {
+        "affected_standards": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Standards",
+          "type": "array"
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "enum": ["self", "other"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        },
+        "praiseworthiness": {
+          "default": 0,
+          "maximum": 10,
+          "minimum": -10,
+          "title": "Praiseworthiness",
+          "type": "number"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": ["praiseworthy", "blameworthy", "neutral"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "title": "AgentAction",
+      "type": "object"
+    },
+    "EmotionSchemaOutput": {
+      "description": "Single emotion output from LLM",
+      "properties": {
+        "eliciting": {
+          "description": "Why this emotion arose",
+          "title": "Eliciting",
+          "type": "string"
+        },
+        "intensity": {
+          "description": "Intensity 0-100",
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Intensity",
+          "type": "number"
+        },
+        "type": {
+          "$ref": "#/$defs/OCCEmotionType",
+          "description": "OCC emotion type"
+        }
+      },
+      "required": ["type", "intensity", "eliciting"],
+      "title": "EmotionSchemaOutput",
+      "type": "object"
+    },
+    "EventOutcome": {
+      "description": "Event consequence appraisal",
+      "properties": {
+        "affected_goals": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Goals",
+          "type": "array"
+        },
+        "desirability": {
+          "default": 0,
+          "maximum": 10,
+          "minimum": -10,
+          "title": "Desirability",
+          "type": "number"
+        },
+        "prospect": {
+          "anyOf": [
+            {
+              "enum": ["prospective", "actual", "none"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prospect"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": ["desirable", "undesirable", "neutral"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "title": "EventOutcome",
+      "type": "object"
+    },
+    "OCCEmotionType": {
+      "description": "Taxonomy of emotions according to OCC (Ortony, Clore, Collins),\nreflecting the revised hierarchical structure.",
+      "enum": [
+        "hope",
+        "fear",
+        "joy",
+        "distress",
+        "satisfaction",
+        "relief",
+        "fears-confirmed",
+        "disappointment",
+        "happy-for",
+        "pity",
+        "gloating",
+        "resentment",
+        "pride",
+        "shame",
+        "admiration",
+        "reproach",
+        "love",
+        "hate",
+        "interest",
+        "disgust",
+        "gratitude",
+        "anger",
+        "gratification",
+        "remorse",
+        "neutral"
+      ],
+      "title": "OCCEmotionType",
+      "type": "string"
+    },
+    "ObjectAttribute": {
+      "description": "Object aspect appraisal",
+      "properties": {
+        "affected_attitudes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Attitudes",
+          "type": "array"
+        },
+        "appealingness": {
+          "default": 0,
+          "maximum": 10,
+          "minimum": -10,
+          "title": "Appealingness",
+          "type": "number"
+        },
+        "familiarity": {
+          "anyOf": [
+            {
+              "enum": ["familiar", "unfamiliar", "none"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Familiarity"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": ["appealing", "unappealing", "neutral"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "title": "ObjectAttribute",
+      "type": "object"
+    }
+  },
+  "description": "Complete appraisal output from LLM",
+  "properties": {
+    "agent_action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "event_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EventOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "object_attribute": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ObjectAttribute"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "reasoning": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reasoning"
+    },
+    "resulting_emotions": {
+      "items": {
+        "$ref": "#/$defs/EmotionSchemaOutput"
+      },
+      "minItems": 1,
+      "title": "Resulting Emotions",
+      "type": "array"
+    }
+  },
+  "required": ["resulting_emotions"],
+  "title": "AppraisalOutput",
+  "type": "object"
+}

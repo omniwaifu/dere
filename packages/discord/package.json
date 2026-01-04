@@ -1,0 +1,22 @@
+{
+  "name": "@dere/discord",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "dev": "bun src/main.ts"
+  },
+  "dependencies": {
+    "@dere/shared-config": "workspace:*",
+    "@iarna/toml": "^3.0.0",
+    "@sentry/bun": "^10.32.1",
+    "discord.js": "^14.18.0"
+  }
+}

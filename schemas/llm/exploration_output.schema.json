@@ -1,0 +1,44 @@
+{
+  "properties": {
+    "confidence": {
+      "default": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "findings": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "follow_up_questions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Follow Up Questions",
+      "type": "array"
+    },
+    "share_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Share Message"
+    },
+    "worth_sharing": {
+      "default": false,
+      "title": "Worth Sharing",
+      "type": "boolean"
+    }
+  },
+  "title": "ExplorationOutput",
+  "type": "object"
+}

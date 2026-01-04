@@ -1,0 +1,45 @@
+{
+  "name": "taskwarrior-mcp",
+  "version": "1.0.1",
+  "description": "MCP server for taskwarrior",
+  "homepage": "https://github.com/omniwaifu/taskwarrior-mcp",
+  "bugs": "https://github.com/omniwaifu/taskwarrior-mcp/issues",
+  "license": "MIT",
+  "bin": {
+    "taskwarrior-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --format=esm --external:@modelcontextprotocol/sdk --external:zod --external:zod-to-json-schema --external:diff --external:glob --external:minimatch && shx chmod +x dist/*.js",
+    "typecheck": "NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit",
+    "prepare": "npm run build && npm run typecheck",
+    "watch": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --format=esm --external:@modelcontextprotocol/sdk --external:zod --external:zod-to-json-schema --external:diff --external:glob --external:minimatch --watch",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "diff": "^7.0.0",
+    "glob": "^11.0.0",
+    "minimatch": "^10.0.1",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.0",
+    "@types/minimatch": "^5.1.2",
+    "@types/node": "^22.15.3",
+    "@typescript-eslint/eslint-plugin": "^8.32.0",
+    "@typescript-eslint/parser": "^8.32.0",
+    "esbuild": "^0.25.4",
+    "eslint": "^9.26.0",
+    "eslint-plugin-unused-imports": "^4.1.4",
+    "globals": "^16.1.0",
+    "shx": "^0.4.0",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.32.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "dere-plugins": {
+      "source": {
+        "source": "directory",
+        "path": "./plugins"
+      }
+    }
+  }
+}

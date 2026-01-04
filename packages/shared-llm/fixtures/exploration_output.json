@@ -1,0 +1,7 @@
+{
+  "findings": ["Fact A", "Fact B"],
+  "confidence": 0.7,
+  "follow_up_questions": ["What about X?"],
+  "worth_sharing": true,
+  "share_message": "FYI"
+}

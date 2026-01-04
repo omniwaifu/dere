@@ -1,0 +1,6 @@
+{
+  "should_engage": true,
+  "message": "Check in",
+  "priority": "conversation",
+  "reasoning": "User idle"
+}

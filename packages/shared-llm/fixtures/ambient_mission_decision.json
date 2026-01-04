@@ -1,0 +1,7 @@
+{
+  "send": true,
+  "message": "Take a break",
+  "priority": "alert",
+  "confidence": 0.8,
+  "reasoning": "Long session"
+}

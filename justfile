@@ -3,18 +3,17 @@
 # Default recipe
 default: install
 
-# Install binaries to user PATH
-install: plugins
-      cd src/dere_plugins/dere_productivity/mcp-server && bun run build
-      uv sync --extra dev
-      uv tool install --force --editable .
+# Install dependencies and plugins
+install: plugins ts-install
+      cd plugins/dere_productivity/mcp-server && bun install
+      cd plugins/dere_productivity/mcp-server && bun run build
 
 # Reinstall Claude Code plugins (syncs hooks/skills/etc to cache)
 plugins:
-    claude plugin uninstall dere-code@dere_plugins 2>/dev/null || true
-    claude plugin uninstall dere-core@dere_plugins 2>/dev/null || true
-    claude plugin install dere-code@dere_plugins
-    claude plugin install dere-core@dere_plugins
+    claude plugin marketplace remove dere-plugins 2>/dev/null || true
+    claude plugin marketplace add ./plugins
+    claude plugin install dere-code@dere-plugins
+    claude plugin install dere-core@dere-plugins
 
 # Clean build artifacts
 clean:
@@ -23,23 +22,53 @@ clean:
 
 # Run tests
 test:
-    uv run pytest -v
+    bun test
 
-# Run knowledge graph evals
-kg-eval ARGS="":
-    uv run python -m dere_graph.eval_cli {{ARGS}}
+# Export JSON schemas (LLM + config)
+schemas:
+    bun scripts/export_schemas.ts
+
+# Export OpenAPI schema for the daemon
+openapi:
+    bun scripts/export_openapi.ts
+
+# Generate OpenAPI types for TS client
+gen-openapi:
+    bun run gen:openapi
+
+# Generate config types from JSON Schema
+gen-config-types:
+    bun run gen:config-types
+
+# Install JS/TS dependencies (workspace root)
+ts-install:
+    bun install
+    mkdir -p ~/.local/bin
+    ln -sf $(pwd)/packages/cli/src/main.ts ~/.local/bin/dere
+
+# Run TS tests (shared-llm)
+ts-test:
+    cd packages/shared-llm && bun test
+
+# Run TS daemon (Hono)
+ts-daemon:
+    cd packages/daemon && bun run dev
 
 # Run linting
 lint:
-    uv run ruff check .
+    bun run lint
 
-# Format Python code
+# Format code
 fmt:
-    uv run ruff format .
+    bun run format
 
 # Run development daemon
 dev:
-    uv run python -m dere_daemon.main
+    bun packages/daemon/src/index.ts
+
+# Run DB migrations (Kysely baseline)
+db-migrate:
+    bun packages/daemon/src/migrate.ts
 
 # Stop running daemon
 stop:
@@ -65,21 +94,18 @@ stop:
         echo "No daemon PID file found"
     fi
 
-# Run all services (daemon + discord)
+# Run all services (daemon + discord + ui)
 dev-all:
-    DERE_SANDBOX_BIND_PLUGINS=1 uv run honcho start
-
-# Check for dependency updates
-deps-check:
-    uv pip list --outdated
+    DERE_SANDBOX_BIND_PLUGINS=1 bunx concurrently --kill-others -n daemon,discord,ui -c blue,magenta,cyan \
+        "bun packages/daemon/src/index.ts" \
+        "bun packages/discord/src/main.ts" \
+        "cd packages/ui && bun run dev"
 
 # Show project info
 info:
     @echo "dere - personality-layered wrapper for Claude CLI"
     @echo "Version: $(git describe --tags --always 2>/dev/null || echo 'dev')"
     @echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
-    @echo "Python version: $(uv run python --version 2>/dev/null || echo 'not found')"
-    @echo "UV version: $(uv --version 2>/dev/null || echo 'not found')"
 
 # Start FalkorDB (graph database)
 falkordb:
@@ -104,12 +130,12 @@ sandbox-build:
 
 # Run UI development server
 ui:
-    cd src/dere_ui && bun run dev
+    cd packages/ui && bun run dev
 
 # Build UI for production
 ui-build:
-    cd src/dere_ui && bun run build
+    cd packages/ui && bun run build
 
 # Install UI dependencies
 ui-install:
-    cd src/dere_ui && bun install
+    cd packages/ui && bun install

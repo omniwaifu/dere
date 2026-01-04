@@ -1,0 +1,17 @@
+{
+  "name": "@dere/shared-config",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@iarna/toml": "^3.0.0",
+    "zod": "^4.3.4",
+    "zod-from-json-schema": "^0.0.5"
+  }
+}

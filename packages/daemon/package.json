@@ -1,0 +1,32 @@
+{
+  "name": "@dere/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./trpc": "./src/trpc/router.ts"
+  },
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "migrate": "bun src/migrate.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.76",
+    "@dere/graph": "workspace:*",
+    "@dere/shared-config": "workspace:*",
+    "@dere/shared-llm": "workspace:*",
+    "@iarna/toml": "^3.0.0",
+    "@sentry/bun": "^10.32.1",
+    "@trpc/server": "^11.8.1",
+    "cron-parser": "^5.4.0",
+    "hono": "^4.9.2",
+    "kysely": "^0.28.7",
+    "pg": "^8.13.1",
+    "superjson": "^2.2.6"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.1"
+  }
+}

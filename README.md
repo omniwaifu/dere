@@ -14,7 +14,7 @@ Core thesis: squeeze real utility out of the subscription (coding, tasks, resear
 
 ### Prereqs
 
-- Python 3.13+, `uv`, `just`
+- Python 3.13+ (for legacy plugins), `uv`, `just`
 - Claude Code CLI installed and working
 - `bun` (required by `just install`; also used for UI + some MCP tooling)
 - PostgreSQL (daemon state)
@@ -48,13 +48,14 @@ dere config edit
 
 ### Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
+| Variable            | Purpose                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------- |
 | `DERE_PROJECT_PATH` | Path to dere repo. Required for MCP servers to work from other project directories. |
-| `DATABASE_URL` | PostgreSQL connection string (or use `[database].url` in config) |
-| `OPENAI_API_KEY` | Required for knowledge graph embeddings |
+| `DATABASE_URL`      | PostgreSQL connection string (or use `[database].url` in config)                    |
+| `OPENAI_API_KEY`    | Required for knowledge graph embeddings                                             |
 
 Add to your shell profile:
+
 ```bash
 export DERE_PROJECT_PATH=/path/to/dere
 ```
@@ -67,33 +68,34 @@ export DERE_PROJECT_PATH=/path/to/dere
 
 - `dere-core`: personality + baseline context (always)
 - `dere-code`: coding workflow automation (auto; Serena + Context7)  
-  Docs: `src/dere_plugins/dere_code/README.md`
+  Docs: `plugins/dere_code/README.md`
 - `dere-productivity`: GTD tasks/calendar/activity tooling (opt-in)  
-  Setup: `src/dere_plugins/dere_productivity/CALENDAR_SETUP.md`
+  Setup: `plugins/dere_productivity/CALENDAR_SETUP.md`
 - `dere-vault`: Obsidian/Zettelkasten workflows (opt-in)  
-  Docs: `src/dere_plugins/dere_vault/README.md`
+  Docs: `plugins/dere_vault/README.md`
 - `dere-graph-features`: graph extraction/visualization affordances (auto when daemon)
 
 ## Repo layout
 
 ```
+packages/
+├── daemon/            # TS daemon (Hono)
+├── dere-graph/        # TS graph service
+├── discord/           # Discord integration
+├── shared-config/     # Config loader + schema validation
+├── shared-llm/        # LLM schemas + clients
+├── shared-runtime/    # Runtime helpers (tasks, ActivityWatch, daemon client)
+└── ui/                # React/Vite UI
 src/
-├── dere_cli/          # CLI wrapper (entry: `dere`)
-├── dere_daemon/       # FastAPI daemon (state, missions, graph init)
-├── dere_discord/      # Discord bot
-├── dere_ambient/      # Proactive monitoring/notifications
-├── dere_graph/        # Knowledge graph library (FalkorDB + OpenAI embeddings)
-├── dere_shared/       # Shared config/utilities
-├── dere_ui/           # React/Vite UI
-└── dere_plugins/      # Claude Code plugins (modes, agents, commands, output styles)
+└── plugins/           # Claude Code plugins (modes, agents, commands, output styles)
 ```
 
 ## Dev commands
 
 ```bash
-just test       # pytest
-just lint       # ruff check
-just fmt        # ruff format
+just test       # bun test
+just lint       # oxlint
+just fmt        # oxfmt
 just dev        # run daemon
 just dev-all    # daemon + discord (+ UI via Procfile)
 just ui         # UI dev server
@@ -102,5 +104,4 @@ just falkordb   # graph DB in docker
 
 ## Docs
 
-- Graph: `src/dere_graph/README.md`
-- UI: `src/dere_ui/README.md`
+- UI: `packages/ui/README.md`
