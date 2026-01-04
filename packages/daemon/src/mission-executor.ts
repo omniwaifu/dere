@@ -763,7 +763,6 @@ export class MissionExecutor {
         }
 
         if (assistantConversationId) {
-          const db = await getDb();
           void processCuriosityTriggers({
             db,
             prompt: outputText,
@@ -815,6 +814,19 @@ export class MissionExecutor {
         .executeTakeFirstOrThrow();
 
       return updated;
+    } finally {
+      // Always close the session when mission execution ends
+      if (sessionId) {
+        try {
+          await db
+            .updateTable("sessions")
+            .set({ end_time: nowSeconds(), is_locked: true })
+            .where("id", "=", sessionId)
+            .execute();
+        } catch (cleanupError) {
+          console.log(`[missions] session cleanup failed: ${String(cleanupError)}`);
+        }
+      }
     }
   }
 

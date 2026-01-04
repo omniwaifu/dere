@@ -17,6 +17,8 @@ import {
   type SearchFilters,
 } from "@dere/graph";
 
+import { sql } from "kysely";
+
 import { getDb } from "./db.js";
 import { buildContextMetadata } from "./context-tracking.js";
 
@@ -305,17 +307,9 @@ async function ensureSession(
   medium: string | null,
 ): Promise<{ id: number; working_dir: string; medium: string | null; user_id: string | null }> {
   const db = await getDb();
-  const existing = await db
-    .selectFrom("sessions")
-    .select(["id", "working_dir", "medium", "user_id"])
-    .where("id", "=", sessionId)
-    .executeTakeFirst();
-
-  if (existing) {
-    return existing;
-  }
-
   const now = nowDate();
+
+  // Use INSERT ON CONFLICT DO NOTHING to handle race conditions
   await db
     .insertInto("sessions")
     .values({
@@ -341,14 +335,18 @@ async function ensureSession(
       name: null,
       end_time: null,
     })
+    .onConflict((oc) => oc.column("id").doNothing())
     .execute();
 
-  return {
-    id: sessionId,
-    working_dir: workingDir,
-    medium: medium ?? "cli",
-    user_id: userId,
-  };
+  // Fetch the session (either we just created it or it already existed)
+  const session = await db
+    .selectFrom("sessions")
+    .select(["id", "working_dir", "medium", "user_id"])
+    .where("id", "=", sessionId)
+    .executeTakeFirst();
+
+  // Session must exist after upsert
+  return session ?? { id: sessionId, working_dir: workingDir, medium: medium ?? "cli", user_id: userId };
 }
 
 async function isCodeProjectDir(workingDir: string): Promise<boolean> {
@@ -778,40 +776,25 @@ export function registerContextRoutes(app: Hono): void {
       const metadata = buildContextMetadata(searchResults.nodes, searchResults.edges);
 
       const db = await getDb();
-      const existingCache = await db
-        .selectFrom("context_cache")
-        .select(["session_id", "context_metadata"])
-        .where("session_id", "=", sessionId)
-        .executeTakeFirst();
+      const now = nowDate();
 
-      if (existingCache) {
-        const mergedMetadata = {
-          ...(existingCache.context_metadata && typeof existingCache.context_metadata === "object"
-            ? (existingCache.context_metadata as Record<string, unknown>)
-            : {}),
-          ...metadata,
-        };
-        await db
-          .updateTable("context_cache")
-          .set({
-            context_text: contextText,
-            context_metadata: mergedMetadata,
-            updated_at: nowDate(),
-          })
-          .where("session_id", "=", sessionId)
-          .execute();
-      } else {
-        await db
-          .insertInto("context_cache")
-          .values({
-            session_id: sessionId,
+      await db
+        .insertInto("context_cache")
+        .values({
+          session_id: sessionId,
+          context_text: contextText,
+          context_metadata: metadata,
+          created_at: now,
+          updated_at: now,
+        })
+        .onConflict((oc) =>
+          oc.column("session_id").doUpdateSet({
             context_text: contextText,
             context_metadata: metadata,
-            created_at: nowDate(),
-            updated_at: nowDate(),
-          })
-          .execute();
-      }
+            updated_at: now,
+          }),
+        )
+        .execute();
 
       return c.json({ status: "ready", context: contextText });
     } catch (error) {
@@ -976,30 +959,23 @@ export function registerContextRoutes(app: Hono): void {
       query_timestamp: nowSeconds(),
     };
 
-    if (existingCache) {
-      const merged = {
-        ...(existingCache.context_metadata && typeof existingCache.context_metadata === "object"
-          ? (existingCache.context_metadata as Record<string, unknown>)
-          : {}),
-        ...cacheMetadata,
-      };
-      await db
-        .updateTable("context_cache")
-        .set({ context_metadata: merged, updated_at: nowDate() })
-        .where("session_id", "=", sessionId)
-        .execute();
-    } else {
-      await db
-        .insertInto("context_cache")
-        .values({
-          session_id: sessionId,
-          context_text: "",
-          context_metadata: cacheMetadata,
-          created_at: nowDate(),
-          updated_at: nowDate(),
-        })
-        .execute();
-    }
+    const now = nowDate();
+    await db
+      .insertInto("context_cache")
+      .values({
+        session_id: sessionId,
+        context_text: "",
+        context_metadata: cacheMetadata,
+        created_at: now,
+        updated_at: now,
+      })
+      .onConflict((oc) =>
+        oc.column("session_id").doUpdateSet({
+          context_metadata: sql`COALESCE(context_cache.context_metadata, '{}'::jsonb) || ${JSON.stringify(cacheMetadata)}::jsonb`,
+          updated_at: now,
+        }),
+      )
+      .execute();
 
     return c.json({
       status: "ready",

@@ -13,6 +13,7 @@ import { startEmotionLoop } from "./emotion-runtime.js";
 import { startMemoryConsolidationLoop } from "./memory-consolidation.js";
 import { startRecallEmbeddingLoop } from "./recall-embeddings.js";
 import { startPresenceCleanupLoop } from "./presence.js";
+import { cleanupOrphanedSwarms } from "./swarm.js";
 
 // Sentry error tracking (optional)
 const sentryDsn = process.env.DERE_SENTRY_DSN;
@@ -81,6 +82,11 @@ async function resolveDaemonPort(): Promise<number> {
 
 async function main(): Promise<void> {
   const { app, websocket: agentWebsocket } = createApp();
+
+  // Clean up any swarms that were running when daemon crashed
+  await cleanupOrphanedSwarms().catch((error) => {
+    console.log(`[swarm] orphan cleanup failed: ${String(error)}`);
+  });
 
   startAmbientMonitor().catch((error) => {
     console.log(`[ambient] failed to start: ${String(error)}`);

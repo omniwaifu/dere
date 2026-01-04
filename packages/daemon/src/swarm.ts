@@ -28,6 +28,7 @@ const SUMMARY_MODEL = "claude-haiku-4-5";
 const MEMORY_STEWARD_NAME = "memory-steward";
 const MEMORY_SCRATCHPAD_PREFIX = "memory/";
 const MEMORY_RECALL_QUERY_LIMIT = 200;
+const DEFAULT_AGENT_TIMEOUT_SECONDS = 3600; // 1 hour default timeout for assigned agents
 
 const STATUS = {
   PENDING: "pending",
@@ -124,14 +125,48 @@ type SwarmAgentRow = {
   completed_at: Date | null;
 };
 
+type CompletionSignal = { promise: Promise<void>; resolve: () => void };
+
 type SwarmRun = {
   promise: Promise<void>;
   cancelled: boolean;
+  completionSignals: Map<number, CompletionSignal>;
 };
 
 const runningAgents = new Map<number, Promise<void>>();
-const completionSignals = new Map<number, { promise: Promise<void>; resolve: () => void }>();
 const swarmRuns = new Map<number, SwarmRun>();
+
+function isAgentTerminal(status: string): boolean {
+  return (
+    status === STATUS.COMPLETED ||
+    status === STATUS.FAILED ||
+    status === STATUS.CANCELLED ||
+    status === STATUS.SKIPPED
+  );
+}
+
+class AgentTimeoutError extends Error {
+  constructor(seconds: number) {
+    super(`Agent execution timed out after ${seconds} seconds`);
+    this.name = "AgentTimeoutError";
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutSeconds: number,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new AgentTimeoutError(timeoutSeconds)), timeoutSeconds * 1000);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
+}
 
 function nowDate(): Date {
   return new Date();
@@ -511,6 +546,11 @@ function detectDependencyCycle(agents: AgentSpec[]): string[] | null {
   return null;
 }
 
+/**
+ * Safe expression evaluator for condition strings.
+ * Supports: property access, comparisons, len(), boolean/string/number literals, logical operators.
+ * Does NOT use new Function() to prevent arbitrary code execution.
+ */
 function evaluateCondition(
   condition: string,
   outputText: string | null,
@@ -522,11 +562,11 @@ function evaluateCondition(
   let parsed: unknown = null;
   try {
     let jsonText = outputText;
-    const jsonBlock = outputText.match(/```json\\s*([\\s\\S]*?)```/i);
+    const jsonBlock = outputText.match(/```json\s*([\s\S]*?)```/i);
     if (jsonBlock?.[1]) {
       jsonText = jsonBlock[1].trim();
     } else {
-      const codeBlock = outputText.match(/```\\s*([\\s\\S]*?)```/);
+      const codeBlock = outputText.match(/```\s*([\s\S]*?)```/);
       if (codeBlock?.[1]) {
         jsonText = codeBlock[1].trim();
       }
@@ -536,65 +576,230 @@ function evaluateCondition(
     parsed = { text: outputText, raw: outputText };
   }
 
-  const len = (value: unknown) =>
-    Array.isArray(value) || typeof value === "string" ? value.length : 0;
-  const list = (value: unknown) => (Array.isArray(value) ? value : value ? [value] : []);
-  const dict = (value: unknown) => (value && typeof value === "object" ? value : {});
-  const output = new Proxy(dict(parsed), {
-    get(target, prop) {
-      if (typeof prop === "string") {
-        return (target as Record<string, unknown>)[prop];
-      }
-      return undefined;
-    },
-  });
+  const context: Record<string, unknown> = {
+    output: parsed && typeof parsed === "object" ? parsed : { text: outputText },
+  };
 
   try {
-    const fn = new Function(
-      "output",
-      "len",
-      "str",
-      "int",
-      "float",
-      "bool",
-      "list",
-      "dict",
-      "any",
-      "all",
-      "sum",
-      "min",
-      "max",
-      "abs",
-      "True",
-      "False",
-      "None",
-      `return (${condition});`,
-    );
-    const result = Boolean(
-      fn(
-        output,
-        len,
-        (value: unknown) => String(value ?? ""),
-        (value: unknown) => Number.parseInt(String(value), 10),
-        (value: unknown) => Number(value),
-        (value: unknown) => Boolean(value),
-        list,
-        dict,
-        (value: unknown[]) => value.some(Boolean),
-        (value: unknown[]) => value.every(Boolean),
-        (value: number[]) => value.reduce((acc, v) => acc + v, 0),
-        Math.min,
-        Math.max,
-        Math.abs,
-        true,
-        false,
-        null,
-      ),
-    );
-    return { result, error: null };
+    const result = evaluateExpression(condition.trim(), context);
+    return { result: Boolean(result), error: null };
   } catch (error) {
     return { result: false, error: `Condition evaluation error: ${String(error)}` };
   }
+}
+
+/**
+ * Safe expression evaluator - parses and evaluates simple expressions without using eval/Function.
+ * Supports: property access, comparisons (==, !=, <, >, <=, >=), len(), literals, logical ops (&&, ||, and, or)
+ */
+function evaluateExpression(expr: string, context: Record<string, unknown>): unknown {
+  expr = expr.trim();
+
+  // Handle logical operators (lowest precedence)
+  // Split on && or 'and', then || or 'or'
+  const orParts = splitLogical(expr, ["||", " or "]);
+  if (orParts.length > 1) {
+    return orParts.some((part) => Boolean(evaluateExpression(part, context)));
+  }
+
+  const andParts = splitLogical(expr, ["&&", " and "]);
+  if (andParts.length > 1) {
+    return andParts.every((part) => Boolean(evaluateExpression(part, context)));
+  }
+
+  // Handle negation
+  if (expr.startsWith("!") || expr.toLowerCase().startsWith("not ")) {
+    const inner = expr.startsWith("!") ? expr.slice(1) : expr.slice(4);
+    return !evaluateExpression(inner.trim(), context);
+  }
+
+  // Handle parentheses
+  if (expr.startsWith("(") && expr.endsWith(")")) {
+    return evaluateExpression(expr.slice(1, -1), context);
+  }
+
+  // Handle comparison operators
+  const compOps = ["===", "!==", "==", "!=", "<=", ">=", "<", ">"];
+  for (const op of compOps) {
+    const idx = findOperator(expr, op);
+    if (idx !== -1) {
+      const left = evaluateExpression(expr.slice(0, idx), context);
+      const right = evaluateExpression(expr.slice(idx + op.length), context);
+      switch (op) {
+        case "===":
+        case "==":
+          return left === right || String(left) === String(right);
+        case "!==":
+        case "!=":
+          return left !== right && String(left) !== String(right);
+        case "<":
+          return Number(left) < Number(right);
+        case ">":
+          return Number(left) > Number(right);
+        case "<=":
+          return Number(left) <= Number(right);
+        case ">=":
+          return Number(left) >= Number(right);
+      }
+    }
+  }
+
+  // Handle function calls: len(expr), bool(expr), str(expr), int(expr)
+  const funcMatch = expr.match(/^(len|bool|str|int|float)\s*\(\s*(.*)\s*\)$/);
+  if (funcMatch && funcMatch[1] && funcMatch[2] !== undefined) {
+    const func = funcMatch[1];
+    const arg = funcMatch[2];
+    const value = evaluateExpression(arg, context);
+    switch (func) {
+      case "len":
+        if (Array.isArray(value)) return value.length;
+        if (typeof value === "string") return value.length;
+        if (value && typeof value === "object") return Object.keys(value).length;
+        return 0;
+      case "bool":
+        return Boolean(value);
+      case "str":
+        return String(value ?? "");
+      case "int":
+        return Number.parseInt(String(value), 10);
+      case "float":
+        return Number(value);
+    }
+  }
+
+  // Handle string literals
+  if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+    return expr.slice(1, -1);
+  }
+
+  // Handle number literals
+  if (/^-?\d+(\.\d+)?$/.test(expr)) {
+    return Number(expr);
+  }
+
+  // Handle boolean literals
+  const lowerExpr = expr.toLowerCase();
+  if (lowerExpr === "true") return true;
+  if (lowerExpr === "false") return false;
+  if (lowerExpr === "null" || lowerExpr === "none") return null;
+
+  // Handle property access: output.field.nested
+  if (/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(expr)) {
+    const parts = expr.split(".");
+    let value: unknown = context;
+    for (const part of parts) {
+      if (value === null || value === undefined) return undefined;
+      if (typeof value !== "object") return undefined;
+      value = (value as Record<string, unknown>)[part];
+    }
+    return value;
+  }
+
+  // Handle array access: output.items[0]
+  const arrayMatch = expr.match(/^([a-zA-Z_][a-zA-Z0-9_.]*)\[(\d+)\]$/);
+  if (arrayMatch && arrayMatch[1] && arrayMatch[2]) {
+    const path = arrayMatch[1];
+    const indexStr = arrayMatch[2];
+    const array = evaluateExpression(path, context);
+    if (Array.isArray(array)) {
+      return array[Number(indexStr)];
+    }
+    return undefined;
+  }
+
+  // Unknown expression - return as-is for debugging
+  throw new Error(`Unsupported expression: ${expr}`);
+}
+
+/**
+ * Split expression on logical operators, respecting parentheses and quotes.
+ */
+function splitLogical(expr: string, operators: string[]): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let stringChar = "";
+  let current = "";
+
+  for (let i = 0; i < expr.length; i++) {
+    const char = expr[i];
+
+    // Handle string boundaries
+    if ((char === '"' || char === "'") && (i === 0 || expr[i - 1] !== "\\")) {
+      if (!inString) {
+        inString = true;
+        stringChar = char;
+      } else if (char === stringChar) {
+        inString = false;
+      }
+    }
+
+    // Handle parentheses depth
+    if (!inString) {
+      if (char === "(") depth++;
+      if (char === ")") depth--;
+    }
+
+    // Check for operator at current position
+    if (depth === 0 && !inString) {
+      let matched = false;
+      for (const op of operators) {
+        if (expr.slice(i, i + op.length).toLowerCase() === op.toLowerCase()) {
+          if (current.trim()) {
+            parts.push(current.trim());
+          }
+          current = "";
+          i += op.length - 1;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        current += char;
+      }
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+
+  return parts;
+}
+
+/**
+ * Find operator position in expression, respecting parentheses and quotes.
+ */
+function findOperator(expr: string, operator: string): number {
+  let depth = 0;
+  let inString = false;
+  let stringChar = "";
+
+  for (let i = 0; i < expr.length; i++) {
+    const char = expr[i];
+
+    if ((char === '"' || char === "'") && (i === 0 || expr[i - 1] !== "\\")) {
+      if (!inString) {
+        inString = true;
+        stringChar = char;
+      } else if (char === stringChar) {
+        inString = false;
+      }
+    }
+
+    if (!inString) {
+      if (char === "(") depth++;
+      if (char === ")") depth--;
+    }
+
+    if (depth === 0 && !inString && expr.slice(i, i + operator.length) === operator) {
+      return i;
+    }
+  }
+
+  return -1;
 }
 
 function computeCriticalPath(agents: SwarmAgentRow[]): string[] | null {
@@ -852,8 +1057,15 @@ function normalizeAgentSpec(raw: Record<string, unknown>): AgentSpec {
   };
 }
 
-function getCompletionSignal(agentId: number): { promise: Promise<void>; resolve: () => void } {
-  const existing = completionSignals.get(agentId);
+function getCompletionSignal(swarmId: number, agentId: number): CompletionSignal {
+  const run = swarmRuns.get(swarmId);
+  if (!run) {
+    // Return an immediately-resolved signal for non-running swarms
+    // (agents are either done or the swarm hasn't started)
+    return { promise: Promise.resolve(), resolve: () => {} };
+  }
+
+  const existing = run.completionSignals.get(agentId);
   if (existing) {
     return existing;
   }
@@ -862,7 +1074,7 @@ function getCompletionSignal(agentId: number): { promise: Promise<void>; resolve
     resolve = res;
   });
   const entry = { promise, resolve };
-  completionSignals.set(agentId, entry);
+  run.completionSignals.set(agentId, entry);
   return entry;
 }
 
@@ -1268,6 +1480,14 @@ async function executeAssignedAgent(
       })
       .where("id", "=", agent.id)
       .execute();
+  } finally {
+    // Mark session as complete regardless of success/failure
+    await db
+      .updateTable("sessions")
+      .set({ end_time: nowSeconds(), is_locked: true })
+      .where("id", "=", sessionId)
+      .execute()
+      .catch(() => null);
   }
 }
 
@@ -1327,122 +1547,176 @@ async function claimTaskForAgent(
 async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentRow): Promise<void> {
   const db = await getDb();
   const startedAt = nowDate();
+  let currentTaskId: number | null = null;
+  let sessionId: number | null = null;
 
-  await db
-    .updateTable("swarm_agents")
-    .set({ status: STATUS.RUNNING, started_at: startedAt })
-    .where("id", "=", agent.id)
-    .execute();
-
-  const sessionId = await createSessionForAgent(agent, swarm);
-  await db
-    .updateTable("swarm_agents")
-    .set({ session_id: sessionId })
-    .where("id", "=", agent.id)
-    .execute();
-
-  const startTime = nowDate();
-  let lastTaskTime = startTime;
-  let tasksCompleted = agent.tasks_completed ?? 0;
-  let tasksFailed = agent.tasks_failed ?? 0;
-
-  while (true) {
-    const elapsed = (nowDate().getTime() - startTime.getTime()) / 1000;
-    if (agent.max_duration_seconds && elapsed >= agent.max_duration_seconds) {
-      break;
-    }
-    if (agent.max_tasks && tasksCompleted >= agent.max_tasks) {
-      break;
-    }
-
-    const task = await claimTaskForAgent(
-      agent.id,
-      swarm.working_dir,
-      agent.task_types,
-      agent.capabilities,
-    );
-    if (!task) {
-      const idleTime = (nowDate().getTime() - lastTaskTime.getTime()) / 1000;
-      if (idleTime >= agent.idle_timeout_seconds) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      continue;
-    }
-
-    lastTaskTime = nowDate();
-
+  try {
     await db
       .updateTable("swarm_agents")
-      .set({ current_task_id: task.id as number })
+      .set({ status: STATUS.RUNNING, started_at: startedAt })
       .where("id", "=", agent.id)
       .execute();
 
-    const prompt = buildTaskPrompt(agent, task, swarm);
-    const { outputText: rawOutput } = await runAgentQuery({
-      swarm,
-      agent,
-      prompt,
-      sessionId,
-    });
-    const outputText = truncateOutput(rawOutput ?? "");
+    sessionId = await createSessionForAgent(agent, swarm);
+    await db
+      .updateTable("swarm_agents")
+      .set({ session_id: sessionId })
+      .where("id", "=", agent.id)
+      .execute();
 
-    const success = outputText.trim().length > 0;
-    if (success) {
-      tasksCompleted += 1;
+    const startTime = nowDate();
+    let lastTaskTime = startTime;
+    let tasksCompleted = agent.tasks_completed ?? 0;
+    let tasksFailed = agent.tasks_failed ?? 0;
+
+    while (true) {
+      // Check for cancel before each iteration
+      if (swarmRuns.get(swarm.id)?.cancelled) {
+        break;
+      }
+
+      const elapsed = (nowDate().getTime() - startTime.getTime()) / 1000;
+      if (agent.max_duration_seconds && elapsed >= agent.max_duration_seconds) {
+        break;
+      }
+      if (agent.max_tasks && tasksCompleted >= agent.max_tasks) {
+        break;
+      }
+
+      const task = await claimTaskForAgent(
+        agent.id,
+        swarm.working_dir,
+        agent.task_types,
+        agent.capabilities,
+      );
+      if (!task) {
+        const idleTime = (nowDate().getTime() - lastTaskTime.getTime()) / 1000;
+        if (idleTime >= agent.idle_timeout_seconds) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        continue;
+      }
+
+      lastTaskTime = nowDate();
+      currentTaskId = task.id as number;
+
       await db
-        .updateTable("project_tasks")
-        .set({
-          status: "done",
-          outcome: `Completed by autonomous agent '${agent.name}'`,
-          completion_notes: outputText.slice(0, 2000),
-          completed_at: nowDate(),
-          updated_at: nowDate(),
-        })
-        .where("id", "=", task.id as number)
+        .updateTable("swarm_agents")
+        .set({ current_task_id: currentTaskId })
+        .where("id", "=", agent.id)
         .execute();
-    } else {
-      tasksFailed += 1;
+
+      const prompt = buildTaskPrompt(agent, task, swarm);
+      const { outputText: rawOutput } = await runAgentQuery({
+        swarm,
+        agent,
+        prompt,
+        sessionId,
+      });
+      const outputText = truncateOutput(rawOutput ?? "");
+
+      const success = outputText.trim().length > 0;
+      if (success) {
+        tasksCompleted += 1;
+        await db
+          .updateTable("project_tasks")
+          .set({
+            status: "done",
+            outcome: `Completed by autonomous agent '${agent.name}'`,
+            completion_notes: outputText.slice(0, 2000),
+            completed_at: nowDate(),
+            updated_at: nowDate(),
+          })
+          .where("id", "=", currentTaskId)
+          .execute();
+      } else {
+        tasksFailed += 1;
+        await db
+          .updateTable("project_tasks")
+          .set({
+            status: "ready",
+            last_error: "Agent produced no output",
+            claimed_by_agent_id: null,
+            claimed_at: null,
+            updated_at: nowDate(),
+          })
+          .where("id", "=", currentTaskId)
+          .execute();
+      }
+
+      currentTaskId = null;
+      await db
+        .updateTable("swarm_agents")
+        .set({ current_task_id: null })
+        .where("id", "=", agent.id)
+        .execute();
+    }
+
+    await db
+      .updateTable("swarm_agents")
+      .set({
+        status: STATUS.COMPLETED,
+        completed_at: nowDate(),
+        output_text: `Autonomous agent completed. Tasks: ${tasksCompleted} completed, ${tasksFailed} failed.`,
+        tasks_completed: tasksCompleted,
+        tasks_failed: tasksFailed,
+      })
+      .where("id", "=", agent.id)
+      .execute();
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Mark agent as failed
+    await db
+      .updateTable("swarm_agents")
+      .set({
+        status: STATUS.FAILED,
+        completed_at: nowDate(),
+        error_message: errorMessage,
+        current_task_id: null,
+      })
+      .where("id", "=", agent.id)
+      .execute()
+      .catch(() => null);
+
+    // Release any claimed task
+    if (currentTaskId) {
       await db
         .updateTable("project_tasks")
         .set({
           status: "ready",
-          last_error: "Agent produced no output",
+          last_error: `Agent crashed: ${errorMessage}`,
           claimed_by_agent_id: null,
           claimed_at: null,
           updated_at: nowDate(),
         })
-        .where("id", "=", task.id as number)
-        .execute();
+        .where("id", "=", currentTaskId)
+        .execute()
+        .catch(() => null);
     }
 
-    await db
-      .updateTable("swarm_agents")
-      .set({ current_task_id: null })
-      .where("id", "=", agent.id)
-      .execute();
+    throw error; // Re-throw for upstream handling
+  } finally {
+    // Mark session as complete regardless of success/failure
+    if (sessionId) {
+      await db
+        .updateTable("sessions")
+        .set({ end_time: nowSeconds(), is_locked: true })
+        .where("id", "=", sessionId)
+        .execute()
+        .catch(() => null);
+    }
   }
-
-  await db
-    .updateTable("swarm_agents")
-    .set({
-      status: STATUS.COMPLETED,
-      completed_at: nowDate(),
-      output_text: `Autonomous agent completed. Tasks: ${tasksCompleted} completed, ${tasksFailed} failed.`,
-      tasks_completed: tasksCompleted,
-      tasks_failed: tasksFailed,
-    })
-    .where("id", "=", agent.id)
-    .execute();
 }
 
 async function executeAgentWithDependencies(swarmId: number, agent: SwarmAgentRow) {
-  const completion = getCompletionSignal(agent.id);
+  const completion = getCompletionSignal(swarmId, agent.id);
 
   try {
     if (agent.depends_on && agent.depends_on.length > 0) {
       for (const dep of agent.depends_on) {
-        const signal = getCompletionSignal(dep.agent_id);
+        const signal = getCompletionSignal(swarmId, dep.agent_id);
         await signal.promise;
       }
     }
@@ -1489,20 +1763,32 @@ async function executeAgentWithDependencies(swarmId: number, agent: SwarmAgentRo
       return;
     }
 
+    // Check if any dependency without a condition has failed
+    // Dependencies with conditions are evaluated separately below
     let shouldSkip = false;
+    let skipReason: string | null = null;
     if (agent.depends_on) {
       for (const dep of agent.depends_on) {
-        if (!dep.condition) {
-          continue;
-        }
         const depAgent = agents.find((item) => item.id === dep.agent_id);
         if (!depAgent) {
           continue;
         }
-        const result = evaluateCondition(dep.condition, depAgent.output_text);
-        if (!result.result) {
+
+        // For dependencies without conditions, skip if they failed
+        if (!dep.condition && depAgent.status === STATUS.FAILED) {
           shouldSkip = true;
+          skipReason = `Dependency '${depAgent.name}' failed`;
           break;
+        }
+
+        // For dependencies with conditions, evaluate the condition
+        if (dep.condition) {
+          const result = evaluateCondition(dep.condition, depAgent.output_text);
+          if (!result.result) {
+            shouldSkip = true;
+            skipReason = `Condition not met for dependency '${depAgent.name}'`;
+            break;
+          }
         }
       }
     }
@@ -1512,7 +1798,11 @@ async function executeAgentWithDependencies(swarmId: number, agent: SwarmAgentRo
         .then((db) =>
           db
             .updateTable("swarm_agents")
-            .set({ status: STATUS.SKIPPED, completed_at: nowDate() })
+            .set({
+              status: STATUS.SKIPPED,
+              completed_at: nowDate(),
+              error_message: skipReason,
+            })
             .where("id", "=", agent.id)
             .execute(),
         )
@@ -1522,11 +1812,18 @@ async function executeAgentWithDependencies(swarmId: number, agent: SwarmAgentRo
     }
 
     if (agent.mode === "autonomous") {
+      // Autonomous agents have their own timeout handling via max_duration_seconds
       await executeAutonomousAgent(swarm, agent);
     } else {
-      await executeAssignedAgent(swarm, agent, agents);
+      // Assigned agents use a timeout wrapper
+      const timeoutSeconds = agent.max_duration_seconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
+      await withTimeout(
+        executeAssignedAgent(swarm, agent, agents),
+        timeoutSeconds,
+      );
     }
   } finally {
+    runningAgents.delete(agent.id);
     completion.resolve();
   }
 }
@@ -1632,26 +1929,41 @@ async function runSwarm(swarmId: number) {
   }
 
   for (const agent of pendingAgents) {
-    const signal = getCompletionSignal(agent.id);
+    const signal = getCompletionSignal(swarmId, agent.id);
     await signal.promise;
   }
 
   await updateSwarmCompletion(swarmId);
 }
 
+// Track swarms in the process of starting to prevent race conditions
+const startingSwarms = new Set<number>();
+
 async function startSwarmExecution(swarmId: number): Promise<void> {
-  if (swarmRuns.has(swarmId)) {
+  // Atomic check: already running or already starting
+  if (swarmRuns.has(swarmId) || startingSwarms.has(swarmId)) {
     return;
   }
 
-  const run: SwarmRun = {
-    cancelled: false,
-    promise: (async () => {
-      await runSwarm(swarmId);
-      swarmRuns.delete(swarmId);
-    })(),
-  };
-  swarmRuns.set(swarmId, run);
+  // Mark as starting to prevent concurrent starts
+  startingSwarms.add(swarmId);
+
+  try {
+    const run: SwarmRun = {
+      cancelled: false,
+      completionSignals: new Map(),
+      promise: (async () => {
+        try {
+          await runSwarm(swarmId);
+        } finally {
+          swarmRuns.delete(swarmId);
+        }
+      })(),
+    };
+    swarmRuns.set(swarmId, run);
+  } finally {
+    startingSwarms.delete(swarmId);
+  }
 }
 
 async function runGitCommand(
@@ -1759,6 +2071,66 @@ async function listPlugins() {
   } catch {
     return [];
   }
+}
+
+/**
+ * Clean up orphaned swarms that were RUNNING when the daemon crashed/restarted.
+ * Called on daemon startup.
+ */
+export async function cleanupOrphanedSwarms(): Promise<void> {
+  const db = await getDb();
+
+  // Find swarms that were RUNNING when daemon died
+  const orphanedSwarms = await db
+    .selectFrom("swarms")
+    .select(["id", "name"])
+    .where("status", "=", STATUS.RUNNING)
+    .execute();
+
+  if (orphanedSwarms.length === 0) {
+    return;
+  }
+
+  console.log(`[swarm] Found ${orphanedSwarms.length} orphaned swarms from previous run`);
+
+  for (const swarm of orphanedSwarms) {
+    console.log(`[swarm] Cleaning up orphaned swarm ${swarm.id} (${swarm.name})`);
+
+    // Mark swarm as failed
+    await db
+      .updateTable("swarms")
+      .set({ status: STATUS.FAILED, completed_at: nowDate() })
+      .where("id", "=", swarm.id)
+      .execute();
+
+    // Mark running/pending agents as failed
+    await db
+      .updateTable("swarm_agents")
+      .set({
+        status: STATUS.FAILED,
+        completed_at: nowDate(),
+        error_message: "Daemon restarted during execution",
+      })
+      .where("swarm_id", "=", swarm.id)
+      .where("status", "in", [STATUS.PENDING, STATUS.RUNNING])
+      .execute();
+
+    // Close any open sessions for this swarm's agents
+    await db
+      .updateTable("sessions")
+      .set({ end_time: nowSeconds(), is_locked: true })
+      .where("id", "in", (qb) =>
+        qb
+          .selectFrom("swarm_agents")
+          .select("session_id")
+          .where("swarm_id", "=", swarm.id)
+          .where("session_id", "is not", null),
+      )
+      .where("end_time", "is", null)
+      .execute();
+  }
+
+  console.log(`[swarm] Orphan cleanup complete`);
 }
 
 export function registerSwarmRoutes(app: Hono): void {
@@ -2437,7 +2809,9 @@ export function registerSwarmRoutes(app: Hono): void {
         ? agents.filter((agent) => agentNames.includes(agent.name))
         : agents;
 
-    const promises = targets.map((agent) => getCompletionSignal(agent.id).promise);
+    // Only wait for agents that aren't already in a terminal state
+    const pendingTargets = targets.filter((agent) => !isAgentTerminal(agent.status));
+    const promises = pendingTargets.map((agent) => getCompletionSignal(swarmId, agent.id).promise);
     let timedOut = false;
     if (timeoutSeconds && timeoutSeconds > 0) {
       await Promise.race([
@@ -2525,6 +2899,10 @@ export function registerSwarmRoutes(app: Hono): void {
     const run = swarmRuns.get(swarmId);
     if (run) {
       run.cancelled = true;
+      // Resolve all completion signals so waiting code unblocks immediately
+      for (const signal of run.completionSignals.values()) {
+        signal.resolve();
+      }
     }
 
     const db = await getDb();
@@ -2676,40 +3054,32 @@ export function registerSwarmRoutes(app: Hono): void {
     }
 
     const db = await getDb();
-    const existing = await db
-      .selectFrom("swarm_scratchpad")
-      .selectAll()
-      .where("swarm_id", "=", swarmId)
-      .where("key", "=", key)
-      .executeTakeFirst();
-
     const now = nowDate();
     const scratchValue = toJsonValue(payload.value);
-    if (existing) {
-      await db
-        .updateTable("swarm_scratchpad")
-        .set({
+    const agentId = typeof payload.agent_id === "number" ? payload.agent_id : null;
+    const agentName = typeof payload.agent_name === "string" ? payload.agent_name : null;
+
+    // Use upsert to avoid check-then-act race condition
+    await db
+      .insertInto("swarm_scratchpad")
+      .values({
+        swarm_id: swarmId,
+        key,
+        value: scratchValue,
+        set_by_agent_id: agentId,
+        set_by_agent_name: agentName,
+        created_at: now,
+        updated_at: now,
+      })
+      .onConflict((oc) =>
+        oc.columns(["swarm_id", "key"]).doUpdateSet({
           value: scratchValue,
-          set_by_agent_id: typeof payload.agent_id === "number" ? payload.agent_id : null,
-          set_by_agent_name: typeof payload.agent_name === "string" ? payload.agent_name : null,
+          set_by_agent_id: agentId,
+          set_by_agent_name: agentName,
           updated_at: now,
-        })
-        .where("id", "=", existing.id)
-        .execute();
-    } else {
-      await db
-        .insertInto("swarm_scratchpad")
-        .values({
-          swarm_id: swarmId,
-          key,
-          value: scratchValue,
-          set_by_agent_id: typeof payload.agent_id === "number" ? payload.agent_id : null,
-          set_by_agent_name: typeof payload.agent_name === "string" ? payload.agent_name : null,
-          created_at: now,
-          updated_at: now,
-        })
-        .execute();
-    }
+        }),
+      )
+      .execute();
 
     const entry = await db
       .selectFrom("swarm_scratchpad")
