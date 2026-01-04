@@ -4,8 +4,7 @@ import { useEffect } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useChatStore } from "@/stores/chat";
 import { useDashboardStore } from "@/stores/dashboard";
-import { queryKeys } from "@/hooks/queries";
-import { api } from "@/lib/api";
+import { trpcClient } from "@/lib/trpc";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -27,14 +26,14 @@ function RootLayout() {
 
     // When a session is created via WebSocket, invalidate the sessions list
     const removeSessionCreated = addOnSessionCreated(() => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      queryClient.invalidateQueries({ queryKey: [["agent", "list"]] });
     });
 
     // When first response completes, generate session name
     const removeFirstResponse = addOnFirstResponse(async (sessionId) => {
       try {
-        await api.sessions.generateName(sessionId);
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+        await trpcClient.agent.generateName.mutate({ session_id: sessionId });
+        queryClient.invalidateQueries({ queryKey: [["agent", "list"]] });
       } catch (error) {
         console.error("Failed to generate session name:", error);
       }

@@ -1,5 +1,5 @@
 import { parse, stringify } from "@iarna/toml";
-import { readdir, readFile, writeFile, mkdir, stat, unlink } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { getConfigPath } from "@dere/shared-config";
@@ -23,17 +23,6 @@ function embeddedDir(): string {
 
 function userDir(): string {
   return join(dirname(getConfigPath()), "personalities");
-}
-
-async function listTomlNames(dir: string): Promise<string[]> {
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".toml"))
-      .map((entry) => basename(entry.name, ".toml"));
-  } catch {
-    return [];
-  }
 }
 
 async function readToml(path: string): Promise<PersonalityDoc> {
@@ -91,71 +80,6 @@ function avatarContentType(ext: string): string {
 }
 
 export function registerPersonalityRoutes(app: Hono): void {
-  app.get("/personalities", async () => {
-    const embeddedNames = await listTomlNames(embeddedDir());
-    const userNames = await listTomlNames(userDir());
-    const nameSet = new Set([...embeddedNames, ...userNames]);
-
-    const personalities = [];
-    for (const name of Array.from(nameSet).sort()) {
-      const hasEmbedded = embeddedNames.includes(name);
-      const hasUser = userNames.includes(name);
-      const source = hasUser ? "user" : "embedded";
-      let data: PersonalityDoc | null = null;
-      try {
-        data = await readToml(
-          hasUser ? join(userDir(), `${name}.toml`) : join(embeddedDir(), `${name}.toml`),
-        );
-      } catch {
-        data = null;
-      }
-      const metadata = (data?.metadata ?? {}) as Record<string, unknown>;
-      const display = (data?.display ?? {}) as TomlMap;
-
-      personalities.push({
-        name,
-        short_name: typeof metadata.short_name === "string" ? metadata.short_name : "",
-        color: typeof display.color === "string" ? display.color : "white",
-        icon: typeof display.icon === "string" ? display.icon : "*",
-        source,
-        has_embedded: hasEmbedded,
-      });
-    }
-
-    return new Response(JSON.stringify({ personalities }), {
-      headers: { "content-type": "application/json" },
-    });
-  });
-
-  app.get("/personalities/:name", async (c) => {
-    const name = c.req.param("name");
-    try {
-      const { data, isOverride, hasEmbedded } = await loadPersonalityData(name);
-      return c.json({ data, is_override: isOverride, has_embedded: hasEmbedded });
-    } catch (error) {
-      return c.json({ error: String(error) }, 404);
-    }
-  });
-
-  app.put("/personalities/:name", async (c) => {
-    const name = c.req.param("name");
-    let payload: PersonalityDoc;
-    try {
-      payload = (await c.req.json()) as PersonalityDoc;
-    } catch {
-      return c.json({ error: "Invalid JSON payload" }, 400);
-    }
-
-    try {
-      await mkdir(userDir(), { recursive: true });
-      const targetPath = join(userDir(), `${name}.toml`);
-      await writeFile(targetPath, stringify(payload), "utf-8");
-      return c.json({ status: "saved", name });
-    } catch (error) {
-      return c.json({ error: String(error) }, 400);
-    }
-  });
-
   app.post("/personalities/:name/avatar", async (c) => {
     const name = c.req.param("name");
     let data: PersonalityDoc;
@@ -246,40 +170,5 @@ export function registerPersonalityRoutes(app: Hono): void {
     } catch {
       return c.json({ error: "Avatar file not found" }, 404);
     }
-  });
-
-  app.delete("/personalities/:name", async (c) => {
-    const name = c.req.param("name");
-    const embeddedPath = join(embeddedDir(), `${name}.toml`);
-    const userPath = join(userDir(), `${name}.toml`);
-
-    let hasEmbedded = false;
-    try {
-      await stat(embeddedPath);
-      hasEmbedded = true;
-    } catch {
-      hasEmbedded = false;
-    }
-
-    let deleted = false;
-    try {
-      await unlink(userPath);
-      deleted = true;
-    } catch {
-      deleted = false;
-    }
-
-    if (!deleted && !hasEmbedded) {
-      return c.json({ error: `Personality '${name}' not found` }, 404);
-    }
-    if (!deleted && hasEmbedded) {
-      return c.json({ error: `Cannot delete embedded personality '${name}'` }, 400);
-    }
-
-    return c.json({
-      status: hasEmbedded ? "reverted" : "deleted",
-      name,
-      has_embedded: hasEmbedded,
-    });
   });
 }

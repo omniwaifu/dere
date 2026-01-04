@@ -15,9 +15,17 @@ Query emotion state to understand user's emotional context and adapt responses.
 
 ## Workflow
 
-1. Run `bun scripts/get_emotion.ts` to query current state
-2. Check intensity levels and trust score
-3. Adapt tone based on guidelines
+Query the daemon API directly:
+
+```bash
+curl -s "${DERE_DAEMON_URL:-http://localhost:8787}/emotion/state"
+```
+
+Or for a summary:
+
+```bash
+curl -s "${DERE_DAEMON_URL:-http://localhost:8787}/emotion/summary"
+```
 
 ## Response Adaptation
 
@@ -39,7 +47,7 @@ Query emotion state to understand user's emotional context and adapt responses.
 ## Example
 
 ```bash
-bun ./scripts/get_emotion.ts
+curl -s http://localhost:8787/emotion/state
 # Returns: {"primary": {"name": "frustration", "intensity": 65}, ...}
 ```
 

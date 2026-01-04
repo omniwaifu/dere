@@ -1,5 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { SDKAssistantMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKAssistantMessage,
+  SDKResultMessage,
+  Options as SDKOptions,
+} from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { sql } from "kysely";
 
@@ -540,14 +544,18 @@ async function runMissionQuery(
 
   const plugins = resolvePluginPaths(mission.plugins);
 
-  const options: Record<string, unknown> = {
+  const options: SDKOptions = {
     cwd: mission.working_dir,
-    model: mission.model,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     persistSession: false,
     settingSources: ["project"],
+    sandbox: { enabled: false },
   };
+
+  if (mission.model) {
+    options.model = mission.model;
+  }
 
   if (systemPrompt) {
     options.systemPrompt = {
@@ -559,12 +567,9 @@ async function runMissionQuery(
 
   if (mission.allowed_tools && mission.allowed_tools.length > 0) {
     options.tools = mission.allowed_tools;
+    options.allowedTools = mission.allowed_tools;
   } else {
     options.tools = { type: "preset", preset: "claude_code" };
-  }
-
-  if (mission.allowed_tools && mission.allowed_tools.length > 0) {
-    options.allowedTools = mission.allowed_tools;
   }
 
   if (plugins && plugins.length > 0) {
@@ -574,8 +579,6 @@ async function runMissionQuery(
   if (sessionId) {
     options.env = { DERE_SESSION_ID: String(sessionId) };
   }
-
-  options.sandbox = { enabled: false };
 
   const blocks: Array<{
     type: string;

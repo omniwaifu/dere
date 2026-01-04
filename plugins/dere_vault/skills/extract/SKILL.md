@@ -31,7 +31,7 @@ This filters out "interesting facts" that don't actually rewire understanding.
 
 1. Review source material (daily note, literature note, conversation)
 2. Identify candidate concept for extraction
-3. **Search for duplicates** - Use `bun scripts/concept_search.ts [concept]` to check if similar note exists
+3. **Search for duplicates** - Use `mcp__plugin_dere-vault_vault__search_vault_concepts(query: "concept")` to check if similar note exists
 
 ### Phase 2: Domain Detection
 
@@ -116,7 +116,7 @@ Return to Phase 4 until criteria met.
 Before finalizing, ask:
 
 - "What existing notes does this build on?" → Set `derived_from`
-- "What notes should this link to?" → Use `bun scripts/link_analysis.ts --suggest "[title]"`
+- "What notes should this link to?" → Use `mcp__plugin_dere-vault_vault__suggest_vault_connections(note_title: "title")`
 
 Update source notes' `derivations` field with backlink to this new note.
 
@@ -151,8 +151,10 @@ derivations: []
 
 ## Helper Tools
 
-- `bun scripts/concept_search.ts [query]` - Search for similar permanent notes
-- `bun scripts/link_analysis.ts --suggest [title]` - Connection suggestions
+- `mcp__plugin_dere-vault_vault__search_vault_concepts(query: "...")` - Search for similar permanent notes
+- `mcp__plugin_dere-vault_vault__suggest_vault_connections(note_title: "...")` - Connection suggestions
+- `mcp__plugin_dere-vault_vault__get_vault_stats()` - Vault statistics
+- `mcp__plugin_dere-vault_vault__find_vault_orphans(min_links: 3)` - Find under-linked notes
 - `domains/*.md` - Domain-specific thickness templates
 
 ## Examples

@@ -11,12 +11,14 @@ Search vault, synthesize findings, create Hub notes.
 
 1. **Search vault**
    - Obsidian search: `xdg-open "obsidian://search?vault=Vault&query=tag:#concept"`
-   - Or use `bun scripts/concept_search.ts` for similarity search
-   - Review tags with `list_all_tags()` MCP tool
+   - Similarity search: `mcp__plugin_dere-vault_vault__search_vault_concepts(query: "topic")`
+   - Review tags with `mcp__plugin_dere-vault_zotero__list_all_tags()`
 
 2. **Review related notes**
    - Open notes in Obsidian
-   - Check link connections with `bun scripts/link_analysis.ts --suggest "Note Title"`
+   - Suggest connections: `mcp__plugin_dere-vault_vault__suggest_vault_connections(note_title: "Note Title")`
+   - Find orphans: `mcp__plugin_dere-vault_vault__find_vault_orphans(min_links: 3)`
+   - Vault stats: `mcp__plugin_dere-vault_vault__get_vault_stats()`
    - Identify patterns and gaps
 
 3. **Synthesize findings**

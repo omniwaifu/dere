@@ -4,7 +4,7 @@ import type {
   DashboardActivityState,
   DashboardAmbientState,
 } from "@/types/api";
-import { api } from "@/lib/api";
+import { trpcClient } from "@/lib/trpc";
 
 interface DashboardStore {
   emotion: DashboardEmotionState | null;
@@ -35,7 +35,7 @@ export const useDashboardStore = create<DashboardStore>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      const data = await api.dashboard.state();
+      const data = await trpcClient.dashboard.state.query();
 
       set({
         emotion: data.emotion,

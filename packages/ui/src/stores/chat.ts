@@ -8,7 +8,7 @@ import type {
   PermissionRequest,
   ConversationBlock,
 } from "@/types/api";
-import { api } from "@/lib/api";
+import { trpcClient } from "@/lib/trpc";
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
@@ -443,8 +443,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ isLoadingMessages: true, loadError: null });
     try {
       const [response, metrics] = await Promise.all([
-        api.sessions.messages(sessionId, { limit: 100 }),
-        api.sessions.metrics(sessionId, { limit: 300 }).catch(() => ({ messages: [] })),
+        trpcClient.agent.messages.query({ session_id: sessionId, limit: 100 }),
+        trpcClient.agent.metrics.query({ session_id: sessionId, limit: 300 }).catch(() => ({ messages: [] })),
       ]);
 
       const metricsMessages = metrics.messages ?? [];

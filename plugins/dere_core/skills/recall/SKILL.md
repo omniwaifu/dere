@@ -16,16 +16,31 @@ Query memory system to recall relevant past conversations and entity relationshi
 
 ## Workflow
 
-**For entity mentions:**
+Use MCP tools directly - do NOT run shell scripts.
 
-1. Run `bun scripts/entity_search.ts <entity>` for timeline
-2. Run `bun scripts/related_entities.ts <entity>` for connections
-3. Integrate naturally into response
+**For searching memories:**
 
-**For session history:**
+```
+mcp__plugin_dere-core_knowledge__recall_search(query: "zombie movies")
+```
 
-1. Run `bun scripts/session_history.ts <session_id>`
-2. Pull relevant context
+**For entity/fact search:**
+
+```
+mcp__plugin_dere-core_knowledge__search_knowledge(query: "zombie movies")
+```
+
+**For specific entity details:**
+
+```
+mcp__plugin_dere-core_knowledge__get_entity(name: "Justin")
+```
+
+**For timeline context:**
+
+```
+mcp__plugin_dere-core_knowledge__recall_context(around_date: "2025-12-15")
+```
 
 ## Integration Style
 
@@ -33,6 +48,7 @@ Query memory system to recall relevant past conversations and entity relationshi
 
 - "According to the database..."
 - "The API shows..."
+- "The MCP tool returned..."
 
 **Instead:**
 
@@ -42,12 +58,9 @@ Query memory system to recall relevant past conversations and entity relationshi
 
 ## Example
 
-```bash
-bun ./scripts/entity_search.ts "authentication"
-# Returns sessions where authentication was discussed
+User: "Do you remember when we talked about zombie movies?"
 
-bun ./scripts/related_entities.ts "authentication" 5
-# Returns: JWT, OAuth, sessions, etc.
-```
+1. Call `mcp__plugin_dere-core_knowledge__recall_search(query: "zombie movies")`
+2. Integrate results naturally into response
 
 Focus on relevant memories, not dumping everything.

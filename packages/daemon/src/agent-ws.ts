@@ -8,6 +8,7 @@ import type {
   SDKResultMessage,
   SDKPartialAssistantMessage,
   PermissionResult,
+  Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import { trackEntityCitations } from "@dere/graph";
 
@@ -93,6 +94,7 @@ type SandboxSession = {
   claudeSessionId: string | null;
   isLocked: boolean;
   config: SessionConfig;
+  activeQueries: number; // Prevent cleanup while queries are running
 };
 
 const sandboxSessions = new Map<number, SandboxSession>();
@@ -201,6 +203,7 @@ async function ensureSandboxSession(args: {
     claudeSessionId: runner.claudeSessionId ?? args.claudeSessionId,
     isLocked: false,
     config: args.config,
+    activeQueries: 0,
   };
 
   sandboxSessions.set(args.sessionId, created);
@@ -217,6 +220,10 @@ async function cleanupIdleSandboxes(): Promise<void> {
   for (const [sessionId, session] of sandboxSessions.entries()) {
     if (session.isLocked) {
       sandboxSessions.delete(sessionId);
+      continue;
+    }
+    // Don't clean up sessions with active queries
+    if (session.activeQueries > 0) {
       continue;
     }
     if (now - session.lastActivity < SANDBOX_IDLE_TIMEOUT_MS) {
@@ -400,6 +407,7 @@ type LoadedSessionState = {
   config: SessionConfig;
   isLocked: boolean;
   claudeSessionId: string | null;
+  userId: string | null; // For ownership verification
 };
 
 async function loadSessionState(sessionId: number): Promise<LoadedSessionState | null> {
@@ -452,6 +460,7 @@ async function loadSessionState(sessionId: number): Promise<LoadedSessionState |
     },
     isLocked: row.is_locked,
     claudeSessionId: row.claude_session_id ?? null,
+    userId: row.user_id ?? null,
   };
 }
 
@@ -492,6 +501,20 @@ function extractAssistantBlocks(message: SDKAssistantMessage) {
   const content = (message.message as { content?: unknown }).content;
   const blocks: Array<Record<string, unknown>> = [];
   const toolNames: string[] = [];
+
+  // Debug: log the raw content structure
+  console.log("[extractAssistantBlocks] Content type:", typeof content);
+  if (Array.isArray(content)) {
+    console.log("[extractAssistantBlocks] Content blocks:", JSON.stringify(content.map((b) => {
+      const record = b as Record<string, unknown>;
+      return {
+        type: record?.type,
+        hasThinking: record && "thinking" in record,
+        hasText: record && "text" in record,
+        keys: record ? Object.keys(record) : [],
+      };
+    })));
+  }
 
   if (!content) {
     return { blocks, toolNames };
@@ -571,97 +594,102 @@ async function persistAssistantMessage(args: {
 }): Promise<number> {
   const db = await getDb();
   const now = nowDate();
-  const conv = await db
-    .insertInto("conversations")
-    .values({
-      session_id: args.sessionId,
-      prompt: args.responseText,
-      message_type: "assistant",
-      personality: args.personality,
-      timestamp: nowSeconds(),
-      medium: "agent_api",
-      user_id: args.userId,
-      ttft_ms: args.metrics.ttftMs,
-      response_ms: args.metrics.responseMs,
-      thinking_ms: args.metrics.thinkingMs,
-      tool_uses: args.toolCount,
-      tool_names: args.toolNames.length > 0 ? args.toolNames : null,
-      created_at: now,
-    })
-    .returning(["id"])
-    .executeTakeFirstOrThrow();
+  const timestamp = nowSeconds();
 
-  let ordinal = 0;
-  for (const block of args.blocks) {
-    const type = block.type;
-    if (type === "text" || type === "thinking") {
-      const text = typeof block.text === "string" ? block.text : "";
-      if (!text) {
+  // Use transaction to ensure conversation and blocks are persisted atomically
+  return await db.transaction().execute(async (trx) => {
+    const conv = await trx
+      .insertInto("conversations")
+      .values({
+        session_id: args.sessionId,
+        prompt: args.responseText,
+        message_type: "assistant",
+        personality: args.personality,
+        timestamp,
+        medium: "agent_api",
+        user_id: args.userId,
+        ttft_ms: args.metrics.ttftMs,
+        response_ms: args.metrics.responseMs,
+        thinking_ms: args.metrics.thinkingMs,
+        tool_uses: args.toolCount,
+        tool_names: args.toolNames.length > 0 ? args.toolNames : null,
+        created_at: now,
+      })
+      .returning(["id"])
+      .executeTakeFirstOrThrow();
+
+    let ordinal = 0;
+    for (const block of args.blocks) {
+      const type = block.type;
+      if (type === "text" || type === "thinking") {
+        const text = typeof block.text === "string" ? block.text : "";
+        if (!text) {
+          continue;
+        }
+        await trx
+          .insertInto("conversation_blocks")
+          .values({
+            conversation_id: conv.id,
+            ordinal,
+            block_type: type,
+            text,
+            tool_use_id: null,
+            tool_name: null,
+            tool_input: null,
+            is_error: null,
+            content_embedding: null,
+            created_at: now,
+          })
+          .execute();
+        ordinal += 1;
         continue;
       }
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conv.id,
-          ordinal,
-          block_type: type,
-          text,
-          tool_use_id: null,
-          tool_name: null,
-          tool_input: null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-      continue;
+
+      if (type === "tool_use") {
+        await trx
+          .insertInto("conversation_blocks")
+          .values({
+            conversation_id: conv.id,
+            ordinal,
+            block_type: "tool_use",
+            tool_use_id: typeof block.id === "string" ? block.id : null,
+            tool_name: typeof block.name === "string" ? block.name : null,
+            tool_input:
+              block.input && typeof block.input === "object"
+                ? (block.input as Record<string, unknown>)
+                : null,
+            text: null,
+            is_error: null,
+            content_embedding: null,
+            created_at: now,
+          })
+          .execute();
+        ordinal += 1;
+        continue;
+      }
+
+      if (type === "tool_result") {
+        await trx
+          .insertInto("conversation_blocks")
+          .values({
+            conversation_id: conv.id,
+            ordinal,
+            block_type: "tool_result",
+            tool_use_id: typeof block.tool_use_id === "string" ? block.tool_use_id : null,
+            tool_name: typeof block.name === "string" ? block.name : null,
+            tool_input: null,
+            text: typeof block.output === "string" ? block.output : "",
+            is_error: Boolean(block.is_error),
+            content_embedding: null,
+            created_at: now,
+          })
+          .execute();
+        ordinal += 1;
+      }
     }
 
-    if (type === "tool_use") {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conv.id,
-          ordinal,
-          block_type: "tool_use",
-          tool_use_id: typeof block.id === "string" ? block.id : null,
-          tool_name: typeof block.name === "string" ? block.name : null,
-          tool_input:
-            block.input && typeof block.input === "object"
-              ? (block.input as Record<string, unknown>)
-              : null,
-          text: null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-      continue;
-    }
-
-    if (type === "tool_result") {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conv.id,
-          ordinal,
-          block_type: "tool_result",
-          tool_use_id: typeof block.tool_use_id === "string" ? block.tool_use_id : null,
-          tool_name: typeof block.name === "string" ? block.name : null,
-          tool_input: null,
-          text: typeof block.output === "string" ? block.output : "",
-          is_error: Boolean(block.is_error),
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-    }
-  }
-
-  return conv.id;
+    return conv.id;
+  });
 }
 
 async function trackCitedEntities(sessionId: number, responseText: string): Promise<void> {
@@ -743,43 +771,48 @@ async function persistUserMessage(
 ): Promise<void> {
   const db = await getDb();
   const now = nowDate();
-  const conv = await db
-    .insertInto("conversations")
-    .values({
-      session_id: sessionId,
-      prompt,
-      message_type: "user",
-      personality: resolvePersonalityName(config.personality),
-      timestamp: nowSeconds(),
-      medium: "agent_api",
-      user_id: config.user_id ?? null,
-      ttft_ms: null,
-      response_ms: null,
-      thinking_ms: null,
-      tool_uses: null,
-      tool_names: null,
-      created_at: now,
-    })
-    .returning(["id"])
-    .executeTakeFirstOrThrow();
+  const timestamp = nowSeconds();
 
-  if (prompt.trim()) {
-    await db
-      .insertInto("conversation_blocks")
+  // Use transaction to ensure conversation and block are persisted atomically
+  await db.transaction().execute(async (trx) => {
+    const conv = await trx
+      .insertInto("conversations")
       .values({
-        conversation_id: conv.id,
-        ordinal: 0,
-        block_type: "text",
-        text: prompt,
-        tool_use_id: null,
-        tool_name: null,
-        tool_input: null,
-        is_error: null,
-        content_embedding: null,
+        session_id: sessionId,
+        prompt,
+        message_type: "user",
+        personality: resolvePersonalityName(config.personality),
+        timestamp,
+        medium: "agent_api",
+        user_id: config.user_id ?? null,
+        ttft_ms: null,
+        response_ms: null,
+        thinking_ms: null,
+        tool_uses: null,
+        tool_names: null,
         created_at: now,
       })
-      .execute();
-  }
+      .returning(["id"])
+      .executeTakeFirstOrThrow();
+
+    if (prompt.trim()) {
+      await trx
+        .insertInto("conversation_blocks")
+        .values({
+          conversation_id: conv.id,
+          ordinal: 0,
+          block_type: "text",
+          text: prompt,
+          tool_use_id: null,
+          tool_name: null,
+          tool_input: null,
+          is_error: null,
+          content_embedding: null,
+          created_at: now,
+        })
+        .execute();
+    }
+  });
 }
 
 export function registerAgentWebSocket(app: Hono) {
@@ -811,6 +844,7 @@ export function registerAgentWebSocket(app: Hono) {
         }
 
         const type = message.type;
+        console.log("[ws] Received message type:", type);
         if (typeof type !== "string") {
           sendError(ws, state, "Missing message type", true);
           return;
@@ -870,6 +904,7 @@ export function registerAgentWebSocket(app: Hono) {
         if (type === "resume_session") {
           const sessionId = typeof message.session_id === "number" ? message.session_id : null;
           const lastSeq = typeof message.last_seq === "number" ? message.last_seq : null;
+          const requestingUserId = typeof message.user_id === "string" ? message.user_id : null;
           if (!sessionId) {
             sendError(ws, state, "resume_session requires session_id", true);
             return;
@@ -877,6 +912,11 @@ export function registerAgentWebSocket(app: Hono) {
           const loaded = await loadSessionState(sessionId);
           if (!loaded) {
             sendError(ws, state, `Session ${sessionId} not found`, true);
+            return;
+          }
+          // Verify ownership: if session has a user_id, requesting user must match
+          if (loaded.userId && loaded.userId !== requestingUserId) {
+            sendError(ws, state, "Session belongs to different user", true);
             return;
           }
           state.sessionId = sessionId;
@@ -1020,23 +1060,29 @@ export function registerAgentWebSocket(app: Hono) {
         }
 
         if (type === "query") {
+          console.log("[query] Received query request");
           const prompt = typeof message.prompt === "string" ? message.prompt : null;
           if (!prompt) {
+            console.log("[query] REJECTED: no prompt");
             sendError(ws, state, "query requires prompt", true);
             return;
           }
           if (!state.sessionId || !state.config) {
+            console.log("[query] REJECTED: no active session");
             sendError(ws, state, "No active session", true);
             return;
           }
           if (state.isLocked) {
+            console.log("[query] REJECTED: session locked");
             sendError(ws, state, "Session locked (sandbox container stopped)", true);
             return;
           }
           if (state.queryTask) {
+            console.log("[query] REJECTED: query already in progress");
             sendError(ws, state, "Query already in progress", true);
             return;
           }
+          console.log("[query] Starting query for session", state.sessionId, "prompt:", prompt.slice(0, 50));
 
           const sessionId = state.sessionId;
           const config = state.config;
@@ -1076,6 +1122,9 @@ export function registerAgentWebSocket(app: Hono) {
             let structuredOutput: unknown = null;
             let firstTokenTime: number | null = null;
             const startTime = performance.now();
+            let accumulatedThinking = ""; // Accumulate thinking from streaming for SDK path
+            let textStreamedFromDeltas = false; // Track if text was streamed (to avoid duplication)
+            let thinkingStreamedFromDeltas = false; // Track if thinking was streamed (to avoid duplication)
 
             const canUseTool = async (
               toolName: string,
@@ -1124,6 +1173,7 @@ export function registerAgentWebSocket(app: Hono) {
                 sandboxRunner = sandboxSession.runner;
                 state.currentSandbox = sandboxRunner;
                 sandboxSession.lastActivity = nowMs();
+                sandboxSession.activeQueries++; // Prevent cleanup during query
                 await sandboxRunner.query(promptForModel);
 
                 const appendText = (text: string) => {
@@ -1174,6 +1224,7 @@ export function registerAgentWebSocket(app: Hono) {
                       if (firstTokenTime === null) {
                         firstTokenTime = performance.now();
                       }
+                      blocks.push({ type: "thinking", text: thinkingText });
                       sendEvent(ws, state, "thinking", { text: thinkingText });
                     }
                     continue;
@@ -1245,16 +1296,27 @@ export function registerAgentWebSocket(app: Hono) {
                 }
                 sandboxSession.lastActivity = nowMs();
               } else {
-                const options: Record<string, unknown> = {
+                const options: SDKOptions = {
                   cwd: config.working_dir,
-                  model: config.model ?? undefined,
                   includePartialMessages: Boolean(config.enable_streaming),
                   permissionMode: config.auto_approve ? "bypassPermissions" : "default",
                   allowDangerouslySkipPermissions: Boolean(config.auto_approve),
-                  persistSession: false,
+                  persistSession: true,
                   settingSources: ["project"],
-                  resume: state.claudeSessionId ?? undefined,
                 };
+
+                if (config.model) {
+                  options.model = config.model;
+                }
+                if (state.claudeSessionId) {
+                  options.resume = state.claudeSessionId;
+                }
+
+                // Add thinking budget for extended thinking
+                if (config.thinking_budget && config.thinking_budget > 0) {
+                  options.maxThinkingTokens = config.thinking_budget;
+                  console.log("[SDK] Enabled thinking with budget:", config.thinking_budget);
+                }
 
                 if (config.allowed_tools && config.allowed_tools.length > 0) {
                   options.tools = config.allowed_tools;
@@ -1270,16 +1332,28 @@ export function registerAgentWebSocket(app: Hono) {
                     append: systemPrompt,
                   };
                 }
-                if (config.output_format) {
-                  options.outputFormat = config.output_format;
+                if (
+                  config.output_format &&
+                  typeof config.output_format === "object" &&
+                  "type" in config.output_format &&
+                  config.output_format.type === "json_schema" &&
+                  "schema" in config.output_format
+                ) {
+                  options.outputFormat = {
+                    type: "json_schema",
+                    schema: config.output_format.schema as Record<string, unknown>,
+                  };
                 }
-                const env = { ...config.env } as Record<string, string>;
-                if (!("DERE_SESSION_ID" in env)) {
-                  env.DERE_SESSION_ID = String(sessionId);
-                }
-                if (Object.keys(env).length > 0) {
-                  options.env = env;
-                }
+                // Inherit essential env vars from parent process, then overlay config
+                const env: Record<string, string> = {
+                  PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+                  HOME: process.env.HOME ?? "",
+                  USER: process.env.USER ?? "",
+                  SHELL: process.env.SHELL ?? "/bin/sh",
+                  ...config.env,
+                  DERE_SESSION_ID: String(sessionId),
+                };
+                options.env = env;
                 if (!config.auto_approve) {
                   options.canUseTool = canUseTool;
                 }
@@ -1304,20 +1378,28 @@ export function registerAgentWebSocket(app: Hono) {
                   if (message.type === "stream_event") {
                     const streamEvent = message as SDKPartialAssistantMessage;
                     const raw = streamEvent.event as Record<string, unknown>;
+                    console.log("[stream_event] type:", raw.type);
                     if (raw.type === "content_block_delta") {
                       const delta = raw.delta as Record<string, unknown>;
+                      console.log("[stream_event] delta type:", delta.type, "keys:", Object.keys(delta));
                       if (delta.type === "text_delta" && typeof delta.text === "string") {
+                        textStreamedFromDeltas = true; // Mark that we streamed text
                         if (firstTokenTime === null) {
                           firstTokenTime = performance.now();
                         }
                         sendEvent(ws, state, "text", { text: delta.text });
+                        responseText += delta.text;
                       } else if (
                         delta.type === "thinking_delta" &&
                         typeof delta.thinking === "string"
                       ) {
+                        thinkingStreamedFromDeltas = true; // Mark that we streamed thinking
                         if (firstTokenTime === null) {
                           firstTokenTime = performance.now();
                         }
+                        console.log("[stream_event] Got thinking_delta, length:", delta.thinking.length);
+                        // Accumulate thinking for persistence (SDK path)
+                        accumulatedThinking += delta.thinking;
                         sendEvent(ws, state, "thinking", { text: delta.thinking });
                       }
                     }
@@ -1328,12 +1410,27 @@ export function registerAgentWebSocket(app: Hono) {
                     const { blocks: assistantBlocks, toolNames: assistantTools } =
                       extractAssistantBlocks(message as SDKAssistantMessage);
                     if (assistantBlocks.length > 0) {
-                      blocks.push(...assistantBlocks);
+                      // Filter out thinking blocks if we streamed them via thinking_delta events
+                      const filteredBlocks = thinkingStreamedFromDeltas
+                        ? assistantBlocks.filter((b) => b.type !== "thinking")
+                        : assistantBlocks;
+                      blocks.push(...filteredBlocks);
                     }
                     for (const name of assistantTools) {
                       toolNames.add(name);
                     }
                     for (const block of assistantBlocks) {
+                      if (block.type === "text") {
+                        const text = typeof block.text === "string" ? block.text : "";
+                        // Only send text if we didn't stream it via text_delta events
+                        if (text && !textStreamedFromDeltas) {
+                          if (firstTokenTime === null) {
+                            firstTokenTime = performance.now();
+                          }
+                          sendEvent(ws, state, "text", { text });
+                          responseText = text;
+                        }
+                      }
                       if (block.type === "tool_use") {
                         toolCount += 1;
                         sendEvent(ws, state, "tool_use", {
@@ -1349,6 +1446,56 @@ export function registerAgentWebSocket(app: Hono) {
                           output: block.output ?? "",
                           is_error: Boolean(block.is_error),
                         });
+                      }
+                    }
+                    continue;
+                  }
+
+                  // Handle user messages which contain tool_result blocks
+                  if (message.type === "user") {
+                    const userMessage = message as { message?: { content?: unknown } };
+                    const content = userMessage.message?.content;
+                    if (Array.isArray(content)) {
+                      for (const block of content) {
+                        if (
+                          block &&
+                          typeof block === "object" &&
+                          (block as Record<string, unknown>).type === "tool_result"
+                        ) {
+                          const record = block as Record<string, unknown>;
+                          const toolUseId =
+                            typeof record.tool_use_id === "string" ? record.tool_use_id : null;
+                          const name = typeof record.name === "string" ? record.name : null;
+                          const contentField = record.content;
+                          let output = "";
+                          if (typeof contentField === "string") {
+                            output = contentField;
+                          } else if (Array.isArray(contentField)) {
+                            output = contentField
+                              .map((c) => {
+                                if (typeof c === "string") return c;
+                                if (c && typeof c === "object" && (c as Record<string, unknown>).type === "text") {
+                                  return (c as Record<string, unknown>).text ?? "";
+                                }
+                                return JSON.stringify(c);
+                              })
+                              .join("\n");
+                          }
+                          const isError = Boolean(record.is_error);
+                          blocks.push({
+                            type: "tool_result",
+                            tool_use_id: toolUseId ?? undefined,
+                            name: name ?? undefined,
+                            output,
+                            is_error: isError,
+                          });
+                          sendEvent(ws, state, "tool_result", {
+                            tool_use_id: toolUseId,
+                            name,
+                            output,
+                            is_error: isError,
+                          });
+                        }
                       }
                     }
                     continue;
@@ -1373,6 +1520,11 @@ export function registerAgentWebSocket(app: Hono) {
               return;
             } finally {
               state.currentQuery = null;
+              // Decrement active queries counter for sandbox sessions
+              const currentSandboxSession = sandboxSessions.get(sessionId);
+              if (currentSandboxSession && currentSandboxSession.activeQueries > 0) {
+                currentSandboxSession.activeQueries--;
+              }
               if (sandboxFailed && sandboxRunner) {
                 await sandboxRunner.close();
                 if (state.currentSandbox === sandboxRunner) {
@@ -1384,8 +1536,17 @@ export function registerAgentWebSocket(app: Hono) {
               }
             }
 
+            // Check cancel before post-query processing
             if (state.cancelRequested) {
+              sendEvent(ws, state, "cancelled", { message: "Query cancelled" });
               return;
+            }
+
+            // Add accumulated thinking from streaming to blocks (SDK path only)
+            if (accumulatedThinking) {
+              console.log("[SDK] Adding accumulated thinking, length:", accumulatedThinking.length);
+              // Insert thinking at the beginning of blocks (before text)
+              blocks.unshift({ type: "thinking", text: accumulatedThinking });
             }
 
             if (!responseText && blocks.length > 0) {
@@ -1408,20 +1569,29 @@ export function registerAgentWebSocket(app: Hono) {
               structured_output: structuredOutput ?? undefined,
             });
 
-            const assistantConversationId = await persistAssistantMessage({
-              sessionId,
-              blocks,
-              responseText,
-              toolNames: Array.from(toolNames),
-              toolCount,
-              personality: resolvePersonalityName(config.personality),
-              userId: config.user_id ?? null,
-              metrics: {
-                ttftMs: ttftMs ? Math.round(ttftMs) : null,
-                responseMs: Math.round(responseMs),
-                thinkingMs: null,
-              },
-            });
+            // Only persist if there's actual content and not cancelled
+            let assistantConversationId: number | null = null;
+            if (!state.cancelRequested && (responseText || blocks.length > 0)) {
+              assistantConversationId = await persistAssistantMessage({
+                sessionId,
+                blocks,
+                responseText,
+                toolNames: Array.from(toolNames),
+                toolCount,
+                personality: resolvePersonalityName(config.personality),
+                userId: config.user_id ?? null,
+                metrics: {
+                  ttftMs: ttftMs ? Math.round(ttftMs) : null,
+                  responseMs: Math.round(responseMs),
+                  thinkingMs: null,
+                },
+              });
+            }
+
+            // Skip background tasks if cancelled
+            if (state.cancelRequested) {
+              return;
+            }
 
             void trackCitedEntities(sessionId, responseText).catch((error) => {
               console.log(`[kg] citation tracking failed: ${String(error)}`);
@@ -1458,9 +1628,11 @@ export function registerAgentWebSocket(app: Hono) {
             });
           })()
             .catch((error) => {
+              console.log("[query] Query failed with error:", String(error));
               sendError(ws, state, `Query failed: ${String(error)}`, true);
             })
             .finally(() => {
+              console.log("[query] Query task completed, clearing state");
               state.queryTask = null;
               state.cancelRequested = false;
             });
@@ -1477,8 +1649,14 @@ export function registerAgentWebSocket(app: Hono) {
       return {
         onMessage,
         onClose: () => {
+          // Resolve all pending permissions with deny (don't leave SDK hanging)
           for (const pending of state.pendingPermissions.values()) {
             clearTimeout(pending.timeout);
+            pending.resolve({
+              behavior: "deny",
+              message: "WebSocket connection closed",
+              interrupt: true,
+            });
           }
           state.pendingPermissions.clear();
           if (state.currentQuery) {

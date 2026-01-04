@@ -1,4 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { Options as SDKOptions } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import { StructuredOutputError } from "./client.js";
@@ -41,18 +42,34 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
       };
     }
 
+    // Add JSON instruction hint since SDK may not enforce outputFormat properly
+    const jsonHint = schema
+      ? "\n\nIMPORTANT: Respond with valid JSON only, no explanation or markdown. Your response must be a single JSON object."
+      : "";
+    const augmentedPrompt = prompt + jsonHint;
+
     const model = options.model;
-    const workingDirectory = options.workingDirectory ?? this.workingDirectory;
-    const sdkOptions = {
-      ...(model ? { model } : {}),
-      ...(workingDirectory ? { workingDirectory } : {}),
-      ...(outputFormat ? { outputFormat } : {}),
+    const cwd = options.workingDirectory ?? this.workingDirectory;
+    const sdkOptions: SDKOptions = {
+      persistSession: false, // One-shot queries, don't clutter filesystem
     };
 
+    if (model) {
+      sdkOptions.model = model;
+    }
+    if (cwd) {
+      sdkOptions.cwd = cwd;
+    }
+    if (outputFormat) {
+      sdkOptions.outputFormat = outputFormat;
+    }
+
     const response = query({
-      prompt,
+      prompt: augmentedPrompt,
       options: sdkOptions,
     });
+
+    let lastAssistantContent: unknown = null;
 
     for await (const message of response) {
       if (message.type === "result") {
@@ -82,7 +99,20 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
         continue;
       }
 
+      // Capture assistant message content for fallback extraction
+      if (message.type === "assistant") {
+        const assistantMsg = message as { message?: { content?: unknown } };
+        if (assistantMsg.message?.content) {
+          lastAssistantContent = assistantMsg.message.content;
+        }
+      }
+
       yield { content: (message as { content?: unknown }).content };
+    }
+
+    // If we got assistant content but no structured_output was yielded, try to extract from content
+    if (lastAssistantContent) {
+      yield { content: lastAssistantContent };
     }
   }
 }

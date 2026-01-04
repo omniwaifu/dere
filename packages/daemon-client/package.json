@@ -7,6 +7,13 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
+    },
+    "./trpc": {
+      "types": "./dist/trpc.d.ts",
+      "default": "./src/trpc.ts"
     }
+  },
+  "dependencies": {
+    "@trpc/server": "^11.8.1"
   }
 }

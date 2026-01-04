@@ -1,5 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { SDKAssistantMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKAssistantMessage,
+  SDKResultMessage,
+  Options as SDKOptions,
+} from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { sql } from "kysely";
 import type { Hono } from "hono";
@@ -341,14 +345,24 @@ async function runAgentQuery(args: {
 
   const plugins = resolvePluginPaths(args.agent.plugins);
 
-  const options: Record<string, unknown> = {
+  const options: SDKOptions = {
     cwd: args.swarm.working_dir,
-    model: args.agent.model ?? undefined,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     persistSession: false,
     settingSources: ["project"],
+    sandbox: { enabled: false },
+    env: {
+      DERE_SESSION_ID: String(args.sessionId),
+      DERE_SWARM_ID: String(args.swarm.id),
+      DERE_SWARM_AGENT_ID: String(args.agent.id),
+      DERE_SWARM_AGENT_NAME: args.agent.name,
+    },
   };
+
+  if (args.agent.model) {
+    options.model = args.agent.model;
+  }
 
   if (args.agent.allowed_tools && args.agent.allowed_tools.length > 0) {
     options.tools = args.agent.allowed_tools;
@@ -360,15 +374,6 @@ async function runAgentQuery(args: {
   if (plugins && plugins.length > 0) {
     options.plugins = plugins;
   }
-
-  options.env = {
-    DERE_SESSION_ID: String(args.sessionId),
-    DERE_SWARM_ID: String(args.swarm.id),
-    DERE_SWARM_AGENT_ID: String(args.agent.id),
-    DERE_SWARM_AGENT_NAME: args.agent.name,
-  };
-
-  options.sandbox = { enabled: false };
 
   const blocks: Array<{
     type: string;
