@@ -3,6 +3,7 @@ import { sql } from "kysely";
 
 import { getDb } from "./db.js";
 import { getRecallEmbedder, vectorLiteral } from "./recall-embeddings.js";
+import { log } from "./logger.js";
 
 type RecallResult = {
   result_id: string;
@@ -152,7 +153,7 @@ export function registerRecallRoutes(app: Hono): void {
         vectorRows = await vectorQuery.execute();
         vectorIds = vectorRows.map((row) => `conv:${row.block_id}`);
       } catch (error) {
-        console.log(`[recall] vector search failed: ${String(error)}`);
+        log.recall.warn("Vector search failed", { error: String(error) });
       }
     }
 

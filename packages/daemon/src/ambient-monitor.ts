@@ -9,6 +9,7 @@ import { ContextAnalyzer } from "./ambient-analyzer.js";
 import { AmbientExplorer } from "./ambient-explorer.js";
 import { AmbientFSM } from "./ambient-fsm.js";
 import { getDb } from "./db.js";
+import { log } from "./logger.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -87,15 +88,15 @@ class AmbientMonitor {
           bond: 0.15,
         },
       );
-      console.log("[ambient] FSM initialized");
+      log.ambient.info("FSM initialized");
     } else {
       this.fsm = null;
-      console.log("[ambient] FSM disabled, using fixed intervals");
+      log.ambient.info("FSM disabled, using fixed intervals");
     }
 
     if (config.exploring.enabled) {
       this.explorer = new AmbientExplorer(config);
-      console.log("[ambient] exploration initialized");
+      log.ambient.info("Exploration initialized");
     }
   }
 
@@ -108,18 +109,19 @@ class AmbientMonitor {
 
   async start(): Promise<void> {
     if (!this.config.enabled) {
-      console.log("[ambient] monitoring disabled in config");
+      log.ambient.info("Monitoring disabled in config");
       return;
     }
     if (this.running) {
-      console.log("[ambient] monitor already running");
+      log.ambient.warn("Monitor already running");
       return;
     }
     this.running = true;
     this.loopPromise = this.monitorLoop();
-    console.log(
-      `[ambient] monitor started (interval ${this.config.check_interval_minutes}m, idle threshold ${this.config.idle_threshold_minutes}m)`,
-    );
+    log.ambient.info("Monitor started", {
+      intervalMinutes: this.config.check_interval_minutes,
+      idleThresholdMinutes: this.config.idle_threshold_minutes,
+    });
   }
 
   async shutdown(): Promise<void> {
@@ -131,7 +133,7 @@ class AmbientMonitor {
 
   private async monitorLoop(): Promise<void> {
     if (this.config.startup_delay_seconds > 0) {
-      console.log(`[ambient] startup delay ${this.config.startup_delay_seconds}s`);
+      log.ambient.debug("Startup delay", { seconds: this.config.startup_delay_seconds });
       await sleep(this.config.startup_delay_seconds * 1000);
     }
 
@@ -139,14 +141,14 @@ class AmbientMonitor {
       try {
         await this.checkAndEngage();
       } catch (error) {
-        console.log(`[ambient] monitor loop error: ${String(error)}`);
+        log.ambient.error("Monitor loop error", { error: String(error) });
       }
 
       const intervalSeconds = this.fsm
         ? this.fsm.calculateNextIntervalSeconds()
         : this.config.check_interval_minutes * 60;
 
-      console.log(`[ambient] next check in ${(intervalSeconds / 60).toFixed(1)}m`);
+      log.ambient.debug("Next check scheduled", { intervalMinutes: (intervalSeconds / 60).toFixed(1) });
       await sleep(intervalSeconds * 1000);
     }
   }
@@ -232,7 +234,7 @@ class AmbientMonitor {
       const minIntervalSeconds = this.config.min_notification_interval_minutes * 60;
       if (elapsedSeconds < minIntervalSeconds) {
         const remaining = (minIntervalSeconds - elapsedSeconds) / 60;
-        console.log(`[ambient] minimum interval not elapsed (${remaining.toFixed(0)}m remaining)`);
+        log.ambient.debug("Minimum interval not elapsed", { remainingMinutes: remaining.toFixed(0) });
         return;
       }
     }
@@ -248,7 +250,7 @@ class AmbientMonitor {
 
     const missionResult = await this.runAmbientMission(contextSnapshot);
     if (!missionResult) {
-      console.log("[ambient] no actionable ambient mission output");
+      log.ambient.debug("No actionable ambient mission output");
       return;
     }
 
@@ -298,14 +300,15 @@ class AmbientMonitor {
     if (maxHoursBetween > 0) {
       if (!this.lastExplorationAt) {
         forceExploration = true;
-        console.log("[ambient] forcing exploration: first run");
+        log.ambient.info("Forcing exploration: first run");
       } else {
         const hoursSince = (options.now.getTime() - this.lastExplorationAt.getTime()) / 3600000;
         if (hoursSince >= maxHoursBetween) {
           forceExploration = true;
-          console.log(
-            `[ambient] forcing exploration: ${hoursSince.toFixed(1)}h since last (threshold ${maxHoursBetween}h)`,
-          );
+          log.ambient.info("Forcing exploration: time threshold", {
+            hoursSinceLast: hoursSince.toFixed(1),
+            thresholdHours: maxHoursBetween,
+          });
         }
       }
     }
@@ -351,7 +354,7 @@ class AmbientMonitor {
     this.lastExplorationAt = options.now;
 
     if (outcome.result && outcome.result.worth_sharing && outcome.result.confidence >= 0.8) {
-      console.log("[ambient] exploration produced high-confidence shareable finding");
+      log.ambient.info("Exploration produced high-confidence shareable finding");
     }
 
     return true;
@@ -594,7 +597,7 @@ class AmbientMonitor {
       (contextSnapshot.activity as JsonRecord) ?? {},
     );
     if (!routing) {
-      console.log("[ambient] routing skipped notification delivery");
+      log.ambient.debug("Routing skipped notification delivery");
       return;
     }
 

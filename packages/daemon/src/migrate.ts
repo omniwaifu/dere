@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { FileMigrationProvider, Migrator } from "kysely";
 
 import { createDb } from "./db.js";
+import { log } from "./logger.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(here, "..", "migrations");
@@ -25,16 +26,16 @@ async function main(): Promise<void> {
 
   results?.forEach((result) => {
     if (result.status === "Success") {
-      console.log(`✅ ${result.migrationName}`);
+      log.daemon.info("Migration applied", { name: result.migrationName });
     } else if (result.status === "Error") {
-      console.error(`❌ ${result.migrationName}`);
+      log.daemon.error("Migration failed", { name: result.migrationName });
     }
   });
 
   await db.destroy();
 
   if (error) {
-    console.error(error);
+    log.daemon.error("Migration error", { error: String(error) });
     process.exitCode = 1;
   }
 }

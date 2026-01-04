@@ -17,10 +17,14 @@ import {
   type SearchFilters,
 } from "@dere/graph";
 
-import { sql } from "kysely";
-
 import { getDb } from "./db.js";
+import {
+  ensureSession,
+  upsertContextCache,
+  mergeContextCacheMetadata,
+} from "./db-utils.js";
 import { buildContextMetadata } from "./context-tracking.js";
+import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,10 +38,6 @@ type WeatherContext = {
   pressure?: string;
   wind_speed?: string;
 };
-
-function nowDate(): Date {
-  return new Date();
-}
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -298,55 +298,6 @@ async function buildFullContextXml(args: { sessionId: number | null }): Promise<
     contextXml = addLineNumbers(contextXml);
   }
   return contextXml;
-}
-
-async function ensureSession(
-  sessionId: number,
-  workingDir: string,
-  userId: string | null,
-  medium: string | null,
-): Promise<{ id: number; working_dir: string; medium: string | null; user_id: string | null }> {
-  const db = await getDb();
-  const now = nowDate();
-
-  // Use INSERT ON CONFLICT DO NOTHING to handle race conditions
-  await db
-    .insertInto("sessions")
-    .values({
-      id: sessionId,
-      working_dir: workingDir,
-      start_time: nowSeconds(),
-      personality: null,
-      medium: medium ?? "cli",
-      last_activity: now,
-      sandbox_mode: false,
-      sandbox_mount_type: "none",
-      is_locked: false,
-      sandbox_settings: null,
-      continued_from: null,
-      project_type: null,
-      claude_session_id: null,
-      user_id: userId,
-      thinking_budget: null,
-      mission_id: null,
-      created_at: now,
-      summary: null,
-      summary_updated_at: null,
-      name: null,
-      end_time: null,
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
-
-  // Fetch the session (either we just created it or it already existed)
-  const session = await db
-    .selectFrom("sessions")
-    .select(["id", "working_dir", "medium", "user_id"])
-    .where("id", "=", sessionId)
-    .executeTakeFirst();
-
-  // Session must exist after upsert
-  return session ?? { id: sessionId, working_dir: workingDir, medium: medium ?? "cli", user_id: userId };
 }
 
 async function isCodeProjectDir(workingDir: string): Promise<boolean> {
@@ -637,7 +588,8 @@ export function registerContextRoutes(app: Hono): void {
       return c.json({ error: "session_id and current_prompt are required" }, 400);
     }
 
-    await ensureSession(sessionId, projectPath, userId, null);
+    const db = await getDb();
+    await ensureSession(db, { id: sessionId, workingDir: projectPath, userId, medium: null });
     const groupId = userId ?? "default";
 
     if (!(await graphAvailable())) {
@@ -775,30 +727,14 @@ export function registerContextRoutes(app: Hono): void {
       const contextText = contextParts.join("\n");
       const metadata = buildContextMetadata(searchResults.nodes, searchResults.edges);
 
-      const db = await getDb();
-      const now = nowDate();
-
-      await db
-        .insertInto("context_cache")
-        .values({
-          session_id: sessionId,
-          context_text: contextText,
-          context_metadata: metadata,
-          created_at: now,
-          updated_at: now,
-        })
-        .onConflict((oc) =>
-          oc.column("session_id").doUpdateSet({
-            context_text: contextText,
-            context_metadata: metadata,
-            updated_at: now,
-          }),
-        )
-        .execute();
+      await upsertContextCache(db, sessionId, {
+        contextText,
+        contextMetadata: metadata,
+      });
 
       return c.json({ status: "ready", context: contextText });
     } catch (error) {
-      console.log(`[context] build failed: ${String(error)}`);
+      log.daemon.warn("Context build failed", { error: String(error) });
       return c.json({ status: "error", context: "", error: String(error) });
     }
   });
@@ -847,9 +783,8 @@ export function registerContextRoutes(app: Hono): void {
     const workingDir = typeof payload.working_dir === "string" ? payload.working_dir : "";
     const medium = typeof payload.medium === "string" ? payload.medium : null;
 
-    const session = await ensureSession(sessionId, workingDir, userId, medium);
-
     const db = await getDb();
+    const session = await ensureSession(db, { id: sessionId, workingDir, userId, medium });
     const existingCache = await db
       .selectFrom("context_cache")
       .select(["context_metadata"])
@@ -948,7 +883,7 @@ export function registerContextRoutes(app: Hono): void {
         }
       }
     } catch (error) {
-      console.log(`[context] session-start build failed: ${String(error)}`);
+      log.daemon.warn("Session-start context build failed", { error: String(error) });
       contextText = `<session_start_context type="${sessionType}"><error>Context unavailable</error></session_start_context>`;
     }
 
@@ -959,23 +894,7 @@ export function registerContextRoutes(app: Hono): void {
       query_timestamp: nowSeconds(),
     };
 
-    const now = nowDate();
-    await db
-      .insertInto("context_cache")
-      .values({
-        session_id: sessionId,
-        context_text: "",
-        context_metadata: cacheMetadata,
-        created_at: now,
-        updated_at: now,
-      })
-      .onConflict((oc) =>
-        oc.column("session_id").doUpdateSet({
-          context_metadata: sql`COALESCE(context_cache.context_metadata, '{}'::jsonb) || ${JSON.stringify(cacheMetadata)}::jsonb`,
-          updated_at: now,
-        }),
-      )
-      .execute();
+    await mergeContextCacheMetadata(db, sessionId, cacheMetadata);
 
     return c.json({
       status: "ready",

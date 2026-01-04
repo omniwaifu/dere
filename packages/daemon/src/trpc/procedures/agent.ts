@@ -7,6 +7,7 @@ import {
 } from "@dere/shared-llm";
 import { getDb } from "../../db.js";
 import { router, publicProcedure } from "../init.js";
+import { log } from "../../logger.js";
 
 const SESSION_LIST_LIMIT = 50;
 const MESSAGE_LIMIT_DEFAULT = 100;
@@ -66,7 +67,7 @@ async function generateSessionTitle(prompt: string): Promise<string> {
   const workingDirectory = process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions";
   const model = process.env.DERE_TITLE_MODEL ?? TITLE_MODEL;
 
-  console.log(`[generateSessionTitle] Using model: ${model}, cwd: ${workingDirectory}`);
+  log.agent.debug("Generating session title", { model, workingDirectory });
 
   const transport = new ClaudeAgentTransport({ workingDirectory });
   const client = new StructuredOutputClient({ transport, model });
@@ -75,7 +76,7 @@ async function generateSessionTitle(prompt: string): Promise<string> {
     schemaName: "session_title",
   });
 
-  console.log(`[generateSessionTitle] Got title: ${response.title}`);
+  log.agent.debug("Generated session title", { title: response.title });
   return response.title.trim();
 }
 
@@ -443,7 +444,7 @@ export const agentRouter = router({
         return { name: finalTitle, generated: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`[generateName] Failed for session ${input.session_id}:`, message);
+        log.agent.warn("Session name generation failed", { sessionId: input.session_id, error: message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Failed to generate name: ${message}` });
       }
     }),

@@ -12,6 +12,7 @@ import {
   type SearchFilters,
 } from "@dere/graph";
 import { router, publicProcedure } from "../init.js";
+import { log } from "../../logger.js";
 
 type FactRoleSummary = {
   entity_uuid: string;
@@ -276,7 +277,7 @@ export const knowledgeGraphRouter = router({
           label_distribution,
         };
       } catch (error) {
-        console.log(`[kg] stats failed: ${String(error)}`);
+        log.kg.warn("Stats query failed", { error: String(error) });
         return {
           total_entities: 0,
           total_facts: 0,
@@ -309,7 +310,7 @@ export const knowledgeGraphRouter = router({
         const labels = records.map((record) => String(record.label ?? "")).filter(Boolean);
         return { labels };
       } catch (error) {
-        console.log(`[kg] labels failed: ${String(error)}`);
+        log.kg.warn("Labels query failed", { error: String(error) });
         return { labels: [] };
       }
     }),
@@ -374,7 +375,7 @@ export const knowledgeGraphRouter = router({
           limit,
         };
       } catch (error) {
-        console.log(`[kg] entities failed: ${String(error)}`);
+        log.kg.warn("Entities query failed", { error: String(error) });
         return { entities: [], total: 0, offset, limit };
       }
     }),
@@ -465,7 +466,7 @@ export const knowledgeGraphRouter = router({
 
         return { entities, edges, facts, query: input.query };
       } catch (error) {
-        console.log(`[kg] search failed: ${String(error)}`);
+        log.kg.warn("Search failed", { error: String(error) });
         return { entities: [], edges: [], facts: [], query: input.query };
       }
     }),
@@ -549,7 +550,7 @@ export const knowledgeGraphRouter = router({
 
         return { facts, query: input.query };
       } catch (error) {
-        console.log(`[kg] facts search failed: ${String(error)}`);
+        log.kg.warn("Facts search failed", { error: String(error) });
         return { facts: [], query: input.query };
       }
     }),
@@ -650,7 +651,7 @@ export const knowledgeGraphRouter = router({
 
         return { created: true, fact: summary };
       } catch (error) {
-        console.log(`[kg] archival insert failed: ${String(error)}`);
+        log.kg.warn("Archival insert failed", { error: String(error) });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to insert fact" });
       }
     }),
@@ -704,7 +705,7 @@ export const knowledgeGraphRouter = router({
         );
         return { facts, query: "" };
       } catch (error) {
-        console.log(`[kg] facts at_time failed: ${String(error)}`);
+        log.kg.warn("Facts at_time query failed", { error: String(error) });
         return { facts: [], query: "" };
       }
     }),
@@ -838,7 +839,7 @@ export const knowledgeGraphRouter = router({
         const page = timeline.slice(offset, offset + limit);
         return { facts: page.map((item) => item.entry), total: timeline.length, offset };
       } catch (error) {
-        console.log(`[kg] timeline failed: ${String(error)}`);
+        log.kg.warn("Timeline query failed", { error: String(error) });
         return { facts: [], total: 0, offset };
       }
     }),
@@ -869,7 +870,7 @@ export const knowledgeGraphRouter = router({
 
         return { communities };
       } catch (error) {
-        console.log(`[kg] communities failed: ${String(error)}`);
+        log.kg.warn("Communities query failed", { error: String(error) });
         return { communities: [] };
       }
     }),
@@ -955,7 +956,7 @@ export const knowledgeGraphRouter = router({
           })),
         };
       } catch (error) {
-        console.log(`[kg] entity lookup failed: ${String(error)}`);
+        log.kg.warn("Entity lookup failed", { error: String(error) });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(error) });
       }
     }),
@@ -1021,7 +1022,7 @@ export const knowledgeGraphRouter = router({
             })),
         };
       } catch (error) {
-        console.log(`[kg] related entities failed: ${String(error)}`);
+        log.kg.warn("Related entities query failed", { error: String(error) });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(error) });
       }
     }),

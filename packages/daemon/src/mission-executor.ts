@@ -8,6 +8,7 @@ import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { sql } from "kysely";
 
 import { getDb } from "./db.js";
+import { log } from "./logger.js";
 import { buildSessionContextXml } from "./prompt-context.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
@@ -133,7 +134,7 @@ async function dequeueShareableFinding(
     const text = finding.share_message ?? finding.finding ?? "";
     return text.trim() ? text : null;
   } catch (error) {
-    console.log(`[ambient] failed to surface exploration finding: ${String(error)}`);
+    log.ambient.warn("Failed to surface exploration finding", { error: String(error) });
     return null;
   }
 }
@@ -671,9 +672,10 @@ export class MissionExecutor {
     try {
       sessionId = await createMissionSession(mission);
     } catch (error) {
-      console.log(
-        `[missions] failed to create session for mission ${mission.id}: ${String(error)}`,
-      );
+      log.mission.warn("Failed to create session for mission", {
+        missionId: mission.id,
+        error: String(error),
+      });
     }
 
     try {
@@ -776,7 +778,7 @@ export class MissionExecutor {
             messageType: "assistant",
             kgNodes: null,
           }).catch((error) => {
-            console.log(`[ambient] curiosity detection failed: ${String(error)}`);
+            log.ambient.warn("Curiosity detection failed", { error: String(error) });
           });
         }
 
@@ -788,18 +790,20 @@ export class MissionExecutor {
           personality: mission.personality,
           workingDir: mission.working_dir,
         }).catch((error) => {
-          console.log(`[emotion] buffer failed: ${String(error)}`);
+          log.emotion.warn("Emotion buffer failed", { error: String(error) });
         });
       }
 
-      console.log(
-        `[missions] completed mission ${mission.id} (${mission.name}) output_len=${outputText.length}`,
-      );
+      log.mission.info("Mission completed", {
+        missionId: mission.id,
+        name: mission.name,
+        outputLen: outputText.length,
+      });
 
       return updated;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(`[missions] execution failed for mission ${mission.id}: ${message}`);
+      log.mission.error("Mission execution failed", { missionId: mission.id, error: message });
 
       const completedAt = nowDate();
       const updated = await db
@@ -824,7 +828,7 @@ export class MissionExecutor {
             .where("id", "=", sessionId)
             .execute();
         } catch (cleanupError) {
-          console.log(`[missions] session cleanup failed: ${String(cleanupError)}`);
+          log.mission.warn("Session cleanup failed", { sessionId, error: String(cleanupError) });
         }
       }
     }
@@ -849,7 +853,7 @@ Summary:`;
       const summary = await client.generate(prompt);
       return summary.trim();
     } catch (error) {
-      console.log(`[missions] summary generation failed: ${String(error)}`);
+      log.mission.warn("Summary generation failed", { error: String(error) });
       return null;
     }
   }

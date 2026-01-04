@@ -14,10 +14,14 @@ import { join } from "node:path";
 
 import { getDb } from "./db.js";
 import type { JsonValue } from "./db-types.js";
+import { upsertScratchpadEntry, closeSession } from "./db-utils.js";
+import { swarmState, type CompletionSignal } from "./swarm-state.js";
+import { daemonEvents } from "./events.js";
 import { listPersonalityInfos } from "./personalities.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
 import { runDockerSandboxQuery } from "./sandbox/docker-runner.js";
+import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -124,17 +128,6 @@ type SwarmAgentRow = {
   started_at: Date | null;
   completed_at: Date | null;
 };
-
-type CompletionSignal = { promise: Promise<void>; resolve: () => void };
-
-type SwarmRun = {
-  promise: Promise<void>;
-  cancelled: boolean;
-  completionSignals: Map<number, CompletionSignal>;
-};
-
-const runningAgents = new Map<number, Promise<void>>();
-const swarmRuns = new Map<number, SwarmRun>();
 
 function isAgentTerminal(status: string): boolean {
   return (
@@ -492,7 +485,7 @@ Summary:`;
     const summary = await client.generate(prompt);
     return summary.trim();
   } catch (error) {
-    console.log(`[swarm] summary generation failed: ${String(error)}`);
+    log.swarm.warn("Summary generation failed", { error: String(error) });
     return null;
   }
 }
@@ -1058,24 +1051,7 @@ function normalizeAgentSpec(raw: Record<string, unknown>): AgentSpec {
 }
 
 function getCompletionSignal(swarmId: number, agentId: number): CompletionSignal {
-  const run = swarmRuns.get(swarmId);
-  if (!run) {
-    // Return an immediately-resolved signal for non-running swarms
-    // (agents are either done or the swarm hasn't started)
-    return { promise: Promise.resolve(), resolve: () => {} };
-  }
-
-  const existing = run.completionSignals.get(agentId);
-  if (existing) {
-    return existing;
-  }
-  let resolve!: () => void;
-  const promise = new Promise<void>((res) => {
-    resolve = res;
-  });
-  const entry = { promise, resolve };
-  run.completionSignals.set(agentId, entry);
-  return entry;
+  return swarmState.getCompletionSignal(swarmId, agentId);
 }
 
 async function getSwarmWithAgents(
@@ -1365,6 +1341,14 @@ async function executeAssignedAgent(
     .where("id", "=", agent.id)
     .execute();
 
+  // Emit agent start event
+  daemonEvents.emit("agent:start", {
+    agentId: agent.id,
+    swarmId: swarm.id,
+    name: agent.name,
+    role: agent.role ?? "generic",
+  });
+
   const sessionId = await createSessionForAgent(agent, swarm);
   await db
     .updateTable("swarm_agents")
@@ -1414,6 +1398,15 @@ async function executeAssignedAgent(
       .where("id", "=", agent.id)
       .execute();
 
+    // Emit agent end event
+    daemonEvents.emit("agent:end", {
+      agentId: agent.id,
+      swarmId: swarm.id,
+      name: agent.name,
+      status: "completed",
+      durationSeconds: (completedAt.getTime() - startedAt.getTime()) / 1000,
+    });
+
     let assistantConversationId: number | null = null;
     if (blocks.length > 0) {
       assistantConversationId = await insertAssistantBlocks(sessionId, blocks, agent.personality, {
@@ -1443,7 +1436,7 @@ async function executeAssignedAgent(
         messageType: "assistant",
         kgNodes: null,
       }).catch((error) => {
-        console.log(`[ambient] curiosity detection failed: ${String(error)}`);
+        log.ambient.warn("Curiosity detection failed", { error: String(error) });
       });
     }
 
@@ -1455,7 +1448,7 @@ async function executeAssignedAgent(
       personality: agent.personality,
       workingDir: swarm.working_dir,
     }).catch((error) => {
-      console.log(`[emotion] buffer failed: ${String(error)}`);
+      log.emotion.warn("Buffer failed", { error: String(error) });
     });
 
     if (agent.is_synthesis_agent) {
@@ -1480,14 +1473,18 @@ async function executeAssignedAgent(
       })
       .where("id", "=", agent.id)
       .execute();
+
+    // Emit agent end event for failure
+    daemonEvents.emit("agent:end", {
+      agentId: agent.id,
+      swarmId: swarm.id,
+      name: agent.name,
+      status: "failed",
+      durationSeconds: (completedAt.getTime() - startedAt.getTime()) / 1000,
+    });
   } finally {
     // Mark session as complete regardless of success/failure
-    await db
-      .updateTable("sessions")
-      .set({ end_time: nowSeconds(), is_locked: true })
-      .where("id", "=", sessionId)
-      .execute()
-      .catch(() => null);
+    await closeSession(db, sessionId).catch(() => null);
   }
 }
 
@@ -1571,7 +1568,7 @@ async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentRow): Pr
 
     while (true) {
       // Check for cancel before each iteration
-      if (swarmRuns.get(swarm.id)?.cancelled) {
+      if (swarmState.isCancelled(swarm.id)) {
         break;
       }
 
@@ -1700,12 +1697,7 @@ async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentRow): Pr
   } finally {
     // Mark session as complete regardless of success/failure
     if (sessionId) {
-      await db
-        .updateTable("sessions")
-        .set({ end_time: nowSeconds(), is_locked: true })
-        .where("id", "=", sessionId)
-        .execute()
-        .catch(() => null);
+      await closeSession(db, sessionId).catch(() => null);
     }
   }
 }
@@ -1749,7 +1741,7 @@ async function executeAgentWithDependencies(swarmId: number, agent: SwarmAgentRo
       }
     }
 
-    if (swarmRuns.get(swarmId)?.cancelled) {
+    if (swarmState.isCancelled(swarmId)) {
       await getDb()
         .then((db) =>
           db
@@ -1823,7 +1815,7 @@ async function executeAgentWithDependencies(swarmId: number, agent: SwarmAgentRo
       );
     }
   } finally {
-    runningAgents.delete(agent.id);
+    swarmState.untrackAgent(agent.id);
     completion.resolve();
   }
 }
@@ -1912,7 +1904,7 @@ async function queueMemoryConsolidation(swarmId: number, parentSessionId: number
       })
       .execute();
   } catch (error) {
-    console.log(`[swarm] failed to queue memory consolidation: ${String(error)}`);
+    log.swarm.warn("Failed to queue memory consolidation", { error: String(error) });
   }
 }
 
@@ -1922,10 +1914,18 @@ async function runSwarm(swarmId: number) {
     return;
   }
 
+  // Emit swarm start event
+  daemonEvents.emit("swarm:start", {
+    swarmId,
+    name: swarm.name,
+    workingDir: swarm.working_dir,
+    agentCount: agents.length,
+  });
+
   const pendingAgents = agents.filter((agent) => agent.status === STATUS.PENDING);
   for (const agent of pendingAgents) {
     const task = executeAgentWithDependencies(swarmId, agent);
-    runningAgents.set(agent.id, task);
+    swarmState.trackAgent(agent.id, task);
   }
 
   for (const agent of pendingAgents) {
@@ -1934,35 +1934,46 @@ async function runSwarm(swarmId: number) {
   }
 
   await updateSwarmCompletion(swarmId);
-}
 
-// Track swarms in the process of starting to prevent race conditions
-const startingSwarms = new Set<number>();
+  // Emit swarm end event
+  const finalAgents = await getDb().then((db) =>
+    db
+      .selectFrom("swarm_agents")
+      .select(["name", "status", "output_text"])
+      .where("swarm_id", "=", swarmId)
+      .execute(),
+  );
+  const finalSwarm = await getDb().then((db) =>
+    db.selectFrom("swarms").select("status").where("id", "=", swarmId).executeTakeFirst(),
+  );
+  daemonEvents.emit("swarm:end", {
+    swarmId,
+    status: (finalSwarm?.status ?? "failed") as "completed" | "failed" | "cancelled",
+    agentResults: finalAgents.map((a) => ({
+      name: a.name,
+      status: a.status ?? "unknown",
+      hasOutput: !!a.output_text,
+    })),
+  });
+}
 
 async function startSwarmExecution(swarmId: number): Promise<void> {
   // Atomic check: already running or already starting
-  if (swarmRuns.has(swarmId) || startingSwarms.has(swarmId)) {
+  if (!swarmState.markStarting(swarmId)) {
     return;
   }
 
-  // Mark as starting to prevent concurrent starts
-  startingSwarms.add(swarmId);
-
   try {
-    const run: SwarmRun = {
-      cancelled: false,
-      completionSignals: new Map(),
-      promise: (async () => {
-        try {
-          await runSwarm(swarmId);
-        } finally {
-          swarmRuns.delete(swarmId);
-        }
-      })(),
-    };
-    swarmRuns.set(swarmId, run);
-  } finally {
-    startingSwarms.delete(swarmId);
+    const promise = (async () => {
+      try {
+        await runSwarm(swarmId);
+      } finally {
+        swarmState.cleanupSwarm(swarmId);
+      }
+    })();
+    swarmState.registerRun(swarmId, promise);
+  } catch {
+    swarmState.clearStarting(swarmId);
   }
 }
 
@@ -2091,46 +2102,51 @@ export async function cleanupOrphanedSwarms(): Promise<void> {
     return;
   }
 
-  console.log(`[swarm] Found ${orphanedSwarms.length} orphaned swarms from previous run`);
+  log.swarm.info("Found orphaned swarms from previous run", { count: orphanedSwarms.length });
 
   for (const swarm of orphanedSwarms) {
-    console.log(`[swarm] Cleaning up orphaned swarm ${swarm.id} (${swarm.name})`);
+    log.swarm.info("Cleaning up orphaned swarm", { swarmId: swarm.id, name: swarm.name });
 
-    // Mark swarm as failed
-    await db
-      .updateTable("swarms")
-      .set({ status: STATUS.FAILED, completed_at: nowDate() })
-      .where("id", "=", swarm.id)
-      .execute();
+    // Use transaction to ensure all cleanup operations succeed or fail together
+    await db.transaction().execute(async (trx) => {
+      const now = nowDate();
 
-    // Mark running/pending agents as failed
-    await db
-      .updateTable("swarm_agents")
-      .set({
-        status: STATUS.FAILED,
-        completed_at: nowDate(),
-        error_message: "Daemon restarted during execution",
-      })
-      .where("swarm_id", "=", swarm.id)
-      .where("status", "in", [STATUS.PENDING, STATUS.RUNNING])
-      .execute();
+      // Mark swarm as failed
+      await trx
+        .updateTable("swarms")
+        .set({ status: STATUS.FAILED, completed_at: now })
+        .where("id", "=", swarm.id)
+        .execute();
 
-    // Close any open sessions for this swarm's agents
-    await db
-      .updateTable("sessions")
-      .set({ end_time: nowSeconds(), is_locked: true })
-      .where("id", "in", (qb) =>
-        qb
-          .selectFrom("swarm_agents")
-          .select("session_id")
-          .where("swarm_id", "=", swarm.id)
-          .where("session_id", "is not", null),
-      )
-      .where("end_time", "is", null)
-      .execute();
+      // Mark running/pending agents as failed
+      await trx
+        .updateTable("swarm_agents")
+        .set({
+          status: STATUS.FAILED,
+          completed_at: now,
+          error_message: "Daemon restarted during execution",
+        })
+        .where("swarm_id", "=", swarm.id)
+        .where("status", "in", [STATUS.PENDING, STATUS.RUNNING])
+        .execute();
+
+      // Close any open sessions for this swarm's agents
+      await trx
+        .updateTable("sessions")
+        .set({ end_time: nowSeconds(), is_locked: true })
+        .where("id", "in", (qb) =>
+          qb
+            .selectFrom("swarm_agents")
+            .select("session_id")
+            .where("swarm_id", "=", swarm.id)
+            .where("session_id", "is not", null),
+        )
+        .where("end_time", "is", null)
+        .execute();
+    });
   }
 
-  console.log(`[swarm] Orphan cleanup complete`);
+  log.swarm.info("Orphan cleanup complete");
 }
 
 export function registerSwarmRoutes(app: Hono): void {
@@ -2896,28 +2912,27 @@ export function registerSwarmRoutes(app: Hono): void {
       return c.json({ error: "Invalid swarm_id" }, 400);
     }
 
-    const run = swarmRuns.get(swarmId);
-    if (run) {
-      run.cancelled = true;
-      // Resolve all completion signals so waiting code unblocks immediately
-      for (const signal of run.completionSignals.values()) {
-        signal.resolve();
-      }
-    }
+    // Cancel in-memory state (resolves completion signals)
+    swarmState.cancelSwarm(swarmId);
 
     const db = await getDb();
-    await db
-      .updateTable("swarms")
-      .set({ status: STATUS.CANCELLED, completed_at: nowDate() })
-      .where("id", "=", swarmId)
-      .execute();
 
-    await db
-      .updateTable("swarm_agents")
-      .set({ status: STATUS.CANCELLED, completed_at: nowDate() })
-      .where("swarm_id", "=", swarmId)
-      .where("status", "in", [STATUS.PENDING, STATUS.RUNNING])
-      .execute();
+    // Use transaction to ensure both updates succeed or fail together
+    await db.transaction().execute(async (trx) => {
+      const now = nowDate();
+      await trx
+        .updateTable("swarms")
+        .set({ status: STATUS.CANCELLED, completed_at: now })
+        .where("id", "=", swarmId)
+        .execute();
+
+      await trx
+        .updateTable("swarm_agents")
+        .set({ status: STATUS.CANCELLED, completed_at: now })
+        .where("swarm_id", "=", swarmId)
+        .where("status", "in", [STATUS.PENDING, STATUS.RUNNING])
+        .execute();
+    });
 
     return c.json({ status: "cancelled", swarm_id: swarmId });
   });
@@ -3054,32 +3069,17 @@ export function registerSwarmRoutes(app: Hono): void {
     }
 
     const db = await getDb();
-    const now = nowDate();
     const scratchValue = toJsonValue(payload.value);
     const agentId = typeof payload.agent_id === "number" ? payload.agent_id : null;
     const agentName = typeof payload.agent_name === "string" ? payload.agent_name : null;
 
-    // Use upsert to avoid check-then-act race condition
-    await db
-      .insertInto("swarm_scratchpad")
-      .values({
-        swarm_id: swarmId,
-        key,
-        value: scratchValue,
-        set_by_agent_id: agentId,
-        set_by_agent_name: agentName,
-        created_at: now,
-        updated_at: now,
-      })
-      .onConflict((oc) =>
-        oc.columns(["swarm_id", "key"]).doUpdateSet({
-          value: scratchValue,
-          set_by_agent_id: agentId,
-          set_by_agent_name: agentName,
-          updated_at: now,
-        }),
-      )
-      .execute();
+    await upsertScratchpadEntry(db, {
+      swarmId,
+      key,
+      value: scratchValue,
+      agentId,
+      agentName,
+    });
 
     const entry = await db
       .selectFrom("swarm_scratchpad")

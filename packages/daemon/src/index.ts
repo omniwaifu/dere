@@ -14,6 +14,8 @@ import { startMemoryConsolidationLoop } from "./memory-consolidation.js";
 import { startRecallEmbeddingLoop } from "./recall-embeddings.js";
 import { startPresenceCleanupLoop } from "./presence.js";
 import { cleanupOrphanedSwarms } from "./swarm.js";
+import { initEventHandlers } from "./event-handlers.js";
+import { log } from "./logger.js";
 
 // Sentry error tracking (optional)
 const sentryDsn = process.env.DERE_SENTRY_DSN;
@@ -22,7 +24,7 @@ if (sentryDsn) {
     dsn: sentryDsn,
     environment: process.env.NODE_ENV ?? "development",
   });
-  console.log("[sentry] initialized");
+  log.daemon.info("Sentry initialized");
 }
 
 // PID file management
@@ -81,15 +83,18 @@ async function resolveDaemonPort(): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  // Initialize event handlers before anything else
+  initEventHandlers();
+
   const { app, websocket: agentWebsocket } = createApp();
 
   // Clean up any swarms that were running when daemon crashed
   await cleanupOrphanedSwarms().catch((error) => {
-    console.log(`[swarm] orphan cleanup failed: ${String(error)}`);
+    log.swarm.warn("Orphan cleanup failed", { error: String(error) });
   });
 
   startAmbientMonitor().catch((error) => {
-    console.log(`[ambient] failed to start: ${String(error)}`);
+    log.ambient.warn("Failed to start", { error: String(error) });
   });
 
   initMissionRuntime();
@@ -108,7 +113,7 @@ async function main(): Promise<void> {
     fetch: app.fetch,
     websocket: agentWebsocket,
   });
-  console.log(`[daemon] listening on http://localhost:${port}`);
+  log.daemon.info(`Listening on http://localhost:${port}`, { port });
 
   // UDS server (optional)
   if (udsPath) {
@@ -121,9 +126,9 @@ async function main(): Promise<void> {
         fetch: app.fetch,
         websocket: agentWebsocket,
       });
-      console.log(`[daemon] listening on unix:${udsPath}`);
+      log.daemon.info(`Listening on unix:${udsPath}`, { udsPath });
     } catch (error) {
-      console.error(`[daemon] failed to start UDS server: ${String(error)}`);
+      log.daemon.error("Failed to start UDS server", { error: String(error) });
     }
   }
 }

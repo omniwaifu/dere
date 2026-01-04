@@ -1,3 +1,5 @@
+import { log } from "./logger.js";
+
 export type AmbientState =
   | "idle"
   | "monitoring"
@@ -86,8 +88,7 @@ export class AmbientFSM {
   transitionTo(newState: AmbientState, reason?: string): void {
     const oldState = this.state;
     this.state = newState;
-    const note = reason ? ` (${reason})` : "";
-    console.log(`[AmbientFSM] State transition: ${oldState} -> ${newState}${note}`);
+    log.ambient.debug("FSM state transition", { from: oldState, to: newState, reason: reason ?? null });
   }
 
   private evaluateActivitySignal(activity: Record<string, unknown>): number {

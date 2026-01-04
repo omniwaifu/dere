@@ -8,6 +8,7 @@ import { sql } from "kysely";
 
 import type { AmbientConfig } from "./ambient-config.js";
 import { getDb } from "./db.js";
+import { log } from "./logger.js";
 
 const EXPLORATION_PROMPT = `
 You are exploring a topic the user mentioned: {topic}
@@ -498,7 +499,7 @@ export class AmbientExplorer {
         .where("id", "=", taskId)
         .execute();
     } catch (error) {
-      console.log(`[ambient] finding promotion failed: ${String(error)}`);
+      log.ambient.warn("Finding promotion failed", { error: String(error) });
     }
   }
 }

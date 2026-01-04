@@ -7,6 +7,7 @@ import { detectUnfamiliarEntities, type EntityNodeLike } from "./entities.js";
 import { detectKnowledgeGap } from "./knowledge-gap.js";
 import { computeCuriosityPriority } from "./priority.js";
 import type { CuriositySignal } from "./types.js";
+import { log } from "../logger.js";
 
 const STATUS = {
   BACKLOG: "backlog",
@@ -177,9 +178,7 @@ export async function processCuriosityTriggers(options: ProcessCuriosityOptions)
     }
 
     if (created > 0) {
-      console.log(
-        `[ambient] curiosity triggers stored: created=${created} total=${signals.length}`,
-      );
+      log.ambient.info("Curiosity triggers stored", { created, total: signals.length });
     }
 
     return created;
@@ -256,11 +255,12 @@ async function upsertCuriosityTask(
       .where("id", "=", existing.id)
       .execute();
 
-    console.log(
-      `[ambient] updated curiosity task ${existing.id} type=${signal.curiosity_type} priority=${Math.floor(
-        priority * 100,
-      )} triggers=${triggerCount}`,
-    );
+    log.ambient.info("Updated curiosity task", {
+      taskId: existing.id,
+      type: signal.curiosity_type,
+      priority: Math.floor(priority * 100),
+      triggers: triggerCount,
+    });
     return 0;
   }
 
@@ -311,11 +311,11 @@ async function upsertCuriosityTask(
     })
     .execute();
 
-  console.log(
-    `[ambient] created curiosity task type=${signal.curiosity_type} topic=${signal.topic} priority=${Math.floor(
-      score * 100,
-    )}`,
-  );
+  log.ambient.info("Created curiosity task", {
+    type: signal.curiosity_type,
+    topic: signal.topic,
+    priority: Math.floor(score * 100),
+  });
 
   return 1;
 }

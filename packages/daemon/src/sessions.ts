@@ -5,6 +5,7 @@ import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { getDb } from "./db.js";
 import { processCuriosityTriggers } from "./ambient-triggers/index.js";
 import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "./emotion-runtime.js";
+import { log } from "./logger.js";
 
 const DEFAULT_SUMMARY_MODEL = "claude-opus-4-5";
 const SUMMARY_WINDOW_SECONDS = 1800;
@@ -274,7 +275,7 @@ export function registerSessionRoutes(app: Hono): void {
       messageType: payload.role ?? "user",
       kgNodes: null,
     }).catch((error) => {
-      console.log(`[ambient] curiosity detection failed: ${String(error)}`);
+      log.ambient.warn("Curiosity detection failed", { error: String(error) });
     });
 
     const sessionStart = sessionMeta?.start_time ?? nowSeconds();
@@ -289,7 +290,7 @@ export function registerSessionRoutes(app: Hono): void {
       conversationId: inserted.id,
       sessionDurationMinutes,
     }).catch((error) => {
-      console.log(`[emotion] buffer failed: ${String(error)}`);
+      log.emotion.warn("Emotion buffer failed", { error: String(error) });
     });
 
     return c.json({ message_id: inserted.id });
@@ -358,7 +359,7 @@ export function registerSessionRoutes(app: Hono): void {
     try {
       await flushGlobalEmotionBatch();
     } catch (error) {
-      console.log(`[emotion] flush failed: ${String(error)}`);
+      log.emotion.warn("Emotion flush failed", { error: String(error) });
     }
 
     const db = await getDb();

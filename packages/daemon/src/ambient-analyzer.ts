@@ -1,5 +1,6 @@
 import { buildTaskContext, type TaskwarriorTask } from "./ambient-task-context.js";
 import type { AmbientConfig } from "./ambient-config.js";
+import { log } from "./logger.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -121,9 +122,10 @@ export class ContextAnalyzer {
       return true;
     }
     const similarity = contextSimilarity(this.lastContext, current);
-    console.log(
-      `[ambient] context similarity ${similarity.toFixed(2)} (threshold ${threshold.toFixed(2)})`,
-    );
+    log.ambient.debug("Context similarity check", {
+      similarity: similarity.toFixed(2),
+      threshold: threshold.toFixed(2),
+    });
     return similarity < threshold;
   }
 
@@ -317,7 +319,7 @@ export class ContextAnalyzer {
       const lookbackMinutes = options.activityLookbackMinutes ?? 10;
       const isAfk = await this.isUserAfk(lookbackMinutes);
       if (isAfk) {
-        console.log("[ambient] user AFK; skipping engagement");
+        log.ambient.debug("User AFK; skipping engagement");
         return [false, null];
       }
 
@@ -327,26 +329,26 @@ export class ContextAnalyzer {
           : options.currentActivity;
 
       if (!currentActivity) {
-        console.log("[ambient] no current activity detected; skipping");
+        log.ambient.debug("No current activity detected; skipping");
         return [false, null];
       }
 
       const durationSeconds = Number(currentActivity.duration ?? 0);
       const durationHours = durationSeconds / 3600;
-      console.log(
-        `[ambient] current activity ${currentActivity.app ?? "unknown"} for ${durationHours.toFixed(
-          1,
-        )}h`,
-      );
+      log.ambient.debug("Current activity", {
+        app: currentActivity.app ?? "unknown",
+        durationHours: durationHours.toFixed(1),
+      });
 
       const lastInteraction = await this.getLastInteractionTime();
       let minutesIdle: number | null = null;
       if (lastInteraction) {
         minutesIdle = (Date.now() / 1000 - lastInteraction) / 60;
         if (minutesIdle < this.config.idle_threshold_minutes) {
-          console.log(
-            `[ambient] user recently active (${Math.round(minutesIdle)}m < ${this.config.idle_threshold_minutes}m)`,
-          );
+          log.ambient.debug("User recently active", {
+            idleMinutes: Math.round(minutesIdle),
+            thresholdMinutes: this.config.idle_threshold_minutes,
+          });
           return [false, null];
         }
       }
@@ -362,7 +364,7 @@ export class ContextAnalyzer {
       if (!this.contextChanged(fingerprint)) {
         if (previousNotifications.length === 0 && !this.hasOverdueTasks(taskContext)) {
           this.lastContext = fingerprint;
-          console.log("[ambient] context stable; skipping engagement");
+          log.ambient.debug("Context stable; skipping engagement");
           return [false, null];
         }
       }
@@ -380,7 +382,7 @@ export class ContextAnalyzer {
 
       return [true, contextSnapshot];
     } catch (error) {
-      console.log(`[ambient] engagement analysis failed: ${String(error)}`);
+      log.ambient.error("Engagement analysis failed", { error: String(error) });
       return [false, null];
     }
   }

@@ -4,6 +4,7 @@ import { getDb } from "../../db.js";
 import { getMissionExecutor } from "../../mission-runtime.js";
 import { getNextCronRun, parseSchedule } from "../../mission-schedule.js";
 import { router, publicProcedure } from "../init.js";
+import { log } from "../../logger.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
@@ -114,9 +115,11 @@ export const missionsRouter = router({
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    console.log(
-      `[missions] created mission ${inserted.id} (${inserted.name}) next=${nextRun.toISOString()}`,
-    );
+    log.mission.info("Created mission", {
+      missionId: inserted.id,
+      name: inserted.name,
+      nextRun: nextRun.toISOString(),
+    });
 
     return inserted;
   }),
@@ -222,7 +225,7 @@ export const missionsRouter = router({
 
       await db.deleteFrom("missions").where("id", "=", input.mission_id).execute();
 
-      console.log(`[missions] deleted mission ${input.mission_id} (${mission.name})`);
+      log.mission.info("Deleted mission", { missionId: input.mission_id, name: mission.name });
       return { status: "deleted", id: input.mission_id };
     }),
 
@@ -305,7 +308,7 @@ export const missionsRouter = router({
       }
 
       void executor.execute(mission, "manual", "user").catch((error) => {
-        console.log(`[missions] manual execution failed for ${input.mission_id}: ${String(error)}`);
+        log.mission.error("Manual execution failed", { missionId: input.mission_id, error: String(error) });
       });
 
       return { status: "triggered", mission_id: input.mission_id };

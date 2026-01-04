@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import { getDb } from "./db.js";
 import { getMissionExecutor } from "./mission-runtime.js";
 import { getNextCronRun, parseSchedule } from "./mission-schedule.js";
+import { log } from "./logger.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
@@ -153,9 +154,11 @@ export function registerMissionRoutes(app: Hono): void {
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    console.log(
-      `[missions] created mission ${inserted.id} (${inserted.name}) next=${nextRun.toISOString()}`,
-    );
+    log.mission.info("Created mission", {
+      missionId: inserted.id,
+      name: inserted.name,
+      nextRun: nextRun.toISOString(),
+    });
 
     return c.json(toMissionResponse(inserted));
   });
@@ -305,7 +308,7 @@ export function registerMissionRoutes(app: Hono): void {
 
     await db.deleteFrom("missions").where("id", "=", missionId).execute();
 
-    console.log(`[missions] deleted mission ${missionId} (${mission.name})`);
+    log.mission.info("Deleted mission", { missionId, name: mission.name });
     return c.json({ status: "deleted", id: missionId });
   });
 
@@ -392,7 +395,7 @@ export function registerMissionRoutes(app: Hono): void {
     }
 
     void executor.execute(mission, "manual", "user").catch((error) => {
-      console.log(`[missions] manual execution failed for ${missionId}: ${String(error)}`);
+      log.mission.error("Manual execution failed", { missionId, error: String(error) });
     });
 
     return c.json({ status: "triggered", mission_id: missionId });

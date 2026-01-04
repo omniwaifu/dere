@@ -2,6 +2,7 @@ import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 
 import { getDb } from "./db.js";
 import { updateCoreMemoryFromSummary } from "./session-summary.js";
+import { log } from "./logger.js";
 import {
   invalidateStaleEdges,
   invalidateStaleFacts,
@@ -59,9 +60,7 @@ export function startMemoryConsolidationLoop(): void {
     void processQueue();
   }, MEMORY_CONSOLIDATION_CHECK_INTERVAL_MS);
 
-  console.log(
-    `[memory] consolidation loop started (${MEMORY_CONSOLIDATION_CHECK_INTERVAL_MS}ms interval)`,
-  );
+  log.memory.info("Consolidation loop started", { intervalMs: MEMORY_CONSOLIDATION_CHECK_INTERVAL_MS });
 }
 
 export function stopMemoryConsolidationLoop(): void {
@@ -70,7 +69,7 @@ export function stopMemoryConsolidationLoop(): void {
   }
   clearInterval(consolidationTimer);
   consolidationTimer = null;
-  console.log("[memory] consolidation loop stopped");
+  log.memory.info("Consolidation loop stopped");
 }
 
 async function processQueue(): Promise<void> {
@@ -85,7 +84,7 @@ async function processQueue(): Promise<void> {
     }
     await runConsolidationTask(task);
   } catch (error) {
-    console.log(`[memory] consolidation loop error: ${String(error)}`);
+    log.memory.error("Consolidation loop error", { error: String(error) });
   } finally {
     running = false;
   }
@@ -209,7 +208,7 @@ async function runConsolidationTask(task: {
       .where("id", "=", task.id)
       .execute();
 
-    console.log(`[memory] consolidation completed for task ${task.id}`);
+    log.memory.info("Consolidation completed", { taskId: task.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db
@@ -232,7 +231,7 @@ async function runConsolidationTask(task: {
       .where("id", "=", task.id)
       .execute();
 
-    console.log(`[memory] consolidation failed for task ${task.id}: ${message}`);
+    log.memory.error("Consolidation failed", { taskId: task.id, error: message });
   }
 }
 
@@ -326,7 +325,7 @@ ${content.slice(0, 8000)}`;
     try {
       summaryText = (await client.generate(prompt)).trim();
     } catch (error) {
-      console.log(`[memory] summary generation failed for session ${sessionId}: ${String(error)}`);
+      log.memory.warn("Summary generation failed", { sessionId, error: String(error) });
       continue;
     }
 

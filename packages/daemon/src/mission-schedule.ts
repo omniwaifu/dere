@@ -6,6 +6,8 @@ import {
   ScheduleParseResultSchema,
 } from "@dere/shared-llm";
 
+import { log } from "./logger.js";
+
 const DEFAULT_SCHEDULE_MODEL = "claude-haiku-4-5";
 
 type ScheduleParseResult = {
@@ -105,9 +107,12 @@ Examples:
     const timezone = result.timezone || "UTC";
     validateCronExpression(cronExpr);
 
-    console.log(
-      `[missions] parsed schedule '${normalized}' -> cron='${cronExpr}' tz='${timezone}' (${result.explanation ?? ""})`,
-    );
+    log.mission.info("Parsed schedule", {
+      input: normalized,
+      cron: cronExpr,
+      timezone,
+      explanation: result.explanation ?? null,
+    });
 
     return {
       cron_expression: cronExpr,

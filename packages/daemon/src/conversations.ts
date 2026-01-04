@@ -6,6 +6,7 @@ import { addEpisode } from "@dere/graph";
 import { getDb } from "./db.js";
 import { processCuriosityTriggers } from "./ambient-triggers/collector.js";
 import { bufferEmotionStimulus } from "./emotion-runtime.js";
+import { log } from "./logger.js";
 
 function nowDate(): Date {
   return new Date();
@@ -148,7 +149,7 @@ export function registerConversationRoutes(app: Hono): void {
             summary: node.summary,
           }));
         } catch (error) {
-          console.log(`[conversation_capture] graph ingestion failed: ${String(error)}`);
+          log.kg.warn("Graph ingestion failed", { error: String(error) });
         }
       }
 
@@ -161,7 +162,7 @@ export function registerConversationRoutes(app: Hono): void {
         conversationId: inserted.id,
         sessionDurationMinutes,
       }).catch((error) => {
-        console.log(`[conversation_capture] emotion buffer failed: ${String(error)}`);
+        log.emotion.warn("Emotion buffer failed", { error: String(error) });
       });
 
       void processCuriosityTriggers({
@@ -177,7 +178,7 @@ export function registerConversationRoutes(app: Hono): void {
         messageType,
         kgNodes,
       }).catch((error) => {
-        console.log(`[conversation_capture] curiosity detection failed: ${String(error)}`);
+        log.ambient.warn("Curiosity detection failed", { error: String(error) });
       });
     })();
 

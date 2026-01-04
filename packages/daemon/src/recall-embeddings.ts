@@ -2,6 +2,7 @@ import { sql } from "kysely";
 
 import { getDb } from "./db.js";
 import { OpenAIEmbedder } from "@dere/graph";
+import { log } from "./logger.js";
 
 const RECALL_EMBEDDING_CHECK_INTERVAL_MS = 120_000;
 const RECALL_EMBEDDING_BATCH_SIZE = 50;
@@ -29,7 +30,7 @@ export async function getRecallEmbedder(): Promise<OpenAIEmbedder | null> {
     } catch (error) {
       const message = String(error);
       if (message !== lastEmbedderError) {
-        console.log(`[recall] embedder unavailable: ${message}`);
+        log.recall.warn("Embedder unavailable", { error: message });
         lastEmbedderError = message;
       }
       return null;
@@ -123,7 +124,7 @@ async function backfillConversationBlocks(): Promise<void> {
         .execute();
     }
   } catch (error) {
-    console.log(`[recall] embedding backfill failed: ${String(error)}`);
+    log.recall.warn("Embedding backfill failed", { error: String(error) });
   } finally {
     recallEmbeddingRunning = false;
   }
@@ -137,9 +138,7 @@ export function startRecallEmbeddingLoop(): void {
     void backfillConversationBlocks();
   }, RECALL_EMBEDDING_CHECK_INTERVAL_MS);
 
-  console.log(
-    `[recall] embedding backfill loop started (${RECALL_EMBEDDING_CHECK_INTERVAL_MS}ms interval)`,
-  );
+  log.recall.info("Embedding backfill loop started", { intervalMs: RECALL_EMBEDDING_CHECK_INTERVAL_MS });
 }
 
 export function stopRecallEmbeddingLoop(): void {
@@ -148,5 +147,5 @@ export function stopRecallEmbeddingLoop(): void {
   }
   clearInterval(recallEmbeddingTimer);
   recallEmbeddingTimer = null;
-  console.log("[recall] embedding backfill loop stopped");
+  log.recall.info("Embedding backfill loop stopped");
 }

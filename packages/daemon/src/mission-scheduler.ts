@@ -1,6 +1,7 @@
 import { getDb } from "./db.js";
 import { getNextCronRun } from "./mission-schedule.js";
 import { MissionExecutor } from "./mission-executor.js";
+import { log } from "./logger.js";
 
 const SCHEDULER_INTERVAL_MS = 60_000;
 
@@ -31,7 +32,7 @@ export class MissionScheduler {
     this.timer = setInterval(() => {
       void this.tick();
     }, SCHEDULER_INTERVAL_MS);
-    console.log(`[missions] scheduler started (interval=${SCHEDULER_INTERVAL_MS}ms)`);
+    log.missions.info("Scheduler started", { intervalMs: SCHEDULER_INTERVAL_MS });
   }
 
   stop(): void {
@@ -40,7 +41,7 @@ export class MissionScheduler {
     }
     clearInterval(this.timer);
     this.timer = null;
-    console.log("[missions] scheduler stopped");
+    log.missions.info("Scheduler stopped");
   }
 
   private async tick(): Promise<void> {
@@ -51,7 +52,7 @@ export class MissionScheduler {
     try {
       await this.checkDueMissions();
     } catch (error) {
-      console.log(`[missions] scheduler loop error: ${String(error)}`);
+      log.missions.error("Scheduler loop error", { error: String(error) });
     } finally {
       this.isRunning = false;
     }
@@ -71,14 +72,14 @@ export class MissionScheduler {
       return;
     }
 
-    console.log(`[missions] found ${missions.length} due mission(s)`);
+    log.missions.info("Found due missions", { count: missions.length });
 
     for (const mission of missions) {
       try {
         await this.executor.execute(mission);
         await this.updateNextExecution(mission);
       } catch (error) {
-        console.log(`[missions] failed to execute mission ${mission.id}: ${String(error)}`);
+        log.missions.error("Failed to execute mission", { missionId: mission.id, error: String(error) });
       }
     }
   }
@@ -98,7 +99,7 @@ export class MissionScheduler {
         })
         .where("id", "=", mission.id)
         .execute();
-      console.log(`[missions] archived one-off mission ${mission.id} (${mission.name})`);
+      log.missions.info("Archived one-off mission", { missionId: mission.id, name: mission.name });
       return;
     }
 
@@ -114,9 +115,7 @@ export class MissionScheduler {
         .where("id", "=", mission.id)
         .execute();
     } catch (error) {
-      console.log(
-        `[missions] failed to update next execution for mission ${mission.id}: ${String(error)}`,
-      );
+      log.missions.warn("Failed to update next execution", { missionId: mission.id, error: String(error) });
     }
   }
 }

@@ -13,6 +13,7 @@ import type {
 import { trackEntityCitations } from "@dere/graph";
 
 import { getDb } from "./db.js";
+import { log } from "./logger.js";
 import { buildSessionContextXml } from "./prompt-context.js";
 import { extractCitedEntityUuids } from "./context-tracking.js";
 import { bufferInteractionStimulus } from "./emotion-runtime.js";
@@ -503,17 +504,19 @@ function extractAssistantBlocks(message: SDKAssistantMessage) {
   const toolNames: string[] = [];
 
   // Debug: log the raw content structure
-  console.log("[extractAssistantBlocks] Content type:", typeof content);
+  log.agent.debug("extractAssistantBlocks content type", { contentType: typeof content });
   if (Array.isArray(content)) {
-    console.log("[extractAssistantBlocks] Content blocks:", JSON.stringify(content.map((b) => {
-      const record = b as Record<string, unknown>;
-      return {
-        type: record?.type,
-        hasThinking: record && "thinking" in record,
-        hasText: record && "text" in record,
-        keys: record ? Object.keys(record) : [],
-      };
-    })));
+    log.agent.debug("extractAssistantBlocks content blocks", {
+      blocks: content.map((b) => {
+        const record = b as Record<string, unknown>;
+        return {
+          type: record?.type,
+          hasThinking: record && "thinking" in record,
+          hasText: record && "text" in record,
+          keys: record ? Object.keys(record) : [],
+        };
+      }),
+    });
   }
 
   if (!content) {
@@ -759,7 +762,7 @@ async function dequeueShareableFinding(
     const text = finding.share_message ?? finding.finding ?? "";
     return text.trim() ? text : null;
   } catch (error) {
-    console.log(`[ambient] failed to surface exploration finding: ${String(error)}`);
+    log.ambient.warn("Failed to surface exploration finding", { error: String(error) });
     return null;
   }
 }
@@ -844,7 +847,7 @@ export function registerAgentWebSocket(app: Hono) {
         }
 
         const type = message.type;
-        console.log("[ws] Received message type:", type);
+        log.agent.debug("WS message received", { type });
         if (typeof type !== "string") {
           sendError(ws, state, "Missing message type", true);
           return;
@@ -1060,29 +1063,29 @@ export function registerAgentWebSocket(app: Hono) {
         }
 
         if (type === "query") {
-          console.log("[query] Received query request");
+          log.agent.debug("Query request received");
           const prompt = typeof message.prompt === "string" ? message.prompt : null;
           if (!prompt) {
-            console.log("[query] REJECTED: no prompt");
+            log.agent.debug("Query rejected: no prompt");
             sendError(ws, state, "query requires prompt", true);
             return;
           }
           if (!state.sessionId || !state.config) {
-            console.log("[query] REJECTED: no active session");
+            log.agent.debug("Query rejected: no active session");
             sendError(ws, state, "No active session", true);
             return;
           }
           if (state.isLocked) {
-            console.log("[query] REJECTED: session locked");
+            log.agent.debug("Query rejected: session locked");
             sendError(ws, state, "Session locked (sandbox container stopped)", true);
             return;
           }
           if (state.queryTask) {
-            console.log("[query] REJECTED: query already in progress");
+            log.agent.debug("Query rejected: query already in progress");
             sendError(ws, state, "Query already in progress", true);
             return;
           }
-          console.log("[query] Starting query for session", state.sessionId, "prompt:", prompt.slice(0, 50));
+          log.agent.info("Starting query", { sessionId: state.sessionId, promptPreview: prompt.slice(0, 50) });
 
           const sessionId = state.sessionId;
           const config = state.config;
@@ -1315,7 +1318,7 @@ export function registerAgentWebSocket(app: Hono) {
                 // Add thinking budget for extended thinking
                 if (config.thinking_budget && config.thinking_budget > 0) {
                   options.maxThinkingTokens = config.thinking_budget;
-                  console.log("[SDK] Enabled thinking with budget:", config.thinking_budget);
+                  log.agent.debug("Enabled thinking", { budget: config.thinking_budget });
                 }
 
                 if (config.allowed_tools && config.allowed_tools.length > 0) {
@@ -1378,10 +1381,10 @@ export function registerAgentWebSocket(app: Hono) {
                   if (message.type === "stream_event") {
                     const streamEvent = message as SDKPartialAssistantMessage;
                     const raw = streamEvent.event as Record<string, unknown>;
-                    console.log("[stream_event] type:", raw.type);
+                    log.agent.debug("Stream event", { eventType: raw.type });
                     if (raw.type === "content_block_delta") {
                       const delta = raw.delta as Record<string, unknown>;
-                      console.log("[stream_event] delta type:", delta.type, "keys:", Object.keys(delta));
+                      log.agent.debug("Stream delta", { deltaType: delta.type, keys: Object.keys(delta) });
                       if (delta.type === "text_delta" && typeof delta.text === "string") {
                         textStreamedFromDeltas = true; // Mark that we streamed text
                         if (firstTokenTime === null) {
@@ -1397,7 +1400,7 @@ export function registerAgentWebSocket(app: Hono) {
                         if (firstTokenTime === null) {
                           firstTokenTime = performance.now();
                         }
-                        console.log("[stream_event] Got thinking_delta, length:", delta.thinking.length);
+                        log.agent.debug("Thinking delta received", { length: delta.thinking.length });
                         // Accumulate thinking for persistence (SDK path)
                         accumulatedThinking += delta.thinking;
                         sendEvent(ws, state, "thinking", { text: delta.thinking });
@@ -1544,7 +1547,7 @@ export function registerAgentWebSocket(app: Hono) {
 
             // Add accumulated thinking from streaming to blocks (SDK path only)
             if (accumulatedThinking) {
-              console.log("[SDK] Adding accumulated thinking, length:", accumulatedThinking.length);
+              log.agent.debug("Adding accumulated thinking", { length: accumulatedThinking.length });
               // Insert thinking at the beginning of blocks (before text)
               blocks.unshift({ type: "thinking", text: accumulatedThinking });
             }
@@ -1594,7 +1597,7 @@ export function registerAgentWebSocket(app: Hono) {
             }
 
             void trackCitedEntities(sessionId, responseText).catch((error) => {
-              console.log(`[kg] citation tracking failed: ${String(error)}`);
+              log.kg.warn("Citation tracking failed", { error: String(error) });
             });
 
             if (assistantConversationId) {
@@ -1612,7 +1615,7 @@ export function registerAgentWebSocket(app: Hono) {
                 messageType: "assistant",
                 kgNodes: null,
               }).catch((error) => {
-                console.log(`[ambient] curiosity detection failed: ${String(error)}`);
+                log.ambient.warn("Curiosity detection failed", { error: String(error) });
               });
             }
 
@@ -1624,15 +1627,15 @@ export function registerAgentWebSocket(app: Hono) {
               personality: resolvePersonalityName(config.personality),
               workingDir: config.working_dir,
             }).catch((error) => {
-              console.log(`[emotion] buffer failed: ${String(error)}`);
+              log.emotion.warn("Emotion buffer failed", { error: String(error) });
             });
           })()
             .catch((error) => {
-              console.log("[query] Query failed with error:", String(error));
+              log.agent.error("Query failed", { error: String(error) });
               sendError(ws, state, `Query failed: ${String(error)}`, true);
             })
             .finally(() => {
-              console.log("[query] Query task completed, clearing state");
+              log.agent.debug("Query task completed, clearing state");
               state.queryTask = null;
               state.cancelRequested = false;
             });

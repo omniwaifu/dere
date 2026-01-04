@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 
 import { getDb } from "./db.js";
+import { log } from "./logger.js";
 
 function nowDate(): Date {
   return new Date();
@@ -31,7 +32,7 @@ export function startPresenceCleanupLoop(): void {
       const threshold = new Date(Date.now() - STALE_THRESHOLD_MS);
       await db.deleteFrom("medium_presence").where("last_heartbeat", "<", threshold).execute();
     } catch (error) {
-      console.error(`[presence] cleanup failed: ${String(error)}`);
+      log.daemon.warn("Presence cleanup failed", { error: String(error) });
     }
   };
 

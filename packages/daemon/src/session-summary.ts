@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 
 import { getDb } from "./db.js";
+import { log } from "./logger.js";
 
 const SUMMARY_IDLE_TIMEOUT_SECONDS = 1800;
 const SUMMARY_CHECK_INTERVAL_MS = 300_000;
@@ -35,7 +36,7 @@ export function startSessionSummaryLoop(): void {
     void runSummaryCycle();
   }, SUMMARY_CHECK_INTERVAL_MS);
 
-  console.log(`[summary] session summary loop started (${SUMMARY_CHECK_INTERVAL_MS}ms interval)`);
+  log.summary.info("Session summary loop started", { intervalMs: SUMMARY_CHECK_INTERVAL_MS });
 }
 
 export function stopSessionSummaryLoop(): void {
@@ -44,7 +45,7 @@ export function stopSessionSummaryLoop(): void {
   }
   clearInterval(summaryTimer);
   summaryTimer = null;
-  console.log("[summary] session summary loop stopped");
+  log.summary.info("Session summary loop stopped");
 }
 
 async function runSummaryCycle(): Promise<void> {
@@ -55,7 +56,7 @@ async function runSummaryCycle(): Promise<void> {
   try {
     await summarizeIdleSessions();
   } catch (error) {
-    console.log(`[summary] periodic summary loop failed: ${String(error)}`);
+    log.summary.warn("Periodic summary loop failed", { error: String(error) });
   } finally {
     summaryRunning = false;
   }
@@ -136,13 +137,13 @@ ${content.slice(0, 2000)}`;
         .where("id", "=", session.id)
         .execute();
 
-      console.log(`[summary] generated summary for session ${session.id}`);
+      log.summary.debug("Generated summary", { sessionId: session.id });
 
       if (session.user_id && session.user_id !== "default") {
         updatedUsers.add(session.user_id);
       }
     } catch (error) {
-      console.log(`[summary] failed to summarize session ${session.id}: ${String(error)}`);
+      log.summary.warn("Failed to summarize session", { sessionId: session.id, error: String(error) });
     }
   }
 
@@ -152,7 +153,7 @@ ${content.slice(0, 2000)}`;
     try {
       await updateCoreMemoryFromSummary(userId);
     } catch (error) {
-      console.log(`[summary] core memory update failed for ${userId}: ${String(error)}`);
+      log.summary.warn("Core memory update failed", { userId, error: String(error) });
     }
   }
 }
@@ -217,9 +218,9 @@ Merge into 1-2 sentences. No headers, no preambles.`;
       })
       .execute();
 
-    console.log(`[summary] updated summary context (${newSummary.slice(0, 100)}...)`);
+    log.summary.debug("Updated summary context", { preview: newSummary.slice(0, 100) });
   } catch (error) {
-    console.log(`[summary] failed to update summary context: ${String(error)}`);
+    log.summary.warn("Failed to update summary context", { error: String(error) });
   }
 }
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { type OCCGoal, type OCCStandard, type OCCAttitude } from "@dere/shared-llm";
 import { EmotionManager, EMOTION_BATCH_LIMIT, trimStimulusInput } from "./emotion-manager.js";
 import { loadPersonality } from "./personalities.js";
+import { log } from "./logger.js";
 
 const EMOTION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const EMOTION_CHECK_INTERVAL_MS = 60 * 1000;
@@ -313,7 +314,7 @@ export function startEmotionLoop(): void {
     void processEmotionLoop();
   }, EMOTION_CHECK_INTERVAL_MS);
 
-  console.log(`[emotion] loop started (${EMOTION_CHECK_INTERVAL_MS}ms interval)`);
+  log.emotion.info("Emotion loop started", { intervalMs: EMOTION_CHECK_INTERVAL_MS });
 }
 
 export function stopEmotionLoop(): void {
@@ -322,7 +323,7 @@ export function stopEmotionLoop(): void {
   }
   clearInterval(loopTimer);
   loopTimer = null;
-  console.log("[emotion] loop stopped");
+  log.emotion.info("Emotion loop stopped");
 }
 
 async function processEmotionLoop(): Promise<void> {
@@ -339,9 +340,7 @@ async function processEmotionLoop(): Promise<void> {
         try {
           await manager.flushBatch();
         } catch (error) {
-          console.log(
-            `[emotion] batch appraisal failed for session ${sessionId}: ${String(error)}`,
-          );
+          log.emotion.warn("Batch appraisal failed", { sessionId, error: String(error) });
         }
       }
     }
@@ -349,7 +348,7 @@ async function processEmotionLoop(): Promise<void> {
     try {
       await manager.applyDecay();
     } catch (error) {
-      console.log(`[emotion] decay failed for session ${sessionId}: ${String(error)}`);
+      log.emotion.warn("Decay failed", { sessionId, error: String(error) });
     }
   }
 }

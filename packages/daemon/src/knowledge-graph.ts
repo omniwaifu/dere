@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 
+import { log } from "./logger.js";
 import {
   graphAvailable,
   queryGraph,
@@ -338,7 +339,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
         label_distribution,
       });
     } catch (error) {
-      console.log(`[kg] stats failed: ${String(error)}`);
+      log.kg.warn("Stats query failed", { error: String(error) });
       return c.json({
         total_entities: 0,
         total_facts: 0,
@@ -370,7 +371,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
       const labels = records.map((record) => String(record.label ?? "")).filter(Boolean);
       return c.json({ labels });
     } catch (error) {
-      console.log(`[kg] labels failed: ${String(error)}`);
+      log.kg.warn("Labels query failed", { error: String(error) });
       return c.json({ labels: [] });
     }
   });
@@ -428,7 +429,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
         limit,
       });
     } catch (error) {
-      console.log(`[kg] entities failed: ${String(error)}`);
+      log.kg.warn("Entities query failed", { error: String(error) });
       return c.json({ entities: [], total: 0, offset, limit });
     }
   });
@@ -509,7 +510,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
 
       return c.json({ entities, edges, facts, query });
     } catch (error) {
-      console.log(`[kg] search failed: ${String(error)}`);
+      log.kg.warn("Search failed", { error: String(error) });
       return c.json({ entities: [], edges: [], facts: [], query });
     }
   });
@@ -587,7 +588,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
 
       return c.json({ facts, query });
     } catch (error) {
-      console.log(`[kg] facts search failed: ${String(error)}`);
+      log.kg.warn("Facts search failed", { error: String(error) });
       return c.json({ facts: [], query });
     }
   });
@@ -695,7 +696,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
 
       return c.json({ created: true, fact: summary });
     } catch (error) {
-      console.log(`[kg] archival insert failed: ${String(error)}`);
+      log.kg.warn("Archival insert failed", { error: String(error) });
       return c.json({ error: "Failed to insert fact" }, 500);
     }
   });
@@ -746,7 +747,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
       );
       return c.json({ facts, query: "" });
     } catch (error) {
-      console.log(`[kg] facts at_time failed: ${String(error)}`);
+      log.kg.warn("Facts at_time query failed", { error: String(error) });
       return c.json({ facts: [], query: "" });
     }
   });
@@ -879,7 +880,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
       const page = timeline.slice(offset, offset + limit);
       return c.json({ facts: page.map((item) => item.entry), total: timeline.length, offset });
     } catch (error) {
-      console.log(`[kg] timeline failed: ${String(error)}`);
+      log.kg.warn("Timeline query failed", { error: String(error) });
       return c.json({ facts: [], total: 0, offset });
     }
   });
@@ -909,7 +910,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
 
       return c.json({ communities });
     } catch (error) {
-      console.log(`[kg] communities failed: ${String(error)}`);
+      log.kg.warn("Communities query failed", { error: String(error) });
       return c.json({ communities: [] });
     }
   });
@@ -995,7 +996,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
         })),
       });
     } catch (error) {
-      console.log(`[kg] entity lookup failed: ${String(error)}`);
+      log.kg.warn("Entity lookup failed", { error: String(error) });
       return c.json({ error: String(error) }, 500);
     }
   });
@@ -1056,7 +1057,7 @@ export function registerKnowledgeGraphRoutes(app: Hono): void {
           })),
       });
     } catch (error) {
-      console.log(`[kg] related entities failed: ${String(error)}`);
+      log.kg.warn("Related entities query failed", { error: String(error) });
       return c.json({ error: String(error) }, 500);
     }
   });

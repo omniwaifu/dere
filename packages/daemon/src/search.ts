@@ -9,6 +9,8 @@ import {
   searchGraph,
 } from "@dere/graph";
 
+import { log } from "./logger.js";
+
 function parseLimit(value: unknown, fallback: number): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) {
@@ -74,7 +76,7 @@ export function registerSearchRoutes(app: Hono): void {
 
       return c.json({ results });
     } catch (error) {
-      console.log(`[search] similar failed: ${String(error)}`);
+      log.daemon.warn("Similar search failed", { error: String(error) });
       return c.json({ results: [] });
     }
   });
@@ -167,7 +169,7 @@ export function registerSearchRoutes(app: Hono): void {
 
       return c.json({ results, entity_values: payload.entity_values ?? [] });
     } catch (error) {
-      console.log(`[search] hybrid failed: ${String(error)}`);
+      log.daemon.warn("Hybrid search failed", { error: String(error) });
       return c.json({ results: [], entity_values: payload?.entity_values ?? [] });
     }
   });

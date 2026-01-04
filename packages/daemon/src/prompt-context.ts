@@ -6,6 +6,7 @@ import { addLineNumbers, renderTag, renderTextTag } from "@dere/shared-llm";
 
 import { getDb } from "./db.js";
 import { loadPersonality } from "./personalities.js";
+import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -121,7 +122,7 @@ async function buildPersonalitySections(personalityValue: string | null): Promis
         sections.push(renderTextTag("personality", content, { indent: 2, attrs: { name } }));
       }
     } catch (error) {
-      console.log(`[context] failed to load personality ${name}: ${String(error)}`);
+      log.daemon.warn("Failed to load personality", { name, error: String(error) });
     }
   }
 

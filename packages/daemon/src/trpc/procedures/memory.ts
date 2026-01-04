@@ -4,6 +4,7 @@ import { sql } from "kysely";
 import { router, publicProcedure } from "../init.js";
 import { getDb } from "../../db.js";
 import { getRecallEmbedder, vectorLiteral } from "../../recall-embeddings.js";
+import { log } from "../../logger.js";
 
 const CORE_MEMORY_BLOCK_TYPES = new Set(["persona", "human", "task"]);
 const DEFAULT_CHAR_LIMIT = 8192;
@@ -725,7 +726,7 @@ export const recallRouter = router({
           vectorRows = await vectorQuery.execute();
           vectorIds = vectorRows.map((row) => `conv:${row.block_id}`);
         } catch (error) {
-          console.log(`[recall] vector search failed: ${String(error)}`);
+          log.recall.warn("Vector search failed", { error: String(error) });
         }
       }
 
