@@ -165,12 +165,13 @@ async function runConsolidationTask(task: {
 
     const prunedEdges = await invalidateStaleEdges(groupId, cutoffDate);
     const prunedFacts = await invalidateStaleFacts(groupId, cutoffDate);
-    const prunedLowQualityFacts = await invalidateLowQualityFacts(
+    const prunedLowQualityFacts = await invalidateLowQualityFacts({
       groupId,
-      cutoffDate,
-      FACT_QUALITY_THRESHOLD,
-      FACT_MIN_RETRIEVALS,
-    );
+      cutoff: cutoffDate,
+      qualityThreshold: FACT_QUALITY_THRESHOLD,
+      minRetrievals: FACT_MIN_RETRIEVALS,
+      // Defaults: minAgeDays=14, explorationGraceDays=60
+    });
     const mergedEntities = await mergeDuplicateEntities(groupId, ENTITY_MERGE_LIMIT);
     const communities = await buildCommunities(groupId, communityResolution);
 

@@ -550,28 +550,76 @@ export async function invalidateStaleFacts(groupId: string, cutoff: Date): Promi
   return Number(records[0]?.updated ?? 0);
 }
 
+export interface InvalidateLowQualityFactsOptions {
+  groupId: string;
+  /** Standard cutoff age for general facts */
+  cutoff: Date;
+  /** Quality threshold (citations / retrievals) below which facts are pruned */
+  qualityThreshold: number;
+  /** Minimum retrievals before quality check applies */
+  minRetrievals: number;
+  /**
+   * Absolute minimum age in days before ANY fact can be pruned.
+   * Protects new facts regardless of other criteria.
+   * Default: 14 days.
+   */
+  minAgeDays?: number;
+  /**
+   * Extended grace period in days for exploration-sourced facts.
+   * Facts with sources containing "curiosity:" use this instead of standard cutoff.
+   * Default: 60 days.
+   */
+  explorationGraceDays?: number;
+}
+
 export async function invalidateLowQualityFacts(
-  groupId: string,
-  cutoff: Date,
-  qualityThreshold: number,
-  minRetrievals: number,
+  options: InvalidateLowQualityFactsOptions,
 ): Promise<number> {
   const client = await getGraphClient();
   if (!client) {
     return 0;
   }
 
+  const {
+    groupId,
+    cutoff,
+    qualityThreshold,
+    minRetrievals,
+    minAgeDays = 14,
+    explorationGraceDays = 60,
+  } = options;
+
   const now = new Date();
+
+  // Absolute minimum age floor - nothing younger can be pruned
+  const minAgeCutoff = new Date(Date.now() - minAgeDays * 24 * 60 * 60 * 1000);
+
+  // Extended grace period for exploration-sourced facts
+  const explorationCutoff = new Date(Date.now() - explorationGraceDays * 24 * 60 * 60 * 1000);
+
+  // Use the most restrictive cutoff between provided and min age
+  const effectiveCutoff = cutoff < minAgeCutoff ? cutoff : minAgeCutoff;
+
   const records = await client.query(
     `
       MATCH (f:Fact)
       WHERE f.group_id = $group_id
         AND f.invalid_at IS NULL
-        AND f.created_at < $cutoff
+        AND f.created_at < $min_age_cutoff
       WITH f,
            coalesce(f.retrieval_count, 0) AS retrievals,
-           coalesce(f.citation_count, 0) AS citations
+           coalesce(f.citation_count, 0) AS citations,
+           CASE
+             WHEN f.sources IS NOT NULL
+                  AND any(s IN f.sources WHERE s STARTS WITH 'curiosity:')
+             THEN true
+             ELSE false
+           END AS is_exploration
       WHERE retrievals >= $min_retrievals
+        AND (
+          (is_exploration AND f.created_at < $exploration_cutoff)
+          OR (NOT is_exploration AND f.created_at < $cutoff)
+        )
       WITH f, retrievals, citations,
            CASE WHEN retrievals = 0 THEN 0
                 ELSE toFloat(citations) / retrievals
@@ -582,7 +630,9 @@ export async function invalidateLowQualityFacts(
     `,
     {
       group_id: groupId,
-      cutoff,
+      cutoff: effectiveCutoff,
+      min_age_cutoff: minAgeCutoff,
+      exploration_cutoff: explorationCutoff,
       min_retrievals: minRetrievals,
       quality_threshold: qualityThreshold,
       now,
