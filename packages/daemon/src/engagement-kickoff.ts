@@ -22,6 +22,7 @@ import { log } from "./logger.js";
 import { loadAmbientConfig, type AmbientConfig } from "./ambient-config.js";
 import { getState, getDaemonState, getActiveSessionCount } from "./daemon-state.js";
 import { startExplorationWorkflow } from "./temporal/starter.js";
+import { createGapTasks, createUnderexploredTasks } from "./temporal/activities/index.js";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -295,6 +296,60 @@ async function executeKickoffDecision(
   }
 }
 
+// Minimum tasks in queue before we try to replenish from graph.
+// Set higher than typical follow-up spawn count (3-5) to ensure graph
+// replenishment actually triggers and doesn't get drowned by follow-ups.
+const MIN_QUEUE_SIZE = 7;
+
+async function replenishQueueFromGraph(config: AmbientConfig): Promise<void> {
+  const db = await getDb();
+
+  // Check current queue size
+  const countResult = await db
+    .selectFrom("project_tasks")
+    .select(db.fn.countAll<string>().as("count"))
+    .where("task_type", "=", "curiosity")
+    .where("status", "=", "ready")
+    .executeTakeFirst();
+
+  const queueSize = Number(countResult?.count ?? 0);
+  if (queueSize >= MIN_QUEUE_SIZE) {
+    return;
+  }
+
+  const groupId = config.user_id || "default";
+  const workingDir = process.env.DERE_PROJECT_PATH ?? process.cwd();
+
+  // Try to create gap tasks first (higher priority)
+  const gapResult = await createGapTasks(groupId, workingDir, {
+    limit: MIN_QUEUE_SIZE - queueSize,
+    priority: 2,
+  });
+
+  if (gapResult.created > 0) {
+    log.ambient.info("Replenished queue from gap detection", {
+      created: gapResult.created,
+      skipped: gapResult.skipped,
+    });
+  }
+
+  // If still low, try underexplored entities
+  const newQueueSize = queueSize + gapResult.created;
+  if (newQueueSize < MIN_QUEUE_SIZE) {
+    const underResult = await createUnderexploredTasks(groupId, workingDir, {
+      limit: MIN_QUEUE_SIZE - newQueueSize,
+      priority: 1,
+    });
+
+    if (underResult.created > 0) {
+      log.ambient.info("Replenished queue from underexplored detection", {
+        created: underResult.created,
+        skipped: underResult.skipped,
+      });
+    }
+  }
+}
+
 async function runKickoff(config: AmbientConfig): Promise<void> {
   // Check if we're in engaged state - don't interrupt active sessions
   const stateRow = await getDaemonState(config.user_id);
@@ -304,6 +359,13 @@ async function runKickoff(config: AmbientConfig): Promise<void> {
   if (currentState === "engaged") {
     log.ambient.debug("Skipping kickoff: user is engaged");
     return;
+  }
+
+  // Replenish work queue from graph if running low
+  try {
+    await replenishQueueFromGraph(config);
+  } catch (error) {
+    log.ambient.warn("Failed to replenish queue from graph", { error: String(error) });
   }
 
   // Build context

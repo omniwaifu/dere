@@ -4,6 +4,7 @@ export * from "./graph-filters.js";
 export * from "./graph-helpers.js";
 export * from "./graph-ingestion.js";
 export * from "./graph-llm.js";
+export * from "./graph-planning.js";
 export * from "./graph-prompts.js";
 export * from "./graph-routing.js";
 export * from "./graph-search.js";
