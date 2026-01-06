@@ -1,14 +1,70 @@
-import { parse } from "@iarna/toml";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-import { getConfigPath } from "@dere/shared-config";
+/**
+ * Simple TOML parser for personality files.
+ * Only extracts [prompt].content - not a full TOML parser.
+ */
+function parsePersonalityToml(text: string): { prompt?: { content?: string } } {
+  const lines = text.split("\n");
+  let inPromptSection = false;
+  let inMultilineString = false;
+  let multilineContent: string[] = [];
 
-type PersonalityDoc = {
-  prompt?: {
-    content?: string;
-  };
-};
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Section headers
+    if (trimmed === "[prompt]") {
+      inPromptSection = true;
+      continue;
+    }
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      if (inPromptSection && inMultilineString) {
+        // End of prompt section while in multiline - close it
+        return { prompt: { content: multilineContent.join("\n") } };
+      }
+      inPromptSection = false;
+      continue;
+    }
+
+    if (!inPromptSection) continue;
+
+    // Look for content = """
+    if (!inMultilineString && trimmed.startsWith("content")) {
+      const match = trimmed.match(/^content\s*=\s*"""(.*)$/);
+      if (match) {
+        inMultilineString = true;
+        if (match[1]) multilineContent.push(match[1]);
+        continue;
+      }
+      // Single line: content = "value"
+      const singleMatch = trimmed.match(/^content\s*=\s*"([^"]*)"$/);
+      if (singleMatch) {
+        return { prompt: { content: singleMatch[1] } };
+      }
+    }
+
+    // Inside multiline string
+    if (inMultilineString) {
+      if (trimmed.endsWith('"""')) {
+        // End of multiline
+        const withoutClose = trimmed.slice(0, -3);
+        if (withoutClose) multilineContent.push(withoutClose);
+        return { prompt: { content: multilineContent.join("\n") } };
+      }
+      multilineContent.push(line); // Preserve original indentation
+    }
+  }
+
+  // If we finished in multiline mode, return what we have
+  if (inMultilineString && multilineContent.length > 0) {
+    return { prompt: { content: multilineContent.join("\n") } };
+  }
+
+  return {};
+}
 
 function estimateTokens(text: string): number {
   return Math.floor(text.length / 4);
@@ -37,7 +93,11 @@ function getEmbeddedDir(): string {
 }
 
 function getUserDir(): string {
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? dirname(getConfigPath());
+  // Inline config path logic to avoid @dere/shared-config dependency
+  const configDir =
+    process.env.CLAUDE_CONFIG_DIR ??
+    process.env.XDG_CONFIG_HOME ??
+    join(homedir(), ".config", "dere");
   return join(configDir, "personalities");
 }
 
@@ -45,7 +105,7 @@ async function loadPersonalityPrompt(name: string): Promise<string | null> {
   const userPath = join(getUserDir(), `${name}.toml`);
   try {
     const text = await readFile(userPath, "utf-8");
-    const parsed = parse(text) as PersonalityDoc;
+    const parsed = parsePersonalityToml(text);
     return parsed.prompt?.content ?? null;
   } catch {
     // fall through to embedded
@@ -54,7 +114,7 @@ async function loadPersonalityPrompt(name: string): Promise<string | null> {
   const embeddedPath = join(getEmbeddedDir(), `${name}.toml`);
   try {
     const text = await readFile(embeddedPath, "utf-8");
-    const parsed = parse(text) as PersonalityDoc;
+    const parsed = parsePersonalityToml(text);
     return parsed.prompt?.content ?? null;
   } catch {
     return null;
