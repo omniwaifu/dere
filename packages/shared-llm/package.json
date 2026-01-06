@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",
-    "zod": "^4.3.4"
+    "zod": "^4.3.4",
+    "zod-to-json-schema": "^3.25.1"
   }
 }

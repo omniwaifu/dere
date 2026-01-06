@@ -7,7 +7,17 @@ import {
 import { loadAmbientConfig, type AmbientConfig } from "./ambient-config.js";
 import { ContextAnalyzer } from "./ambient-analyzer.js";
 import { AmbientExplorer } from "./ambient-explorer.js";
-import { AmbientFSM } from "./ambient-fsm.js";
+import {
+  getState,
+  canInitiateProactiveContact,
+  evaluateSignals,
+  getDaemonState,
+  getActiveSessionCount,
+  touchInteraction,
+  type DaemonState,
+  type SignalInputs,
+  type SignalWeights,
+} from "./daemon-state.js";
 import { getDb } from "./db.js";
 import { log } from "./logger.js";
 
@@ -51,7 +61,6 @@ function pickBestChannel(
 class AmbientMonitor {
   private config: AmbientConfig;
   private analyzer: ContextAnalyzer;
-  private fsm: AmbientFSM | null;
   private explorer: AmbientExplorer | null = null;
   private running = false;
   private loopPromise: Promise<void> | null = null;
@@ -64,35 +73,23 @@ class AmbientMonitor {
   private explorationDay: string | null = null;
   private explorationsToday = 0;
 
+  // Signal weights for proactivity decisions
+  private signalWeights: SignalWeights;
+
   constructor(config: AmbientConfig) {
     this.config = config;
     this.analyzer = new ContextAnalyzer(config);
 
-    if (config.fsm_enabled) {
-      this.fsm = new AmbientFSM(
-        {
-          idle: config.fsm_idle_interval,
-          monitoring: config.fsm_monitoring_interval,
-          engaged: config.fsm_engaged_interval,
-          cooldown: config.fsm_cooldown_interval,
-          escalating: config.fsm_escalating_interval,
-          suppressed: config.fsm_suppressed_interval,
-          exploring: config.exploring.exploration_interval_minutes,
-        },
-        {
-          activity: config.fsm_weight_activity,
-          emotion: config.fsm_weight_emotion,
-          responsiveness: config.fsm_weight_responsiveness,
-          temporal: config.fsm_weight_temporal,
-          task: config.fsm_weight_task,
-          bond: 0.15,
-        },
-      );
-      log.ambient.info("FSM initialized");
-    } else {
-      this.fsm = null;
-      log.ambient.info("FSM disabled, using fixed intervals");
-    }
+    this.signalWeights = {
+      activity: config.fsm_weight_activity,
+      emotion: config.fsm_weight_emotion,
+      responsiveness: config.fsm_weight_responsiveness,
+      temporal: config.fsm_weight_temporal,
+      task: config.fsm_weight_task,
+      bond: 0.15,
+    };
+
+    log.ambient.info("Daemon state derivation initialized");
 
     if (config.exploring.enabled) {
       this.explorer = new AmbientExplorer(config);
@@ -100,9 +97,12 @@ class AmbientMonitor {
     }
   }
 
-  getState(): { fsm_state: string; is_enabled: boolean } {
+  async getStateInfo(): Promise<{ daemon_state: DaemonState; is_enabled: boolean }> {
+    const stateRow = await getDaemonState(this.config.user_id);
+    const sessionCount = await getActiveSessionCount(this.config.user_id);
+    const daemonState = getState(stateRow, sessionCount);
     return {
-      fsm_state: this.fsm ? this.fsm.state : "disabled",
+      daemon_state: daemonState,
       is_enabled: this.running,
     };
   }
@@ -144,9 +144,8 @@ class AmbientMonitor {
         log.ambient.error("Monitor loop error", { error: String(error) });
       }
 
-      const intervalSeconds = this.fsm
-        ? this.fsm.calculateNextIntervalSeconds()
-        : this.config.check_interval_minutes * 60;
+      // Use fixed interval - state-based intervals removed with FSM
+      const intervalSeconds = this.config.check_interval_minutes * 60;
 
       log.ambient.debug("Next check scheduled", { intervalMinutes: (intervalSeconds / 60).toFixed(1) });
       await sleep(intervalSeconds * 1000);
@@ -215,10 +214,6 @@ class AmbientMonitor {
     currentActivity = this.updateActivityStreak(currentActivity, now);
     this.lastCheckAt = now;
 
-    if (this.fsm) {
-      await this.evaluateFsmState();
-    }
-
     if (
       await this.maybeRunExploration({
         now,
@@ -229,14 +224,16 @@ class AmbientMonitor {
       return;
     }
 
-    if (this.fsm && this.fsm.lastNotificationTime !== null) {
-      const elapsedSeconds = Date.now() / 1000 - this.fsm.lastNotificationTime;
-      const minIntervalSeconds = this.config.min_notification_interval_minutes * 60;
-      if (elapsedSeconds < minIntervalSeconds) {
-        const remaining = (minIntervalSeconds - elapsedSeconds) / 60;
-        log.ambient.debug("Minimum interval not elapsed", { remainingMinutes: remaining.toFixed(0) });
-        return;
-      }
+    // Check if proactive contact is allowed (cooldown + state check)
+    const stateRow = await getDaemonState(this.config.user_id);
+    const sessionCount = await getActiveSessionCount(this.config.user_id);
+    const cooldownMs = this.config.min_notification_interval_minutes * 60 * 1000;
+    if (!canInitiateProactiveContact(stateRow, sessionCount, cooldownMs)) {
+      log.ambient.debug("Proactive contact not allowed", {
+        state: getState(stateRow, sessionCount),
+        cooldownMinutes: this.config.min_notification_interval_minutes,
+      });
+      return;
     }
 
     const [shouldEngage, contextSnapshot] = await this.analyzer.shouldEngage({
@@ -255,10 +252,8 @@ class AmbientMonitor {
     }
 
     await this.deliverNotification(missionResult, contextSnapshot);
-    if (this.fsm) {
-      this.fsm.transitionTo("engaged", "notification sent");
-      this.fsm.lastNotificationTime = Date.now() / 1000;
-    }
+    // Touch interaction timestamp (state is derived, no transition needed)
+    await touchInteraction(this.config.user_id);
   }
 
   private async maybeRunExploration(options: {
@@ -270,7 +265,12 @@ class AmbientMonitor {
       return false;
     }
 
-    if (this.fsm && (this.fsm.state === "engaged" || this.fsm.state === "escalating")) {
+    // Check derived state - don't explore if engaged
+    const stateRow = await getDaemonState(this.config.user_id);
+    const sessionCount = await getActiveSessionCount(this.config.user_id);
+    const currentState = getState(stateRow, sessionCount);
+
+    if (currentState === "engaged") {
       return false;
     }
 
@@ -281,17 +281,13 @@ class AmbientMonitor {
     }
 
     if (this.explorationsToday >= this.config.exploring.max_explorations_per_day) {
-      if (this.fsm && this.fsm.state === "exploring") {
-        this.fsm.transitionTo("idle", "daily exploration limit reached");
-      }
+      log.ambient.debug("Daily exploration limit reached");
       return false;
     }
 
     const hasPending = await this.explorer.hasPendingCuriosities();
     if (!hasPending) {
-      if (this.fsm && this.fsm.state === "exploring") {
-        this.fsm.transitionTo("idle", "no curiosity backlog");
-      }
+      log.ambient.debug("No curiosity backlog");
       return false;
     }
 
@@ -318,9 +314,7 @@ class AmbientMonitor {
       if (lastInteraction) {
         const minutesIdle = (Date.now() / 1000 - lastInteraction) / 60;
         if (minutesIdle < this.config.exploring.min_idle_minutes) {
-          if (this.fsm && this.fsm.state === "exploring") {
-            this.fsm.transitionTo("monitoring", "user active");
-          }
+          log.ambient.debug("User not idle long enough for exploration", { minutesIdle });
           return false;
         }
       }
@@ -330,23 +324,17 @@ class AmbientMonitor {
         isAway = await this.analyzer.isUserAfk(options.lookbackMinutes);
       }
       if (!isAway) {
-        if (this.fsm && this.fsm.state === "exploring") {
-          this.fsm.transitionTo("monitoring", "user active");
-        }
+        log.ambient.debug("User active, skipping exploration");
         return false;
       }
     }
 
-    if (this.fsm && this.fsm.state !== "exploring") {
-      const reason = forceExploration ? "time threshold reached" : "idle and backlog available";
-      this.fsm.transitionTo("exploring", reason);
-    }
+    const reason = forceExploration ? "time threshold reached" : "idle and backlog available";
+    log.ambient.info("Starting exploration", { reason });
 
     const outcome = await this.explorer.exploreNext();
     if (!outcome) {
-      if (this.fsm && this.fsm.state === "exploring") {
-        this.fsm.transitionTo("idle", "no claimable curiosity tasks");
-      }
+      log.ambient.debug("No claimable curiosity tasks");
       return false;
     }
 
@@ -469,69 +457,6 @@ class AmbientMonitor {
     }
 
     return { message, priority, confidence };
-  }
-
-  private async evaluateFsmState(): Promise<void> {
-    if (!this.fsm) {
-      return;
-    }
-
-    const snapshot = await this.analyzer.getActivitySnapshot(10, 1);
-    let activity: JsonRecord = {};
-    if (snapshot) {
-      const current = (snapshot.current_window ?? snapshot.current_media) as JsonRecord | undefined;
-      if (current) {
-        activity = {
-          app_name: current.app ?? current.player ?? "",
-          duration_seconds: current.duration_seconds ?? 0,
-        };
-      }
-    }
-
-    const notificationHistory = await this.getRecentNotifications();
-    const taskData = { overdue_count: 0, due_soon_count: 0 };
-    const bondData = await this.getBondData();
-
-    const newState = this.fsm.shouldTransition({
-      activity,
-      emotion: { emotion_type: "neutral", intensity: 0 },
-      notificationHistory,
-      task: taskData,
-      currentHour: new Date().getHours(),
-      bond: bondData,
-    });
-
-    if (newState) {
-      this.fsm.transitionTo(newState, "signal evaluation");
-    }
-  }
-
-  private async getRecentNotifications(): Promise<JsonRecord[]> {
-    const db = await getDb();
-    const rows = await db
-      .selectFrom("ambient_notifications")
-      .select(["id", "message", "priority", "status", "acknowledged", "created_at"])
-      .where("user_id", "=", this.config.user_id)
-      .orderBy("created_at", "desc")
-      .limit(5)
-      .execute();
-    return rows as JsonRecord[];
-  }
-
-  private async getBondData(): Promise<JsonRecord> {
-    const daemonUrl = this.config.daemon_url;
-    try {
-      const response = await fetch(new URL("/dashboard/state", daemonUrl));
-      if (response.ok) {
-        const data = (await response.json()) as JsonRecord;
-        if (isPlainObject(data.bond)) {
-          return data.bond as JsonRecord;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return { affection_level: 50, trend: "stable", streak_days: 0 };
   }
 
   private async routeMessage(

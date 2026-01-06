@@ -394,6 +394,15 @@ export interface ContradictionReviewsTable {
   created_at: Timestamp;
 }
 
+export interface DaemonStateTable {
+  user_id: string;
+  suppressed_until: Timestamp;
+  last_interaction_at: Timestamp;
+  autonomous_work_count: number;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export interface Database {
   missions: MissionsTable;
   mission_executions: MissionExecutionsTable;
@@ -419,4 +428,5 @@ export interface Database {
   swarm_agents: SwarmAgentsTable;
   swarm_scratchpad: SwarmScratchpadTable;
   contradiction_reviews: ContradictionReviewsTable;
+  daemon_state: DaemonStateTable;
 }

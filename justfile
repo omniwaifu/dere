@@ -107,8 +107,25 @@ info:
     @echo "Version: $(git describe --tags --always 2>/dev/null || echo 'dev')"
     @echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 
-# Start FalkorDB (graph database)
+# Start all infrastructure (postgres, falkordb, temporal)
+infra:
+    docker compose up -d
+
+# Stop all infrastructure
+infra-down:
+    docker compose down
+
+# View infrastructure logs
+infra-logs:
+    docker compose logs -f
+
+# Infrastructure status
+infra-status:
+    docker compose ps
+
+# Legacy: Start FalkorDB standalone (deprecated - use `just infra`)
 falkordb:
+    @echo "DEPRECATED: Use 'just infra' for all infrastructure"
     @if docker ps -q -f name=falkordb | grep -q .; then \
         echo "FalkorDB already running"; \
     elif docker ps -aq -f name=falkordb | grep -q .; then \
@@ -120,13 +137,19 @@ falkordb:
             falkordb/falkordb:latest; \
     fi
 
-# Stop FalkorDB
+# Legacy: Stop FalkorDB standalone (deprecated - use `just infra-down`)
 falkordb-stop:
+    @echo "DEPRECATED: Use 'just infra-down' for all infrastructure"
     docker stop falkordb
 
 # Build sandbox image
 sandbox-build:
     docker build -t dere-sandbox:latest -f docker/sandbox/Dockerfile .
+
+# Run Temporal worker (for exploration workflows)
+# Note: Must use Node (not Bun) - Temporal worker requires Node's vm module for workflow sandbox
+temporal-worker:
+    bunx tsx packages/daemon/src/temporal/worker.ts
 
 # Run UI development server
 ui:

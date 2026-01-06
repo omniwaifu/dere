@@ -7,6 +7,7 @@ import { getDaemonUrlFromConfig, loadConfig } from "@dere/shared-config";
 
 import { createApp } from "./app.js";
 import { startAmbientMonitor } from "./ambient-monitor.js";
+import { startEngagementKickoff } from "./engagement-kickoff.js";
 import { initMissionRuntime } from "./mission-runtime.js";
 import { startSessionSummaryLoop } from "./session-summary.js";
 import { startEmotionLoop } from "./emotion-runtime.js";
@@ -15,6 +16,7 @@ import { startRecallEmbeddingLoop } from "./recall-embeddings.js";
 import { startPresenceCleanupLoop } from "./presence.js";
 import { cleanupOrphanedSwarms } from "./swarm.js";
 import { initEventHandlers } from "./event-handlers.js";
+import { cleanupStaleTasks } from "./temporal/cleanup.js";
 import { log } from "./logger.js";
 
 // Sentry error tracking (optional)
@@ -93,8 +95,18 @@ async function main(): Promise<void> {
     log.swarm.warn("Orphan cleanup failed", { error: String(error) });
   });
 
+  // Release tasks stuck in_progress from crashed workflows
+  await cleanupStaleTasks().catch((error) => {
+    log.ambient.warn("Stale task cleanup failed", { error: String(error) });
+  });
+
   startAmbientMonitor().catch((error) => {
-    log.ambient.warn("Failed to start", { error: String(error) });
+    log.ambient.warn("Failed to start ambient monitor", { error: String(error) });
+  });
+
+  // Engagement kickoff: agent-driven autonomous behavior
+  startEngagementKickoff().catch((error) => {
+    log.ambient.warn("Failed to start engagement kickoff", { error: String(error) });
   });
 
   initMissionRuntime();

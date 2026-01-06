@@ -27,29 +27,10 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
     prompt: string,
     options: StructuredOutputRequestOptions,
   ): AsyncIterable<StructuredOutputMessage> {
-    const schema = options.schema as z.ZodTypeAny | undefined;
-    const schemaName = options.schemaName ?? this.defaultSchemaName;
-
-    let outputFormat = options.outputFormat;
-    if (!outputFormat && schema) {
-      const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
-      if (schemaName && !("title" in jsonSchema)) {
-        jsonSchema.title = schemaName;
-      }
-      outputFormat = {
-        type: "json_schema",
-        schema: jsonSchema,
-      };
-    }
-
-    // Add JSON instruction hint since SDK may not enforce outputFormat properly
-    const jsonHint = schema
-      ? "\n\nIMPORTANT: Respond with valid JSON only, no explanation or markdown. Your response must be a single JSON object."
-      : "";
-    const augmentedPrompt = prompt + jsonHint;
-
     const model = options.model;
     const cwd = options.workingDirectory ?? this.workingDirectory;
+    const schema = options.schema as z.ZodTypeAny | undefined;
+
     const sdkOptions: SDKOptions = {
       persistSession: false, // One-shot queries, don't clutter filesystem
     };
@@ -60,12 +41,31 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
     if (cwd) {
       sdkOptions.cwd = cwd;
     }
-    if (outputFormat) {
-      sdkOptions.outputFormat = outputFormat;
+    // Use outputFormat with json_schema - works WITH tools
+    if (schema) {
+      const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
+      // Remove $schema key - SDK ignores outputFormat when this key is present
+      const { $schema: _, ...cleanSchema } = jsonSchema;
+      sdkOptions.outputFormat = {
+        type: "json_schema",
+        schema: cleanSchema,
+      };
+    }
+    if (options.tools) {
+      sdkOptions.tools = options.tools;
+    }
+    if (options.allowedTools) {
+      sdkOptions.allowedTools = options.allowedTools;
+    }
+    if (options.permissionMode) {
+      sdkOptions.permissionMode = options.permissionMode;
+    }
+    if (options.allowDangerouslySkipPermissions) {
+      sdkOptions.allowDangerouslySkipPermissions = true;
     }
 
     const response = query({
-      prompt: augmentedPrompt,
+      prompt,
       options: sdkOptions,
     });
 
@@ -76,6 +76,7 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
         const resultMessage = message as {
           subtype?: string;
           structured_output?: unknown;
+          result?: string;
           error?: unknown;
           message?: unknown;
         };
@@ -93,8 +94,13 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
           (err as { subtype?: string }).subtype = resultMessage.subtype;
           throw err;
         }
-        if (resultMessage.subtype === "success" && resultMessage.structured_output) {
-          yield { structured_output: resultMessage.structured_output };
+        if (resultMessage.subtype === "success") {
+          if (resultMessage.structured_output) {
+            yield { structured_output: resultMessage.structured_output };
+          } else if (resultMessage.result) {
+            // No structured_output, yield the result text for parsing
+            yield { content: resultMessage.result };
+          }
         }
         continue;
       }

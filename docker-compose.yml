@@ -1,0 +1,54 @@
+# dere infrastructure
+# Usage: docker compose up -d
+# App services (daemon, discord, ui) run natively via `just dev-all`
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    volumes:
+      - dere_pg:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: dere
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dere}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dere"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    volumes:
+      - dere_falkordb:/var/lib/falkordb/data
+    ports:
+      - "6379:6379"
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=${DB_PASSWORD:-dere}
+      - POSTGRES_SEEDS=postgres
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "8080:8080"
+
+volumes:
+  dere_pg:
+  dere_falkordb:

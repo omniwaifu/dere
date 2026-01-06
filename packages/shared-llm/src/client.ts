@@ -23,6 +23,14 @@ export interface StructuredOutputRequestOptions {
   schema?: z.ZodTypeAny;
   schemaName?: string;
   workingDirectory?: string;
+  /** Specify which built-in tools are available - array of tool names or preset */
+  tools?: string[] | { type: "preset"; preset: "claude_code" };
+  /** List of tools to auto-allow without permission prompts */
+  allowedTools?: string[];
+  /** Permission mode for tool execution */
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk";
+  /** Allow bypassing permissions (required when permissionMode is 'bypassPermissions') */
+  allowDangerouslySkipPermissions?: boolean;
 }
 
 export interface StructuredOutputClientOptions {
@@ -88,6 +96,12 @@ export class StructuredOutputClient {
           ...(outputFormat ? { outputFormat } : {}),
           ...(schemaName ? { schemaName } : {}),
           ...(workingDirectory ? { workingDirectory } : {}),
+          ...(overrides.tools ? { tools: overrides.tools } : {}),
+          ...(overrides.allowedTools ? { allowedTools: overrides.allowedTools } : {}),
+          ...(overrides.permissionMode ? { permissionMode: overrides.permissionMode } : {}),
+          ...(overrides.allowDangerouslySkipPermissions
+            ? { allowDangerouslySkipPermissions: overrides.allowDangerouslySkipPermissions }
+            : {}),
         };
 
         const iterator = this.transport.query(prompt, {

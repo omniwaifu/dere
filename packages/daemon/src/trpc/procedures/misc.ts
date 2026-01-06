@@ -172,13 +172,6 @@ const DEFAULTS = {
   min_notification_interval_minutes: 120,
   notification_method: "both",
   startup_delay_seconds: 0,
-  fsm_enabled: true,
-  fsm_idle_interval: [60, 120] as [number, number],
-  fsm_monitoring_interval: [15, 30] as [number, number],
-  fsm_engaged_interval: 5,
-  fsm_cooldown_interval: [45, 90] as [number, number],
-  fsm_escalating_interval: [30, 60] as [number, number],
-  fsm_suppressed_interval: [90, 180] as [number, number],
   fsm_weight_activity: 0.3,
   fsm_weight_emotion: 0.25,
   fsm_weight_responsiveness: 0.2,
@@ -258,9 +251,9 @@ export const dashboardRouter = router({
       activity_category: category,
     };
 
-    const monitorState = getAmbientMonitor()?.getState();
+    const monitorState = await getAmbientMonitor()?.getStateInfo();
     const ambient = {
-      fsm_state: monitorState?.fsm_state ?? "unknown",
+      fsm_state: monitorState?.daemon_state ?? "unknown",
       next_check_at: null,
       is_enabled: monitorState?.is_enabled ?? false,
     };
@@ -291,33 +284,11 @@ export const ambientRouter = router({
       );
 
       const enabled = readBoolean(ambientConfig.enabled, DEFAULTS.enabled);
-      const fsmEnabled = readBoolean(ambientConfig.fsm_enabled, DEFAULTS.fsm_enabled);
       const notificationMethod = readNonEmptyString(
         ambientConfig.notification_method,
         DEFAULTS.notification_method,
       );
       const personality = readNonEmptyString(ambientConfig.personality, defaultPersonality);
-
-      const fsmIdleInterval = readNumberPair(
-        ambientConfig.fsm_idle_interval,
-        DEFAULTS.fsm_idle_interval,
-      );
-      const fsmMonitoringInterval = readNumberPair(
-        ambientConfig.fsm_monitoring_interval,
-        DEFAULTS.fsm_monitoring_interval,
-      );
-      const fsmCooldownInterval = readNumberPair(
-        ambientConfig.fsm_cooldown_interval,
-        DEFAULTS.fsm_cooldown_interval,
-      );
-      const fsmEscalatingInterval = readNumberPair(
-        ambientConfig.fsm_escalating_interval,
-        DEFAULTS.fsm_escalating_interval,
-      );
-      const fsmSuppressedInterval = readNumberPair(
-        ambientConfig.fsm_suppressed_interval,
-        DEFAULTS.fsm_suppressed_interval,
-      );
 
       const exploringEnabled = readBoolean(rawAmbient.exploring_enabled, DEFAULTS.exploring_enabled);
       const exploringMinIdle = readNumber(
@@ -369,16 +340,7 @@ export const ambientRouter = router({
           ambientConfig.startup_delay_seconds,
           DEFAULTS.startup_delay_seconds,
         ),
-        fsm_enabled: fsmEnabled,
-        fsm_intervals: {
-          idle: fsmIdleInterval,
-          monitoring: fsmMonitoringInterval,
-          engaged: readNumber(ambientConfig.fsm_engaged_interval, DEFAULTS.fsm_engaged_interval),
-          cooldown: fsmCooldownInterval,
-          escalating: fsmEscalatingInterval,
-          suppressed: fsmSuppressedInterval,
-        },
-        fsm_weights: {
+        signal_weights: {
           activity: readNumber(ambientConfig.fsm_weight_activity, DEFAULTS.fsm_weight_activity),
           emotion: readNumber(ambientConfig.fsm_weight_emotion, DEFAULTS.fsm_weight_emotion),
           responsiveness: readNumber(
@@ -500,13 +462,13 @@ export const ambientRouter = router({
         };
       });
 
-      const monitorState = getAmbientMonitor()?.getState();
-      const fsmState = monitorState?.fsm_state ?? (fsmEnabled ? "unknown" : "disabled");
+      const monitorState = await getAmbientMonitor()?.getStateInfo();
+      const daemonState = monitorState?.daemon_state ?? (enabled ? "unknown" : "disabled");
       const isEnabled = monitorState?.is_enabled ?? enabled;
 
       return {
         summary: {
-          fsm_state: fsmState,
+          daemon_state: daemonState,
           is_enabled: isEnabled,
           last_run_at: lastRunAt,
           last_notification_at: lastNotificationAt,

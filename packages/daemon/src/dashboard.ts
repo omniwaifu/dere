@@ -71,9 +71,9 @@ export function registerDashboardRoutes(app: Hono): void {
       activity_category: category,
     };
 
-    const monitorState = getAmbientMonitor()?.getState();
+    const monitorState = await getAmbientMonitor()?.getStateInfo();
     const ambient = {
-      fsm_state: monitorState?.fsm_state ?? "unknown",
+      fsm_state: monitorState?.daemon_state ?? "unknown",
       next_check_at: null,
       is_enabled: monitorState?.is_enabled ?? false,
     };

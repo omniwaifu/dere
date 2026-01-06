@@ -27,13 +27,7 @@ export interface AmbientConfig {
   escalation_lookback_hours: number;
   min_notification_interval_minutes: number;
   startup_delay_seconds: number;
-  fsm_enabled: boolean;
-  fsm_idle_interval: [number, number];
-  fsm_monitoring_interval: [number, number];
-  fsm_engaged_interval: number;
-  fsm_cooldown_interval: [number, number];
-  fsm_escalating_interval: [number, number];
-  fsm_suppressed_interval: [number, number];
+  // Signal weights for proactivity decisions (renamed from fsm_weight_* for backwards compat)
   fsm_weight_activity: number;
   fsm_weight_emotion: number;
   fsm_weight_responsiveness: number;
@@ -57,13 +51,6 @@ const DEFAULTS = {
   escalation_lookback_hours: 12,
   min_notification_interval_minutes: 120,
   startup_delay_seconds: 0,
-  fsm_enabled: true,
-  fsm_idle_interval: [60, 120] as [number, number],
-  fsm_monitoring_interval: [15, 30] as [number, number],
-  fsm_engaged_interval: 5,
-  fsm_cooldown_interval: [45, 90] as [number, number],
-  fsm_escalating_interval: [30, 60] as [number, number],
-  fsm_suppressed_interval: [90, 180] as [number, number],
   fsm_weight_activity: 0.3,
   fsm_weight_emotion: 0.25,
   fsm_weight_responsiveness: 0.2,
@@ -228,22 +215,6 @@ export async function loadAmbientConfig(): Promise<AmbientConfig> {
     startup_delay_seconds: readNumber(
       ambient.startup_delay_seconds,
       DEFAULTS.startup_delay_seconds,
-    ),
-    fsm_enabled: readBoolean(ambient.fsm_enabled, DEFAULTS.fsm_enabled),
-    fsm_idle_interval: readPair(ambient.fsm_idle_interval, DEFAULTS.fsm_idle_interval),
-    fsm_monitoring_interval: readPair(
-      ambient.fsm_monitoring_interval,
-      DEFAULTS.fsm_monitoring_interval,
-    ),
-    fsm_engaged_interval: readNumber(ambient.fsm_engaged_interval, DEFAULTS.fsm_engaged_interval),
-    fsm_cooldown_interval: readPair(ambient.fsm_cooldown_interval, DEFAULTS.fsm_cooldown_interval),
-    fsm_escalating_interval: readPair(
-      ambient.fsm_escalating_interval,
-      DEFAULTS.fsm_escalating_interval,
-    ),
-    fsm_suppressed_interval: readPair(
-      ambient.fsm_suppressed_interval,
-      DEFAULTS.fsm_suppressed_interval,
     ),
     fsm_weight_activity: readNumber(ambient.fsm_weight_activity, DEFAULTS.fsm_weight_activity),
     fsm_weight_emotion: readNumber(ambient.fsm_weight_emotion, DEFAULTS.fsm_weight_emotion),
