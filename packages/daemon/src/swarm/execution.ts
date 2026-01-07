@@ -14,10 +14,13 @@ import {
   SUMMARY_THRESHOLD,
   DEFAULT_AGENT_TIMEOUT_SECONDS,
   MEMORY_STEWARD_NAME,
+  AgentTimeoutError,
+  AgentExecutionError,
+  SwarmError,
   type SwarmRow,
   type SwarmAgentRow,
 } from "./types.js";
-import { nowDate, nowSeconds, truncateOutput, withTimeout } from "./utils.js";
+import { nowDate, nowSeconds, truncateOutput, withTimeout, type TimeoutOptions } from "./utils.js";
 import { buildTaskPrompt, buildMemoryPromptPrefix } from "./prompts.js";
 import { evaluateCondition } from "./dependencies.js";
 import { runAgentQuery, generateSummary, type MessageBlock } from "./agent-query.js";
@@ -298,26 +301,54 @@ export async function executeAssignedAgent(
   const db = await getDb();
   const startedAt = nowDate();
 
+  // Create session first, before setting RUNNING status
+  // This ensures we never have RUNNING status without a valid session_id
+  let sessionId: number;
+  try {
+    sessionId = await createSessionForAgent(agent, swarm);
+  } catch (error) {
+    // If session creation fails, mark agent as failed immediately
+    const message = error instanceof Error ? error.message : String(error);
+    await db
+      .updateTable("swarm_agents")
+      .set({
+        status: STATUS.FAILED,
+        completed_at: nowDate(),
+        error_message: `Session creation failed: ${message}`,
+      })
+      .where("id", "=", agent.id)
+      .execute();
+
+    daemonEvents.emit("agent:end", {
+      agentId: agent.id,
+      swarmId: swarm.id,
+      name: agent.name,
+      status: "failed",
+      durationSeconds: 0,
+    });
+
+    throw new AgentExecutionError(`Session creation failed: ${message}`, {
+      swarmId: swarm.id,
+      agentId: agent.id,
+      agentName: agent.name,
+      ...(error instanceof Error && { cause: error }),
+    });
+  }
+
+  // Atomically set RUNNING status and session_id together
   await db
     .updateTable("swarm_agents")
-    .set({ status: STATUS.RUNNING, started_at: startedAt })
+    .set({ status: STATUS.RUNNING, started_at: startedAt, session_id: sessionId })
     .where("id", "=", agent.id)
     .execute();
 
-  // Emit agent start event
+  // Emit agent start event only after state is consistent
   daemonEvents.emit("agent:start", {
     agentId: agent.id,
     swarmId: swarm.id,
     name: agent.name,
     role: agent.role ?? "generic",
   });
-
-  const sessionId = await createSessionForAgent(agent, swarm);
-  await db
-    .updateTable("swarm_agents")
-    .set({ session_id: sessionId })
-    .where("id", "=", agent.id)
-    .execute();
 
   const dependencyContext = await buildDependencyContext(agent, swarmAgents);
   const prompt = dependencyContext ? `${dependencyContext}\n\n${agent.prompt}` : agent.prompt;
@@ -425,32 +456,79 @@ export async function executeAssignedAgent(
         .execute();
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     const completedAt = nowDate();
-    await db
-      .updateTable("swarm_agents")
-      .set({
-        status: STATUS.FAILED,
-        completed_at: completedAt,
-        error_message: message,
-      })
-      .where("id", "=", agent.id)
-      .execute();
+    const isTimeout = error instanceof AgentTimeoutError;
+    const status = isTimeout ? STATUS.TIMED_OUT : STATUS.FAILED;
+
+    // Build meaningful error message with context
+    let message: string;
+    if (error instanceof SwarmError) {
+      message = error.message;
+      log.swarm.error(`Agent ${agent.name} failed`, error.toLogContext());
+    } else if (error instanceof Error) {
+      message = `${error.name}: ${error.message}`;
+      log.swarm.error(`Agent ${agent.name} failed with unexpected error`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        error: message,
+        stack: error.stack,
+      });
+    } else {
+      message = String(error);
+      log.swarm.error(`Agent ${agent.name} failed with unknown error`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        error: message,
+      });
+    }
+
+    // Update agent status - wrap in try/catch to ensure we don't lose the original error
+    try {
+      await db
+        .updateTable("swarm_agents")
+        .set({
+          status,
+          completed_at: completedAt,
+          error_message: message,
+        })
+        .where("id", "=", agent.id)
+        .execute();
+    } catch (dbError) {
+      log.swarm.error(`Failed to update agent status after error`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        originalError: message,
+        dbError: dbError instanceof Error ? dbError.message : String(dbError),
+      });
+    }
 
     // Emit agent end event for failure
     daemonEvents.emit("agent:end", {
       agentId: agent.id,
       swarmId: swarm.id,
       name: agent.name,
-      status: "failed",
+      status: isTimeout ? "timed_out" : "failed",
       durationSeconds: (completedAt.getTime() - startedAt.getTime()) / 1000,
     });
   } finally {
     // Mark session as complete regardless of success/failure
-    await closeSession(db, sessionId).catch(() => null);
+    try {
+      await closeSession(db, sessionId);
+    } catch (closeError) {
+      log.swarm.warn(`Failed to close session for agent ${agent.name}`, {
+        sessionId,
+        error: closeError instanceof Error ? closeError.message : String(closeError),
+      });
+    }
   }
 }
 
+/**
+ * Attempt to claim a task for an agent using optimistic locking with retry.
+ * Uses SELECT FOR UPDATE SKIP LOCKED to avoid contention between agents.
+ */
 export async function claimTaskForAgent(
   agentId: number,
   workingDir: string,
@@ -458,50 +536,66 @@ export async function claimTaskForAgent(
   requiredTools: string[] | null,
 ): Promise<Record<string, unknown> | null> {
   const db = await getDb();
+  const maxRetries = 3;
 
-  let query = db
-    .selectFrom("project_tasks")
-    .selectAll()
-    .where("working_dir", "=", workingDir)
-    .where("status", "=", "ready")
-    .where("claimed_by_session_id", "is", null)
-    .where("claimed_by_agent_id", "is", null);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // Use transaction with SELECT FOR UPDATE SKIP LOCKED to atomically claim
+    const result = await db.transaction().execute(async (trx) => {
+      // Build base query with FOR UPDATE SKIP LOCKED to prevent contention
+      let baseConditions = sql`
+        working_dir = ${workingDir}
+        AND status = 'ready'
+        AND claimed_by_session_id IS NULL
+        AND claimed_by_agent_id IS NULL
+      `;
 
-  if (taskTypes && taskTypes.length > 0) {
-    query = query.where("task_type", "in", taskTypes);
+      if (taskTypes && taskTypes.length > 0) {
+        baseConditions = sql`${baseConditions} AND task_type = ANY(${taskTypes}::text[])`;
+      }
+
+      if (requiredTools && requiredTools.length > 0) {
+        baseConditions = sql`${baseConditions} AND required_tools && ${requiredTools}::text[]`;
+      }
+
+      // Use raw SQL for FOR UPDATE SKIP LOCKED which Kysely doesn't support directly
+      const taskResult = await sql<Record<string, unknown>>`
+        SELECT * FROM project_tasks
+        WHERE ${baseConditions}
+        ORDER BY priority DESC, created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `.execute(trx);
+
+      const task = taskResult.rows[0] ?? null;
+      if (!task) {
+        return null;
+      }
+
+      const now = nowDate();
+      await trx
+        .updateTable("project_tasks")
+        .set({
+          status: "claimed",
+          claimed_by_agent_id: agentId,
+          claimed_at: now,
+          updated_at: now,
+        })
+        .where("id", "=", task.id as number)
+        .execute();
+
+      return task;
+    });
+
+    if (result !== null) {
+      return result;
+    }
+
+    // No tasks available (not a race condition, just empty queue)
+    // No need to retry
+    break;
   }
 
-  if (requiredTools && requiredTools.length > 0) {
-    query = query.where(sql<boolean>`required_tools && ${requiredTools}::text[]`);
-  }
-
-  const task = await query
-    .orderBy("priority", "desc")
-    .orderBy("created_at", "asc")
-    .limit(1)
-    .executeTakeFirst();
-  if (!task) {
-    return null;
-  }
-
-  const claimed = await db
-    .updateTable("project_tasks")
-    .set({
-      status: "claimed",
-      claimed_by_agent_id: agentId,
-      claimed_at: nowDate(),
-      updated_at: nowDate(),
-    })
-    .where("id", "=", task.id)
-    .where("status", "=", "ready")
-    .where("claimed_by_agent_id", "is", null)
-    .executeTakeFirst();
-
-  if (!claimed) {
-    return null;
-  }
-
-  return task as Record<string, unknown>;
+  return null;
 }
 
 export async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentRow): Promise<void> {
@@ -510,17 +604,36 @@ export async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentR
   let currentTaskId: number | null = null;
   let sessionId: number | null = null;
 
+  // Create session first, before setting RUNNING status
+  // This ensures we never have RUNNING status without a valid session_id
   try {
+    sessionId = await createSessionForAgent(agent, swarm);
+  } catch (error) {
+    // If session creation fails, mark agent as failed immediately
+    const message = error instanceof Error ? error.message : String(error);
     await db
       .updateTable("swarm_agents")
-      .set({ status: STATUS.RUNNING, started_at: startedAt })
+      .set({
+        status: STATUS.FAILED,
+        completed_at: nowDate(),
+        error_message: `Session creation failed: ${message}`,
+      })
       .where("id", "=", agent.id)
       .execute();
 
-    sessionId = await createSessionForAgent(agent, swarm);
+    throw new AgentExecutionError(`Session creation failed: ${message}`, {
+      swarmId: swarm.id,
+      agentId: agent.id,
+      agentName: agent.name,
+      ...(error instanceof Error && { cause: error }),
+    });
+  }
+
+  try {
+    // Atomically set RUNNING status and session_id together
     await db
       .updateTable("swarm_agents")
-      .set({ session_id: sessionId })
+      .set({ status: STATUS.RUNNING, started_at: startedAt, session_id: sessionId })
       .where("id", "=", agent.id)
       .execute();
 
@@ -625,42 +738,98 @@ export async function executeAutonomousAgent(swarm: SwarmRow, agent: SwarmAgentR
       .where("id", "=", agent.id)
       .execute();
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    // Build meaningful error message with context
+    let errorMessage: string;
+    if (error instanceof SwarmError) {
+      errorMessage = error.message;
+      log.swarm.error(`Autonomous agent ${agent.name} failed`, error.toLogContext());
+    } else if (error instanceof Error) {
+      errorMessage = `${error.name}: ${error.message}`;
+      log.swarm.error(`Autonomous agent ${agent.name} failed with unexpected error`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        error: errorMessage,
+        stack: error.stack,
+        currentTaskId,
+      });
+    } else {
+      errorMessage = String(error);
+      log.swarm.error(`Autonomous agent ${agent.name} failed with unknown error`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        error: errorMessage,
+        currentTaskId,
+      });
+    }
 
-    // Mark agent as failed
-    await db
-      .updateTable("swarm_agents")
-      .set({
-        status: STATUS.FAILED,
-        completed_at: nowDate(),
-        error_message: errorMessage,
-        current_task_id: null,
-      })
-      .where("id", "=", agent.id)
-      .execute()
-      .catch(() => null);
+    // Mark agent as failed - wrap in try/catch to log but not hide original error
+    try {
+      await db
+        .updateTable("swarm_agents")
+        .set({
+          status: STATUS.FAILED,
+          completed_at: nowDate(),
+          error_message: errorMessage,
+          current_task_id: null,
+        })
+        .where("id", "=", agent.id)
+        .execute();
+    } catch (dbError) {
+      log.swarm.error(`Failed to update autonomous agent status after error`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        originalError: errorMessage,
+        dbError: dbError instanceof Error ? dbError.message : String(dbError),
+      });
+    }
 
     // Release any claimed task
     if (currentTaskId) {
-      await db
-        .updateTable("project_tasks")
-        .set({
-          status: "ready",
-          last_error: `Agent crashed: ${errorMessage}`,
-          claimed_by_agent_id: null,
-          claimed_at: null,
-          updated_at: nowDate(),
-        })
-        .where("id", "=", currentTaskId)
-        .execute()
-        .catch(() => null);
+      try {
+        await db
+          .updateTable("project_tasks")
+          .set({
+            status: "ready",
+            last_error: `Agent crashed: ${errorMessage}`,
+            claimed_by_agent_id: null,
+            claimed_at: null,
+            updated_at: nowDate(),
+          })
+          .where("id", "=", currentTaskId)
+          .execute();
+      } catch (releaseError) {
+        log.swarm.error(`Failed to release task after agent crash`, {
+          swarmId: swarm.id,
+          agentId: agent.id,
+          taskId: currentTaskId,
+          releaseError: releaseError instanceof Error ? releaseError.message : String(releaseError),
+        });
+      }
     }
 
-    throw error; // Re-throw for upstream handling
+    // Wrap error with context if it's not already a SwarmError
+    if (!(error instanceof SwarmError)) {
+      throw new AgentExecutionError(`Autonomous agent failed: ${errorMessage}`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        ...(error instanceof Error && { cause: error }),
+      });
+    }
+    throw error;
   } finally {
     // Mark session as complete regardless of success/failure
     if (sessionId) {
-      await closeSession(db, sessionId).catch(() => null);
+      try {
+        await closeSession(db, sessionId);
+      } catch (closeError) {
+        log.swarm.warn(`Failed to close session for autonomous agent ${agent.name}`, {
+          sessionId,
+          error: closeError instanceof Error ? closeError.message : String(closeError),
+        });
+      }
     }
   }
 }
@@ -687,7 +856,7 @@ export async function executeAgentWithDependencies(swarmId: number, agent: Swarm
         (other) =>
           !other.is_synthesis_agent &&
           other.name !== MEMORY_STEWARD_NAME &&
-          other.status === STATUS.FAILED,
+          (other.status === STATUS.FAILED || other.status === STATUS.TIMED_OUT),
       );
       if (failed) {
         await getDb()
@@ -729,10 +898,11 @@ export async function executeAgentWithDependencies(swarmId: number, agent: Swarm
           continue;
         }
 
-        // For dependencies without conditions, skip if they failed
-        if (!dep.condition && depAgent.status === STATUS.FAILED) {
+        // For dependencies without conditions, skip if they failed or timed out
+        if (!dep.condition && (depAgent.status === STATUS.FAILED || depAgent.status === STATUS.TIMED_OUT)) {
           shouldSkip = true;
-          skipReason = `Dependency '${depAgent.name}' failed`;
+          const reason = depAgent.status === STATUS.TIMED_OUT ? "timed out" : "failed";
+          skipReason = `Dependency '${depAgent.name}' ${reason}`;
           break;
         }
 
@@ -770,12 +940,76 @@ export async function executeAgentWithDependencies(swarmId: number, agent: Swarm
       // Autonomous agents have their own timeout handling via max_duration_seconds
       await executeAutonomousAgent(swarm, agent);
     } else {
-      // Assigned agents use a timeout wrapper
+      // Assigned agents use a timeout wrapper with proper cleanup
       const timeoutSeconds = agent.max_duration_seconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
+
+      // Use timeout options for better observability and cleanup
+      const timeoutOptions: TimeoutOptions = {
+        gracePeriodMs: 2000, // 2 second grace period for cleanup
+        onTimeout: (elapsedSeconds) => {
+          log.swarm.warn("Agent timeout triggered", {
+            swarmId,
+            agentId: agent.id,
+            agentName: agent.name,
+            elapsedSeconds,
+            timeoutSeconds,
+          });
+        },
+      };
+
       await withTimeout(
         executeAssignedAgent(swarm, agent, agents),
         timeoutSeconds,
+        timeoutOptions,
       );
+    }
+  } catch (error) {
+    // Log unhandled errors that bubble up from agent execution
+    // Most errors should be caught in executeAssignedAgent/executeAutonomousAgent
+    // This catches errors that occur before agent execution or during dependency resolution
+    if (error instanceof SwarmError) {
+      log.swarm.error(`Agent execution failed`, error.toLogContext());
+    } else {
+      log.swarm.error(`Unexpected error in agent execution`, {
+        swarmId,
+        agentId: agent.id,
+        agentName: agent.name,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+    }
+
+    // Ensure agent is marked as failed if not already in a terminal state
+    try {
+      const db = await getDb();
+      const currentAgent = await db
+        .selectFrom("swarm_agents")
+        .select(["status"])
+        .where("id", "=", agent.id)
+        .executeTakeFirst();
+
+      // Only update if not already in a terminal state
+      if (
+        currentAgent &&
+        !["completed", "failed", "cancelled", "skipped", "timed_out"].includes(currentAgent.status)
+      ) {
+        const isTimeout = error instanceof AgentTimeoutError;
+        await db
+          .updateTable("swarm_agents")
+          .set({
+            status: isTimeout ? STATUS.TIMED_OUT : STATUS.FAILED,
+            completed_at: nowDate(),
+            error_message: error instanceof Error ? error.message : String(error),
+          })
+          .where("id", "=", agent.id)
+          .execute();
+      }
+    } catch (dbError) {
+      log.swarm.error(`Failed to update agent status after unhandled error`, {
+        swarmId,
+        agentId: agent.id,
+        dbError: dbError instanceof Error ? dbError.message : String(dbError),
+      });
     }
   } finally {
     swarmState.untrackAgent(agent.id);

@@ -16,6 +16,7 @@ export const STATUS = {
   FAILED: "failed",
   CANCELLED: "cancelled",
   SKIPPED: "skipped",
+  TIMED_OUT: "timed_out",
 } as const;
 
 export const INCLUDE_MODES = new Set(["summary", "full", "none"]);
@@ -109,13 +110,128 @@ export function isAgentTerminal(status: string): boolean {
     status === STATUS.COMPLETED ||
     status === STATUS.FAILED ||
     status === STATUS.CANCELLED ||
-    status === STATUS.SKIPPED
+    status === STATUS.SKIPPED ||
+    status === STATUS.TIMED_OUT
   );
 }
 
-export class AgentTimeoutError extends Error {
-  constructor(seconds: number) {
-    super(`Agent execution timed out after ${seconds} seconds`);
+/**
+ * Base class for all swarm-related errors.
+ * Provides structured error information for logging and debugging.
+ */
+export class SwarmError extends Error {
+  readonly swarmId?: number;
+  readonly agentId?: number;
+  readonly agentName?: string;
+  readonly cause?: Error;
+
+  constructor(
+    message: string,
+    context?: {
+      swarmId?: number;
+      agentId?: number;
+      agentName?: string;
+      cause?: Error;
+    },
+  ) {
+    super(message);
+    this.name = "SwarmError";
+    if (context?.swarmId !== undefined) this.swarmId = context.swarmId;
+    if (context?.agentId !== undefined) this.agentId = context.agentId;
+    if (context?.agentName !== undefined) this.agentName = context.agentName;
+    if (context?.cause !== undefined) this.cause = context.cause;
+  }
+
+  /**
+   * Returns a structured object for logging.
+   */
+  toLogContext(): Record<string, unknown> {
+    return {
+      error: this.message,
+      errorType: this.name,
+      swarmId: this.swarmId,
+      agentId: this.agentId,
+      agentName: this.agentName,
+      cause: this.cause?.message,
+    };
+  }
+}
+
+export class AgentTimeoutError extends SwarmError {
+  readonly timeoutSeconds: number;
+
+  constructor(seconds: number, context?: { swarmId?: number; agentId?: number; agentName?: string }) {
+    super(`Agent execution timed out after ${seconds} seconds`, context);
     this.name = "AgentTimeoutError";
+    this.timeoutSeconds = seconds;
+  }
+}
+
+/**
+ * Thrown when an agent fails during execution.
+ */
+export class AgentExecutionError extends SwarmError {
+  constructor(
+    message: string,
+    context?: { swarmId?: number; agentId?: number; agentName?: string; cause?: Error },
+  ) {
+    super(message, context);
+    this.name = "AgentExecutionError";
+  }
+}
+
+/**
+ * Thrown when a dependency condition is not met.
+ */
+export class DependencyError extends SwarmError {
+  readonly dependencyAgentName?: string;
+
+  constructor(
+    message: string,
+    context?: {
+      swarmId?: number;
+      agentId?: number;
+      agentName?: string;
+      dependencyAgentName?: string;
+    },
+  ) {
+    super(message, context);
+    this.name = "DependencyError";
+    if (context?.dependencyAgentName !== undefined) this.dependencyAgentName = context.dependencyAgentName;
+  }
+}
+
+/**
+ * Thrown when database operations fail during swarm execution.
+ */
+export class SwarmDatabaseError extends SwarmError {
+  readonly operation?: string;
+
+  constructor(
+    message: string,
+    context?: {
+      swarmId?: number;
+      agentId?: number;
+      agentName?: string;
+      operation?: string;
+      cause?: Error;
+    },
+  ) {
+    super(message, context);
+    this.name = "SwarmDatabaseError";
+    if (context?.operation !== undefined) this.operation = context.operation;
+  }
+}
+
+/**
+ * Thrown when a swarm or agent is not found.
+ */
+export class SwarmNotFoundError extends SwarmError {
+  constructor(swarmId: number, agentId?: number) {
+    super(
+      agentId ? `Agent ${agentId} not found in swarm ${swarmId}` : `Swarm ${swarmId} not found`,
+      agentId !== undefined ? { swarmId, agentId } : { swarmId },
+    );
+    this.name = "SwarmNotFoundError";
   }
 }

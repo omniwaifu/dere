@@ -49,7 +49,7 @@ export type AgentEndEvent = {
   agentId: number;
   swarmId: number;
   name: string;
-  status: "completed" | "failed" | "cancelled" | "skipped";
+  status: "completed" | "failed" | "cancelled" | "skipped" | "timed_out";
   durationSeconds: number;
 };
 

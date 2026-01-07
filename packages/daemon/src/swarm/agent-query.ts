@@ -10,7 +10,13 @@ import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 
 import { runDockerSandboxQuery } from "../sandbox/docker-runner.js";
 import { log } from "../logger.js";
-import { SUMMARY_MODEL, SUMMARY_THRESHOLD, type SwarmRow, type SwarmAgentRow } from "./types.js";
+import {
+  SUMMARY_MODEL,
+  SUMMARY_THRESHOLD,
+  AgentExecutionError,
+  type SwarmRow,
+  type SwarmAgentRow,
+} from "./types.js";
 import { collectText, resolvePluginPaths } from "./utils.js";
 
 export type MessageBlock = {
@@ -99,56 +105,75 @@ export async function runAgentQuery(args: {
   toolCount: number;
   structuredOutput?: unknown;
 }> {
-  if (args.agent.sandbox_mode) {
-    return await runDockerSandboxQuery({
-      prompt: args.prompt,
-      config: {
-        workingDir: args.swarm.working_dir,
-        outputStyle: "default",
-        systemPrompt: null,
-        model: args.agent.model ?? null,
-        thinkingBudget: args.agent.thinking_budget ?? null,
-        allowedTools: args.agent.allowed_tools ?? null,
-        autoApprove: true,
-        outputFormat: null,
-        sandboxSettings: null,
-        plugins: args.agent.plugins ?? null,
-        env: {
-          DERE_SESSION_ID: String(args.sessionId),
-          DERE_SWARM_ID: String(args.swarm.id),
-          DERE_SWARM_AGENT_ID: String(args.agent.id),
-          DERE_SWARM_AGENT_NAME: args.agent.name,
+  const { swarm, agent, prompt, sessionId } = args;
+
+  if (agent.sandbox_mode) {
+    try {
+      return await runDockerSandboxQuery({
+        prompt,
+        config: {
+          workingDir: swarm.working_dir,
+          outputStyle: "default",
+          systemPrompt: null,
+          model: agent.model ?? null,
+          thinkingBudget: agent.thinking_budget ?? null,
+          allowedTools: agent.allowed_tools ?? null,
+          autoApprove: true,
+          outputFormat: null,
+          sandboxSettings: null,
+          plugins: agent.plugins ?? null,
+          env: {
+            DERE_SESSION_ID: String(sessionId),
+            DERE_SWARM_ID: String(swarm.id),
+            DERE_SWARM_AGENT_ID: String(agent.id),
+            DERE_SWARM_AGENT_NAME: agent.name,
+          },
+          sandboxNetworkMode: "bridge",
+          mountType: "copy",
         },
-        sandboxNetworkMode: "bridge",
-        mountType: "copy",
-      },
-    });
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.swarm.error("Docker sandbox query failed", {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw new AgentExecutionError(`Docker sandbox query failed: ${message}`, {
+        swarmId: swarm.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        ...(error instanceof Error && { cause: error }),
+      });
+    }
   }
 
-  const plugins = resolvePluginPaths(args.agent.plugins);
+  const plugins = resolvePluginPaths(agent.plugins);
 
   const options: SDKOptions = {
-    cwd: args.swarm.working_dir,
+    cwd: swarm.working_dir,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     persistSession: false,
     settingSources: ["project"],
     sandbox: { enabled: false },
     env: {
-      DERE_SESSION_ID: String(args.sessionId),
-      DERE_SWARM_ID: String(args.swarm.id),
-      DERE_SWARM_AGENT_ID: String(args.agent.id),
-      DERE_SWARM_AGENT_NAME: args.agent.name,
+      DERE_SESSION_ID: String(sessionId),
+      DERE_SWARM_ID: String(swarm.id),
+      DERE_SWARM_AGENT_ID: String(agent.id),
+      DERE_SWARM_AGENT_NAME: agent.name,
     },
   };
 
-  if (args.agent.model) {
-    options.model = args.agent.model;
+  if (agent.model) {
+    options.model = agent.model;
   }
 
-  if (args.agent.allowed_tools && args.agent.allowed_tools.length > 0) {
-    options.tools = args.agent.allowed_tools;
-    options.allowedTools = args.agent.allowed_tools;
+  if (agent.allowed_tools && agent.allowed_tools.length > 0) {
+    options.tools = agent.allowed_tools;
+    options.allowedTools = agent.allowed_tools;
   } else {
     options.tools = { type: "preset", preset: "claude_code" };
   }
@@ -163,33 +188,50 @@ export async function runAgentQuery(args: {
   let structuredOutput: unknown;
   let resultText = "";
 
-  const response = query({ prompt: args.prompt, options });
-  for await (const message of response) {
-    if (message.type === "assistant") {
-      const extracted = extractBlocksFromAssistantMessage(message as SDKAssistantMessage);
-      if (extracted.blocks.length > 0) {
-        blocks.push(...extracted.blocks);
-        for (const tool of extracted.blocks) {
-          if (tool.type === "tool_use") {
-            toolCount += 1;
+  try {
+    const response = query({ prompt, options });
+    for await (const message of response) {
+      if (message.type === "assistant") {
+        const extracted = extractBlocksFromAssistantMessage(message as SDKAssistantMessage);
+        if (extracted.blocks.length > 0) {
+          blocks.push(...extracted.blocks);
+          for (const tool of extracted.blocks) {
+            if (tool.type === "tool_use") {
+              toolCount += 1;
+            }
           }
         }
+        if (extracted.toolNames.length > 0) {
+          toolNames.push(...extracted.toolNames);
+        }
+        continue;
       }
-      if (extracted.toolNames.length > 0) {
-        toolNames.push(...extracted.toolNames);
-      }
-      continue;
-    }
 
-    if (message.type === "result") {
-      const resultMessage = message as SDKResultMessage;
-      if ("structured_output" in resultMessage && resultMessage.structured_output) {
-        structuredOutput = resultMessage.structured_output;
-      }
-      if ("result" in resultMessage && typeof resultMessage.result === "string") {
-        resultText = resultMessage.result;
+      if (message.type === "result") {
+        const resultMessage = message as SDKResultMessage;
+        if ("structured_output" in resultMessage && resultMessage.structured_output) {
+          structuredOutput = resultMessage.structured_output;
+        }
+        if ("result" in resultMessage && typeof resultMessage.result === "string") {
+          resultText = resultMessage.result;
+        }
       }
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.swarm.error("Agent SDK query failed", {
+      swarmId: swarm.id,
+      agentId: agent.id,
+      agentName: agent.name,
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw new AgentExecutionError(`Agent SDK query failed: ${message}`, {
+      swarmId: swarm.id,
+      agentId: agent.id,
+      agentName: agent.name,
+      ...(error instanceof Error && { cause: error }),
+    });
   }
 
   const outputText =
