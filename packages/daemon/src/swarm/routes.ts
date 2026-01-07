@@ -257,7 +257,7 @@ export function registerSwarmRoutes(app: Hono): void {
 
       await db
         .updateTable("swarm_agents")
-        .set({ depends_on: deps })
+        .set({ depends_on: JSON.stringify(deps) })
         .where("id", "=", agentId)
         .execute();
     }
@@ -292,7 +292,7 @@ export function registerSwarmRoutes(app: Hono): void {
           thinking_budget: null,
           model: null,
           sandbox_mode: true,
-          depends_on: deps,
+          depends_on: JSON.stringify(deps),
           session_id: null,
           status: STATUS.PENDING,
           output_text: null,
@@ -394,7 +394,7 @@ export function registerSwarmRoutes(app: Hono): void {
           thinking_budget: null,
           model: null,
           sandbox_mode: true,
-          depends_on: deps,
+          depends_on: JSON.stringify(deps),
           session_id: null,
           status: STATUS.PENDING,
           output_text: null,
