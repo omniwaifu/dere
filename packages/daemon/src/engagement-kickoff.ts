@@ -19,7 +19,7 @@ import {
 
 import { getDb } from "./db.js";
 import { log } from "./logger.js";
-import { loadAmbientConfig, type AmbientConfig } from "./ambient-config.js";
+import { loadAmbientConfig, type AmbientConfig } from "./ambient/config.js";
 import { getState, getDaemonState, getActiveSessionCount } from "./daemon-state.js";
 import { startExplorationWorkflow } from "./temporal/starter.js";
 import { createGapTasks, createUnderexploredTasks } from "./temporal/activities/index.js";

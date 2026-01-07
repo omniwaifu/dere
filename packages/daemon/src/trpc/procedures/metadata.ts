@@ -1,5 +1,5 @@
 import { router, publicProcedure } from "../init.js";
-import { listPersonalityInfos } from "../../personalities.js";
+import { listPersonalityInfos } from "../../personalities/index.js";
 import { loadConfig } from "@dere/shared-config";
 
 export const metadataRouter = router({

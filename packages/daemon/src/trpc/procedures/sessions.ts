@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { getDb } from "../../db.js";
-import { processCuriosityTriggers } from "../../ambient-triggers/index.js";
-import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "../../emotion-runtime.js";
+import { processCuriosityTriggers } from "../../ambient/triggers/index.js";
+import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "../../emotions/runtime.js";
 import { router, publicProcedure } from "../init.js";
 import { log } from "../../logger.js";
 

@@ -4,8 +4,8 @@ import { sql } from "kysely";
 import { readFile } from "node:fs/promises";
 import { getConfigPath, loadConfig } from "@dere/shared-config";
 import { getDb } from "../../db.js";
-import { buildActivitySnapshot, classifyActivity } from "../../activity.js";
-import { getAmbientMonitor } from "../../ambient-monitor.js";
+import { buildActivitySnapshot, classifyActivity } from "../../routes/activity.js";
+import { getAmbientMonitor } from "../../ambient/monitor.js";
 import { router, publicProcedure } from "../init.js";
 
 function nowIso(): string {

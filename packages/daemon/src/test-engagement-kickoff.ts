@@ -11,7 +11,7 @@ import {
 } from "@dere/shared-llm";
 
 import { getDb } from "./db.js";
-import { loadAmbientConfig } from "./ambient-config.js";
+import { loadAmbientConfig } from "./ambient/config.js";
 
 // Copy the context building logic for testing
 function formatTimeAgo(date: Date | null): string {

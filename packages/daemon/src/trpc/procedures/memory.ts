@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { sql } from "kysely";
 import { router, publicProcedure } from "../init.js";
 import { getDb } from "../../db.js";
-import { getRecallEmbedder, vectorLiteral } from "../../recall-embeddings.js";
+import { getRecallEmbedder, vectorLiteral } from "../../memory/embeddings.js";
 import { log } from "../../logger.js";
 
 const CORE_MEMORY_BLOCK_TYPES = new Set(["persona", "human", "task"]);
