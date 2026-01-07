@@ -265,14 +265,8 @@ class AmbientMonitor {
       return false;
     }
 
-    // Check derived state - don't explore if engaged
-    const stateRow = await getDaemonState(this.config.user_id);
-    const sessionCount = await getActiveSessionCount(this.config.user_id);
-    const currentState = getState(stateRow, sessionCount);
-
-    if (currentState === "engaged") {
-      return false;
-    }
+    // NOTE: Exploration is silent background work - no engagement gate.
+    // She vibes in the background regardless of whether you're around.
 
     const dayKey = options.now.toISOString().slice(0, 10);
     if (this.explorationDay !== dayKey) {

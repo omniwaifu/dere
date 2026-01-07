@@ -17,6 +17,7 @@
     "check": "oxlint && tsc -b"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.24.3",
     "zod": "^3.25.67"
   },

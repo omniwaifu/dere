@@ -11,10 +11,9 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Bun runtime
-RUN curl -fsSL https://bun.sh/install | bash && \
-    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
-    ln -s /root/.bun/bin/bunx /usr/local/bin/bunx
+# Install Bun runtime (to /usr/local/bin for all users)
+RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash && \
+    chmod 755 /usr/local/bin/bun /usr/local/bin/bunx
 
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
@@ -37,7 +36,8 @@ RUN mkdir -p /home/user && chmod 777 /home/user
 
 # Working directory for user projects (writable by any UID for --user mode)
 RUN mkdir -p /workspace && chmod 777 /workspace
-WORKDIR /workspace
 
 # Entrypoint reads JSON commands from stdin, outputs JSON events to stdout
+# Use absolute path since docker run --workdir overrides WORKDIR
+# bun resolves modules from script directory, so node_modules in /app/dere will be used
 CMD ["bun", "/app/dere/docker/sandbox/entrypoint.ts"]

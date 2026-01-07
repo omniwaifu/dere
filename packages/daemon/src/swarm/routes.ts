@@ -18,6 +18,7 @@ import {
   type AgentSpec,
   type DependencySpec,
   type SwarmAgentRow,
+  type SwarmRow,
 } from "./types.js";
 import { nowDate, parseJson, toJsonValue } from "./utils.js";
 import {
@@ -27,8 +28,8 @@ import {
   buildMemoryStewardPrompt,
 } from "./prompts.js";
 import { detectDependencyCycle, computeCriticalPath } from "./dependencies.js";
-import { getSwarmWithAgents, getCompletionSignal } from "./execution.js";
-import { startSwarmExecution } from "./orchestration.js";
+import { getSwarmWithAgents } from "./execution.js";
+import { startSwarmViaTemporal, cancelSwarmWorkflow } from "./temporal-bridge.js";
 import { getCurrentBranch, createBranch, mergeBranch, listPlugins, GitError } from "./git.js";
 
 /**
@@ -483,10 +484,29 @@ export function registerSwarmRoutes(app: Hono): void {
           .execute();
       });
 
-      // Mark in-memory state as starting after DB update
-      // For create, this should always succeed since the swarm is new
-      swarmState.markStarting(swarm.id);
-      void startSwarmExecution(swarm.id, true);
+      // Start execution via Temporal workflow
+      // Fetch fresh swarm and agents for workflow input
+      const allAgents = await db
+        .selectFrom("swarm_agents")
+        .selectAll()
+        .where("swarm_id", "=", swarm.id)
+        .execute();
+
+      try {
+        await startSwarmViaTemporal(swarm as SwarmRow, allAgents as SwarmAgentRow[]);
+      } catch (error) {
+        log.swarm.error("Failed to start Temporal workflow", {
+          swarmId: swarm.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Update status back to pending on failure
+        await db
+          .updateTable("swarms")
+          .set({ status: STATUS.PENDING, started_at: null })
+          .where("id", "=", swarm.id)
+          .execute();
+        throw error;
+      }
     }
 
     return c.json({
@@ -753,12 +773,14 @@ export function registerSwarmRoutes(app: Hono): void {
       return c.json({ status: "started", swarm_id: swarmId, note: "Already starting" });
     }
 
+    // Fetch all agents for workflow input and git branch creation
+    const agents = await db
+      .selectFrom("swarm_agents")
+      .selectAll()
+      .where("swarm_id", "=", swarmId)
+      .execute();
+
     if (swarm.git_branch_prefix) {
-      const agents = await db
-        .selectFrom("swarm_agents")
-        .select(["git_branch"])
-        .where("swarm_id", "=", swarmId)
-        .execute();
       for (const agent of agents) {
         if (!agent.git_branch) {
           continue;
@@ -771,8 +793,23 @@ export function registerSwarmRoutes(app: Hono): void {
       }
     }
 
-    // Pass true since we already marked as starting above
-    void startSwarmExecution(swarmId, true);
+    // Start execution via Temporal workflow
+    try {
+      await startSwarmViaTemporal(swarm as SwarmRow, agents as SwarmAgentRow[]);
+    } catch (error) {
+      log.swarm.error("Failed to start Temporal workflow", {
+        swarmId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Rollback status on failure
+      await db
+        .updateTable("swarms")
+        .set({ status: STATUS.PENDING, started_at: null })
+        .where("id", "=", swarmId)
+        .execute();
+      return handleRouteError("startSwarm", error, c);
+    }
+
     return c.json({ status: "started", swarm_id: swarmId });
   });
 
@@ -846,14 +883,33 @@ export function registerSwarmRoutes(app: Hono): void {
       return c.json({ error: "No agents to resume" }, 400);
     }
 
-    // Mark in-memory state as starting AFTER DB transaction succeeds
-    if (!swarmState.markStarting(swarmId)) {
-      // Another request beat us - return success since swarm is already starting
-      return c.json({ status: "resumed", swarm_id: swarmId, agents_reset: resumedAgentIds.length, note: "Already starting" });
+    // Fetch swarm and agents for workflow input
+    const swarm = await db
+      .selectFrom("swarms")
+      .selectAll()
+      .where("id", "=", swarmId)
+      .executeTakeFirst();
+    const agents = await db
+      .selectFrom("swarm_agents")
+      .selectAll()
+      .where("swarm_id", "=", swarmId)
+      .execute();
+
+    if (!swarm) {
+      return c.json({ error: "Swarm not found after resume" }, 500);
     }
 
-    // Pass true since we already marked as starting above
-    void startSwarmExecution(swarmId, true);
+    // Start execution via Temporal workflow
+    try {
+      await startSwarmViaTemporal(swarm as SwarmRow, agents as SwarmAgentRow[]);
+    } catch (error) {
+      log.swarm.error("Failed to start Temporal workflow on resume", {
+        swarmId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return handleRouteError("resumeSwarm", error, c);
+    }
+
     return c.json({ status: "resumed", swarm_id: swarmId, agents_reset: resumedAgentIds.length });
   });
 
@@ -869,33 +925,39 @@ export function registerSwarmRoutes(app: Hono): void {
       typeof payload?.timeout_seconds === "number" ? payload.timeout_seconds : null;
 
     const db = await getDb();
-    const agents = await db
-      .selectFrom("swarm_agents")
-      .selectAll()
-      .where("swarm_id", "=", swarmId)
-      .execute();
+    const startTime = Date.now();
+    const timeoutMs = timeoutSeconds ? timeoutSeconds * 1000 : 300_000; // default 5 min
+    const pollIntervalMs = 2_000; // poll every 2 seconds
 
-    const targets =
-      agentNames && agentNames.length > 0
-        ? agents.filter((agent) => agentNames.includes(agent.name))
-        : agents;
-
-    // Only wait for agents that aren't already in a terminal state
-    const pendingTargets = targets.filter((agent) => !isAgentTerminal(agent.status));
-    const promises = pendingTargets.map((agent) => getCompletionSignal(swarmId, agent.id).promise);
+    // Poll database until all target agents are in terminal state
     let timedOut = false;
-    if (timeoutSeconds && timeoutSeconds > 0) {
-      await Promise.race([
-        Promise.all(promises),
-        new Promise<void>((resolve) =>
-          setTimeout(() => {
-            timedOut = true;
-            resolve();
-          }, timeoutSeconds * 1000),
-        ),
-      ]);
-    } else {
-      await Promise.all(promises);
+    while (true) {
+      const agents = await db
+        .selectFrom("swarm_agents")
+        .selectAll()
+        .where("swarm_id", "=", swarmId)
+        .execute();
+
+      const targets =
+        agentNames && agentNames.length > 0
+          ? agents.filter((agent) => agentNames.includes(agent.name))
+          : agents;
+
+      const pendingTargets = targets.filter((agent) => !isAgentTerminal(agent.status));
+
+      if (pendingTargets.length === 0) {
+        // All targets are complete
+        break;
+      }
+
+      // Check timeout
+      if (Date.now() - startTime >= timeoutMs) {
+        timedOut = true;
+        break;
+      }
+
+      // Wait before next poll
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
 
     if (timedOut) {
@@ -992,14 +1054,25 @@ export function registerSwarmRoutes(app: Hono): void {
           .execute();
       });
 
-      // Cancel in-memory state AFTER DB transaction succeeds
-      // This resolves completion signals and sets the cancelled flag
+      // Cancel in-memory state (for non-Temporal swarms)
       swarmState.cancelSwarm(swarmId);
+
+      // Cancel Temporal workflow if running
+      try {
+        await cancelSwarmWorkflow(`swarm-${swarmId}`);
+      } catch {
+        // Workflow may not exist or already completed - ignore
+      }
 
       return c.json({ status: "cancelled", swarm_id: swarmId });
     } catch (error) {
-      // Even if DB fails, try to cancel in-memory state to prevent orphaned agents
+      // Even if DB fails, try to cancel both in-memory and Temporal state
       swarmState.cancelSwarm(swarmId);
+      try {
+        await cancelSwarmWorkflow(`swarm-${swarmId}`);
+      } catch {
+        // ignore
+      }
       return handleRouteError("cancelSwarm", error, c);
     }
   });

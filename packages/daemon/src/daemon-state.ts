@@ -381,16 +381,19 @@ export async function clearSuppression(userId: string): Promise<void> {
 }
 
 /**
- * Get count of active sessions for a user.
+ * Get count of recently active sessions for a user.
+ * A session is considered "active" if it had activity within the last hour.
+ * Sessions without end_time but no recent activity are considered stale.
  */
 export async function getActiveSessionCount(userId: string): Promise<number> {
   const db = await getDb();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
   const result = await db
     .selectFrom("sessions")
     .select(db.fn.count<number>("id").as("count"))
     .where("user_id", "=", userId)
-    .where("end_time", "is", null)
+    .where("last_activity", ">", oneHourAgo)
     .executeTakeFirst();
 
   return Number(result?.count ?? 0);

@@ -101,6 +101,23 @@ dev-all:
         "bun packages/discord/src/main.ts" \
         "cd packages/ui && bun run dev"
 
+# Run everything in tmux (dev-all + temporal worker in separate windows)
+# Use Ctrl-b n/p to switch windows, Ctrl-b d to detach
+dev-tmux:
+    #!/usr/bin/env bash
+    SESSION="dere"
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        echo "Session '$SESSION' already exists. Attaching..."
+        tmux attach -t "$SESSION"
+        exit 0
+    fi
+    tmux new-session -d -s "$SESSION" -n services
+    tmux send-keys -t "$SESSION:services" "just dev-all" Enter
+    tmux new-window -t "$SESSION" -n temporal
+    tmux send-keys -t "$SESSION:temporal" "just temporal-worker" Enter
+    tmux select-window -t "$SESSION:services"
+    tmux attach -t "$SESSION"
+
 # Show project info
 info:
     @echo "dere - personality-layered wrapper for Claude CLI"

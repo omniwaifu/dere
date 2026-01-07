@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
@@ -15,6 +15,7 @@ type ResponseState = {
   toolIdToName: Map<string, string>;
   structuredOutput: unknown | null;
   usedStreaming: boolean;
+  queryIterator: ReturnType<typeof query> | null;
 };
 
 function emit(eventType: string, data?: JsonRecord): void {
@@ -29,54 +30,17 @@ function emitError(message: string, recoverable = true): void {
   emit("error", { message, recoverable });
 }
 
-class AsyncQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
-  private queue: T[] = [];
-  private resolvers: Array<(value: IteratorResult<T>) => void> = [];
-  private closed = false;
-
-  push(value: T): void {
-    if (this.closed) {
-      return;
-    }
-    const resolver = this.resolvers.shift();
-    if (resolver) {
-      resolver({ value, done: false });
-    } else {
-      this.queue.push(value);
-    }
-  }
-
-  close(): void {
-    this.closed = true;
-    while (this.resolvers.length > 0) {
-      const resolver = this.resolvers.shift();
-      if (resolver) {
-        resolver({ value: undefined as T, done: true });
-      }
-    }
-  }
-
-  next(): Promise<IteratorResult<T>> {
-    if (this.queue.length > 0) {
-      const value = this.queue.shift() as T;
-      return Promise.resolve({ value, done: false });
-    }
-    if (this.closed) {
-      return Promise.resolve({ value: undefined as T, done: true });
-    }
-    return new Promise((resolve) => this.resolvers.push(resolve));
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    return this;
-  }
+function debug(_message: string): void {
+  // Uncomment for debugging:
+  // process.stderr.write(`[DEBUG] ${new Date().toISOString()} ${_message}\n`);
 }
+
+type QueryOptions = Parameters<typeof query>[0]["options"];
 
 class SandboxRunner {
   private settingsPath: string | null = null;
-  private inputQueue = new AsyncQueue<SDKUserMessage>();
-  private queryInstance: ReturnType<typeof query> | null = null;
-  private pendingStates: ResponseState[] = [];
+  private queryOptions: QueryOptions | null = null;
+  private pendingState: ResponseState | null = null;
   private initialized = false;
 
   async initialize(): Promise<void> {
@@ -109,10 +73,9 @@ class SandboxRunner {
     const outputFormat = parseJsonEnv(process.env.SANDBOX_OUTPUT_FORMAT_JSON);
     let sandboxSettings = parseJsonEnv(process.env.SANDBOX_SETTINGS_JSON);
     if (!sandboxSettings || typeof sandboxSettings !== "object") {
+      // We're already running inside a sandbox container, so disable nested sandbox
       sandboxSettings = {
-        enabled: true,
-        autoAllowBashIfSandboxed: autoApprove,
-        allowUnsandboxedCommands: false,
+        enabled: false,
       };
     }
 
@@ -120,7 +83,8 @@ class SandboxRunner {
 
     const plugins = resolvePlugins(process.env.SANDBOX_PLUGINS);
 
-    const options = {
+    // Store options for later query calls (each query creates a new SDK instance)
+    this.queryOptions = {
       cwd: workingDir,
       settingSources: ["user", "project", "local"] as const,
       allowedTools,
@@ -144,15 +108,13 @@ class SandboxRunner {
         : undefined,
     };
 
-    this.queryInstance = query({ prompt: this.inputQueue, options });
-    void this.readMessages();
-
+    debug("Initialized sandbox runner options");
     this.initialized = true;
     emit("ready");
   }
 
   async processQuery(prompt: string): Promise<void> {
-    if (!this.queryInstance) {
+    if (!this.queryOptions) {
       emitError("Client not initialized", false);
       return;
     }
@@ -160,29 +122,36 @@ class SandboxRunner {
       return;
     }
 
-    this.pendingStates.push({
+    debug(`Processing query: ${prompt.substring(0, 50)}...`);
+
+    const state: ResponseState = {
       responseChunks: [],
       toolCount: 0,
       toolIdToName: new Map(),
       structuredOutput: null,
       usedStreaming: false,
-    });
+      queryIterator: null,
+    };
+    this.pendingState = state;
 
-    this.inputQueue.push({
-      type: "user",
-      session_id: "",
-      message: {
-        role: "user",
-        content: [{ type: "text", text: prompt }],
-      },
-      parent_tool_use_id: null,
-    });
+    // Create a new query instance for this prompt
+    const queryIterator = query({ prompt, options: this.queryOptions });
+    state.queryIterator = queryIterator;
+
+    try {
+      for await (const message of queryIterator) {
+        this.handleMessage(message);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      debug(`Query error: ${errorMsg}`);
+      emitError(errorMsg, false);
+    }
   }
 
   async close(): Promise<void> {
-    this.inputQueue.close();
-    if (this.queryInstance?.return) {
-      await this.queryInstance.return();
+    if (this.pendingState?.queryIterator?.return) {
+      await this.pendingState.queryIterator.return();
     }
     if (this.settingsPath) {
       try {
@@ -192,10 +161,6 @@ class SandboxRunner {
       }
       this.settingsPath = null;
     }
-  }
-
-  private currentState(): ResponseState | null {
-    return this.pendingStates[0] ?? null;
   }
 
   private finishState(state: ResponseState): void {
@@ -210,25 +175,11 @@ class SandboxRunner {
       }
     }
     emit("done", payload);
-    this.pendingStates.shift();
-  }
-
-  private async readMessages(): Promise<void> {
-    if (!this.queryInstance) {
-      return;
-    }
-
-    try {
-      for await (const message of this.queryInstance) {
-        this.handleMessage(message);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      emitError(message, false);
-    }
+    this.pendingState = null;
   }
 
   private handleMessage(message: SDKMessage): void {
+    debug(`handleMessage: type=${message.type}, subtype=${"subtype" in message ? message.subtype : "none"}`);
     if (message.type === "system" && message.subtype === "init") {
       if (message.session_id) {
         emit("session_id", { session_id: message.session_id });
@@ -236,7 +187,7 @@ class SandboxRunner {
       return;
     }
 
-    const state = this.currentState();
+    const state = this.pendingState;
 
     if (message.type === "stream_event") {
       if (!state) {

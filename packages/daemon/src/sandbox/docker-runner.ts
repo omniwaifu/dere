@@ -256,11 +256,14 @@ export class DockerSandboxRunner {
     }
 
     const args: string[] = ["run", "--rm", "-i", "--workdir", workingDir];
-    const uid = typeof process.getuid === "function" ? process.getuid() : null;
-    const gid = typeof process.getgid === "function" ? process.getgid() : null;
-    if (uid !== null && gid !== null) {
-      args.push("--user", `${uid}:${gid}`);
-    }
+    // Always use non-root user in container. Claude Code refuses --dangerously-skip-permissions
+    // when running as root for security reasons. UID 1000 matches the /home/user created in Dockerfile.
+    const uid = typeof process.getuid === "function" ? process.getuid() : 1000;
+    const gid = typeof process.getgid === "function" ? process.getgid() : 1000;
+    // Never run as root (uid 0) in the container
+    const containerUid = uid === 0 ? 1000 : uid;
+    const containerGid = gid === 0 ? 1000 : gid;
+    args.push("--user", `${containerUid}:${containerGid}`);
     if (networkMode) {
       args.push("--network", networkMode);
     }

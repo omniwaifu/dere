@@ -7,7 +7,7 @@ type JsonRecord = Record<string, unknown>;
 
 const server = new McpServer({
   name: "Swarm Agent Coordinator",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
 const PARENT_SESSION_ID = process.env.DERE_SESSION_ID;

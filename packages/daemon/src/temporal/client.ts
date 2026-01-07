@@ -39,4 +39,5 @@ export async function closeTemporalClient(): Promise<void> {
 export const TASK_QUEUES = {
   EXPLORATION: "dere-exploration",
   MISSIONS: "dere-missions",
+  SWARM: "dere-swarm",
 } as const;

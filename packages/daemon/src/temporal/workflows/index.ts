@@ -1,5 +1,5 @@
 /**
- * Temporal workflows for exploration.
+ * Temporal workflows for exploration and swarm.
  *
  * Workflows define the high-level orchestration logic.
  * They must be deterministic - all I/O happens in activities.
@@ -9,6 +9,10 @@ import { proxyActivities, sleep, log } from "@temporalio/workflow";
 
 // Re-export test workflow
 export { testWorkflow } from "./test.js";
+
+// Re-export swarm workflows
+export { agentWorkflow, swarmWorkflow, validatedSwarmWorkflow } from "./swarm/index.js";
+export type { AgentWorkflowInput, SwarmWorkflowInput, ValidatedSwarmWorkflowInput } from "./swarm/index.js";
 
 import type * as activities from "../activities/index.js";
 
