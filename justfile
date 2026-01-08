@@ -8,12 +8,10 @@ install: plugins ts-install
       cd plugins/dere_productivity/mcp-server && bun install
       cd plugins/dere_productivity/mcp-server && bun run build
 
-# Reinstall Claude Code plugins (syncs hooks/skills/etc to cache)
+# Register plugins marketplace (does NOT enable globally - dere enables per-session)
 plugins:
     claude plugin marketplace remove dere-plugins 2>/dev/null || true
     claude plugin marketplace add ./plugins
-    claude plugin install dere-code@dere-plugins
-    claude plugin install dere-core@dere-plugins
 
 # Clean build artifacts
 clean:
@@ -94,11 +92,12 @@ stop:
         echo "No daemon PID file found"
     fi
 
-# Run all services (daemon + discord + ui)
+# Run all services (daemon + discord + telegram + ui)
 dev-all:
-    DERE_SANDBOX_BIND_PLUGINS=1 bunx concurrently --kill-others -n daemon,discord,ui -c blue,magenta,cyan \
+    DERE_SANDBOX_BIND_PLUGINS=1 bunx concurrently --kill-others -n daemon,discord,telegram,ui -c blue,magenta,green,cyan \
         "bun packages/daemon/src/index.ts" \
         "bun packages/discord/src/main.ts" \
+        "bun packages/telegram/src/main.ts" \
         "cd packages/ui && bun run dev"
 
 # Run everything in tmux (dev-all + temporal worker in separate windows)
@@ -179,3 +178,16 @@ ui-build:
 # Install UI dependencies
 ui-install:
     cd packages/ui && bun install
+
+# Run Matrix bot
+matrix:
+    bun packages/matrix/src/main.ts
+
+# Run Telegram bot(s)
+telegram:
+    bun packages/telegram/src/main.ts
+
+# Run Pantalaimon (Matrix E2EE proxy)
+# Requires Python 3.11 (broken on 3.12+ due to removed imp module)
+pantalaimon:
+    uvx --python 3.11 pantalaimon -c ~/.config/pantalaimon/pantalaimon.conf

@@ -1,3 +1,6 @@
+import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createBunWebSocket } from "hono/bun";
 import type { Hono } from "hono";
 import { sql } from "kysely";
@@ -24,6 +27,18 @@ import {
 } from "../sandbox/docker-runner.js";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
+
+// Virtual paths (telegram://, discord://, etc.) can't be used as cwd by the SDK
+// Fall back to a dedicated directory for chat mediums
+const CHAT_FALLBACK_CWD = join(homedir(), ".dere", "chats");
+const VIRTUAL_PATH_PATTERN = /^(telegram|discord|matrix):\/\//;
+
+let chatFallbackInitialized = false;
+async function ensureChatFallbackDir(): Promise<void> {
+  if (chatFallbackInitialized) return;
+  await mkdir(CHAT_FALLBACK_CWD, { recursive: true });
+  chatFallbackInitialized = true;
+}
 
 type SessionConfig = {
   working_dir: string;
@@ -1298,8 +1313,14 @@ export function registerAgentWebSocket(app: Hono) {
                 }
                 sandboxSession.lastActivity = nowMs();
               } else {
+                const isVirtualPath = VIRTUAL_PATH_PATTERN.test(config.working_dir);
+                if (isVirtualPath) {
+                  await ensureChatFallbackDir();
+                  log.agent.debug("Using chat fallback cwd", { originalPath: config.working_dir, fallback: CHAT_FALLBACK_CWD });
+                }
+                const effectiveCwd = isVirtualPath ? CHAT_FALLBACK_CWD : config.working_dir;
                 const options: SDKOptions = {
-                  cwd: config.working_dir,
+                  cwd: effectiveCwd,
                   includePartialMessages: Boolean(config.enable_streaming),
                   permissionMode: config.auto_approve ? "bypassPermissions" : "default",
                   allowDangerouslySkipPermissions: Boolean(config.auto_approve),
@@ -1355,6 +1376,10 @@ export function registerAgentWebSocket(app: Hono) {
                   ...config.env,
                   DERE_SESSION_ID: String(sessionId),
                 };
+                // Disable git credential prompts for chat sessions (no real project)
+                if (isVirtualPath) {
+                  env.GIT_TERMINAL_PROMPT = "0";
+                }
                 options.env = env;
                 if (!config.auto_approve) {
                   options.canUseTool = canUseTool;

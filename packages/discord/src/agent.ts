@@ -1,4 +1,4 @@
-import type { DaemonAgentClient } from "./daemon-agent.js";
+import type { AgentClient } from "@dere/daemon-client";
 import type { PersonaProfile } from "./persona.js";
 import type { ChannelSession, SessionManager } from "./session.js";
 
@@ -16,11 +16,11 @@ type MessageCallbacks = {
 
 export class DiscordAgent {
   private readonly sessions: SessionManager;
-  private readonly daemon: DaemonAgentClient;
+  private readonly daemon: AgentClient;
   private readonly locks = new Map<string, Promise<void>>();
   private readonly contextEnabled: boolean;
 
-  constructor(sessions: SessionManager, daemon: DaemonAgentClient, contextEnabled = true) {
+  constructor(sessions: SessionManager, daemon: AgentClient, contextEnabled = true) {
     this.sessions = sessions;
     this.daemon = daemon;
     this.contextEnabled = contextEnabled;

@@ -2,10 +2,11 @@ import process from "node:process";
 
 import * as Sentry from "@sentry/bun";
 
+import { createAgentClient } from "@dere/daemon-client";
+
 import { DiscordAgent } from "./agent.js";
 import { DereDiscordClient } from "./bot.js";
 import { ConfigError, loadDiscordConfig } from "./config.js";
-import { DaemonAgentClient } from "./daemon-agent.js";
 import { DaemonClient } from "./daemon.js";
 import { PersonaService } from "./persona.js";
 import { SessionManager } from "./session.js";
@@ -194,7 +195,7 @@ async function run(): Promise<void> {
 
   const personaService = new PersonaService(config.defaultPersonas);
   const daemon = new DaemonClient(daemonUrl);
-  const daemonAgent = new DaemonAgentClient(wsUrl);
+  const daemonAgent = createAgentClient({ baseUrl: wsUrl });
   const sessions = new SessionManager(config, daemon, personaService);
   const agent = new DiscordAgent(sessions, daemonAgent, config.contextEnabled);
   const client = new DereDiscordClient({

@@ -14,13 +14,20 @@ async function main(): Promise<void> {
   const timestamp = new Date().toLocaleString();
   logDebug(`\n--- Session End Hook called at ${timestamp} ---`);
 
+  // Not a dere session - exit silently
+  const sessionId = Number.parseInt(process.env.DERE_SESSION_ID ?? "0", 10);
+  if (!sessionId || !process.env.DERE_PERSONALITY) {
+    logDebug("Not a dere session, skipping");
+    console.log(JSON.stringify({ suppressOutput: true }));
+    return;
+  }
+
   try {
     const stdin = await Bun.stdin.text();
     const data = JSON.parse(stdin) as Record<string, unknown>;
     logDebug(`Received JSON: ${JSON.stringify(data)}`);
 
     const exitReason = typeof data.reason === "string" ? data.reason : "normal";
-    const sessionId = Number.parseInt(process.env.DERE_SESSION_ID ?? "0", 10);
 
     logDebug(`Using DERE_SESSION_ID: ${sessionId}`);
     logDebug(`Exit reason: ${exitReason}`);
@@ -33,12 +40,13 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ suppressOutput: true }));
 
     if (!result) {
-      process.exit(1);
+      // Daemon unavailable - fail silently, don't clutter output
+      logDebug("Daemon unavailable, exiting silently");
     }
   } catch (error) {
-    logDebug(`Failed to parse JSON input: ${String(error)}`);
-    console.error(`Failed to parse JSON input: ${String(error)}`);
-    process.exit(1);
+    // Fail silently - don't show errors to user for optional daemon features
+    logDebug(`Error: ${String(error)}`);
+    console.log(JSON.stringify({ suppressOutput: true }));
   }
 }
 
