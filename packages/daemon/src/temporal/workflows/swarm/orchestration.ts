@@ -45,8 +45,9 @@ const {
   getSwarmAgents,
   getAgentOutput,
   generateOutputSummary,
+  runValidation,
 } = proxyActivities<typeof swarmActivities>({
-  startToCloseTimeout: "2 minutes",
+  startToCloseTimeout: "10 minutes",
   retry: {
     initialInterval: "1s",
     backoffCoefficient: 2,
@@ -408,32 +409,191 @@ export async function swarmWorkflow(input: SwarmWorkflowInput): Promise<SwarmRes
 }
 
 // ============================================================================
-// Validation Loop Pattern (Phase 3 preview)
+// Validation Loop Pattern (Phase 3)
 // ============================================================================
 
 /**
  * Swarm with validation loop.
- * Demonstrates feedback loop pattern: run → validate → fix → retry.
  *
- * Not implemented yet - placeholder for Phase 3.
+ * Pattern: run swarm → validate → if failed, spawn fixer → retry
+ *
+ * Use cases:
+ * - Run tests after code changes, fix failures automatically
+ * - Run linter after refactor, fix issues automatically
+ * - Build validation with automatic error resolution
  */
 export interface ValidatedSwarmWorkflowInput extends SwarmWorkflowInput {
+  /** Command to run for validation (e.g., "npm test", "bun run typecheck") */
   validationCommand: string;
+  /** Maximum fix attempts before giving up */
   maxAttempts: number;
+  /** Optional fixer agent configuration override */
+  fixerAgentConfig?: Partial<AgentSpec>;
 }
 
 export async function validatedSwarmWorkflow(
-  _input: ValidatedSwarmWorkflowInput,
-): Promise<SwarmResult> {
-  // TODO: Phase 3 implementation
-  // let attempts = 0;
-  // while (attempts < input.maxAttempts) {
-  //   const result = await executeChild(swarmWorkflow, { ... });
-  //   const validation = await runValidationActivity(input.validationCommand);
-  //   if (validation.passed) return result;
-  //   // Spawn fixer agent
-  //   await executeChild(agentWorkflow, { ... });
-  //   attempts++;
-  // }
-  throw new Error("validatedSwarmWorkflow not implemented yet");
+  input: ValidatedSwarmWorkflowInput,
+): Promise<SwarmResult & { validationAttempts: number; validationPassed: boolean }> {
+  const { swarm, agents, validationCommand, maxAttempts, fixerAgentConfig } = input;
+
+  log.info("Starting validated swarm workflow", {
+    swarmId: swarm.swarmId,
+    validationCommand,
+    maxAttempts,
+  });
+
+  let lastResult: SwarmResult | null = null;
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    attempt++;
+    log.info("Validation attempt", { swarmId: swarm.swarmId, attempt, maxAttempts });
+
+    // Run the main swarm
+    lastResult = await executeChild(swarmWorkflow, {
+      workflowId: `swarm-${swarm.swarmId}-attempt-${attempt}`,
+      args: [{ swarm, agents, initialScratchpad: input.initialScratchpad ?? {} }],
+    });
+
+    // If swarm failed, don't bother validating
+    if (lastResult.status === "failed") {
+      log.warn("Swarm failed, skipping validation", { swarmId: swarm.swarmId, attempt });
+      break;
+    }
+
+    // Run validation
+    log.info("Running validation", { swarmId: swarm.swarmId, command: validationCommand });
+    const validation = await runValidation({
+      workingDir: swarm.workingDir,
+      command: validationCommand,
+    });
+
+    if (validation.passed) {
+      log.info("Validation passed", {
+        swarmId: swarm.swarmId,
+        attempt,
+        durationSeconds: validation.durationSeconds,
+      });
+      // lastResult is guaranteed non-null here (assigned above)
+      return {
+        ...lastResult!,
+        validationAttempts: attempt,
+        validationPassed: true,
+      };
+    }
+
+    log.warn("Validation failed", {
+      swarmId: swarm.swarmId,
+      attempt,
+      exitCode: validation.exitCode,
+      errorCount: validation.errors.length,
+    });
+
+    // Don't spawn fixer on last attempt
+    if (attempt >= maxAttempts) {
+      break;
+    }
+
+    // Spawn fixer agent
+    const fixerPrompt = buildFixerPrompt(
+      validationCommand,
+      validation.errors,
+      validation.stdout,
+      validation.stderr,
+    );
+    const fixerAgent: AgentWithDependencies = {
+      agentId: -attempt, // Negative ID indicates dynamically spawned
+      name: `fixer-${attempt}`,
+      role: "fixer",
+      mode: "assigned",
+      prompt: fixerPrompt,
+      model: fixerAgentConfig?.model ?? "claude-sonnet-4-20250514",
+      personality: fixerAgentConfig?.personality ?? null,
+      plugins: fixerAgentConfig?.plugins ?? null,
+      allowedTools: fixerAgentConfig?.allowedTools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      thinkingBudget: fixerAgentConfig?.thinkingBudget ?? null,
+      sandboxMode: fixerAgentConfig?.sandboxMode ?? false,
+      isSynthesisAgent: false,
+      // Autonomous mode settings (not used for fixer)
+      goal: null,
+      capabilities: null,
+      taskTypes: null,
+      maxTasks: null,
+      maxDurationSeconds: null,
+      idleTimeoutSeconds: fixerAgentConfig?.idleTimeoutSeconds ?? 600,
+      dependsOn: [],
+    };
+
+    log.info("Spawning fixer agent", { swarmId: swarm.swarmId, attempt, fixerName: fixerAgent.name });
+
+    // lastResult is guaranteed non-null here (assigned at start of loop)
+    const context: SwarmContext = {
+      swarm,
+      scratchpad: lastResult!.scratchpad,
+      agentResults: lastResult!.agentResults,
+    };
+
+    await executeChild(agentWorkflow, {
+      workflowId: `swarm-${swarm.swarmId}-fixer-${attempt}`,
+      args: [{ agent: fixerAgent, context, prompt: fixerPrompt }],
+    });
+  }
+
+  log.warn("Validation loop exhausted", {
+    swarmId: swarm.swarmId,
+    attempts: attempt,
+    maxAttempts,
+  });
+
+  return {
+    ...(lastResult ?? {
+      swarmId: swarm.swarmId,
+      status: "failed",
+      agentResults: {},
+      synthesisOutput: null,
+      scratchpad: {},
+      durationSeconds: 0,
+    }),
+    validationAttempts: attempt,
+    validationPassed: false,
+  };
+}
+
+/**
+ * Build a prompt for the fixer agent based on validation errors.
+ */
+function buildFixerPrompt(
+  command: string,
+  errors: string[],
+  stdout: string,
+  stderr: string,
+): string {
+  const errorSection =
+    errors.length > 0
+      ? `## Specific Errors\n\n${errors.map((e) => `- ${e}`).join("\n")}`
+      : "";
+
+  // Combine stdout/stderr - TypeScript errors go to stdout, most others to stderr
+  const combinedOutput = (stdout + "\n" + stderr).trim();
+  const outputSection = combinedOutput
+    ? `## Full Output\n\n\`\`\`\n${combinedOutput.slice(0, 4000)}\n\`\`\``
+    : "";
+
+  return `# Fix Validation Errors
+
+The validation command \`${command}\` failed. Please fix the errors.
+
+${errorSection}
+
+${outputSection}
+
+## Instructions
+
+1. Read the error messages carefully
+2. Identify the root cause of each error
+3. Make the minimal changes needed to fix the errors
+4. Do NOT introduce new features or refactor unrelated code
+5. After fixing, the validation command should pass
+
+Focus on fixing the errors, nothing else.`;
 }

@@ -12,6 +12,7 @@ function buildPrompt({ system, user }: PromptPair): string {
 export const ExtractedEntitySchema = z.object({
   name: z.string(),
   entity_type: z.string().nullable().optional(),
+  knowledge_scope: z.enum(["skip", "curious"]).default("skip"),
   attributes: z.record(z.string(), z.unknown()).optional().default({}),
   aliases: z.array(z.string()).optional().default([]),
 });
@@ -240,6 +241,21 @@ QUOTED/SHARED CONTENT HANDLING:
 - The speaker's own framing ("I found this interesting", "I agree with") ARE attributable to the speaker.
 ${options.entityTypes && options.entityTypes.length > 0 ? `6. Focus on entity types: ${options.entityTypes.join(", ")}` : ""}
 ${options.excludedEntityTypes && options.excludedEntityTypes.length > 0 ? `7. Exclude entity types: ${options.excludedEntityTypes.join(", ")}` : ""}
+
+Knowledge Scope Classification:
+For each entity, classify whether it's worth learning more about:
+- "skip": Would an AI assistant already know this from training? (RAM, CPU, Docker, Python, git, Linux, tmux, etc.)
+- "curious": Is this something worth exploring further? (niche tools, user-specific context, recent things, obscure libraries)
+
+Examples:
+- "RAM" -> skip (everyone knows what RAM is)
+- "tmux" -> skip (standard Unix tool)
+- "Python" -> skip (major programming language)
+- "justin's Hetzner box" -> curious (user-specific, worth understanding their setup)
+- "Conduwuit" -> curious (niche Matrix server fork)
+- "dere project" -> curious (user's specific project)
+
+When in doubt, default to "skip" - we don't want to waste cycles researching common knowledge.
 
 Attributes:
 For each entity, extract relevant attributes that help distinguish it from similar entities:

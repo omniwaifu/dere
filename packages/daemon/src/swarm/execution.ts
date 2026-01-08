@@ -6,7 +6,6 @@ import { getDb } from "../db.js";
 import { closeSession } from "../db-utils.js";
 import { daemonEvents } from "../events.js";
 import { bufferInteractionStimulus } from "../emotions/runtime.js";
-import { processCuriosityTriggers } from "../ambient/triggers/index.js";
 import { log } from "../logger.js";
 import { swarmState, type CompletionSignal } from "./state.js";
 import {
@@ -414,24 +413,6 @@ export async function executeAssignedAgent(
         outputText,
         agent.personality,
       );
-    }
-
-    if (assistantConversationId) {
-      void processCuriosityTriggers({
-        db,
-        prompt: outputText,
-        sessionId,
-        conversationId: assistantConversationId,
-        userId: null,
-        workingDir: swarm.working_dir,
-        personality: agent.personality,
-        speakerName: null,
-        isCommand: false,
-        messageType: "assistant",
-        kgNodes: null,
-      }).catch((error) => {
-        log.ambient.warn("Curiosity detection failed", { error: String(error) });
-      });
     }
 
     void bufferInteractionStimulus({

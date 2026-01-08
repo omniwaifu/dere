@@ -34,6 +34,10 @@ export { createAgentSession, closeAgentSession } from "./session.js";
 // Agent query execution
 export { runAgentQueryWithHeartbeat, generateOutputSummary } from "./agent-query.js";
 
+// Validation
+export { runValidation } from "./validation.js";
+export type { RunValidationInput, ValidationResult } from "./validation.js";
+
 // Database operations
 export {
   markAgentRunning,

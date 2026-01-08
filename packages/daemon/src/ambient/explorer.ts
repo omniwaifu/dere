@@ -58,11 +58,14 @@ export class AmbientExplorer {
 
   async hasPendingCuriosities(): Promise<boolean> {
     const db = await getDb();
+    // Only count tasks within TTL (14 days)
+    const ttlCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const row = await db
       .selectFrom("project_tasks")
       .select(["id"])
       .where("task_type", "=", "curiosity")
       .where("status", "=", "ready")
+      .where("created_at", ">", ttlCutoff)
       .limit(1)
       .executeTakeFirst();
     return Boolean(row);
@@ -103,11 +106,14 @@ export class AmbientExplorer {
     } | null = null;
 
     await db.transaction().execute(async (trx) => {
+      // Skip tasks older than 14 days (TTL)
+      const ttlCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       const task = await trx
         .selectFrom("project_tasks")
         .select(["id", "title", "working_dir", "description", "context_summary", "extra"])
         .where("task_type", "=", "curiosity")
         .where("status", "=", "ready")
+        .where("created_at", ">", ttlCutoff)
         .orderBy("priority", "desc")
         .orderBy("created_at", "asc")
         .limit(1)

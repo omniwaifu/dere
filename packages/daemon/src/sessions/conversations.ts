@@ -4,7 +4,6 @@ import { loadConfig } from "@dere/shared-config";
 import { addEpisode } from "@dere/graph";
 
 import { getDb } from "../db.js";
-import { processCuriosityTriggers } from "../ambient/triggers/collector.js";
 import { bufferEmotionStimulus } from "../emotions/runtime.js";
 import { log } from "../logger.js";
 
@@ -165,21 +164,6 @@ export function registerConversationRoutes(app: Hono): void {
         log.emotion.warn("Emotion buffer failed", { error: String(error) });
       });
 
-      void processCuriosityTriggers({
-        db,
-        prompt,
-        sessionId,
-        conversationId: inserted.id,
-        userId,
-        workingDir,
-        personality,
-        speakerName,
-        isCommand,
-        messageType,
-        kgNodes,
-      }).catch((error) => {
-        log.ambient.warn("Curiosity detection failed", { error: String(error) });
-      });
     })();
 
     return c.json({ status: "stored" });

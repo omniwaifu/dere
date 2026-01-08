@@ -36,6 +36,8 @@ export {
   type RunAgentQueryInput,
   type RunAgentQueryResult,
   type AgentQueryHeartbeat,
+  type RunValidationInput,
+  type ValidationResult,
   SWARM_TASK_QUEUE,
   DEFAULT_AGENT_TIMEOUT_SECONDS,
   MAX_OUTPUT_SIZE,
@@ -46,6 +48,8 @@ export {
   // Agent query
   runAgentQueryWithHeartbeat,
   generateOutputSummary,
+  // Validation
+  runValidation,
   // Database operations
   markAgentRunning,
   markAgentCompleted,

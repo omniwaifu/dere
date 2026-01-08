@@ -3,7 +3,6 @@ import type { Hono } from "hono";
 import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 
 import { getDb } from "../db.js";
-import { processCuriosityTriggers } from "../ambient/triggers/index.js";
 import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "../emotions/runtime.js";
 import { log } from "../logger.js";
 
@@ -261,22 +260,6 @@ export function registerSessionRoutes(app: Hono): void {
       })
       .returning(["id"])
       .executeTakeFirstOrThrow();
-
-    void processCuriosityTriggers({
-      db,
-      prompt: payload.message,
-      sessionId,
-      conversationId: inserted.id,
-      userId: sessionMeta?.user_id ?? null,
-      workingDir: sessionMeta?.working_dir ?? process.cwd(),
-      personality,
-      speakerName: null,
-      isCommand: payload.is_command ?? false,
-      messageType: payload.role ?? "user",
-      kgNodes: null,
-    }).catch((error) => {
-      log.ambient.warn("Curiosity detection failed", { error: String(error) });
-    });
 
     const sessionStart = sessionMeta?.start_time ?? nowSeconds();
     const sessionDurationMinutes = Math.max(0, Math.floor((nowSeconds() - sessionStart) / 60));

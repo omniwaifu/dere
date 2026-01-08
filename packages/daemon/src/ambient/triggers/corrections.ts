@@ -32,6 +32,9 @@ export function detectCorrection(
   }
 
   const topic = extractTopic(text);
+  if (!topic) {
+    return null; // Couldn't extract meaningful topic
+  }
   const sourceContext = `Assistant: ${truncate(previousAssistant, 200)}\nUser: ${truncate(
     text,
     200,
@@ -43,15 +46,16 @@ export function detectCorrection(
   };
 }
 
-function extractTopic(text: string): string {
+function extractTopic(text: string): string | null {
   for (const pattern of TOPIC_PATTERNS) {
     const match = pattern.exec(text);
     const topic = match?.groups?.topic?.trim();
-    if (topic) {
+    if (topic && topic.length > 5) {
       return truncate(topic, 80);
     }
   }
-  return truncate(text.trim(), 80);
+  // No topic pattern matched - don't create trigger with raw message
+  return null;
 }
 
 function truncate(text: string, limit: number): string {

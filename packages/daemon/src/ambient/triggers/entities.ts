@@ -3,6 +3,7 @@ const GENERIC_ENTITY_NAMES = new Set(["user", "assistant", "ai", "system", "daem
 export interface EntityNodeLike {
   name?: string | null;
   labels?: string[] | null;
+  knowledge_scope?: "skip" | "curious" | null;
 }
 
 export interface EntitySignal {
@@ -29,6 +30,12 @@ export function detectUnfamiliarEntities(options: {
   for (const node of nodes) {
     const name = String(node.name ?? "").trim();
     if (!name) {
+      continue;
+    }
+
+    // Skip entities that Claude already knows (common knowledge)
+    // Only create curiosity triggers for entities marked "curious"
+    if (node.knowledge_scope !== "curious") {
       continue;
     }
 

@@ -11,7 +11,6 @@ import { getDb } from "../db.js";
 import { log } from "../logger.js";
 import { buildSessionContextXml } from "../context/prompt.js";
 import { bufferInteractionStimulus } from "../emotions/runtime.js";
-import { processCuriosityTriggers } from "../ambient/triggers/index.js";
 import {
   runDockerSandboxQuery,
   type SandboxMountType,
@@ -762,24 +761,6 @@ export class MissionExecutor {
               toolNames,
             },
           );
-        }
-
-        if (assistantConversationId) {
-          void processCuriosityTriggers({
-            db,
-            prompt: outputText,
-            sessionId,
-            conversationId: assistantConversationId,
-            userId: mission.user_id ?? null,
-            workingDir: mission.working_dir,
-            personality: mission.personality,
-            speakerName: null,
-            isCommand: false,
-            messageType: "assistant",
-            kgNodes: null,
-          }).catch((error) => {
-            log.ambient.warn("Curiosity detection failed", { error: String(error) });
-          });
         }
 
         void bufferInteractionStimulus({

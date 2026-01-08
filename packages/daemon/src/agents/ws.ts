@@ -17,7 +17,6 @@ import { log } from "../logger.js";
 import { buildSessionContextXml } from "../context/prompt.js";
 import { extractCitedEntityUuids } from "../context/tracking.js";
 import { bufferInteractionStimulus } from "../emotions/runtime.js";
-import { processCuriosityTriggers } from "../ambient/triggers/index.js";
 import {
   DockerSandboxRunner,
   type SandboxMountType,
@@ -1599,25 +1598,6 @@ export function registerAgentWebSocket(app: Hono) {
             void trackCitedEntities(sessionId, responseText).catch((error) => {
               log.kg.warn("Citation tracking failed", { error: String(error) });
             });
-
-            if (assistantConversationId) {
-              const db = await getDb();
-              void processCuriosityTriggers({
-                db,
-                prompt: responseText,
-                sessionId,
-                conversationId: assistantConversationId,
-                userId: config.user_id ?? null,
-                workingDir: config.working_dir,
-                personality: resolvePersonalityName(config.personality),
-                speakerName: null,
-                isCommand: false,
-                messageType: "assistant",
-                kgNodes: null,
-              }).catch((error) => {
-                log.ambient.warn("Curiosity detection failed", { error: String(error) });
-              });
-            }
 
             void bufferInteractionStimulus({
               sessionId,
