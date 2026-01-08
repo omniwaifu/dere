@@ -1,107 +1,88 @@
 # dere
 
-Personality-layered wrapper for Claude Code with optional daemon services (memory/emotions/knowledge graph) and plugins for different workflows (coding, productivity, vaults).
+## NAME
 
-Core thesis: squeeze real utility out of the subscription (coding, tasks, research, notes) without the default assistant voice.
+dere - personality-layered Claude Code wrapper with daemon services
 
-## What it does
+## SYNOPSIS
 
-- Wraps Claude Code CLI and injects personality + context via plugins
-- Optionally runs a daemon for persistence (sessions, emotions, graph, missions)
-- Enables workflow-specific behaviors via plugins (auto/always/never)
+```
+dere [claude-code-args...]
+dere config show|edit
+just dev|dev-all|ui|falkordb
+```
 
-## Quickstart
+## DESCRIPTION
 
-### Prereqs
+Wraps Claude Code CLI with personality injection and optional daemon (sessions, emotions, knowledge graph). Plugins enable workflow-specific behaviors.
 
-- Python 3.13+ (for legacy plugins), `uv`, `just`
-- Claude Code CLI installed and working
-- `bun` (required by `just install`; also used for UI + some MCP tooling)
-- PostgreSQL (daemon state)
-- Docker (optional; used for FalkorDB via `just falkordb`)
+## DEPENDENCIES
 
-### Install
+- bun, uv, just
+- Claude Code CLI
+- PostgreSQL
+- Docker (optional, for FalkorDB)
 
-```bash
+## INSTALL
+
+```
 just install
 ```
 
-### Run
+## COMMANDS
 
-```bash
-# CLI wrapper (passes through to Claude Code unless you use subcommands)
-dere
-
-# Daemon + services
-just dev                    # daemon only
-just dev-all                # daemon + discord bot (+ UI via Procfile)
-
-# Configuration
-dere config show
-dere config edit
+```
+just dev          daemon only
+just dev-all      daemon + discord + telegram + ui
+just ui           ui dev server
+just falkordb     start graph db
+just test         run tests
+just lint         oxlint
+just fmt          oxfmt
 ```
 
-## Configuration
+## FILES
 
-- Config file: `~/.config/dere/config.toml`
-- Example: `config.toml.example`
-
-### Environment Variables
-
-| Variable            | Purpose                                                                             |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `DERE_PROJECT_PATH` | Path to dere repo. Required for MCP servers to work from other project directories. |
-| `DATABASE_URL`      | PostgreSQL connection string (or use `[database].url` in config)                    |
-| `OPENAI_API_KEY`    | Required for knowledge graph embeddings                                             |
-
-Add to your shell profile:
-
-```bash
-export DERE_PROJECT_PATH=/path/to/dere
+```
+~/.config/dere/config.toml    main config
+config.toml.example           template
 ```
 
-### Common gotchas
+## ENVIRONMENT
 
-- Knowledge graph requires FalkorDB running (`just falkordb`)
+```
+DERE_PROJECT_PATH    path to dere repo (required for MCP servers)
+DATABASE_URL         postgresql connection string
+OPENAI_API_KEY       knowledge graph embeddings
+```
 
-## Plugins
+## PLUGINS
 
-- `dere-core`: personality + baseline context (always)
-- `dere-code`: coding workflow automation (auto; Serena + Context7)  
-  Docs: `plugins/dere_code/README.md`
-- `dere-productivity`: GTD tasks/calendar/activity tooling (opt-in)  
-  Setup: `plugins/dere_productivity/CALENDAR_SETUP.md`
-- `dere-vault`: Obsidian/Zettelkasten workflows (opt-in)  
-  Docs: `plugins/dere_vault/README.md`
-- `dere-graph-features`: graph extraction/visualization affordances (auto when daemon)
+```
+dere-core           personality + context (always)
+dere-code           coding workflow, Serena + Context7 (auto)
+dere-productivity   GTD/calendar/tasks (opt-in)
+dere-vault          Obsidian/Zettelkasten (opt-in)
+```
 
-## Repo layout
+## LAYOUT
 
 ```
 packages/
-├── daemon/            # TS daemon (Hono)
-├── dere-graph/        # TS graph service
-├── discord/           # Discord integration
-├── shared-config/     # Config loader + schema validation
-├── shared-llm/        # LLM schemas + clients
-├── shared-runtime/    # Runtime helpers (tasks, ActivityWatch, daemon client)
-└── ui/                # React/Vite UI
-src/
-└── plugins/           # Claude Code plugins (modes, agents, commands, output styles)
+  daemon/           hono server
+  daemon-client/    trpc + ws client
+  discord/          discord bot
+  telegram/         telegram bot
+  dere-graph/       falkordb service
+  shared-*/         config, llm, runtime
+  ui/               react/vite
+plugins/
+  dere_*/           claude code plugins
 ```
 
-## Dev commands
+## SEE ALSO
 
-```bash
-just test       # bun test
-just lint       # oxlint
-just fmt        # oxfmt
-just dev        # run daemon
-just dev-all    # daemon + discord (+ UI via Procfile)
-just ui         # UI dev server
-just falkordb   # graph DB in docker
-```
-
-## Docs
-
-- UI: `packages/ui/README.md`
+- `plugins/dere_code/README.md`
+- `plugins/dere_productivity/CALENDAR_SETUP.md`
+- `plugins/dere_vault/README.md`
+- `packages/ui/README.md`
