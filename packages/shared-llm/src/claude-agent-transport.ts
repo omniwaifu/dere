@@ -34,6 +34,7 @@ export class ClaudeAgentTransport implements StructuredOutputTransport {
     const sdkOptions: SDKOptions = {
       persistSession: false, // One-shot queries, don't clutter filesystem
     };
+    sdkOptions.systemPrompt = { type: "preset", preset: "claude_code" };
 
     if (model) {
       sdkOptions.model = model;

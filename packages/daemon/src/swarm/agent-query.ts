@@ -166,6 +166,7 @@ export async function runAgentQuery(args: {
       DERE_SWARM_AGENT_NAME: agent.name,
     },
   };
+  options.systemPrompt = { type: "preset", preset: "claude_code" };
 
   if (agent.model) {
     options.model = agent.model;

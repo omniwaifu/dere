@@ -163,7 +163,7 @@ export class DiscordAgent {
 
       const config = {
         working_dir: session.projectPath,
-        output_style: "discord",
+        output_style: "dere-core:discord",
         personality: session.personas.join(","),
         user_id: session.userId ?? null,
         include_context: this.contextEnabled,

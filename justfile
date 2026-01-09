@@ -12,6 +12,11 @@ install: plugins ts-install
 plugins:
     claude plugin marketplace remove dere-plugins 2>/dev/null || true
     claude plugin marketplace add ./plugins
+    # Symlink output styles to user config for chat mediums (telegram/discord/matrix)
+    mkdir -p ~/.claude/output-styles
+    for f in plugins/*/output-styles/*.md; do \
+        [ -f "$f" ] && ln -sf "$(pwd)/$f" ~/.claude/output-styles/; \
+    done || true
 
 # Clean build artifacts
 clean:

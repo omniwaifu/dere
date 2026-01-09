@@ -64,6 +64,11 @@ export class TelegramAgent {
         }
       }
     } catch (error) {
+      // Don't crash on aborted requests (e.g., daemon restart, network hiccup)
+      if (error instanceof DOMException && error.name === "AbortError") {
+        console.warn("Query aborted, skipping response");
+        return "";
+      }
       console.error(`Failed while streaming response: ${String(error)}`);
       throw error;
     }
@@ -112,7 +117,7 @@ export class TelegramAgent {
       // Ensure daemon session
       const config = {
         working_dir: session.projectPath,
-        output_style: "telegram",
+        output_style: "dere-core:telegram",
         personality: session.personality,
         user_id: sender,
         include_context: this.config.contextEnabled,
@@ -147,7 +152,11 @@ export class TelegramAgent {
         await this.sessions.scheduleSummary(session);
       } catch (error) {
         this.stopTyping(chatId);
-        throw error;
+        // Don't crash the bot on transient errors
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return; // Already logged in streamResponse
+        }
+        console.error(`Failed to handle message in chat ${chatId}:`, error);
       }
     });
   }

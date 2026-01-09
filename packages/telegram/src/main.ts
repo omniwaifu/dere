@@ -126,6 +126,16 @@ async function main(): Promise<void> {
   console.log("All bots started. Press Ctrl+C to stop.");
 }
 
+// Catch unhandled promise rejections to prevent crashes from AbortError
+process.on("unhandledRejection", (error) => {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    console.warn("Unhandled AbortError - ignoring");
+    return;
+  }
+  console.error("Unhandled rejection:", error);
+  process.exit(1);
+});
+
 main().catch((error) => {
   console.error("Fatal error:", error);
   process.exit(1);

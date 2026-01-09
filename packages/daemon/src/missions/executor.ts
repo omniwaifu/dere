@@ -557,13 +557,11 @@ async function runMissionQuery(
     options.model = mission.model;
   }
 
-  if (systemPrompt) {
-    options.systemPrompt = {
-      type: "preset",
-      preset: "claude_code",
-      append: systemPrompt,
-    };
-  }
+  options.systemPrompt = {
+    type: "preset",
+    preset: "claude_code",
+    ...(systemPrompt ? { append: systemPrompt } : {}),
+  };
 
   if (mission.allowed_tools && mission.allowed_tools.length > 0) {
     options.tools = mission.allowed_tools;

@@ -1,5 +1,6 @@
-import { mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBunWebSocket } from "hono/bun";
 import type { Hono } from "hono";
@@ -38,6 +39,24 @@ async function ensureChatFallbackDir(): Promise<void> {
   if (chatFallbackInitialized) return;
   await mkdir(CHAT_FALLBACK_CWD, { recursive: true });
   chatFallbackInitialized = true;
+}
+
+async function writeOutputStyleSettingsFile(outputStyle: string): Promise<string> {
+  const filename = `dere-output-style-${Date.now()}-${randomUUID()}.json`;
+  const path = join(tmpdir(), filename);
+  await writeFile(path, JSON.stringify({ outputStyle }), "utf-8");
+  return path;
+}
+
+async function cleanupOutputStyleSettingsFile(settingsPath: string | null): Promise<void> {
+  if (!settingsPath) {
+    return;
+  }
+  try {
+    await unlink(settingsPath);
+  } catch (error) {
+    log.agent.debug("Failed to cleanup output style settings file", { error: String(error) });
+  }
 }
 
 type SessionConfig = {
@@ -1104,6 +1123,7 @@ export function registerAgentWebSocket(app: Hono) {
           const sessionId = state.sessionId;
           const config = state.config;
           state.cancelRequested = false;
+          let outputStyleSettingsPath: string | null = null;
 
           state.queryTask = (async () => {
             try {
@@ -1314,23 +1334,39 @@ export function registerAgentWebSocket(app: Hono) {
                 sandboxSession.lastActivity = nowMs();
               } else {
                 const isVirtualPath = VIRTUAL_PATH_PATTERN.test(config.working_dir);
-                if (isVirtualPath) {
-                  await ensureChatFallbackDir();
-                  log.agent.debug("Using chat fallback cwd", { originalPath: config.working_dir, fallback: CHAT_FALLBACK_CWD });
-                }
-                const effectiveCwd = isVirtualPath ? CHAT_FALLBACK_CWD : config.working_dir;
+            if (isVirtualPath) {
+              await ensureChatFallbackDir();
+              log.agent.debug("Using chat fallback cwd", { originalPath: config.working_dir, fallback: CHAT_FALLBACK_CWD });
+            }
+            const effectiveCwd = isVirtualPath ? CHAT_FALLBACK_CWD : config.working_dir;
+            if (config.output_style && config.output_style !== "default") {
+              outputStyleSettingsPath = await writeOutputStyleSettingsFile(config.output_style);
+            }
+            log.agent.info("SDK options", {
+              outputStyle: config.output_style,
+              cwd: effectiveCwd,
+              isVirtualPath,
+              plugins: resolvePluginPaths(config.plugins)?.map(p => p.path),
+            });
                 const options: SDKOptions = {
                   cwd: effectiveCwd,
+                  outputStyle: config.output_style,
                   includePartialMessages: Boolean(config.enable_streaming),
                   permissionMode: config.auto_approve ? "bypassPermissions" : "default",
                   allowDangerouslySkipPermissions: Boolean(config.auto_approve),
                   persistSession: true,
-                  settingSources: ["project"],
+                  settingSources: ["user", "project", "local"],
                 };
-
-                if (config.model) {
-                  options.model = config.model;
+                if (outputStyleSettingsPath) {
+                  options.extraArgs = { settings: outputStyleSettingsPath };
+                  if (state.claudeSessionId) {
+                    options.forkSession = true;
+                  }
                 }
+
+            if (config.model) {
+              options.model = config.model;
+            }
                 if (state.claudeSessionId) {
                   options.resume = state.claudeSessionId;
                 }
@@ -1348,13 +1384,11 @@ export function registerAgentWebSocket(app: Hono) {
                 if (plugins && plugins.length > 0) {
                   options.plugins = plugins;
                 }
-                if (systemPrompt) {
-                  options.systemPrompt = {
-                    type: "preset",
-                    preset: "claude_code",
-                    append: systemPrompt,
-                  };
-                }
+                options.systemPrompt = {
+                  type: "preset",
+                  preset: "claude_code",
+                  ...(systemPrompt ? { append: systemPrompt } : {}),
+                };
                 if (
                   config.output_format &&
                   typeof config.output_format === "object" &&
@@ -1376,9 +1410,12 @@ export function registerAgentWebSocket(app: Hono) {
                   ...config.env,
                   DERE_SESSION_ID: String(sessionId),
                 };
-                // Disable git credential prompts for chat sessions (no real project)
+                // Disable git/ssh credential prompts for chat sessions (no real project)
                 if (isVirtualPath) {
                   env.GIT_TERMINAL_PROMPT = "0";
+                  env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
+                  env.SSH_ASKPASS = "";
+                  env.SSH_ASKPASS_REQUIRE = "never";
                 }
                 options.env = env;
                 if (!config.auto_approve) {
@@ -1639,7 +1676,8 @@ export function registerAgentWebSocket(app: Hono) {
               log.agent.error("Query failed", { error: String(error) });
               sendError(ws, state, `Query failed: ${String(error)}`, true);
             })
-            .finally(() => {
+            .finally(async () => {
+              await cleanupOutputStyleSettingsFile(outputStyleSettingsPath);
               log.agent.debug("Query task completed, clearing state");
               state.queryTask = null;
               state.cancelRequested = false;
