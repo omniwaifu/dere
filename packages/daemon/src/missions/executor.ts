@@ -4,7 +4,6 @@ import type {
   SDKResultMessage,
   Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { sql } from "kysely";
 
 import { getDb } from "../db.js";
@@ -15,10 +14,9 @@ import {
   runDockerSandboxQuery,
   type SandboxMountType,
 } from "../sandbox/docker-runner.js";
+import { generateSummary, SUMMARY_THRESHOLD } from "../utils/summary.js";
 
 const MAX_OUTPUT_SIZE = 50 * 1024;
-const SUMMARY_THRESHOLD = 1000;
-const SUMMARY_MODEL = "claude-haiku-4-5";
 
 type MissionRow = {
   id: number;
@@ -80,17 +78,6 @@ function toJsonRecord(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
-}
-
-function getTextClient(model?: string): TextResponseClient {
-  const transport = new ClaudeAgentTransport({
-    workingDirectory: process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions",
-  });
-  const options: { transport: ClaudeAgentTransport; model?: string } = { transport };
-  if (model) {
-    options.model = model;
-  }
-  return new TextResponseClient(options);
 }
 
 async function dequeueShareableFinding(
@@ -713,10 +700,7 @@ export class MissionExecutor {
         outputText = "";
       }
 
-      let outputSummary: string | null = null;
-      if (outputText.length > SUMMARY_THRESHOLD) {
-        outputSummary = await this.generateSummary(outputText);
-      }
+      const outputSummary = await generateSummary(outputText, { logCategory: "mission" });
 
       const completedAt = nowDate();
       const updated = await db
@@ -813,27 +797,4 @@ export class MissionExecutor {
     }
   }
 
-  private async generateSummary(outputText: string): Promise<string | null> {
-    try {
-      const client = getTextClient(process.env.DERE_MISSION_SUMMARY_MODEL ?? SUMMARY_MODEL);
-      const maxContext = 2000;
-      const context =
-        outputText.length > maxContext * 2
-          ? `${outputText.slice(0, maxContext)}\n\n[...]\n\n${outputText.slice(-maxContext)}`
-          : outputText;
-
-      const prompt = `Summarize this mission output in 1-2 sentences. Focus on the main result or outcome.
-
-Output:
-${context}
-
-Summary:`;
-
-      const summary = await client.generate(prompt);
-      return summary.trim();
-    } catch (error) {
-      log.mission.warn("Summary generation failed", { error: String(error) });
-      return null;
-    }
-  }
 }

@@ -33,7 +33,8 @@
 
 import { Context, CancelledFailure, ApplicationFailure } from "@temporalio/activity";
 
-import { runAgentQuery as sdkRunAgentQuery, generateSummary } from "../../../swarm/agent-query.js";
+import { runAgentQuery as sdkRunAgentQuery } from "../../../swarm/agent-query.js";
+import { generateSummary } from "../../../utils/summary.js";
 import { log } from "../../../logger.js";
 import type {
   RunAgentQueryInput,

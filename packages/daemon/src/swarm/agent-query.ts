@@ -6,13 +6,9 @@ import type {
   SDKResultMessage,
   Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
-
 import { runDockerSandboxQuery } from "../sandbox/docker-runner.js";
 import { log } from "../logger.js";
 import {
-  SUMMARY_MODEL,
-  SUMMARY_THRESHOLD,
   AgentExecutionError,
   type SwarmRow,
   type SwarmAgentRow,
@@ -250,34 +246,3 @@ export async function runAgentQuery(args: {
   };
 }
 
-export async function generateSummary(outputText: string): Promise<string | null> {
-  if (outputText.length < SUMMARY_THRESHOLD) {
-    return null;
-  }
-
-  try {
-    const transport = new ClaudeAgentTransport({
-      workingDirectory: process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions",
-    });
-    const client = new TextResponseClient({
-      transport,
-      model: process.env.DERE_SWARM_SUMMARY_MODEL ?? SUMMARY_MODEL,
-    });
-    const maxContext = 2000;
-    const context =
-      outputText.length > maxContext * 2
-        ? `${outputText.slice(0, maxContext)}\n\n[...]\n\n${outputText.slice(-maxContext)}`
-        : outputText;
-    const prompt = `Summarize this agent output in 1-2 sentences. Focus on the main result or outcome.
-
-Output:
-${context}
-
-Summary:`;
-    const summary = await client.generate(prompt);
-    return summary.trim();
-  } catch (error) {
-    log.swarm.warn("Summary generation failed", { error: String(error) });
-    return null;
-  }
-}

@@ -56,9 +56,11 @@ export {
 export {
   extractBlocksFromAssistantMessage,
   runAgentQuery,
-  generateSummary,
   type MessageBlock,
 } from "./agent-query.js";
+
+// Summary (re-export from utils)
+export { generateSummary } from "../utils/summary.js";
 
 // Execution (trimmed - most logic moved to Temporal)
 export { getSwarmWithAgents } from "./execution.js";

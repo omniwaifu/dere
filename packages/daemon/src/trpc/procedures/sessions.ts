@@ -1,11 +1,10 @@
 import { z } from "zod";
-import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { getDb } from "../../db.js";
 import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "../../emotions/runtime.js";
 import { router, publicProcedure } from "../init.js";
 import { log } from "../../logger.js";
+import { generateShortSummary } from "../../utils/summary.js";
 
-const DEFAULT_SUMMARY_MODEL = "claude-opus-4-5";
 const SUMMARY_WINDOW_SECONDS = 1800;
 const SUMMARY_LIMIT = 50;
 
@@ -15,34 +14,6 @@ function nowSeconds(): number {
 
 function nowDate(): Date {
   return new Date();
-}
-
-function getTextClient(): TextResponseClient {
-  const workingDirectory = process.env.DERE_TS_LLM_CWD ?? "/tmp/dere-llm-sessions";
-  const transport = new ClaudeAgentTransport({ workingDirectory });
-  return new TextResponseClient({
-    transport,
-    model: process.env.DERE_SUMMARY_MODEL ?? DEFAULT_SUMMARY_MODEL,
-  });
-}
-
-async function generateSummary(content: string): Promise<string | null> {
-  if (process.env.DERE_DISABLE_SUMMARY === "1") {
-    return null;
-  }
-
-  const prompt = `Summarize in 1-2 sentences. No headers or preambles, just the summary.\n\n${content.slice(
-    0,
-    2000,
-  )}`;
-
-  try {
-    const client = getTextClient();
-    const summary = await client.generate(prompt);
-    return summary.trim();
-  } catch {
-    return null;
-  }
 }
 
 export const sessionsRouter = router({
@@ -335,7 +306,7 @@ export const sessionsRouter = router({
         .map((row) => `${row.message_type}: ${row.prompt}`)
         .join("\n");
 
-      const summary = await generateSummary(content);
+      const summary = await generateShortSummary(content);
       const updateValues: Record<string, unknown> = { end_time: endTime };
       if (summary) {
         updateValues.summary = summary;
