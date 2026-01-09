@@ -78,4 +78,4 @@ export {
 } from "./git.js";
 
 // Routes
-export { registerSwarmRoutes } from "./routes.js";
+export { registerSwarmRoutes } from "./routes/index.js";
