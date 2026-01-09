@@ -20,7 +20,7 @@ export {
   type SwarmAgentRow,
 } from "./types.js";
 
-// State (already exists)
+// State
 export { swarmState, type CompletionSignal } from "./state.js";
 
 // Utils
@@ -52,7 +52,7 @@ export {
   computeCriticalPath,
 } from "./dependencies.js";
 
-// Agent query
+// Agent query (used by temporal activities)
 export {
   extractBlocksFromAssistantMessage,
   runAgentQuery,
@@ -60,26 +60,11 @@ export {
   type MessageBlock,
 } from "./agent-query.js";
 
-// Execution
-export {
-  getCompletionSignal,
-  getSwarmWithAgents,
-  createSessionForAgent,
-  insertConversation,
-  insertAssistantBlocks,
-  buildDependencyContext,
-  executeAssignedAgent,
-  claimTaskForAgent,
-  executeAutonomousAgent,
-  executeAgentWithDependencies,
-} from "./execution.js";
+// Execution (trimmed - most logic moved to Temporal)
+export { getSwarmWithAgents } from "./execution.js";
 
-// Orchestration
-export {
-  runSwarm,
-  startSwarmExecution,
-  cleanupOrphanedSwarms,
-} from "./orchestration.js";
+// Orchestration (trimmed - execution moved to Temporal)
+export { cleanupOrphanedSwarms } from "./orchestration.js";
 
 // Git
 export {

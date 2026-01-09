@@ -31,6 +31,7 @@ type ParsedArgs = {
   model: string | null;
   fallbackModel: string | null;
   permissionMode: string | null;
+  dangerouslySkipPermissions: boolean;
   allowedTools: string | null;
   disallowedTools: string | null;
   addDirs: string[];
@@ -51,6 +52,7 @@ function parseArgs(args: string[]): ParsedArgs {
     model: null,
     fallbackModel: null,
     permissionMode: null,
+    dangerouslySkipPermissions: false,
     allowedTools: null,
     disallowedTools: null,
     addDirs: [],
@@ -110,6 +112,11 @@ function parseArgs(args: string[]): ParsedArgs {
     if (arg === "--permission-mode" && args[i + 1]) {
       state.permissionMode = args[i + 1] as string;
       i += 2;
+      continue;
+    }
+    if (arg === "--dangerously-skip-permissions" || arg === "--auto") {
+      state.dangerouslySkipPermissions = true;
+      i += 1;
       continue;
     }
     if (arg === "--allowed-tools" && args[i + 1]) {
@@ -196,6 +203,7 @@ class SettingsBuilder {
   private readonly mode: string | null;
   private readonly sessionId: number | null;
   private readonly companyAnnouncements: string[] | null;
+  private readonly dangerouslySkipPermissions: boolean;
   readonly tempFiles: string[] = [];
   readonly enabledPlugins: string[] = [];
 
@@ -205,16 +213,23 @@ class SettingsBuilder {
     mode: string | null;
     sessionId: number | null;
     companyAnnouncements: string[] | null;
+    dangerouslySkipPermissions?: boolean;
   }) {
     this.personality = args.personality;
     this.outputStyle = args.outputStyle;
     this.mode = args.mode;
     this.sessionId = args.sessionId;
     this.companyAnnouncements = args.companyAnnouncements;
+    this.dangerouslySkipPermissions = args.dangerouslySkipPermissions ?? false;
   }
 
   async build(): Promise<Record<string, unknown>> {
     const settings: Record<string, any> = { hooks: {}, statusLine: {}, env: {} };
+
+    // Set permission mode in settings to ensure it takes effect
+    if (this.dangerouslySkipPermissions) {
+      settings.defaultMode = "bypassPermissions";
+    }
 
     let outputStyleToUse = this.outputStyle;
     if (!outputStyleToUse) {
@@ -355,9 +370,11 @@ class SettingsBuilder {
     }
     const statusline = resolve(pluginsPath, "dere_core", "scripts", "dere-statusline.ts");
     if (existsSync(statusline)) {
+      // Inline env vars in command since Claude Code doesn't pass settings.env to statusline
+      const envPrefix = this.dangerouslySkipPermissions ? "DERE_PERMISSION_MODE=bypass " : "";
       settings.statusLine = {
         type: "command",
-        command: `bun ${statusline}`,
+        command: `${envPrefix}bun ${statusline}`,
         padding: 0,
       };
     }
@@ -370,6 +387,9 @@ class SettingsBuilder {
       env.DERE_PERSONALITY = this.personality;
     }
     env.DERE_DAEMON_URL = daemonUrl;
+    if (this.dangerouslySkipPermissions) {
+      env.DERE_PERMISSION_MODE = "bypass";
+    }
     if (this.mode === "productivity" || this.mode === "tasks") {
       env.DERE_PRODUCTIVITY = "true";
     }
@@ -492,6 +512,7 @@ export async function runClaude(rawArgs: string[]): Promise<void> {
     mode: parsed.mode,
     sessionId,
     companyAnnouncements: announcement ? [announcement] : null,
+    dangerouslySkipPermissions: parsed.dangerouslySkipPermissions,
   });
 
   const settings = await builder.build();

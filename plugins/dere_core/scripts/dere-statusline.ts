@@ -118,6 +118,13 @@ function formatModes(modesStr: string): string {
   return `${icon} ${modesStr}`;
 }
 
+function formatPermissionMode(mode: string): string {
+  if (mode === "bypass") {
+    return `${RED}⚡${RESET}`;
+  }
+  return "";
+}
+
 function checkDaemonStatus(): boolean {
   try {
     const home = process.env.HOME ?? "";
@@ -138,7 +145,7 @@ function checkDaemonStatus(): boolean {
 }
 
 function formatDaemonStatus(isRunning: boolean): string {
-  return isRunning ? `${GREEN}●${RESET} daemon` : `${RED}●${RESET} daemon`;
+  return isRunning ? `${GREEN}●${RESET}` : `${RED}●${RESET}`;
 }
 
 function shortenPath(path: string): string {
@@ -187,6 +194,7 @@ async function main(): Promise<void> {
   const outputStyle = process.env.DERE_OUTPUT_STYLE ?? "";
   const customPrompts = process.env.DERE_CUSTOM_PROMPTS ?? "";
   const sessionType = process.env.DERE_SESSION_TYPE ?? "";
+  const permissionMode = process.env.DERE_PERMISSION_MODE ?? "";
 
   const parts: string[] = [];
 
@@ -230,6 +238,14 @@ async function main(): Promise<void> {
 
   if (session?.cwd) {
     parts.push(`${GRAY}▸${RESET} ${shortenPath(session.cwd)}`);
+  }
+
+  // Show bypass mode indicator at the end
+  if (permissionMode) {
+    const formatted = formatPermissionMode(permissionMode);
+    if (formatted) {
+      parts.push(formatted);
+    }
   }
 
   if (parts.length > 0) {
