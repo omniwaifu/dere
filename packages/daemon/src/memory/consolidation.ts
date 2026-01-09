@@ -3,6 +3,7 @@ import { ClaudeAgentTransport, TextResponseClient } from "@dere/shared-llm";
 import { getDb } from "../db.js";
 import { updateCoreMemoryFromSummary } from "../sessions/summary.js";
 import { log } from "../logger.js";
+import { insertConversation } from "../utils/conversations.js";
 import {
   invalidateStaleEdges,
   invalidateStaleFacts,
@@ -335,42 +336,15 @@ ${content.slice(0, 8000)}`;
     }
 
     const summaryPayload = `[Memory Summary]\n${summaryText}`;
-    const now = nowDate();
-    const conversation = await db
-      .insertInto("conversations")
-      .values({
-        session_id: sessionId,
-        prompt: summaryPayload,
-        message_type: "system",
-        personality: null,
-        timestamp: lastTs || nowSeconds(),
-        medium: "memory",
-        user_id: sessionUserId ?? userId,
-        ttft_ms: null,
-        response_ms: null,
-        thinking_ms: null,
-        tool_uses: null,
-        tool_names: null,
-        created_at: now,
-      })
-      .returning(["id"])
-      .executeTakeFirstOrThrow();
-
-    await db
-      .insertInto("conversation_blocks")
-      .values({
-        conversation_id: conversation.id,
-        ordinal: 0,
-        block_type: "text",
-        text: summaryPayload,
-        tool_use_id: null,
-        tool_name: null,
-        tool_input: null,
-        is_error: null,
-        content_embedding: null,
-        created_at: now,
-      })
-      .execute();
+    await insertConversation({
+      sessionId,
+      messageType: "system",
+      prompt: summaryPayload,
+      personality: null,
+      userId: sessionUserId ?? userId,
+      medium: "memory",
+      updateLastActivity: false,
+    });
 
     summaryCount += 1;
   }

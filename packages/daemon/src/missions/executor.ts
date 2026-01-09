@@ -15,6 +15,11 @@ import {
   type SandboxMountType,
 } from "../sandbox/docker-runner.js";
 import { generateSummary, SUMMARY_THRESHOLD } from "../utils/summary.js";
+import {
+  insertConversation,
+  insertAssistantWithBlocks,
+  type ConversationBlock,
+} from "../utils/conversations.js";
 
 const MAX_OUTPUT_SIZE = 50 * 1024;
 
@@ -123,187 +128,6 @@ async function dequeueShareableFinding(
     log.ambient.warn("Failed to surface exploration finding", { error: String(error) });
     return null;
   }
-}
-
-async function insertConversation(
-  sessionId: number,
-  messageType: string,
-  prompt: string,
-  userId: string | null,
-  personality: string | null,
-  metadata?: { toolUses?: number; toolNames?: string[] | null },
-): Promise<number> {
-  const db = await getDb();
-  const now = nowDate();
-  const timestamp = nowSeconds();
-
-  const conversation = await db
-    .insertInto("conversations")
-    .values({
-      session_id: sessionId,
-      prompt,
-      message_type: messageType,
-      personality,
-      timestamp,
-      medium: "agent_api",
-      user_id: userId,
-      ttft_ms: null,
-      response_ms: null,
-      thinking_ms: null,
-      tool_uses: metadata?.toolUses ?? null,
-      tool_names: metadata?.toolNames ?? null,
-      created_at: now,
-    })
-    .returning(["id"])
-    .executeTakeFirstOrThrow();
-
-  if (prompt.trim()) {
-    await db
-      .insertInto("conversation_blocks")
-      .values({
-        conversation_id: conversation.id,
-        ordinal: 0,
-        block_type: "text",
-        text: prompt,
-        tool_use_id: null,
-        tool_name: null,
-        tool_input: null,
-        is_error: null,
-        content_embedding: null,
-        created_at: now,
-      })
-      .execute();
-  }
-
-  await db
-    .updateTable("sessions")
-    .set({ last_activity: now })
-    .where("id", "=", sessionId)
-    .execute();
-
-  return conversation.id;
-}
-
-async function insertAssistantBlocks(
-  sessionId: number,
-  blocks: Array<{
-    type: string;
-    text?: string;
-    id?: string;
-    name?: string;
-    input?: Record<string, unknown>;
-    tool_use_id?: string;
-    output?: string;
-    is_error?: boolean;
-  }>,
-  userId: string | null,
-  personality: string | null,
-  metadata: { toolUses: number; toolNames: string[] },
-): Promise<number | null> {
-  if (blocks.length === 0) {
-    return null;
-  }
-
-  const db = await getDb();
-  const now = nowDate();
-  const timestamp = nowSeconds();
-
-  const conversation = await db
-    .insertInto("conversations")
-    .values({
-      session_id: sessionId,
-      prompt: blocks
-        .filter((block) => block.type === "text")
-        .map((block) => block.text ?? "")
-        .join(""),
-      message_type: "assistant",
-      personality,
-      timestamp,
-      medium: "agent_api",
-      user_id: userId,
-      ttft_ms: null,
-      response_ms: null,
-      thinking_ms: null,
-      tool_uses: metadata.toolUses,
-      tool_names: metadata.toolNames.length > 0 ? metadata.toolNames : null,
-      created_at: now,
-    })
-    .returning(["id"])
-    .executeTakeFirstOrThrow();
-
-  let ordinal = 0;
-  for (const block of blocks) {
-    if (block.type === "text" || block.type === "thinking") {
-      const text = block.text ?? "";
-      if (!text) {
-        continue;
-      }
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conversation.id,
-          ordinal,
-          block_type: block.type,
-          text,
-          tool_use_id: null,
-          tool_name: null,
-          tool_input: null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-      continue;
-    }
-
-    if (block.type === "tool_use") {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conversation.id,
-          ordinal,
-          block_type: "tool_use",
-          tool_use_id: block.id ?? null,
-          tool_name: block.name ?? null,
-          tool_input: block.input ?? null,
-          text: null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-      continue;
-    }
-
-    if (block.type === "tool_result") {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conversation.id,
-          ordinal,
-          block_type: "tool_result",
-          tool_use_id: block.tool_use_id ?? null,
-          tool_name: block.name ?? null,
-          tool_input: null,
-          text: block.output ?? "",
-          is_error: block.is_error ?? false,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-    }
-  }
-
-  await db
-    .updateTable("sessions")
-    .set({ last_activity: now })
-    .where("id", "=", sessionId)
-    .execute();
-
-  return conversation.id;
 }
 
 async function createMissionSession(mission: MissionRow): Promise<number> {
@@ -664,13 +488,13 @@ export class MissionExecutor {
 
     try {
       if (sessionId) {
-        await insertConversation(
+        await insertConversation({
           sessionId,
-          "user",
-          mission.prompt,
-          mission.user_id,
-          mission.personality,
-        );
+          messageType: "user",
+          prompt: mission.prompt,
+          personality: mission.personality,
+          userId: mission.user_id,
+        });
       }
 
       const contextXml = await buildSessionContextXml({
@@ -721,28 +545,22 @@ export class MissionExecutor {
       if (sessionId) {
         let assistantConversationId: number | null = null;
         if (blocks.length > 0) {
-          assistantConversationId = await insertAssistantBlocks(
+          assistantConversationId = await insertAssistantWithBlocks({
             sessionId,
-            blocks,
-            mission.user_id,
-            mission.personality,
-            {
-              toolUses: toolCount,
-              toolNames,
-            },
-          );
+            blocks: blocks as ConversationBlock[],
+            personality: mission.personality,
+            userId: mission.user_id,
+          });
         } else if (outputText) {
-          assistantConversationId = await insertConversation(
+          assistantConversationId = await insertConversation({
             sessionId,
-            "assistant",
-            outputText,
-            mission.user_id,
-            mission.personality,
-            {
-              toolUses: toolCount,
-              toolNames,
-            },
-          );
+            messageType: "assistant",
+            prompt: outputText,
+            personality: mission.personality,
+            userId: mission.user_id,
+            toolUses: toolCount,
+            toolNames,
+          });
         }
 
         void bufferInteractionStimulus({

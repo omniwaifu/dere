@@ -9,6 +9,11 @@ import { getDb } from "../../../db.js";
 import { daemonEvents } from "../../../events.js";
 import type { SwarmSpec, AgentSpec, AgentResult } from "./types.js";
 import type { MessageBlock } from "../../../swarm/agent-query.js";
+import {
+  insertConversation,
+  insertAssistantWithBlocks,
+  type ConversationBlock,
+} from "../../../utils/conversations.js";
 
 // ============================================================================
 // Agent Status Updates
@@ -189,56 +194,12 @@ export interface RecordConversationInput {
 }
 
 export async function recordConversation(input: RecordConversationInput): Promise<number> {
-  const { sessionId, messageType, prompt, personality } = input;
-  const db = await getDb();
-  const now = new Date();
-  const timestamp = Math.floor(now.getTime() / 1000);
-
-  const conversation = await db
-    .insertInto("conversations")
-    .values({
-      session_id: sessionId,
-      prompt,
-      message_type: messageType,
-      personality,
-      timestamp,
-      medium: "agent_api",
-      user_id: null,
-      ttft_ms: null,
-      response_ms: null,
-      thinking_ms: null,
-      tool_uses: null,
-      tool_names: null,
-      created_at: now,
-    })
-    .returning(["id"])
-    .executeTakeFirstOrThrow();
-
-  if (prompt.trim()) {
-    await db
-      .insertInto("conversation_blocks")
-      .values({
-        conversation_id: conversation.id,
-        ordinal: 0,
-        block_type: "text",
-        text: prompt,
-        tool_use_id: null,
-        tool_name: null,
-        tool_input: null,
-        is_error: null,
-        content_embedding: null,
-        created_at: now,
-      })
-      .execute();
-  }
-
-  await db
-    .updateTable("sessions")
-    .set({ last_activity: now })
-    .where("id", "=", sessionId)
-    .execute();
-
-  return conversation.id;
+  return insertConversation({
+    sessionId: input.sessionId,
+    messageType: input.messageType,
+    prompt: input.prompt,
+    personality: input.personality,
+  });
 }
 
 export interface RecordAssistantBlocksInput {
@@ -250,113 +211,11 @@ export interface RecordAssistantBlocksInput {
 }
 
 export async function recordAssistantBlocks(input: RecordAssistantBlocksInput): Promise<number | null> {
-  const { sessionId, blocks, personality, toolCount, toolNames } = input;
-
-  if (blocks.length === 0) {
-    return null;
-  }
-
-  const db = await getDb();
-  const now = new Date();
-  const timestamp = Math.floor(now.getTime() / 1000);
-
-  const textContent = blocks
-    .filter((block) => block.type === "text")
-    .map((block) => block.text ?? "")
-    .join("");
-
-  const conversation = await db
-    .insertInto("conversations")
-    .values({
-      session_id: sessionId,
-      prompt: textContent,
-      message_type: "assistant",
-      personality,
-      timestamp,
-      medium: "agent_api",
-      user_id: null,
-      ttft_ms: null,
-      response_ms: null,
-      thinking_ms: null,
-      tool_uses: toolCount,
-      tool_names: toolNames.length > 0 ? toolNames : null,
-      created_at: now,
-    })
-    .returning(["id"])
-    .executeTakeFirstOrThrow();
-
-  let ordinal = 0;
-  for (const block of blocks) {
-    if (block.type === "text" || block.type === "thinking") {
-      const text = block.text ?? "";
-      if (!text) continue;
-
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conversation.id,
-          ordinal,
-          block_type: block.type,
-          text,
-          tool_use_id: null,
-          tool_name: null,
-          tool_input: null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-      continue;
-    }
-
-    if (block.type === "tool_use") {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conversation.id,
-          ordinal,
-          block_type: block.type,
-          text: null,
-          tool_use_id: block.id ?? null,
-          tool_name: block.name ?? null,
-          tool_input: block.input ?? null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-      continue;
-    }
-
-    if (block.type === "tool_result") {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: conversation.id,
-          ordinal,
-          block_type: block.type,
-          text: block.output ?? "",
-          tool_use_id: block.tool_use_id ?? null,
-          tool_name: null,
-          tool_input: null,
-          is_error: block.is_error ?? null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-      ordinal += 1;
-    }
-  }
-
-  await db
-    .updateTable("sessions")
-    .set({ last_activity: now })
-    .where("id", "=", sessionId)
-    .execute();
-
-  return conversation.id;
+  return insertAssistantWithBlocks({
+    sessionId: input.sessionId,
+    blocks: input.blocks as ConversationBlock[],
+    personality: input.personality,
+  });
 }
 
 // ============================================================================

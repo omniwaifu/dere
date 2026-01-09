@@ -4,6 +4,7 @@ import { getDb } from "../db.js";
 import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "../emotions/runtime.js";
 import { log } from "../logger.js";
 import { generateShortSummary } from "../utils/summary.js";
+import { insertConversation } from "../utils/conversations.js";
 
 const SUMMARY_WINDOW_SECONDS = 1800;
 const SUMMARY_LIMIT = 50;
@@ -211,25 +212,14 @@ export function registerSessionRoutes(app: Hono): void {
 
     const personality = payload.personality ?? sessionMeta?.personality ?? null;
 
-    const inserted = await db
-      .insertInto("conversations")
-      .values({
-        session_id: sessionId,
-        prompt: payload.message,
-        message_type: payload.role ?? "user",
-        personality,
-        timestamp: nowSeconds(),
-        medium: null,
-        user_id: null,
-        ttft_ms: null,
-        response_ms: null,
-        thinking_ms: null,
-        tool_uses: null,
-        tool_names: null,
-        created_at: nowDate(),
-      })
-      .returning(["id"])
-      .executeTakeFirstOrThrow();
+    const conversationId = await insertConversation({
+      sessionId,
+      messageType: payload.role ?? "user",
+      prompt: payload.message,
+      personality,
+      medium: null,
+      updateLastActivity: false,
+    });
 
     const sessionStart = sessionMeta?.start_time ?? nowSeconds();
     const sessionDurationMinutes = Math.max(0, Math.floor((nowSeconds() - sessionStart) / 60));
@@ -240,13 +230,13 @@ export function registerSessionRoutes(app: Hono): void {
       personality,
       workingDir: sessionMeta?.working_dir ?? process.cwd(),
       messageType: payload.role ?? "user",
-      conversationId: inserted.id,
+      conversationId,
       sessionDurationMinutes,
     }).catch((error) => {
       log.emotion.warn("Emotion buffer failed", { error: String(error) });
     });
 
-    return c.json({ message_id: inserted.id });
+    return c.json({ message_id: conversationId });
   });
 
   app.get("/sessions/:session_id/history", async (c) => {

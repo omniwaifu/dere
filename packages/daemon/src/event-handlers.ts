@@ -4,6 +4,7 @@
 
 import { daemonEvents } from "./events.js";
 import { log } from "./logger.js";
+import { STATUS } from "./swarm/types.js";
 
 /**
  * Initialize all event handlers.
@@ -20,9 +21,9 @@ export function initEventHandlers(): void {
   });
 
   daemonEvents.on("swarm:end", (event) => {
-    const level = event.status === "completed" ? "info" : "warn";
-    const completedCount = event.agentResults.filter((a) => a.status === "completed").length;
-    const failedCount = event.agentResults.filter((a) => a.status === "failed").length;
+    const level = event.status === STATUS.COMPLETED ? "info" : "warn";
+    const completedCount = event.agentResults.filter((a) => a.status === STATUS.COMPLETED).length;
+    const failedCount = event.agentResults.filter((a) => a.status === STATUS.FAILED).length;
 
     log.swarm[level](`Swarm ${event.status}`, {
       swarmId: event.swarmId,
@@ -43,7 +44,7 @@ export function initEventHandlers(): void {
   });
 
   daemonEvents.on("agent:end", (event) => {
-    const level = event.status === "completed" ? "info" : event.status === "failed" ? "warn" : "debug";
+    const level = event.status === STATUS.COMPLETED ? "info" : event.status === STATUS.FAILED ? "warn" : "debug";
     const durationStr = event.durationSeconds.toFixed(1);
 
     log.agent[level](`Agent "${event.name}" ${event.status}`, {

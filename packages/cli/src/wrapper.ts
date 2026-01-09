@@ -14,6 +14,7 @@ import {
 
 import { buildMcpConfig } from "./mcp.js";
 import { PersonalityLoader } from "./persona.js";
+import type { ClaudeCodeSettings, MarketplaceSource, StatusLineConfig } from "./types.js";
 
 function generateSessionId(): number {
   const base = BigInt(Date.now()) * 1_000_000n;
@@ -223,8 +224,8 @@ class SettingsBuilder {
     this.dangerouslySkipPermissions = args.dangerouslySkipPermissions ?? false;
   }
 
-  async build(): Promise<Record<string, unknown>> {
-    const settings: Record<string, any> = { hooks: {}, statusLine: {}, env: {} };
+  async build(): Promise<ClaudeCodeSettings> {
+    const settings: ClaudeCodeSettings = { hooks: {}, statusLine: {}, env: {} };
 
     // Set permission mode in settings to ensure it takes effect
     if (this.dangerouslySkipPermissions) {
@@ -321,7 +322,7 @@ class SettingsBuilder {
     return null;
   }
 
-  private async addDerePlugins(settings: Record<string, any>): Promise<void> {
+  private async addDerePlugins(settings: ClaudeCodeSettings): Promise<void> {
     const pluginsPath = this.findPluginsPath();
     if (!pluginsPath) {
       return;
@@ -363,7 +364,7 @@ class SettingsBuilder {
     }
   }
 
-  private addStatusLine(settings: Record<string, any>): void {
+  private addStatusLine(settings: ClaudeCodeSettings): void {
     const pluginsPath = this.findPluginsPath();
     if (!pluginsPath) {
       return;
@@ -380,8 +381,8 @@ class SettingsBuilder {
     }
   }
 
-  private addHookEnvironment(settings: Record<string, any>, daemonUrl: string): void {
-    const env = settings.env ?? {};
+  private addHookEnvironment(settings: ClaudeCodeSettings, daemonUrl: string): void {
+    const env = settings.env;
 
     if (this.personality) {
       env.DERE_PERSONALITY = this.personality;

@@ -7,6 +7,8 @@
  * race conditions during async gaps.
  */
 
+import { log } from "../logger.js";
+
 type CompletionSignal = {
   promise: Promise<void>;
   resolve: () => void;
@@ -57,7 +59,7 @@ class SwarmStateManager {
 
     // Warn if agent is already being tracked (potential bug)
     if (this.runningAgents.has(agentId)) {
-      console.warn(`Agent ${agentId} is already being tracked, overwriting`);
+      log.swarm.warn(`Agent ${agentId} is already being tracked, overwriting`);
     }
 
     this.runningAgents.set(agentId, { promise, startedAt: Date.now() });
@@ -130,7 +132,7 @@ class SwarmStateManager {
 
     // Ensure we're transitioning from starting state
     if (!this.startingSwarms.has(swarmId)) {
-      console.warn(`registerRun called for swarm ${swarmId} that wasn't marked as starting`);
+      log.swarm.warn(`registerRun called for swarm ${swarmId} that wasn't marked as starting`);
     }
 
     const run: SwarmRun = {
@@ -282,7 +284,7 @@ class SwarmStateManager {
     // Clean up stale agents
     for (const [agentId, info] of this.runningAgents) {
       if (now - info.startedAt > MAX_AGENT_RUNTIME_MS) {
-        console.warn(`Cleaning up stale agent ${agentId} (running for ${Math.round((now - info.startedAt) / 1000 / 60)} minutes)`);
+        log.swarm.warn(`Cleaning up stale agent ${agentId} (running for ${Math.round((now - info.startedAt) / 1000 / 60)} minutes)`);
         this.runningAgents.delete(agentId);
         agentsCleaned++;
       }
@@ -291,7 +293,7 @@ class SwarmStateManager {
     // Clean up stale swarms
     for (const [swarmId, run] of this.swarmRuns) {
       if (now - run.startedAt > MAX_SWARM_RUNTIME_MS) {
-        console.warn(`Cleaning up stale swarm ${swarmId} (running for ${Math.round((now - run.startedAt) / 1000 / 60 / 60)} hours)`);
+        log.swarm.warn(`Cleaning up stale swarm ${swarmId} (running for ${Math.round((now - run.startedAt) / 1000 / 60 / 60)} hours)`);
         // Resolve all signals first
         for (const signal of run.completionSignals.values()) {
           signal.resolve();
@@ -307,7 +309,7 @@ class SwarmStateManager {
     // after all running swarms are accounted for
     if (this.startingSwarms.size > 0 && this.swarmRuns.size === 0) {
       startingSwarmsCleaned = this.startingSwarms.size;
-      console.warn(`Cleaning up ${startingSwarmsCleaned} orphaned starting swarms`);
+      log.swarm.warn(`Cleaning up ${startingSwarmsCleaned} orphaned starting swarms`);
       this.startingSwarms.clear();
     }
 

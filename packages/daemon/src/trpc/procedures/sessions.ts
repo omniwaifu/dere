@@ -4,6 +4,7 @@ import { bufferEmotionStimulus, flushGlobalEmotionBatch } from "../../emotions/r
 import { router, publicProcedure } from "../init.js";
 import { log } from "../../logger.js";
 import { generateShortSummary } from "../../utils/summary.js";
+import { insertConversation } from "../../utils/conversations.js";
 
 const SUMMARY_WINDOW_SECONDS = 1800;
 const SUMMARY_LIMIT = 50;
@@ -179,25 +180,14 @@ export const sessionsRouter = router({
 
       const personality = input.personality ?? sessionMeta?.personality ?? null;
 
-      const inserted = await db
-        .insertInto("conversations")
-        .values({
-          session_id: input.session_id,
-          prompt: input.message,
-          message_type: input.role ?? "user",
-          personality,
-          timestamp: nowSeconds(),
-          medium: null,
-          user_id: null,
-          ttft_ms: null,
-          response_ms: null,
-          thinking_ms: null,
-          tool_uses: null,
-          tool_names: null,
-          created_at: nowDate(),
-        })
-        .returning(["id"])
-        .executeTakeFirstOrThrow();
+      const conversationId = await insertConversation({
+        sessionId: input.session_id,
+        messageType: input.role ?? "user",
+        prompt: input.message,
+        personality,
+        medium: null,
+        updateLastActivity: false,
+      });
 
       const sessionStart = sessionMeta?.start_time ?? nowSeconds();
       const sessionDurationMinutes = Math.max(0, Math.floor((nowSeconds() - sessionStart) / 60));
@@ -208,13 +198,13 @@ export const sessionsRouter = router({
         personality,
         workingDir: sessionMeta?.working_dir ?? process.cwd(),
         messageType: input.role ?? "user",
-        conversationId: inserted.id,
+        conversationId,
         sessionDurationMinutes,
       }).catch((error) => {
         log.emotion.warn("Emotion buffer failed", { error: String(error) });
       });
 
-      return { message_id: inserted.id };
+      return { message_id: conversationId };
     }),
 
   history: publicProcedure

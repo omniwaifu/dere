@@ -6,6 +6,7 @@ import { addEpisode } from "@dere/graph";
 import { getDb } from "../db.js";
 import { bufferEmotionStimulus } from "../emotions/runtime.js";
 import { log } from "../logger.js";
+import { insertConversation } from "../utils/conversations.js";
 
 function nowDate(): Date {
   return new Date();
@@ -83,43 +84,15 @@ export function registerConversationRoutes(app: Hono): void {
         .execute();
     }
 
-    const inserted = await db
-      .insertInto("conversations")
-      .values({
-        session_id: sessionId,
-        prompt,
-        message_type: messageType,
-        personality,
-        timestamp: nowSeconds(),
-        medium,
-        user_id: userId,
-        ttft_ms: null,
-        response_ms: null,
-        thinking_ms: null,
-        tool_uses: null,
-        tool_names: null,
-        created_at: now,
-      })
-      .returning(["id"])
-      .executeTakeFirstOrThrow();
-
-    if (prompt.trim()) {
-      await db
-        .insertInto("conversation_blocks")
-        .values({
-          conversation_id: inserted.id,
-          ordinal: 0,
-          block_type: "text",
-          text: prompt,
-          tool_use_id: null,
-          tool_name: null,
-          tool_input: null,
-          is_error: null,
-          content_embedding: null,
-          created_at: now,
-        })
-        .execute();
-    }
+    const conversationId = await insertConversation({
+      sessionId,
+      messageType,
+      prompt,
+      personality,
+      userId,
+      medium,
+      updateLastActivity: false,
+    });
 
     const workingDir = projectPath || existing?.working_dir || "/workspace";
     const sessionDurationMinutes = Math.max(0, Math.floor((nowSeconds() - sessionStart) / 60));
@@ -158,7 +131,7 @@ export function registerConversationRoutes(app: Hono): void {
         personality,
         workingDir,
         messageType,
-        conversationId: inserted.id,
+        conversationId,
         sessionDurationMinutes,
       }).catch((error) => {
         log.emotion.warn("Emotion buffer failed", { error: String(error) });
