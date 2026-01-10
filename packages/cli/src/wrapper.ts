@@ -529,6 +529,9 @@ export async function runClaude(rawArgs: string[]): Promise<void> {
       systemPrompt = await composeSystemPrompt(parsed.personalities);
     }
 
+    const effectivePermissionMode =
+      parsed.permissionMode ?? (parsed.dangerouslySkipPermissions ? "bypassPermissions" : null);
+
     const cmd = ["claude"];
     if (parsed.continueConv) {
       cmd.push("--continue");
@@ -541,8 +544,11 @@ export async function runClaude(rawArgs: string[]): Promise<void> {
     if (parsed.fallbackModel) {
       cmd.push("--fallback-model", parsed.fallbackModel);
     }
-    if (parsed.permissionMode) {
-      cmd.push("--permission-mode", parsed.permissionMode);
+    if (effectivePermissionMode) {
+      cmd.push("--permission-mode", effectivePermissionMode);
+    }
+    if (parsed.dangerouslySkipPermissions) {
+      cmd.push("--dangerously-skip-permissions");
     }
     if (parsed.allowedTools) {
       cmd.push("--allowed-tools", parsed.allowedTools);

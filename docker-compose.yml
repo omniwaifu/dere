@@ -4,7 +4,9 @@
 
 services:
   postgres:
-    image: pgvector/pgvector:pg18
+    build:
+      context: ./docker/postgres-age
+      dockerfile: Dockerfile
     volumes:
       - dere_pg:/var/lib/postgresql/data
     environment:
@@ -19,12 +21,8 @@ services:
       timeout: 5s
       retries: 5
 
-  falkordb:
-    image: falkordb/falkordb:latest
-    volumes:
-      - dere_falkordb:/var/lib/falkordb/data
-    ports:
-      - "6379:6379"
+  # FalkorDB removed - graph queries now handled by Apache AGE extension
+  # See packages/dere-graph for AGE-compatible GraphClient
 
   temporal:
     image: temporalio/auto-setup:latest
@@ -51,4 +49,3 @@ services:
 
 volumes:
   dere_pg:
-  dere_falkordb:
