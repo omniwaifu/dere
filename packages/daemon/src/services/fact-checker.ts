@@ -14,6 +14,8 @@ import {
   hybridFactSearch,
   hybridNodeSearch,
   addFact,
+  cosineSimilarity,
+  OpenAIEmbedder,
   type EntityNode,
   type FactNode,
 } from "@dere/graph";
@@ -21,6 +23,16 @@ import { getDb } from "../db.js";
 import { daemonEvents } from "../events.js";
 
 const log = getLogger("fact-checker");
+
+// Lazy-initialized embedder singleton
+let embedderInstance: OpenAIEmbedder | null = null;
+
+async function getEmbedder(): Promise<OpenAIEmbedder> {
+  if (!embedderInstance) {
+    embedderInstance = await OpenAIEmbedder.fromConfig();
+  }
+  return embedderInstance;
+}
 
 // ============================================================================
 // Types
@@ -108,14 +120,27 @@ export async function findPotentialContradictions(
 ): Promise<ContradictionCandidate[]> {
   const candidates: ContradictionCandidate[] = [];
 
+  // Get embedder and embed the new fact
+  let newFactEmbedding: number[] | null = null;
+  try {
+    const embedder = await getEmbedder();
+    newFactEmbedding = await embedder.create(fact);
+  } catch (error) {
+    log.warn("Failed to create embedding for fact, skipping similarity check", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   // Strategy 1: Check facts directly connected to mentioned entities
   if (entityUuids.length > 0) {
     const entityFacts = await getFactsByEntities(entityUuids, groupId, 20);
 
     for (const existingFact of entityFacts) {
-      // TODO: compute actual embedding similarity
-      // For now, this is a placeholder - need to integrate embedding comparison
-      const similarity = 0; // placeholder
+      // Compute embedding similarity if both facts have embeddings
+      let similarity = 0;
+      if (newFactEmbedding && existingFact.fact_embedding) {
+        similarity = cosineSimilarity(newFactEmbedding, existingFact.fact_embedding);
+      }
 
       if (
         similarity >= CONTRADICTION_SIMILARITY_MIN &&
@@ -144,9 +169,11 @@ export async function findPotentialContradictions(
       continue;
     }
 
-    // hybridFactSearch returns scored results, use that as similarity proxy
-    // TODO: get actual embedding similarity from search results
-    const similarity = 0; // placeholder
+    // Compute embedding similarity if both facts have embeddings
+    let similarity = 0;
+    if (newFactEmbedding && result.fact_embedding) {
+      similarity = cosineSimilarity(newFactEmbedding, result.fact_embedding);
+    }
 
     if (
       similarity >= CONTRADICTION_SIMILARITY_MIN &&
@@ -187,9 +214,17 @@ export async function checkFindings(
   const contradictions: ContradictionCandidate[] = [];
   let allRelatedEntities: EntityNode[] = [];
 
-  // Collect all entity UUIDs mentioned across findings
-  // TODO: resolve entity names to UUIDs via entity lookup
-  const allEntityUuids: string[] = [];
+  // Collect all unique entity names across findings
+  const allNames = new Set<string>();
+  for (const finding of findings) {
+    for (const name of finding.entityNames) {
+      allNames.add(name);
+    }
+  }
+
+  // Resolve names to UUIDs upfront
+  const nameToUuid = await resolveEntityNames([...allNames], groupId);
+  const allEntityUuids = [...nameToUuid.values()];
 
   // Find the neighborhood once for all findings
   if (allEntityUuids.length > 0) {
@@ -198,8 +233,10 @@ export async function checkFindings(
 
   // Check each finding for contradictions
   for (const finding of findings) {
-    // TODO: resolve finding.entityNames to UUIDs
-    const entityUuids: string[] = [];
+    // Get UUIDs for this finding's entities
+    const entityUuids = finding.entityNames
+      .map((name) => nameToUuid.get(name))
+      .filter((uuid): uuid is string => Boolean(uuid));
 
     const potentialContradictions = await findPotentialContradictions(
       finding.fact,
