@@ -17,8 +17,15 @@
 import { proxyActivities, log, ApplicationFailure, CancellationScope } from "@temporalio/workflow";
 
 import type * as swarmActivities from "../../activities/swarm/index.js";
-import type { AgentSpec, SwarmSpec, AgentResult, SwarmContext } from "../../activities/swarm/types.js";
+import type {
+  AgentSpec,
+  AgentWithDependencies,
+  SwarmSpec,
+  AgentResult,
+  SwarmContext,
+} from "../../activities/swarm/types.js";
 import { SUMMARY_THRESHOLD } from "../../activities/swarm/types.js";
+import { evaluateCondition } from "../../../swarm/dependencies.js";
 
 // Proxy activities with appropriate timeouts
 const {
@@ -228,20 +235,58 @@ export async function agentWorkflow(input: AgentWorkflowInput): Promise<AgentRes
 }
 
 /**
- * Check if agent should be skipped based on dependency failures.
+ * Check if agent should be skipped based on dependency failures and conditions.
+ *
+ * For each dependency:
+ * - If it has no condition: skip if dependency failed/timed out
+ * - If it has a condition: evaluate condition against dependency output
+ *   - Condition must evaluate to true for agent to run
+ *   - This allows patterns like: run only if dependency succeeded with specific output
  */
 export function shouldSkipAgent(
-  agent: AgentSpec,
+  agent: AgentWithDependencies,
   dependencyResults: Map<string, AgentResult>,
 ): { skip: boolean; reason: string | null } {
-  // For now, skip if any dependency failed (unless there's a condition)
-  // TODO: Implement condition evaluation
+  // Build a lookup for dependency specs to access conditions
+  const depSpecs = new Map(agent.dependsOn.map((d) => [d.agentName, d]));
+
   for (const [depName, result] of dependencyResults) {
-    if (result.status === "failed" || result.status === "timed_out") {
-      return {
-        skip: true,
-        reason: `Dependency '${depName}' ${result.status}`,
-      };
+    const depSpec = depSpecs.get(depName);
+    const condition = depSpec?.condition;
+
+    if (condition) {
+      // Evaluate condition against dependency output
+      const evalResult = evaluateCondition(condition, result.outputText);
+
+      if (evalResult.error) {
+        log.warn("Condition evaluation error", {
+          agent: agent.name,
+          dependency: depName,
+          condition,
+          error: evalResult.error,
+        });
+        // Treat evaluation errors as condition failure
+        return {
+          skip: true,
+          reason: `Condition on '${depName}' failed: ${evalResult.error}`,
+        };
+      }
+
+      if (!evalResult.result) {
+        return {
+          skip: true,
+          reason: `Condition '${condition}' on dependency '${depName}' evaluated to false`,
+        };
+      }
+      // Condition passed - don't skip based on this dependency
+    } else {
+      // No condition - use default behavior (skip if failed/timed out)
+      if (result.status === "failed" || result.status === "timed_out") {
+        return {
+          skip: true,
+          reason: `Dependency '${depName}' ${result.status}`,
+        };
+      }
     }
   }
 
