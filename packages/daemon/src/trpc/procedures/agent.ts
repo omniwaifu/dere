@@ -99,6 +99,9 @@ export const agentRouter = router({
         "sandbox_settings",
       ])
       .where("medium", "=", "agent_api")
+      // Exclude bot sessions that were incorrectly tagged as agent_api
+      .where("working_dir", "not like", "telegram://%")
+      .where("working_dir", "not like", "discord://%")
       .orderBy("start_time", "desc")
       .limit(SESSION_LIST_LIMIT)
       .execute();
