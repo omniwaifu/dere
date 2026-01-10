@@ -5,7 +5,8 @@
 import type { Context } from "hono";
 
 import { log } from "../../logger.js";
-import { GitError, SwarmDatabaseError } from "../types.js";
+import { GitError } from "../git.js";
+import { SwarmDatabaseError } from "../types.js";
 
 /**
  * Check if an error is a database connection/availability error.
