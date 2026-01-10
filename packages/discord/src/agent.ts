@@ -170,7 +170,9 @@ export class DiscordAgent {
       };
 
       try {
-        await this.daemon.ensureSession(config, session.daemonSessionId);
+        // Use the REST session ID so we resume instead of creating a duplicate
+        // session.sessionId is from findOrCreateSession (medium: discord)
+        await this.daemon.ensureSession(config, session.sessionId);
         session.daemonSessionId = this.daemon.sessionId;
       } catch (error) {
         console.error("Failed to ensure daemon session", error);
